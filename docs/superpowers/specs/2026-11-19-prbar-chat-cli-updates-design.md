@@ -1,6 +1,6 @@
 # PRBar — Chat con Claude, CLI y actualizaciones
 
-Fecha: 2026-11-19. Extiende `2026-11-18-prbar-design.md` (en adelante "spec base"). Cinco partes, cada una con su plan:
+Fecha: 2026-11-19. Extiende `2026-11-18-prbar-design.md` (en adelante "spec base"). Seis partes, cada una con su plan:
 
 | Parte | Plan |
 |---|---|
@@ -9,8 +9,9 @@ Fecha: 2026-11-19. Extiende `2026-11-18-prbar-design.md` (en adelante "spec base
 | C. CLI `prbar` | `2026-11-19-prbar-plan-7-cli.md` |
 | D. Actualizaciones desde el repo | `2026-11-19-prbar-plan-8-updates.md` |
 | E. Instrucciones y configuración completa del proceso | `2026-11-19-prbar-plan-9-instructions.md` |
+| F. Ready to Merge: PRs aprobados y botón Merge | `2026-11-19-prbar-plan-10-merge.md` |
 
-Orden de implementación: A+B → D → E → C. La CLI va al final porque tiene que cubrir también los comandos del chat, de las actualizaciones y de las instrucciones.
+Orden de implementación: A+B → D → E → F → C. La CLI va al final porque tiene que cubrir también los comandos del chat, de las actualizaciones, de las instrucciones y del merge.
 
 ---
 
@@ -473,3 +474,66 @@ prbar repo set <repo> --ignore 'dist/**'
 - Filtros determinísticos de review (severidad, máximo, categorías, globs) y sección "Hidden by your settings".
 - Fixes: tests antes del push bloquean, commits por comentario, advertencia de dependencias, plantilla de respuesta.
 - Prompts: validación de variables obligatorias, la parte fija siempre presente aunque el prompt propio esté vacío o intente "anular" las reglas.
+
+---
+
+## F. Ready to Merge
+
+Plan: `2026-11-19-prbar-plan-10-merge.md`. Va después de E y antes de C.
+
+### F.1 Cuándo un PR está "Ready to Merge"
+
+Nueva categoría `readyToMerge` en `ActionClassifier`, para **mis PRs** (autor = la cuenta):
+- no draft, abierto;
+- `reviewDecision == APPROVED` (o, si el repo no exige reviews y `reviewDecision` es nulo, al menos una review `APPROVED` vigente y ninguna `CHANGES_REQUESTED` vigente);
+- `mergeable != CONFLICTING`;
+- **sin feedback nuevo**: si `ActionClassifier.newFeedback` reporta algo (cambios pedidos o comentarios sin responder desde el último push), el PR sigue en **My PRs with Feedback**. Ready to Merge es lo que queda cuando ya no hay nada que responder.
+
+El CI corriendo o fallando **no** saca al PR de la lista: se ve el estado (ícono de CI) y el botón refleja si GitHub permite mergear. Cuenta para el badge (es algo que el usuario tiene que hacer).
+
+Sección nueva en el popover, después de My PRs with Feedback: **Ready to Merge (N)**.
+
+### F.2 Datos
+
+GraphQL agrega por PR: `mergeable`, `mergeStateStatus`, `reviewDecision` (si no estaba), `viewerCanUpdate`; por repo: `squashMergeAllowed`, `mergeCommitAllowed`, `rebaseMergeAllowed`, `viewerDefaultMergeMethod`, `deleteBranchOnMerge`. Decodificación tolerante (campos que faltan → desconocido).
+
+### F.3 Botón Merge
+
+- En la fila: botón **Merge** con menú (chevron) para elegir otro método permitido. Método por defecto: el de `RepoConfig.mergeMethod` si está fijado y permitido; si no, `viewerDefaultMergeMethod`; si no, el primero permitido en el orden squash, merge, rebase.
+- Habilitado según `mergeStateStatus`: `CLEAN`, `HAS_HOOKS` y `UNSTABLE` (fallan checks no requeridos) → habilitado (con `UNSTABLE` el texto de ayuda lo dice). `BLOCKED` → deshabilitado, "Blocked by branch protection or required checks". `BEHIND` → deshabilitado, "Branch is behind main". `DIRTY` → no está en la lista (conflictos). `UNKNOWN`/`DRAFT` → deshabilitado con "Checking…" hasta el próximo refresh.
+- **Confirmación** (configurable, `merge.confirm`, por defecto encendida): diálogo "Merge #42 into main?" con título, método (popup para cambiarlo) y cantidad de commits. Botón por defecto "Squash and Merge"/"Merge"/"Rebase and Merge".
+- **Merge**: mutación GraphQL `mergePullRequest(input: {pullRequestId, mergeMethod, expectedHeadOid})` con el `headRefOid` que se mostró: si alguien pusheó después, GitHub rechaza y PRBar lo dice ("The PR changed since you looked at it — refresh and try again"). Usa el token de la cuenta (nunca pasa por Claude).
+- Estados de la fila: Merge → Merging… (spinner) → Merged ✓ (2 s) y la fila desaparece en el siguiente refresh; error → texto de GitHub + Retry.
+- No borra la rama (el repo puede tenerlo configurado; se respeta lo que haga GitHub).
+- Menú contextual de la fila: "Merge", "Merge With…" (submenú de métodos).
+
+### F.4 Slack
+
+Si el PR fue anunciado por PRBar (`SlackState.announcements`), después del merge se responde en el hilo con el template **`myPR.merged`** (por defecto `Merged :white_check_mark:`; variables `{link}`, `{title}`, `{number}`, `{repo}`, `{author}`, `{method}`), con el mismo provider (conector de Claude o token) y las mismas protecciones anti-duplicado que "Updated". Toggle **"Reply \"Merged\" in the thread when I merge from PRBar"** en Settings › Slack › My PRs (por defecto encendido). Si Slack falla, el merge igual queda hecho y el error va al log de Slack.
+
+### F.5 Notificaciones y configuración
+
+- Notificación nueva `readyToMerge` (por defecto encendida): "acme/api#42 is ready to merge" cuando un PR mío entra a la categoría. La de "approved" existente se mantiene; si las dos aplican en el mismo refresh, se manda solo `readyToMerge`.
+- `RepoConfig.mergeMethod: "squash" | "merge" | "rebase" | null` (Settings › Repos: popup "Merge method: Repository default / Squash / Merge / Rebase", solo los permitidos).
+- `AppConfig.merge: {"confirm": true}` (Settings › General: switch "Confirm before merging").
+- Todo con decodificación tolerante.
+
+### F.6 CLI (en el plan 7)
+
+```
+prbar prs --list ready-to-merge
+prbar merge <pr> [--method squash|merge|rebase] [--yes]   # sin TTY exige --yes
+prbar repo set <repo> --merge-method squash|merge|rebase|default
+prbar config set confirm-merge on|off
+prbar slack set merged on|off ; prbar slack template set myPR.merged "…"
+prbar notify set ready-to-merge on|off
+```
+
+### F.7 Testing
+
+- `ActionClassifier`: aprobado sin feedback → readyToMerge; aprobado con feedback nuevo → myFeedback; conflictos → no; draft → no; repo sin reviews requeridas.
+- Método por defecto (config del repo, default de GitHub, permitidos) y habilitación por `mergeStateStatus`.
+- `mergePullRequest` con transporte falso: variables exactas (incluido `expectedHeadOid`), error de head cambiado, errores de permisos.
+- Slack: respuesta "Merged" solo si hubo anuncio, sin duplicar, template con variables.
+- Notificación `readyToMerge` y deduplicación con `approved`.
+- Snapshots: popover con la sección Ready to Merge y el diálogo de confirmación.
