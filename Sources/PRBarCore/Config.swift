@@ -124,11 +124,13 @@ public struct NotificationSettings: Hashable, Codable, Sendable {
     public var myPRFeedback = true
     public var reviewFinished = true
     public var myPRApprovedOrCIFailed = true
+    public var readyToMerge = true
 
     public init() {}
 
     enum CodingKeys: String, CodingKey {
         case enabled, newToReview, reviewedPRUpdated, myPRFeedback, reviewFinished, myPRApprovedOrCIFailed
+        case readyToMerge
     }
 
     public init(from decoder: Decoder) throws {
@@ -139,6 +141,7 @@ public struct NotificationSettings: Hashable, Codable, Sendable {
         myPRFeedback = try c.decodeIfPresent(Bool.self, forKey: .myPRFeedback) ?? true
         reviewFinished = try c.decodeIfPresent(Bool.self, forKey: .reviewFinished) ?? true
         myPRApprovedOrCIFailed = try c.decodeIfPresent(Bool.self, forKey: .myPRApprovedOrCIFailed) ?? true
+        readyToMerge = (try? c.decodeIfPresent(Bool.self, forKey: .readyToMerge)) ?? true
     }
 }
 

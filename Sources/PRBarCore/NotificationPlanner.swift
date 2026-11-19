@@ -4,6 +4,8 @@ public enum NotificationKind: String, Codable, Sendable, CaseIterable {
     case newToReview, reviewedPRUpdated, myPRFeedback, reviewFinished, myPRApprovedOrCIFailed
     /// Hay una versión nueva de PRBar (spec D.2). Solo depende del interruptor general.
     case updateAvailable
+    /// Un PR mío entró a Ready to Merge (spec F.5).
+    case readyToMerge
 }
 
 public struct PlannedNotification: Equatable, Sendable {
@@ -56,6 +58,7 @@ extension NotificationSettings {
         case .reviewFinished: return reviewFinished
         case .myPRApprovedOrCIFailed: return myPRApprovedOrCIFailed
         case .updateAvailable: return true
+        case .readyToMerge: return readyToMerge
         }
     }
 }
@@ -76,14 +79,24 @@ public enum NotificationPlanner {
             let pr = item.pr
             let body = "\(pr.repo.name)#\(pr.number) · \(pr.author): \(pr.title)"
 
+            var notifiedReady = false
             if item.category.countsForBadge, old?.category != item.category,
                let kind = kind(for: item.category), settings.isOn(kind) {
-                planned.append(PlannedNotification(kind: kind, title: title(for: kind), body: body, url: pr.url, prID: item.id))
+                if kind == .readyToMerge {
+                    planned.append(PlannedNotification(
+                        kind: kind, title: "\(pr.repo.fullName)#\(pr.number) is ready to merge", body: pr.title, url: pr.url,
+                        prID: item.id
+                    ))
+                    notifiedReady = true
+                } else {
+                    planned.append(PlannedNotification(kind: kind, title: title(for: kind), body: body, url: pr.url, prID: item.id))
+                }
             }
 
             let isMine = pr.author.lowercased() == item.account.lowercased()
             if isMine, let old, settings.isOn(.myPRApprovedOrCIFailed) {
-                if old.pr.reviewDecision != .approved && pr.reviewDecision == .approved {
+                // Si el PR acaba de quedar listo para mergear, ese aviso ya dice que se aprobó (spec F.5).
+                if !notifiedReady && old.pr.reviewDecision != .approved && pr.reviewDecision == .approved {
                     planned.append(PlannedNotification(
                         kind: .myPRApprovedOrCIFailed, title: "Your PR Was Approved", body: body, url: pr.url,
                         prID: item.id, event: "approved"
@@ -106,7 +119,7 @@ public enum NotificationPlanner {
         case .updatedSinceMyReview: .reviewedPRUpdated
         case .myFeedback: .myPRFeedback
         case .other: nil
-        case .readyToMerge: nil
+        case .readyToMerge: .readyToMerge
         }
     }
 
@@ -118,6 +131,7 @@ public enum NotificationPlanner {
         case .reviewFinished: "Review Ready"
         case .myPRApprovedOrCIFailed: "Updates on Your PR"
         case .updateAvailable: "PRBar Update Available"
+        case .readyToMerge: "Ready to Merge"
         }
     }
 
@@ -129,6 +143,7 @@ public enum NotificationPlanner {
         case .reviewFinished: "\(count) reviews ready"
         case .myPRApprovedOrCIFailed: "\(count) updates on your PRs"
         case .updateAvailable: "\(count) PRBar updates available"
+        case .readyToMerge: "\(count) of your PRs are ready to merge"
         }
     }
 

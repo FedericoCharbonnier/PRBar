@@ -86,6 +86,7 @@ let allTests: [TestCase] = []
     + MergeConfigTests.cases
     + MergeDataTests.cases
     + ReadyToMergeTests.cases
+    + ReadyToMergeNotificationTests.cases
 
 let filter = CommandLine.arguments.dropFirst().first
 let selected = allTests.filter { test in
