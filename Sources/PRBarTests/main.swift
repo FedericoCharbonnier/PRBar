@@ -55,6 +55,7 @@ let allTests: [TestCase] = []
     + SemanticVersionTests.cases
     + UpdateConfigTests.cases
     + ScriptTests.cases
+    + UpdateCheckerTests.cases
     + ChatModelsTests.cases
     + ChatActionsTests.cases
     + ChatPromptsTests.cases
