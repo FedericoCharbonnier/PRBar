@@ -53,6 +53,25 @@ struct ClaudeTab: View {
             }
 
             Section {
+                Toggle("Chat with Claude in Review and Respond windows", isOn: Binding(
+                    get: { settings.chatEnabled },
+                    set: { on in update { $0.chatEnabled = on } }
+                ))
+                Picker("Model", selection: Binding(
+                    get: { settings.chatModel },
+                    set: { value in update { $0.chatModel = value } }
+                )) {
+                    Text("Same as review").tag(ClaudeModel?.none)
+                    ForEach(ClaudeModel.allCases, id: \.self) { Text($0.title).tag(ClaudeModel?.some($0)) }
+                }
+                .disabled(!settings.chatEnabled)
+            } header: {
+                Text("Chat")
+            } footer: {
+                footer("Ask Claude about a PR, have it adjust the findings, draft replies or change your fixes. It never posts, pushes or approves.")
+            }
+
+            Section {
                 HStack {
                     Spacer()
                     Button("Reset to Defaults") { update { $0 = ClaudeSettings() } }

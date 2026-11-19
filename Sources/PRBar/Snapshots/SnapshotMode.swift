@@ -248,7 +248,7 @@ private final class SnapshotSession {
         let model = try makeModel("settings", snapshot: fixtures.snapshot)
         let sizes: [SettingsWindow.Tab: NSSize] = [
             .general: NSSize(width: 700, height: 780),
-            .claude: NSSize(width: 700, height: 640),
+            .claude: NSSize(width: 700, height: 820),
             .repos: NSSize(width: 700, height: 940),
             .slack: NSSize(width: 700, height: 1180),
         ]
