@@ -102,7 +102,8 @@ public struct FixImplementer: Sendable {
     private func summarize(_ worktree: URL, start: String, items: [ItemResult], integrity: String?) async throws -> RespondResult {
         let diffStat = try await git(worktree, ["diff", GitHardening.ignoreSubmodules, "--no-ext-diff", "--no-color", "--stat", "\(start)..HEAD"])
         let changed = try await git(worktree, ["diff", GitHardening.ignoreSubmodules, "--no-ext-diff", "--no-renames", "--name-only", "-z", "\(start)..HEAD"])
-        let sensitive = changed.split(separator: "\0").map(String.init).filter(Self.isSensitive).sorted()
+        let paths = changed.split(separator: "\0").map(String.init)
+        let sensitive = paths.filter(Self.isSensitive).sorted()
         try Self.checkNoNestedGit(worktree, allowed: [])
         // I3: lo que se va a pushear, entero, para que el usuario lo vea antes de correr tests o pushear.
         let fullDiff = try await git(worktree, ["diff", GitHardening.ignoreSubmodules, "--text", "--no-textconv", "--no-ext-diff",
@@ -112,7 +113,30 @@ public struct FixImplementer: Sendable {
         return RespondResult(items: items, diffStat: diffStat.trimmingCharacters(in: .newlines), tests: nil,
                              sensitiveChanges: sensitive, headOid: try await head(worktree),
                              gitIntegrity: integrity, diff: diff, diffTruncated: truncated,
-                             commits: Self.commits(fromLog: log))
+                             commits: Self.commits(fromLog: log),
+                             dependencyChanges: await dependencyChanges(paths, worktree: worktree, start: start))
+    }
+
+    /// The changed manifests (see `RespondResult.dependencyChanges`), sorted.
+    private func dependencyChanges(_ paths: [String], worktree: URL, start: String) async -> [String] {
+        var changes: [String] = []
+        for path in paths where DependencyManifests.isManifest(path) {
+            if DependencyManifests.isPackageJSON(path) {
+                let before = await blob(worktree, "\(start):\(path)")
+                let after = await blob(worktree, "HEAD:\(path)")
+                guard DependencyManifests.packageJSONDependenciesChanged(before: before, after: after) else { continue }
+            }
+            changes.append(path)
+        }
+        return changes.sorted()
+    }
+
+    /// A file at a commit (`git cat-file blob <rev>:<path>`, hardened), or nil if it isn't there.
+    private func blob(_ worktree: URL, _ spec: String) async -> Data? {
+        let args = ["-C", worktree.path] + GitHardening.arguments + ["cat-file", "blob", spec]
+        guard let result = try? await runner.run(gitPath, args, environment: environment, currentDirectory: nil,
+                                                 timeout: ProcessTimeouts.standard), result.status == 0 else { return nil }
+        return Data(result.stdout.utf8)
     }
 
     /// Líneas del diff que se guardan en el resultado y muestra la UI; el resto se ve en el worktree.

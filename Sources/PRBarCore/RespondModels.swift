@@ -250,10 +250,13 @@ public struct RespondResult: Codable, Equatable, Sendable {
     public let diffTruncated: Bool?
     /// Los commits nuevos, del más viejo al más nuevo, con el mensaje completo tal como se va a pushear.
     public let commits: [CommitInfo]?
+    /// Dependency manifests changed since `startHeadOid` (spec E.5): any change, except `package.json`, which
+    /// counts only if a dependency section changed. Nil in records of earlier versions.
+    public let dependencyChanges: [String]?
 
     public init(items: [ItemResult], diffStat: String, tests: TestRun?, sensitiveChanges: [String] = [],
                 headOid: String? = nil, gitIntegrity: String? = nil, diff: String? = nil, diffTruncated: Bool? = nil,
-                commits: [CommitInfo]? = nil) {
+                commits: [CommitInfo]? = nil, dependencyChanges: [String]? = nil) {
         self.items = items
         self.diffStat = diffStat
         self.tests = tests
@@ -263,6 +266,7 @@ public struct RespondResult: Codable, Equatable, Sendable {
         self.diff = diff
         self.diffTruncated = diffTruncated
         self.commits = commits
+        self.dependencyChanges = dependencyChanges
     }
 }
 

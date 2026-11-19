@@ -1409,5 +1409,20 @@ enum FixImplementerTests {
             _ = try await run(implementer(claude, log: try logURL(), settings: settings), try draft(repo, items: items), selections(items))
             try expectEqual(try repo.subjects(), ["Fix #7: Por favor MARK-B.", "Fix #7: Por favor MARK-A.", "base"])
         },
+        TestCase("fix implementer: dependencyChanges marca manifiestos y solo las dependencias de package.json") {
+            let repo = try FixRepo.make()
+            defer { repo.remove() }
+            try repo.write("package.json", #"{"name":"x","scripts":{"test":"jest"},"dependencies":{"a":"1.0.0"}}"#)
+            try repo.git(["add", "-A"])
+            try repo.git(["commit", "-q", "-m", "package"])
+            let items = [item("thread:A", marker: "MARK-A"), item("thread:B", marker: "MARK-B")]
+            let claude = fakeClaude([
+                Script(marker: "MARK-A", action: edit("package.json", #"{"name":"x","scripts":{"test":"vitest"},"dependencies":{"a":"1.0.0"}}"#),
+                       line: fixLine("done", message: "Use vitest")),
+                Script(marker: "MARK-B", action: edit("go.mod", "module x\n"), line: fixLine("done", message: "Add go.mod")),
+            ])
+            let result = try await run(implementer(claude, log: try logURL()), try draft(repo, items: items), selections(items))
+            try expectEqual(result.dependencyChanges, ["go.mod"])
+        },
     ]
 }

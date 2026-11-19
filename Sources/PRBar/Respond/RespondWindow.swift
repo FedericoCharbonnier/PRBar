@@ -353,6 +353,10 @@ struct RespondWindow: View {
                     if !result.sensitiveChanges.isEmpty {
                         SensitiveChangesBanner(paths: result.sensitiveChanges)
                     }
+                    if !model.configStore.config.claude.respond.allowNewDependencies,
+                       let dependencies = result.dependencyChanges, !dependencies.isEmpty {
+                        DependencyChangesBanner(paths: dependencies)
+                    }
                     commitsSection(result)
                     repliesSection()
                     diffSection(result)
@@ -660,6 +664,34 @@ struct SensitiveChangesBanner: View {
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: Theme.Radius.card).fill(Theme.tint(Theme.red)))
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// Spec E.5: Claude changed dependency manifests although "Allow new dependencies" is off. It warns, it doesn't block.
+struct DependencyChangesBanner: View {
+    let paths: [String]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label {
+                Text("Claude changed dependencies, which your settings don’t allow (Settings › Claude › Fixes). Check them before pushing.")
+                    .font(.callout.weight(.semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+            } icon: {
+                Image(systemName: "shippingbox.fill")
+            }
+            VStack(alignment: .leading, spacing: 1) {
+                ForEach(paths, id: \.self) { path in
+                    Text(path).font(.system(.subheadline, design: .monospaced)).textSelection(.enabled)
+                }
+            }
+            .padding(.leading, 24)
+        }
+        .foregroundStyle(Theme.orangeText)
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: Theme.Radius.card).fill(Theme.tint(Theme.orange)))
         .accessibilityElement(children: .combine)
     }
 }
