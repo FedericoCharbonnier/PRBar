@@ -12,6 +12,9 @@ private func chatLine(_ reply: String, actions: [[String: Any]] = []) -> String 
     return String(decoding: try! JSONSerialization.data(withJSONObject: line), as: UTF8.self)
 }
 
+/// What `claude -p --resume <id>` prints for a session that doesn't exist (checked with the real CLI, 2.1.318).
+private let missingSessionLine = #"{"type":"result","subtype":"error_during_execution","is_error":true,"num_turns":0,"errors":["No conversation found with session ID: aaaaaaaa"]}"#
+
 private func input(session: UUID? = nil, edits: Bool = false, state: String? = nil, kind: ChatSession.Kind = .review) -> ChatTurnInput {
     ChatTurnInput(
         kind: kind, claudeSessionID: session, bootstrap: "BOOTSTRAP", message: "Is #2 right?", stateIfChanged: state,
@@ -92,6 +95,40 @@ enum ChatEngineTests {
             try expectEqual(arg("-p", retry), ChatPrompts.rebuilt(bootstrap: "BOOTSTRAP", transcript: input().transcript)
                 + "\n\n" + ChatPrompts.message("Is #2 right?"))
             try expect(try String(contentsOf: log, encoding: .utf8).contains("rebuilding"))
+        },
+        TestCase("chat engine: el error real de sesión inexistente (línea result con `errors`) reconstruye el contexto") {
+            let runner = FakeStreamingRunner { _, arguments, _ in
+                if arguments.contains("--resume") {
+                    return ([missingSessionLine], fail("No conversation found with session ID: aaaaaaaa"))
+                }
+                return ([chatLine("Rebuilt answer.")], ok(""))
+            }
+            let output = try await engine(runner, log: try temporaryDirectory().appendingPathComponent("r.log"))
+                .send(input(session: oldID)) { _ in }
+            try expectEqual(output.rebuiltContext, true)
+            try expectEqual(output.claudeSessionID, newID)
+            try expectEqual(runner.calls.count, 2)
+        },
+        TestCase("chat engine: un error que no es de sesión (API key, crash) no reconstruye: una sola corrida") {
+            let invalidKey = #"{"type":"result","subtype":"success","is_error":true,"api_error_status":401,"result":"Invalid API key · Fix external API key"}"#
+            for (lines, result) in [([invalidKey], fail("")), ([], fail("Segmentation fault", status: 139))] {
+                let runner = FakeStreamingRunner { _, _, _ in (lines, result) }
+                let error = try await expectThrows {
+                    _ = try await engine(runner, log: try temporaryDirectory().appendingPathComponent("r.log"))
+                        .send(input(session: oldID)) { _ in }
+                }
+                _ = error
+                try expectEqual(runner.calls.count, 1)
+            }
+        },
+        TestCase("chat engine: no reconstruye si el árbol cambió (canRebuild false)") {
+            let runner = FakeStreamingRunner { _, _, _ in ([missingSessionLine], fail("")) }
+            let error = try await expectThrows {
+                _ = try await engine(runner, log: try temporaryDirectory().appendingPathComponent("r.log"))
+                    .send(input(session: oldID, edits: true, kind: .respond), canRebuild: { false }) { _ in }
+            }
+            try expectEqual(error as? ClaudeError, .failed("No conversation found with session ID: aaaaaaaa"))
+            try expectEqual(runner.calls.count, 1)
         },
         TestCase("chat engine: JSON inválido no activa el respaldo; reintenta dentro de la misma sesión") {
             let runner = FakeStreamingRunner { _, _, _ in

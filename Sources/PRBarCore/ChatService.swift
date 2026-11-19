@@ -203,8 +203,13 @@ public struct ChatService: ChatBackend {
         let claude = try await claude(for: .respond(draft), logURL: logURL)
         let engine = ChatEngine(claude: claude)
         let implementer = FixImplementer(claude: claude, runner: processRunner, gitPath: gitPath, environment: gitEnvironment)
+        let worktree = input.workingDirectory
         return try await implementer.chatTurn(draft: draft, current: result, sessionID: sessionID, turn: input.turn) {
-            try await engine.send(input, onEvent: onEvent)
+            // The tree as Claude finds it: a failed `--resume` is only rebuilt if Claude didn't touch anything.
+            let before = WorktreeIntegrity.Snapshot.take(worktree)
+            return try await engine.send(input, canRebuild: {
+                before.changes(to: WorktreeIntegrity.Snapshot.take(worktree)).all.isEmpty
+            }, onEvent: onEvent)
         }
     }
 

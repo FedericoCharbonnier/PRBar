@@ -84,9 +84,12 @@ public struct ClaudeStreamParser: Sendable {
                 guard !(value is NSNull) else { return nil }
                 return try? JSONSerialization.data(withJSONObject: value)
             }
+            // An error before any turn (e.g. `--resume` of a session that doesn't exist) has no `result`, only
+            // `errors` (checked with the real CLI).
+            let errors = (object["errors"] as? [Any])?.compactMap { $0 as? String }.joined(separator: "\n") ?? ""
             result = ClaudeResult(
                 isError: object["is_error"] as? Bool ?? false,
-                text: object["result"] as? String ?? "",
+                text: (object["result"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? errors,
                 structuredJSON: structured,
                 costUSD: object["total_cost_usd"] as? Double
             )

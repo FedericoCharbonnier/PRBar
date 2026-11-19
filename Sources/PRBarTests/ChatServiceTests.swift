@@ -28,6 +28,39 @@ private func service(root: URL, runner: ProcessRunning = FakeProcessRunner { _, 
 
 enum ChatServiceTests {
     static let cases: [TestCase] = [
+        TestCase("chat service: un turno con edición no reconstruye el contexto si Claude ya tocó el árbol") {
+            let base = try temporaryDirectory()
+            let dir = base.appendingPathComponent("repo", isDirectory: true)
+            let env = ["GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1",
+                       "GIT_AUTHOR_NAME": "T", "GIT_AUTHOR_EMAIL": "t@t.invalid",
+                       "GIT_COMMITTER_NAME": "T", "GIT_COMMITTER_EMAIL": "t@t.invalid"]
+            try TempGitRepo.run(base, ["init", "-q", "-b", "main", dir.path])
+            try Data("hola\n".utf8).write(to: dir.appendingPathComponent("README.md"))
+            try TempGitRepo.run(dir, ["add", "-A"])
+            try TempGitRepo.run(dir, ["commit", "-q", "-m", "base"])
+            let head = try TempGitRepo.run(dir, ["rev-parse", "HEAD"]).trimmingCharacters(in: .whitespacesAndNewlines)
+            var draft = respondDraft(worktree: dir.path)
+            draft = RespondDraft(prID: draft.prID, repo: draft.repo, number: draft.number, title: draft.title, url: draft.url,
+                                 headRef: draft.headRef, account: draft.account, worktree: draft.worktree,
+                                 startHeadOid: head, items: draft.items)
+            let missing = #"{"type":"result","subtype":"error_during_execution","is_error":true,"errors":["No conversation found with session ID: x"]}"#
+            let claude = FakeStreamingRunner { _, _, cwd in
+                // Claude edits and then the CLI reports the missing session (a stand-in for any mid-turn failure).
+                try Data("a medias\n".utf8).write(to: cwd!.appendingPathComponent("README.md"))
+                return ([missing], fail(""))
+            }
+            let service = ChatService(processRunner: SystemProcessRunner(), streamingRunner: claude, tokens: FakeTokens(),
+                                      api: FakeAPI(), gitPath: TempGitRepo.git, ghPath: nil, claudePath: "/usr/local/bin/claude",
+                                      worktreeRoot: base.appendingPathComponent("wt"), gitEnvironment: env)
+            let input = ChatTurnInput(kind: .respond, claudeSessionID: UUID(), bootstrap: "B", message: "m", stateIfChanged: nil,
+                                      transcript: [], canEditFiles: true, workingDirectory: dir, additionalDirectories: [], turn: 2)
+            _ = try await expectThrows {
+                _ = try await service.sendEditing(input, draft: draft, result: RespondResult(items: [], diffStat: "", tests: nil),
+                                                  sessionID: UUID(), logURL: base.appendingPathComponent("chat.log")) { _ in }
+            }
+            try expectEqual(claude.calls.count, 1)
+            try expectEqual(try String(contentsOf: dir.appendingPathComponent("README.md"), encoding: .utf8), "hola\n")
+        },
         TestCase("chat service: Respond escribe feedback.json, pr.md y fixes.diff en su carpeta de contexto") {
             let root = try temporaryDirectory()
             let draft = respondDraft(worktree: "/tmp/wt/r-8")

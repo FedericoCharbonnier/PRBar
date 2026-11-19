@@ -34,6 +34,13 @@ enum ClaudeStreamTests {
             let output = try parser.decodeResult(ReviewStageTwoOutput.self)
             try expectEqual(output.verdicts.count, 1)
         },
+        TestCase("claude stream: un resultado de error sin `result` usa `errors` (p. ej. --resume de una sesión que no existe)") {
+            var parser = ClaudeStreamParser()
+            _ = parser.consumeAll(#"{"type":"result","subtype":"error_during_execution","is_error":true,"num_turns":0,"errors":["No conversation found with session ID: 7fa8"]}"#)
+            try expectEqual(parser.result?.text, "No conversation found with session ID: 7fa8")
+            let error = try await expectThrows { _ = try parser.decodeResult(ChatOutput.self) }
+            try expectEqual(error as? ClaudeError, .failed("No conversation found with session ID: 7fa8"))
+        },
         TestCase("claude stream: error o sin resultado → ClaudeError") {
             var failed = ClaudeStreamParser()
             _ = failed.consume(#"{"type":"result","subtype":"error_max_turns","is_error":true,"result":"Se cortó"}"#)

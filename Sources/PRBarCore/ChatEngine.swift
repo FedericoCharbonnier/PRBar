@@ -52,9 +52,9 @@ public struct ChatTurnOutput: Equatable, Sendable {
 }
 
 /// One chat turn with `claude -p` (spec B.4): the same isolation as the review (`ClaudeRunner`), the tools of the
-/// chat's kind, `--session-id` on the first turn and `--resume` after it. If `--resume` fails (the CLI exits with
-/// an error and no result: the session doesn't exist or it rejects it), the turn runs again in a new session with
-/// the first turn's prompt and the transcript.
+/// chat's kind, `--session-id` on the first turn and `--resume` after it. If `--resume` fails because the session
+/// doesn't exist (`isMissingSession`), the turn runs again in a new session with the first turn's prompt and the
+/// transcript; any other error is thrown.
 public struct ChatEngine: Sendable {
     public static let timeout: TimeInterval = 10 * 60
     /// Review, and Respond before implementing: read only.
@@ -70,7 +70,9 @@ public struct ChatEngine: Sendable {
         self.newSessionID = newSessionID
     }
 
-    public func send(_ input: ChatTurnInput,
+    /// `canRebuild`: whether the turn may run again in a new session after `--resume` fails. An edit turn passes
+    /// false once the worktree changed (the conversation must not continue on a half-edited tree).
+    public func send(_ input: ChatTurnInput, canRebuild: @escaping @Sendable () -> Bool = { true },
                      onEvent: @escaping @Sendable (ClaudeStreamEvent) -> Void) async throws -> ChatTurnOutput {
         if let existing = input.claudeSessionID {
             do {
@@ -78,8 +80,10 @@ public struct ChatEngine: Sendable {
                                            prompt: ChatPrompts.followUp(message: input.message, state: input.stateIfChanged),
                                            onEvent: onEvent)
                 return ChatTurnOutput(reply: output.reply, actions: output.actions, claudeSessionID: existing, rebuiltContext: false)
-            } catch let error as PRBarError {
-                guard case .commandFailed = error, !Task.isCancelled else { throw error }
+            } catch {
+                // Only the CLI's "session not found": anything else (auth, rate limit, network, a crash) would be a
+                // second paid run and lose the conversation.
+                guard Self.isMissingSession(error), !Task.isCancelled, canRebuild() else { throw error }
                 claude.appendLog("--- couldn't resume the conversation (\(error.localizedDescription)); rebuilding it ---\n")
             }
             let id = newSessionID()
@@ -92,6 +96,18 @@ public struct ChatEngine: Sendable {
         let output = try await run(input, session: .start(id),
                                    prompt: input.bootstrap + "\n\n" + ChatPrompts.message(input.message), onEvent: onEvent)
         return ChatTurnOutput(reply: output.reply, actions: output.actions, claudeSessionID: id, rebuiltContext: false)
+    }
+
+    /// What `claude -p --resume <id>` reports when the session doesn't exist (verified with the real CLI, 2.1.318:
+    /// a `result` line with `is_error` and `errors`, exit 1, and the same text in stderr).
+    static let missingSessionMessage = "No conversation found with session ID"
+
+    static func isMissingSession(_ error: Error) -> Bool {
+        switch error {
+        case ClaudeError.failed(let message): message.contains(missingSessionMessage)
+        case PRBarError.commandFailed(_, _, let stderr): stderr.contains(missingSessionMessage)
+        default: false
+        }
     }
 
     static func invocation(_ input: ChatTurnInput, session: ClaudeSessionFlag, prompt: String) -> ClaudeInvocation {
