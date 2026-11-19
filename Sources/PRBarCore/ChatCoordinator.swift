@@ -10,13 +10,20 @@ public struct ChatContext: Sendable {
     public var canEditFiles: Bool
     /// The record's log: each `claude -p` of the chat is appended to it (spec B.7).
     public var logURL: URL
+    /// All the user's rules (spec E.1); the chat sends the effective ones of its repo and stage.
+    public var rules: [Rule]
+    /// The user's own prompt for this chat (spec E.6); nil = the default.
+    public var promptBody: String?
 
-    public init(pr: PullRequest?, localPath: String?, respondResult: RespondResult?, canEditFiles: Bool, logURL: URL) {
+    public init(pr: PullRequest?, localPath: String?, respondResult: RespondResult?, canEditFiles: Bool, logURL: URL,
+                rules: [Rule] = [], promptBody: String? = nil) {
         self.pr = pr
         self.localPath = localPath
         self.respondResult = respondResult
         self.canEditFiles = canEditFiles
         self.logURL = logURL
+        self.rules = rules
+        self.promptBody = promptBody
     }
 }
 
@@ -132,11 +139,15 @@ public final class ChatCoordinator: ObservableObject {
         let context = self.context()
         let state = currentState(context)
         let stateChanged = state != session.lastState
+        let rules = RulesPrompt.fitting(RulesPrompt.effective(context.rules, repo: subject.repo, stage: subject.ruleStage)).kept
+        let rulesText = RulesPrompt.section(rules)
+        let rulesChanged = session.claudeSessionID != nil && rulesText != (session.lastRules ?? "")
         let transcript = session.messages
         let turn = session.messages.filter { $0.role == .user }.count + 1
         session.messages.append(ChatMessage(role: .user, text: text))
         session.pending = true
         session.lastState = state
+        session.lastRules = rulesText
         hooks.persist(self)
 
         let id = UUID()
@@ -166,11 +177,12 @@ public final class ChatCoordinator: ObservableObject {
                 let input = ChatTurnInput(
                     kind: subject.kind, claudeSessionID: claudeSessionID,
                     bootstrap: ChatPrompts.bootstrap(subject: subject, files: workspace.files, isDiffOnly: workspace.isDiffOnly,
-                                                     canEditFiles: canEdit, state: state),
+                                                     canEditFiles: canEdit, state: state, rules: rules,
+                                                     body: context.promptBody),
                     message: text, stateIfChanged: stateChanged ? state : nil, transcript: transcript,
                     canEditFiles: canEdit, workingDirectory: workspace.directory,
                     additionalDirectories: [workspace.contextDirectory], turn: turn,
-                    capabilitiesChanged: capabilitiesChanged)
+                    capabilitiesChanged: capabilitiesChanged, rulesIfChanged: rulesChanged ? rulesText : nil)
                 if case .respond(let draft) = subject, let result = editingResult {
                     let (output, files) = try await backend.sendEditing(input, draft: draft, result: result,
                                                                         sessionID: request.session.id, logURL: context.logURL) { relay.send($0) }

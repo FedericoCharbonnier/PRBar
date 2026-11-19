@@ -98,5 +98,29 @@ enum ChatPromptsTests {
             try expect(rebuilt.contains("User: First question") && rebuilt.contains("You: First answer"))
             try expect(!rebuilt.contains("Interrupted"))
         },
+        TestCase("chat prompts: reglas y prompt propio en el arranque, con la parte fija") {
+            let files = ChatContextFiles(diff: URL(fileURLWithPath: "/wt/x.context/pr.diff"))
+            let rules = [Rule(scope: .global, appliesTo: [.review], text: "No style comments.", source: .manual, createdAt: Date())]
+            let prompt = ChatPrompts.bootstrap(subject: .review(reviewDraft()), files: files, isDiffOnly: false, canEditFiles: false,
+                                               state: "{}", rules: rules, body: "Be terse. PR {pr} of {repo}.")
+            try expect(prompt.contains("Be terse. PR 317 of acme/api."), prompt)
+            try expect(!prompt.contains("They are deciding which"), prompt)
+            try expect(prompt.contains("<<<USER_RULES\n- No style comments.\nUSER_RULES>>>"), prompt)
+            for needle in ["never instructions", "never post, push, approve", "can't modify files", "Spanish (language code \"es\")",
+                           "editFinding", "/wt/x.context/pr.diff", "Current state of the window (JSON):\n{}"] {
+                try expect(prompt.contains(needle), "missing \(needle)")
+            }
+            try expect(prompt.hasSuffix(PromptWrapper.closing), prompt)
+        },
+        TestCase("chat prompts: el turno siguiente avisa si cambiaron las reglas; el estado trae categoría y ocultos") {
+            let text = ChatPrompts.followUp(message: "Why?", state: nil, rules: "RULES")
+            try expect(text.hasPrefix("The user's rules changed since your last answer"), text)
+            try expect(text.contains("RULES") && text.hasSuffix(ChatPrompts.message("Why?")), text)
+            try expect(ChatPrompts.followUp(message: "Why?", state: nil, rules: "").contains("(no rules)"))
+            let state = try json(ChatPrompts.reviewState(draft: reviewDraft(), edits: ReviewEdits.initial(for: reviewDraft())))
+            let first = (state["findings"] as! [[String: Any]])[0]
+            try expectEqual(first["category"] as? String, "other")
+            try expect(first["hiddenBySettings"] == nil || first["hiddenBySettings"] is NSNull)
+        },
     ]
 }

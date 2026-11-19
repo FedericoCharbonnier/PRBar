@@ -25,6 +25,19 @@ public enum ChatSubject: Equatable, Sendable {
         case .respond(let draft): draft.id
         }
     }
+
+    public var repo: RepoRef {
+        switch self {
+        case .review(let draft): draft.repo
+        case .respond(let draft): draft.repo
+        }
+    }
+
+    /// The rules that apply to this chat (spec E.1).
+    public var ruleStage: RuleStage { kind == .review ? .review : .respond }
+
+    /// Its editable prompt (spec E.6).
+    public var promptStage: PromptStage { kind == .review ? .reviewChat : .respondChat }
 }
 
 /// One message of the chat (spec B.3).
@@ -178,6 +191,8 @@ public struct ChatSession: Codable, Equatable, Sendable {
     /// window's, the next `--resume` turn says so (`ChatPrompts.followUp`). Nil = not known yet (the first turn, or
     /// a session saved before this field existed).
     public var canEditFiles: Bool?
+    /// The user's rules section as Claude last saw it: the next turn sends it again only if it changed (spec E.1).
+    public var lastRules: String?
 
     public init(id: UUID = UUID(), prID: String, kind: Kind) {
         self.id = id
@@ -191,10 +206,12 @@ public struct ChatSession: Codable, Equatable, Sendable {
         pending = false
         lastState = nil
         canEditFiles = nil
+        lastRules = nil
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, prID, kind, claudeSessionID, worktreePath, worktreeRefs, messages, readOnly, pending, lastState, canEditFiles
+        case lastRules
     }
 
     /// Lenient: only `id`, `prID` and `kind` are required.
@@ -211,6 +228,7 @@ public struct ChatSession: Codable, Equatable, Sendable {
         pending = (try? c.decodeIfPresent(Bool.self, forKey: .pending)) ?? false
         lastState = (try? c.decodeIfPresent(String.self, forKey: .lastState)) ?? nil
         canEditFiles = (try? c.decodeIfPresent(Bool.self, forKey: .canEditFiles)) ?? nil
+        lastRules = (try? c.decodeIfPresent(String.self, forKey: .lastRules)) ?? nil
     }
 
     /// The only message that offers Undo: the last one with changes that wasn't undone. Undoing goes backwards.

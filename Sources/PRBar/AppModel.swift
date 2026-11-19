@@ -644,7 +644,9 @@ final class AppModel: ObservableObject {
             reviewEdits: stored.edits, backend: chatBackend, scheduler: chatScheduler,
             context: { [weak self] in
                 ChatContext(pr: self?.currentPR(draft.prID), localPath: self?.localPath(account: draft.account, repo: draft.repo),
-                            respondResult: nil, canEditFiles: false, logURL: history.logURL(for: draft.id))
+                            respondResult: nil, canEditFiles: false, logURL: history.logURL(for: draft.id),
+                            rules: self?.instructions.rules ?? [],
+                            promptBody: self?.configStore.config.claude.chatPromptBody(.reviewChat))
             },
             hooks: ChatHooks(persist: { [weak self] chat in self?.saveReviewChat(draft, chat) })
         )
@@ -712,7 +714,8 @@ final class AppModel: ObservableObject {
             canEditFiles = true
         }
         return ChatContext(pr: currentPR(draft.prID), localPath: draft.worktree.localPath, respondResult: record?.result,
-                           canEditFiles: canEditFiles, logURL: respondHistory.logURL(for: draft.id))
+                           canEditFiles: canEditFiles, logURL: respondHistory.logURL(for: draft.id),
+                           rules: instructions.rules, promptBody: configStore.config.claude.chatPromptBody(.respondChat))
     }
 
     // MARK: Instructions

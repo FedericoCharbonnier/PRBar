@@ -21,10 +21,12 @@ public struct ChatTurnInput: Sendable {
     public var additionalDirectories: [URL]
     /// The number of the user's message (1, 2…), for the log header.
     public var turn: Int
+    /// For `--resume` turns: the user's rules section if it changed ("" = there are none now).
+    public var rulesIfChanged: String?
 
     public init(kind: ChatSession.Kind, claudeSessionID: UUID?, bootstrap: String, message: String, stateIfChanged: String?,
                 transcript: [ChatMessage], canEditFiles: Bool, workingDirectory: URL, additionalDirectories: [URL], turn: Int,
-                capabilitiesChanged: Bool = false) {
+                capabilitiesChanged: Bool = false, rulesIfChanged: String? = nil) {
         self.kind = kind
         self.claudeSessionID = claudeSessionID
         self.bootstrap = bootstrap
@@ -36,6 +38,7 @@ public struct ChatTurnInput: Sendable {
         self.workingDirectory = workingDirectory
         self.additionalDirectories = additionalDirectories
         self.turn = turn
+        self.rulesIfChanged = rulesIfChanged
     }
 }
 
@@ -87,7 +90,8 @@ public struct ChatEngine: Sendable {
             do {
                 let output = try await run(input, deadline: deadline, session: .resume(existing),
                                            prompt: ChatPrompts.followUp(message: input.message, state: input.stateIfChanged,
-                                                                       canEditFiles: input.capabilitiesChanged ? input.canEditFiles : nil),
+                                                                       canEditFiles: input.capabilitiesChanged ? input.canEditFiles : nil,
+                                                                       rules: input.rulesIfChanged),
                                            onEvent: onEvent)
                 return ChatTurnOutput(reply: output.reply, actions: output.actions, claudeSessionID: existing, rebuiltContext: false)
             } catch {

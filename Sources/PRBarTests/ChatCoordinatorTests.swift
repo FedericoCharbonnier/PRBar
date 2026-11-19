@@ -330,5 +330,25 @@ enum ChatCoordinatorTests {
             try expect(chat.session.readOnly)
             try await waitUntil { h.backend.cleanups == [session.id] }
         },
+        TestCase("chat coordinator: reglas y prompt propio en el arranque; las reglas se reenvían solo si cambian") { @MainActor in
+            let h = Harness()
+            let rule = Rule(scope: .repo("o/r"), appliesTo: [.review], text: "No style comments.", source: .manual, createdAt: Date())
+            h.context.rules = [rule, Rule(scope: .global, appliesTo: [.respond], text: "FIXES ONLY", source: .manual, createdAt: Date())]
+            h.context.promptBody = "Be terse about PR {pr}."
+            let chat = h.review()
+            chat.send("a")
+            try await h.finish(chat)
+            let first = h.backend.inputs[0].bootstrap
+            try expect(first.contains("Be terse about PR 7.") && first.contains("- (o/r) No style comments."), first)
+            try expect(!first.contains("FIXES ONLY"), first)
+            chat.send("b")
+            try await h.finish(chat)
+            try expectEqual(h.backend.inputs[1].rulesIfChanged, nil)
+            h.context.rules.append(Rule(scope: .global, appliesTo: [.review], text: "Be kind.", source: .manual, createdAt: Date()))
+            chat.send("c")
+            try await h.finish(chat)
+            try expect(h.backend.inputs[2].rulesIfChanged?.contains("- Be kind.") == true)
+            try expect(chat.session.lastRules?.contains("- Be kind.") == true)
+        },
     ]
 }
