@@ -49,5 +49,27 @@ enum ClaudeStreamTests {
             let error = try await expectThrows { _ = try parser.decodeResult(ReviewStageOneOutput.self) }
             guard case .invalidOutput = error as? ClaudeError else { throw TestFailure(description: "esperaba invalidOutput, fue \(error)") }
         },
+        TestCase("claude stream: consumeAll da texto, herramientas y subagentes en orden; oculta StructuredOutput") {
+            var parser = ClaudeStreamParser()
+            let line = #"{"type":"assistant","message":{"content":[{"type":"text","text":"  Let me look.  "},{"type":"tool_use","name":"Read","input":{"file_path":"/wt/src/a.ts"}},{"type":"tool_use","name":"Agent","input":{"description":"check callers"}},{"type":"tool_use","name":"StructuredOutput","input":{"reply":"x"}}]}}"#
+            try expectEqual(parser.consumeAll(line), [
+                .text("Let me look."), .toolUse(name: "Read", detail: "/wt/src/a.ts"),
+                .toolUse(name: "Agent", detail: "check callers"), .agentStarted(total: 1),
+            ])
+            try expectEqual(parser.consumeAll(#"{"type":"assistant","message":{"content":[{"type":"text","text":"  "}]}}"#), [])
+            try expectEqual(parser.consumeAll("not json"), [])
+            // `consume` keeps its old meaning: only the subagent count.
+            try expectEqual(parser.consume(#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Grep","input":{"pattern":"x"}}]}}"#), nil)
+        },
+        TestCase("claude stream: ChatActivity describe la herramienta con rutas relativas al worktree") {
+            let root = URL(fileURLWithPath: "/tmp/wt/chat-api-7")
+            try expectEqual(ChatActivity.describe(.toolUse(name: "Read", detail: "/tmp/wt/chat-api-7/src/a.ts"), root: root), "Reading src/a.ts")
+            try expectEqual(ChatActivity.describe(.toolUse(name: "Grep", detail: "returnTo"), root: root), "Searching for “returnTo”")
+            try expectEqual(ChatActivity.describe(.toolUse(name: "Edit", detail: "/elsewhere/b.ts"), root: root), "Editing /elsewhere/b.ts")
+            try expectEqual(ChatActivity.describe(.toolUse(name: "Agent", detail: "x"), root: root), "Running a subagent")
+            try expectEqual(ChatActivity.describe(.toolUse(name: "Skill", detail: "superpowers:receiving-code-review"), root: nil),
+                            "Using the superpowers:receiving-code-review skill")
+            try expectEqual(ChatActivity.describe(.text("hi"), root: root), nil)
+        },
     ]
 }
