@@ -465,9 +465,29 @@ enum WorktreeTests {
         TestCase("worktree: el chat sin clone usa <nombre>-diff") {
             let root = try temporaryDirectory()
             let m = WorktreeManager(runner: FakeProcessRunner { _, _ in ok("") }, gitPath: "/usr/bin/git", root: root)
-            let ws = try await m.prepare(repo: repo, number: 7, baseRef: "main", localPath: nil, name: "chat-r-7-x")
-            try expectEqual(ws.directory.lastPathComponent, "chat-r-7-x-diff")
+            let name = WorktreeManager.chatWorkspaceName(repo: repo, number: 7, sessionID: UUID())
+            let ws = try await m.prepare(repo: repo, number: 7, baseRef: "main", localPath: nil, name: name)
+            try expectEqual(ws.directory.lastPathComponent, name + "-diff")
             try expect(ws.isDiffOnly)
+        },
+        TestCase("worktree: prepare rechaza un nombre que no es de chat o un pinnedHeadOid que no es un sha, sin correr git") {
+            let root = try temporaryDirectory()
+            let runner = FakeProcessRunner { _, _ in ok("") }
+            let m = WorktreeManager(runner: runner, gitPath: "/usr/bin/git", root: root)
+            let valid = WorktreeManager.chatWorkspaceName(repo: repo, number: 7, sessionID: UUID())
+            for name in ["../evil", "chat-r-7-x", "a/" + valid, "", valid + "/..", valid + ".context"] {
+                _ = try await expectThrows {
+                    _ = try await m.prepare(repo: repo, number: 7, baseRef: "main", localPath: "/tmp/clone", name: name)
+                }
+            }
+            for pinned in ["HEAD~1", "--upload-pack=touch x", "abc123", String(repeating: "A", count: 40), ""] {
+                _ = try await expectThrows {
+                    _ = try await m.prepare(repo: repo, number: 7, baseRef: "main", localPath: "/tmp/clone", name: valid,
+                                            pinnedHeadOid: pinned)
+                }
+            }
+            try expectEqual(runner.calls.count, 0)
+            try expectEqual(try FileManager.default.contentsOfDirectory(atPath: root.path), [])
         },
     ]
 }

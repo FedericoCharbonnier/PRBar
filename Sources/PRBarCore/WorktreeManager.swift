@@ -89,6 +89,19 @@ public struct WorktreeManager: Sendable {
     ///   If it doesn't, the current head (the workspace's `headOid` says which one it is).
     public func prepare(repo: RepoRef, number: Int, baseRef: String, localPath: String?,
                         name customName: String? = nil, pinnedHeadOid: String? = nil) async throws -> ReviewWorkspace {
+        if let customName {
+            // A single folder name of the chat's pattern (`chatWorkspaceName`), never a path.
+            guard Self.isChatWorkspaceName(customName), !customName.contains("/"),
+                  !customName.hasSuffix(".context"), !customName.hasSuffix("-diff") else {
+                throw PRBarError.invalidResponse("Invalid chat workspace name: \(customName)")
+            }
+        }
+        if let pinnedHeadOid {
+            // It goes to `cat-file` and `update-ref`: only a full, lowercase commit sha.
+            guard CommitSHA.parse(pinnedHeadOid) == pinnedHeadOid else {
+                throw PRBarError.invalidResponse("Invalid pinned commit: \(pinnedHeadOid.prefix(80))")
+            }
+        }
         let id = runID()
         let name = customName ?? "\(Self.sanitize(repo.name))-\(number)-\(Int(now().timeIntervalSince1970))-\(id)"
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
