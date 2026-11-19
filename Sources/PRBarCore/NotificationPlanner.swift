@@ -2,6 +2,8 @@ import Foundation
 
 public enum NotificationKind: String, Codable, Sendable, CaseIterable {
     case newToReview, reviewedPRUpdated, myPRFeedback, reviewFinished, myPRApprovedOrCIFailed
+    /// Hay una versión nueva de PRBar (spec D.2). Solo depende del interruptor general.
+    case updateAvailable
 }
 
 public struct PlannedNotification: Equatable, Sendable {
@@ -17,13 +19,16 @@ public struct PlannedNotification: Equatable, Sendable {
     public let respondPRID: String?
     /// PR al que se refiere (`nil` en las agrupadas): agrupa sus notificaciones en el Centro de notificaciones.
     public let prID: String?
+    /// Versión nueva de PRBar: el click abre la ventana "Update PRBar".
+    public let updateVersion: String?
     /// Identificador estable: una notificación nueva del mismo evento y PR reemplaza a la anterior en vez de
     /// apilarse.
     public let identifier: String
 
     public init(
         kind: NotificationKind, title: String, body: String, url: URL?, reviewPRID: String? = nil,
-        reviewRecordID: UUID? = nil, respondPRID: String? = nil, prID: String? = nil, event: String? = nil
+        reviewRecordID: UUID? = nil, respondPRID: String? = nil, prID: String? = nil, event: String? = nil,
+        updateVersion: String? = nil
     ) {
         self.kind = kind
         self.title = title
@@ -33,6 +38,7 @@ public struct PlannedNotification: Equatable, Sendable {
         self.reviewRecordID = reviewRecordID
         self.respondPRID = respondPRID
         self.prID = prID ?? reviewPRID ?? respondPRID
+        self.updateVersion = updateVersion
         identifier = [kind.rawValue, event, self.prID ?? "group"].compactMap { $0 }.joined(separator: ":")
     }
 
@@ -49,6 +55,7 @@ extension NotificationSettings {
         case .myPRFeedback: return myPRFeedback
         case .reviewFinished: return reviewFinished
         case .myPRApprovedOrCIFailed: return myPRApprovedOrCIFailed
+        case .updateAvailable: return true
         }
     }
 }
@@ -109,6 +116,7 @@ public enum NotificationPlanner {
         case .myPRFeedback: "Your PR Got Feedback"
         case .reviewFinished: "Review Ready"
         case .myPRApprovedOrCIFailed: "Updates on Your PR"
+        case .updateAvailable: "PRBar Update Available"
         }
     }
 
@@ -119,6 +127,7 @@ public enum NotificationPlanner {
         case .myPRFeedback: "\(count) of your PRs got feedback"
         case .reviewFinished: "\(count) reviews ready"
         case .myPRApprovedOrCIFailed: "\(count) updates on your PRs"
+        case .updateAvailable: "\(count) PRBar updates available"
         }
     }
 
@@ -185,5 +194,17 @@ extension NotificationPlanner {
             body = "\(ref): open PRBar to see the error."
         }
         return PlannedNotification(kind: .reviewFinished, title: title, body: body, url: nil, respondPRID: prID, event: "respond-\(key)")
+    }
+}
+
+extension NotificationPlanner {
+    /// "PRBar 1.3.0 is available" con la primera línea de las notas (spec D.2). `nil` con las notificaciones apagadas.
+    public static func updateAvailable(_ release: ReleaseInfo, settings: NotificationSettings) -> PlannedNotification? {
+        guard settings.isOn(.updateAvailable) else { return nil }
+        let version = release.version.description
+        return PlannedNotification(
+            kind: .updateAvailable, title: "PRBar \(version) is available", body: release.summary ?? "Open PRBar to update.",
+            url: nil, event: version, updateVersion: version
+        )
     }
 }
