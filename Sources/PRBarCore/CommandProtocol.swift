@@ -112,3 +112,13 @@ public struct CommandResponse: Codable, Equatable, Sendable {
         CommandResponse(id: id, event: event)
     }
 }
+
+public struct CommandRequest: Codable, Equatable, Sendable {
+    public var id: Int
+    public var command: AppCommand
+
+    public init(id: Int, command: AppCommand) {
+        self.id = id
+        self.command = command
+    }
+}
