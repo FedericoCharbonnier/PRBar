@@ -5,8 +5,12 @@ private func snap(_ items: ClassifiedPR...) -> Snapshot {
     Snapshot(items: items, fetchedAt: t0, fetchedScopes: ["me|o/r"])
 }
 
-private func mine(_ category: PRCategory, decision: ReviewDecision, ci: CIState = .success) -> ClassifiedPR {
-    ClassifiedPR(pr: makePR(number: 7, author: "me", ci: ci, decision: decision), category: category, account: "me")
+private let known = PRMergeState(nodeID: "PR_7", mergeable: .mergeable, status: .clean)
+
+private func mine(
+    _ category: PRCategory, decision: ReviewDecision, ci: CIState = .success, merge: PRMergeState = known
+) -> ClassifiedPR {
+    ClassifiedPR(pr: makePR(number: 7, author: "me", ci: ci, decision: decision, merge: merge), category: category, account: "me")
 }
 
 enum ReadyToMergeNotificationTests {
@@ -42,6 +46,23 @@ enum ReadyToMergeNotificationTests {
             let failing = snap(mine(.readyToMerge, decision: .approved, ci: .failure))
             let planned = NotificationPlanner.plan(previous: ready, current: failing, settings: NotificationSettings())
             try expectEqual(planned.map(\.title), ["CI Failed on Your PR"])
+        },
+        TestCase("ready notif: con la mergeabilidad desconocida espera; avisa cuando GitHub la calcula") {
+            let pending = PRMergeState(nodeID: "PR_7", mergeable: .unknown, status: .unknown)
+            let first = NotificationPlanner.plan(
+                previous: snap(mine(.other, decision: .reviewRequired)), current: snap(mine(.readyToMerge, decision: .approved, merge: pending)),
+                settings: NotificationSettings())
+            try expectEqual(first.map(\.kind), [.myPRApprovedOrCIFailed])
+            let second = NotificationPlanner.plan(
+                previous: snap(mine(.readyToMerge, decision: .approved, merge: pending)),
+                current: snap(mine(.readyToMerge, decision: .approved)), settings: NotificationSettings())
+            try expectEqual(second.map(\.kind), [.readyToMerge])
+        },
+        TestCase("ready notif: el snapshot anterior sin datos de merge (versión vieja) no avisa") {
+            let planned = NotificationPlanner.plan(
+                previous: snap(mine(.other, decision: .approved, merge: .unknown)), current: snap(mine(.readyToMerge, decision: .approved)),
+                settings: NotificationSettings())
+            try expectEqual(planned, [])
         },
         TestCase("ready notif: config vieja sin la clave → encendida; respeta el interruptor general") {
             let old = try JSONCoding.decoder.decode(NotificationSettings.self, from: Data(#"{"enabled":true}"#.utf8))

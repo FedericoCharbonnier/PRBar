@@ -80,17 +80,17 @@ public enum NotificationPlanner {
             let body = "\(pr.repo.name)#\(pr.number) · \(pr.author): \(pr.title)"
 
             var notifiedReady = false
-            if item.category.countsForBadge, old?.category != item.category,
-               let kind = kind(for: item.category), settings.isOn(kind) {
-                if kind == .readyToMerge {
+            if item.category == .readyToMerge {
+                if settings.isOn(.readyToMerge), isNewlyReadyToMerge(item, old: old) {
                     planned.append(PlannedNotification(
-                        kind: kind, title: "\(pr.repo.fullName)#\(pr.number) is ready to merge", body: pr.title, url: pr.url,
-                        prID: item.id
+                        kind: .readyToMerge, title: "\(pr.repo.fullName)#\(pr.number) is ready to merge", body: pr.title,
+                        url: pr.url, prID: item.id
                     ))
                     notifiedReady = true
-                } else {
-                    planned.append(PlannedNotification(kind: kind, title: title(for: kind), body: body, url: pr.url, prID: item.id))
                 }
+            } else if item.category.countsForBadge, old?.category != item.category,
+                      let kind = kind(for: item.category), settings.isOn(kind) {
+                planned.append(PlannedNotification(kind: kind, title: title(for: kind), body: body, url: pr.url, prID: item.id))
             }
 
             let isMine = pr.author.lowercased() == item.account.lowercased()
@@ -111,6 +111,16 @@ public enum NotificationPlanner {
             }
         }
         return group(planned)
+    }
+
+    /// Ready to Merge se avisa una vez, cuando GitHub ya calculó la mergeabilidad (con `UNKNOWN` el PR puede resultar
+    /// con conflictos): "ya avisado" es haber estado en la categoría con la mergeabilidad conocida. Un snapshot anterior
+    /// sin datos de merge (de antes de Ready to Merge) no sirve para comparar: los PRs aprobados no son novedad.
+    static func isNewlyReadyToMerge(_ item: ClassifiedPR, old: ClassifiedPR?) -> Bool {
+        guard item.pr.merge.mergeable != .unknown else { return false }
+        guard let old else { return true }
+        if old.pr.merge.nodeID == nil { return false }
+        return old.category != .readyToMerge || old.pr.merge.mergeable == .unknown
     }
 
     private static func kind(for category: PRCategory) -> NotificationKind? {
