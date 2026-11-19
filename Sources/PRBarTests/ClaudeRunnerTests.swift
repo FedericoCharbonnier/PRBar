@@ -113,6 +113,12 @@ enum ClaudeRunnerTests {
                 try expect(deny.contains("Read(\(path))") && deny.contains("Edit(\(path))"), "falta \(path) en \(deny)")
             }
             try expectEqual(ClaudeRunner.deniedPaths, ["~/.ssh/**", "~/.aws/**", "~/.config/**", "~/Library/**", "~/.gnupg/**", "//**/.env*"])
+            // Edit/Write can't touch git's files anywhere (verified with the real CLI 2.1.318: `.gitattributes` and
+            // `.lfsconfig` were writable without these rules; `.git` was already protected by the CLI).
+            for rule in ["Edit(//**/.git)", "Edit(//**/.git/**)", "Edit(//**/.gitattributes)", "Edit(//**/.lfsconfig)"] {
+                try expect(deny.contains(rule), "falta \(rule) en \(deny)")
+            }
+            try expect(!deny.contains("Read(//**/.gitattributes)"), "\(deny)")
             // Determinístico: el mismo JSON para la misma entrada.
             try expectEqual(json, ClaudeRunner.settings(additionalDirectories: [URL(fileURLWithPath: "/tmp/ctx dir"), URL(fileURLWithPath: "/b")]))
         },

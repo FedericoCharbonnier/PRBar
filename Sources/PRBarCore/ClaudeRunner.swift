@@ -95,6 +95,10 @@ public struct ClaudeRunner: Sendable {
     /// Rutas que Claude nunca puede leer ni editar, aunque estén dentro de una carpeta de trabajo. Formato de
     /// reglas de permisos de Claude Code: `~/` es el home y `//` la raíz del disco.
     public static let deniedPaths = ["~/.ssh/**", "~/.aws/**", "~/.config/**", "~/Library/**", "~/.gnupg/**", "//**/.env*"]
+    /// Files Claude can read but never write, anywhere (Edit rules also govern Write): git's own files and the ones
+    /// that change how git reads and writes the tree. Verified with the real CLI (2.1.318, spec B.11): without these
+    /// rules `.gitattributes` and `.lfsconfig` were writable; `.git` (folder or worktree file) was already protected.
+    public static let writeDeniedPaths = ["//**/.git", "//**/.git/**", "//**/.gitattributes", "//**/.lfsconfig"]
     /// Las únicas variables de entorno que recibe Claude. `SHELL` siempre es `/bin/zsh`.
     public static let environmentAllowlist = ["PATH", "HOME", "USER", "LOGNAME", "TMPDIR", "LANG", "LC_ALL", "SHELL"]
 
@@ -187,7 +191,7 @@ public struct ClaudeRunner: Sendable {
     /// bloqueadas fuera de las carpetas de trabajo (cwd y `--add-dir`), `Read` y `Edit` negados en `deniedPaths`,
     /// lectura explícita de cada carpeta extra, sin `bypassPermissions` y sin shell en línea en los skills.
     public static func settings(additionalDirectories: [URL]) -> String {
-        let deny = deniedPaths.flatMap { ["Read(\($0))", "Edit(\($0))"] }
+        let deny = deniedPaths.flatMap { ["Read(\($0))", "Edit(\($0))"] } + writeDeniedPaths.map { "Edit(\($0))" }
         let settings: [String: Any] = [
             "disableSkillShellExecution": true,
             "permissions": [
