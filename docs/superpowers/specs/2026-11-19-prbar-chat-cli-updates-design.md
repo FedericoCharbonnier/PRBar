@@ -624,3 +624,28 @@ prbar notify set ready-to-merge on|off
 - Slack: respuesta "Merged" solo si hubo anuncio, sin duplicar, template con variables.
 - Notificación `readyToMerge` y deduplicación con `approved`.
 - Snapshots: popover con la sección Ready to Merge y el diálogo de confirmación.
+
+### F.8 Decisiones de implementación (Plan 10)
+
+1. **Dónde viven los datos de merge.** Los del PR van en `PullRequest.merge` (`PRMergeState`). Los del repo dependen de la cuenta (`viewerDefaultMergeMethod`, `viewerPermission`), así que van en `Snapshot.repoMergeSettings`, con la misma clave que `fetchedScopes` (`"login|owner/repo"`). Un repo que falla en un refresco conserva los ajustes anteriores, igual que sus PRs.
+2. **"Aprobación vigente" sin `reviewDecision`.** Por cada autor (que no sea yo) cuenta su **última** review entre `APPROVED`, `CHANGES_REQUESTED` y `DISMISSED`; un `COMMENTED` posterior no anula una aprobación. Hace falta al menos una `APPROVED` vigente y ninguna `CHANGES_REQUESTED` vigente. Las aprobaciones de bots cuentan (hay bots de aprobación).
+3. **Conflictos.** Quedan afuera tanto `mergeable == CONFLICTING` como `mergeStateStatus == DIRTY`. Un `UNKNOWN` (GitHub todavía calcula) **sí** entra, con el botón en "Checking…".
+4. **Permiso.** `viewerCanUpdate` se pide (lo dice el spec) pero no decide nada: para el autor del PR siempre es `true`. El botón se deshabilita con `viewerPermission` `READ` o `TRIAGE` ("You don’t have permission to merge in acme/api"); `viewerPermission` es un campo que el spec no menciona.
+5. **Sin datos del repo** (refresco viejo o respuesta sin los campos): se ofrecen los tres métodos; si el repo no permite el elegido, GitHub lo rechaza y la fila muestra el error.
+6. **Método por defecto:** `RepoConfig.mergeMethod` si está permitido; si no, `viewerDefaultMergeMethod` si está permitido; si no, el primero permitido en el orden squash, merge, rebase.
+7. **Textos de habilitación:** `BEHIND` dice "Branch is behind \<base>" con la rama base real (el spec dice "main" como ejemplo). Sin node ID también es "Checking…".
+8. **Botón:** siempre dice "Merge"; el método está en el tooltip ("Squash and Merge into main"), en el menú del chevron (con ✓ en el de por defecto) y en el diálogo.
+9. **Diálogo de confirmación:** es una ventana chica (`WindowPresenter`, 440 × 230, no redimensionable), no un `.alert`: el popover es un `MenuBarExtra` y una alerta adentro se cierra con él. Muestra el título, `owner/repo · N commits · head → base`, un popup con los métodos permitidos, la nota de `UNSTABLE` y, si el repo borra la rama al mergear, "GitHub will delete the branch (repo setting)".
+10. **Después del merge:** la fila muestra "Merged" 2 s y después PRBar refresca; la fila desaparece con ese refresco. Las fases de PRs que ya no están en el snapshot se descartan (`MergeQueue.prune`).
+11. **Retry:** refresca primero (el error más común es que el PR cambió) y vuelve a pedir el merge con el mismo método; con `merge.confirm` encendido, se vuelve a confirmar.
+12. **Slack "Merged":** queda pendiente en `SlackState.mergedReplies` (persistido) y sale por el ciclo normal del announcer como `SlackAction.merged`: mismo provider, marca `uncertain` `merged:<prID>`, búsqueda de la respuesta en el hilo antes de reintentar un intento dudoso, backoff del conector. Si falla, se reintenta en cada ciclo durante 24 h (`SlackPlanner.mergedReplyWindow`) y el error va a los issues de Slack y al log; el merge ya está hecho. Pedir "Merged" dos veces para el mismo PR no hace nada.
+13. **`{method}`:** vale `squash`, `merge` o `rebase` (el valor de `config.json`). Solo existe en la plantilla "Merged".
+14. **Notificación:** título "acme/api#42 is ready to merge" y cuerpo el título del PR. Si en el mismo refresco aplican "approved" y `readyToMerge`, solo sale `readyToMerge`; si la de `readyToMerge` está apagada, sale la de "approved" como antes.
+15. **Clave de la plantilla para la CLI:** el spec dice `myPR.merged`, pero el Plan 7 nombra las plantillas `new-pr`, `update` y `round`. Se recomienda `merged` (y aceptar `myPR.merged` como alias). Ver "APIs para la CLI".
+16. **Mientras se instala una actualización** (spec D.3) no empieza ningún merge: el botón Merge, su chevron y "Merge" / "Merge With…" del menú contextual se deshabilitan con el mismo tooltip que Review y Respond (`jobsBlockedReason`), y `MergeQueue` rechaza el pedido con `MergeError.blocked` (la fila lo muestra como error). La mutación de merge y la respuesta "Merged" en Slack cuentan en `postings`: una actualización espera a que terminen.
+17. El método fijado del repo se busca sin distinguir mayúsculas (`AppConfig.repoConfig(account:repo:)`), como el resto de los ajustes por repo.
+
+Además:
+- **F.2:** se agregan `viewerPermission` (repo) y `commits.totalCount` (PR); los datos del repo van en `Snapshot.repoMergeSettings` por cuenta y repo.
+- **F.3:** la referencia de GitHub recomienda la API REST asíncrona de merge; se usa la mutación porque soporta `expectedHeadOid` y PRBar no apila PRs.
+- **F.6:** la plantilla se llama `merged` en la CLI (como `new-pr`, `update`, `round`); `myPR.merged` queda como alias.
