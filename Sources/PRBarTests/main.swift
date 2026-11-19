@@ -94,6 +94,7 @@ let allTests: [TestCase] = []
     + SlackMergedTemplateTests.cases
     + SlackMergedReplyTests.cases
     + CLISmokeTests.cases
+    + PRReferenceTests.cases
 
 let filter = CommandLine.arguments.dropFirst().first
 let selected = allTests.filter { test in
