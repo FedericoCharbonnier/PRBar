@@ -123,7 +123,8 @@ private final class SnapshotSession {
                                                      logDirectory: respondHistory.directory.appendingPathComponent("logs")),
             chatBackend: SnapshotChatBackend(),
             instructionsStore: InstructionsStore(fileURL: dir.appendingPathComponent("instructions.json")),
-            instructionsChatBackend: SnapshotInstructionsChatBackend()
+            instructionsChatBackend: SnapshotInstructionsChatBackend(),
+            discardStats: DiscardStatsStore(fileURL: dir.appendingPathComponent("discard-stats.json"))
         )
         let model = AppModel(services: services, startsServices: false)
         model.applySnapshotState(tools: SnapshotFixtures.tools, ghAccounts: SnapshotFixtures.ghAccounts, launchAtLogin: true)

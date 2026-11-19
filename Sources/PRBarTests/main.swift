@@ -77,6 +77,7 @@ let allTests: [TestCase] = []
     + RespondPushGateTests.cases
     + InstructionsChatTests.cases
     + InstructionsChatCoordinatorTests.cases
+    + DiscardStatsTests.cases
 
 let filter = CommandLine.arguments.dropFirst().first
 let selected = allTests.filter { test in

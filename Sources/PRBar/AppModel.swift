@@ -42,6 +42,8 @@ struct AppModelServices {
     var instructionsStore: InstructionsStore? = nil
     /// `nil`: the real instructions chat (`LiveInstructionsChatBackend`).
     var instructionsChatBackend: (any InstructionsChatBackend)? = nil
+    /// `nil`: `discard-stats.json` in Application Support.
+    var discardStats: DiscardStatsStore? = nil
 
     static func live(runner: SystemProcessRunner) -> AppModelServices {
         let accounts = AccountProvider(runner: runner, ghPath: nil)
@@ -125,6 +127,10 @@ final class AppModel: ObservableObject {
     let respondHistory: RespondHistory
     /// Rules, suggestion decisions and the instructions chat (spec E).
     let instructions: InstructionsStore
+    /// The findings the user discards when posting (spec E.4).
+    let discardStats: DiscardStatsStore
+    /// Goes up when a post records discards (the suggestions change).
+    @Published private(set) var discardRevision = 0
     /// Cola de "Responder" en los PRs propios con feedback. `lazy` por lo mismo que `reviews`.
     private(set) lazy var respond = RespondQueue(
         pipeline: respondPipeline ?? LiveRespondPipeline(
@@ -186,6 +192,7 @@ final class AppModel: ObservableObject {
         self.history = services.history
         self.respondHistory = services.respondHistory
         self.instructions = services.instructionsStore ?? InstructionsStore()
+        self.discardStats = services.discardStats ?? DiscardStatsStore()
         self.claudeSkills = services.claudeSkills
         self.reviewPipeline = services.reviewPipeline
         self.respondPipeline = services.respondPipeline
@@ -549,7 +556,8 @@ final class AppModel: ObservableObject {
     /// hallazgos van al body. Si GitHub rechaza con 422 una review con comentarios inline se lanza
     /// `InlineCommentsRejected`, para ofrecer reintentar con `allInBody`.
     func publish(
-        draft: ReviewDraft, selected: [SelectedComment], general: String, event: ReviewEvent, allInBody: Bool = false
+        draft: ReviewDraft, selected: [SelectedComment], general: String, event: ReviewEvent, allInBody: Bool = false,
+        userDiscarded: [ReviewItem] = []
     ) async throws -> PublishedReview {
         let token = try await accounts.token(for: draft.account)
         let lineMap: DiffLineMap
@@ -589,6 +597,15 @@ final class AppModel: ObservableObject {
             AppLog.write("History: couldn't save the posting of \(draft.repo.fullName)#\(draft.number): \(error)")
         }
         historyRevision += 1
+        // Spec E.4: what the user chose not to post feeds the suggestions. Never blocks the post.
+        if !userDiscarded.isEmpty {
+            do {
+                try discardStats.record(items: userDiscarded, draft: draft, now: now)
+                discardRevision += 1
+            } catch {
+                AppLog.write("Couldn't save the discarded findings of \(draft.repo.fullName)#\(draft.number): \(error)")
+            }
+        }
         Task { await prStore.refresh() }
         return PublishedReview(url: url, action: record.action, submission: submission, commentCount: texts.count, publishedAt: now)
     }
@@ -752,6 +769,32 @@ final class AppModel: ObservableObject {
     }
 
     var rules: [Rule] { instructions.rules }
+
+    /// The suggestions to show (spec E.4); with `repo`, only those that apply to it (its own and the global ones).
+    func ruleSuggestions(for repo: RepoRef? = nil) -> [RuleSuggestion] {
+        let all = RuleSuggestions.compute(events: discardStats.all(), rules: instructions.rules,
+                                          decisions: instructions.file.suggestionDecisions)
+        guard let repo else { return all }
+        return all.filter { $0.scope.covers(repo) }
+    }
+
+    /// "Create Rule": a rule for Review with `text` (the proposed one if nil), remembering its category.
+    @discardableResult
+    func acceptSuggestion(_ id: String, text: String? = nil) throws -> Rule {
+        guard let suggestion = ruleSuggestions().first(where: { $0.id == id }) else { throw RuleError.notFound }
+        return try addRule(text ?? suggestion.text, scope: suggestion.scope, appliesTo: [.review], source: .suggestion,
+                           category: suggestion.category)
+    }
+
+    /// "Not Now": hides it for 30 days.
+    func snoozeSuggestion(_ id: String) throws {
+        try instructions.decideSuggestion(id, never: false, until: Date().addingTimeInterval(RuleSuggestions.snooze))
+    }
+
+    /// "Never".
+    func neverSuggest(_ id: String) throws {
+        try instructions.decideSuggestion(id, never: true, until: nil)
+    }
 
     /// A rule Claude proposed in a PR chat, saved because the user pressed Save (spec E.3).
     func saveProposedRule(_ proposal: RuleProposal) throws -> UUID {

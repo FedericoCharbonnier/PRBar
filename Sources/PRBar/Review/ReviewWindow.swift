@@ -314,10 +314,13 @@ struct ReviewWindow: View {
         inlineRejected = nil
         let comments = withComments ? chat.reviewEdits.selectedComments(of: draft) : []
         let general = withComments ? self.general : ""
+        // "Approve Without Comments" isn't an opinion on the findings: nothing is recorded (plan decision 10).
+        let discarded = withComments ? chat.reviewEdits.userDiscarded(of: draft) : []
         Task { @MainActor in
             do {
                 result = try await model.publish(
-                    draft: draft, selected: comments, general: general, event: event, allInBody: allInBody || isOutdated
+                    draft: draft, selected: comments, general: general, event: event, allInBody: allInBody || isOutdated,
+                    userDiscarded: discarded
                 )
             } catch {
                 self.error = error.localizedDescription
