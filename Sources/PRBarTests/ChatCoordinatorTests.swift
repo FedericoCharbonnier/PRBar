@@ -243,6 +243,24 @@ enum ChatCoordinatorTests {
             try expectEqual(chat.selections["thread:A"]?.replyText, "Old")
             try expect(chat.session.messages[1].undone)
         },
+        TestCase("chat coordinator: Respond que empezó de solo lectura avisa a Claude cuando ya puede editar") { @MainActor in
+            let h = Harness()
+            let chat = h.respond()
+            chat.send("before implementing")
+            try await h.finish(chat)
+            try expectEqual(h.backend.inputs[0].capabilitiesChanged, false)
+            try expectEqual(chat.session.canEditFiles, false)
+            h.context.canEditFiles = true
+            h.context.respondResult = RespondResult(items: [], diffStat: "", tests: nil)
+            chat.send("now change the code")
+            try await h.finish(chat)
+            try expectEqual(h.backend.editing, 1)
+            try expectEqual(h.backend.inputs[1].capabilitiesChanged, true)
+            try expectEqual(chat.session.canEditFiles, true)
+            chat.send("again")
+            try await h.finish(chat)
+            try expectEqual(h.backend.inputs[2].capabilitiesChanged, false)
+        },
         TestCase("chat coordinator: Stop corta el turno y deja Stopped.") { @MainActor in
             let h = Harness()
             h.backend.held = true

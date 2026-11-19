@@ -15,13 +15,16 @@ public struct ChatTurnInput: Sendable {
     public var transcript: [ChatMessage]
     /// Respond after implementing: Edit and Write in the worktree.
     public var canEditFiles: Bool
+    /// For `--resume` turns: `canEditFiles` isn't what Claude was told last, so the prompt says it again.
+    public var capabilitiesChanged: Bool
     public var workingDirectory: URL
     public var additionalDirectories: [URL]
     /// The number of the user's message (1, 2…), for the log header.
     public var turn: Int
 
     public init(kind: ChatSession.Kind, claudeSessionID: UUID?, bootstrap: String, message: String, stateIfChanged: String?,
-                transcript: [ChatMessage], canEditFiles: Bool, workingDirectory: URL, additionalDirectories: [URL], turn: Int) {
+                transcript: [ChatMessage], canEditFiles: Bool, workingDirectory: URL, additionalDirectories: [URL], turn: Int,
+                capabilitiesChanged: Bool = false) {
         self.kind = kind
         self.claudeSessionID = claudeSessionID
         self.bootstrap = bootstrap
@@ -29,6 +32,7 @@ public struct ChatTurnInput: Sendable {
         self.stateIfChanged = stateIfChanged
         self.transcript = transcript
         self.canEditFiles = canEditFiles
+        self.capabilitiesChanged = capabilitiesChanged
         self.workingDirectory = workingDirectory
         self.additionalDirectories = additionalDirectories
         self.turn = turn
@@ -77,7 +81,8 @@ public struct ChatEngine: Sendable {
         if let existing = input.claudeSessionID {
             do {
                 let output = try await run(input, session: .resume(existing),
-                                           prompt: ChatPrompts.followUp(message: input.message, state: input.stateIfChanged),
+                                           prompt: ChatPrompts.followUp(message: input.message, state: input.stateIfChanged,
+                                                                       canEditFiles: input.capabilitiesChanged ? input.canEditFiles : nil),
                                            onEvent: onEvent)
                 return ChatTurnOutput(reply: output.reply, actions: output.actions, claudeSessionID: existing, rebuiltContext: false)
             } catch {

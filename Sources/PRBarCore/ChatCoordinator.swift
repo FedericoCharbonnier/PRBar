@@ -43,6 +43,8 @@ private struct TurnResult: Sendable {
     let files: ChatFilesOutcome?
     let workspace: ChatWorkspace
     let canSetImplement: Bool
+    /// What Claude was told it can do in this turn.
+    let canEditFiles: Bool
 }
 
 /// The chat of one Review or Respond window (spec B): the conversation and the window's editable state, which the
@@ -146,6 +148,13 @@ public final class ChatCoordinator: ObservableObject {
         let backend = self.backend
         let subject = self.subject
         let claudeSessionID = session.claudeSessionID
+        // Edit tools only where `FixImplementer.chatTurn` guards the turn: Respond with the fixes' result.
+        let editingResult: RespondResult? = {
+            guard case .respond = subject, context.canEditFiles else { return nil }
+            return context.respondResult
+        }()
+        let canEdit = editingResult != nil
+        let capabilitiesChanged = claudeSessionID != nil && session.canEditFiles != canEdit
         let relay = MainActorRelay<ClaudeStreamEvent> { [weak self] event in self?.handle(event, turn: id) }
         scheduler.enqueue(key, onStart: { [weak self] in
             if self?.turnID == id { self?.activity = "Preparing the code…" }
@@ -157,18 +166,20 @@ public final class ChatCoordinator: ObservableObject {
                 let input = ChatTurnInput(
                     kind: subject.kind, claudeSessionID: claudeSessionID,
                     bootstrap: ChatPrompts.bootstrap(subject: subject, files: workspace.files, isDiffOnly: workspace.isDiffOnly,
-                                                     canEditFiles: context.canEditFiles, state: state),
+                                                     canEditFiles: canEdit, state: state),
                     message: text, stateIfChanged: stateChanged ? state : nil, transcript: transcript,
-                    canEditFiles: context.canEditFiles, workingDirectory: workspace.directory,
-                    additionalDirectories: [workspace.contextDirectory], turn: turn)
-                if case .respond(let draft) = subject, context.canEditFiles, let result = context.respondResult {
+                    canEditFiles: canEdit, workingDirectory: workspace.directory,
+                    additionalDirectories: [workspace.contextDirectory], turn: turn,
+                    capabilitiesChanged: capabilitiesChanged)
+                if case .respond(let draft) = subject, let result = editingResult {
                     let (output, files) = try await backend.sendEditing(input, draft: draft, result: result,
                                                                         sessionID: request.session.id, logURL: context.logURL) { relay.send($0) }
-                    outcome = .success(TurnResult(output: output, files: files, workspace: workspace, canSetImplement: false))
+                    outcome = .success(TurnResult(output: output, files: files, workspace: workspace, canSetImplement: false,
+                                                  canEditFiles: true))
                 } else {
                     let output = try await backend.send(input, subject: subject, logURL: context.logURL) { relay.send($0) }
                     outcome = .success(TurnResult(output: output, files: nil, workspace: workspace,
-                                                  canSetImplement: context.respondResult == nil))
+                                                  canSetImplement: context.respondResult == nil, canEditFiles: false))
                 }
             } catch {
                 outcome = .failure(error)
@@ -231,6 +242,7 @@ public final class ChatCoordinator: ObservableObject {
 
     private func apply(_ turn: TurnResult) {
         session.claudeSessionID = turn.output.claudeSessionID
+        session.canEditFiles = turn.canEditFiles
         var notes: [String] = []
         if turn.output.rebuiltContext { notes.append(Self.rebuiltNote) }
         if let note = turn.workspace.note, !session.messages.contains(where: { $0.notes.contains(note) }) {

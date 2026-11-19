@@ -64,6 +64,7 @@ enum ChatModelsTests {
             try expectEqual(session.messages, [])
             try expectEqual(session.readOnly, false)
             try expectEqual(session.claudeSessionID, nil)
+            try expectEqual(session.canEditFiles, nil)
             let broken = #"{"id":"6F9619FF-8B86-D011-B42D-00C04FC964FF","prID":"PR_1","kind":"review","messages":"x","readOnly":3}"#
             try expectEqual(try JSONCoding.decoder.decode(ChatSession.self, from: Data(broken.utf8)).messages, [])
             var full = ChatSession(prID: "PR_1", kind: .respond)
@@ -77,6 +78,7 @@ enum ChatModelsTests {
             full.worktreePath = "/tmp/wt"
             full.worktreeRefs = ["refs/prbar/pr-7-0a1b2c3d"]
             full.lastState = "{}"
+            full.canEditFiles = true
             let data = try JSONCoding.encoder.encode(full)
             try expectEqual(try JSONCoding.decoder.decode(ChatSession.self, from: data), full)
         },

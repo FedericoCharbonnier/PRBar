@@ -153,6 +153,10 @@ public struct ChatSession: Codable, Equatable, Sendable {
     public var pending: Bool
     /// The window's state (JSON) as Claude last saw it: the next turn sends it again only if it changed.
     public var lastState: String?
+    /// Whether Claude was last told it can edit files (Respond after implementing). When it differs from the
+    /// window's, the next `--resume` turn says so (`ChatPrompts.followUp`). Nil = not known yet (the first turn, or
+    /// a session saved before this field existed).
+    public var canEditFiles: Bool?
 
     public init(id: UUID = UUID(), prID: String, kind: Kind) {
         self.id = id
@@ -165,10 +169,11 @@ public struct ChatSession: Codable, Equatable, Sendable {
         readOnly = false
         pending = false
         lastState = nil
+        canEditFiles = nil
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, prID, kind, claudeSessionID, worktreePath, worktreeRefs, messages, readOnly, pending, lastState
+        case id, prID, kind, claudeSessionID, worktreePath, worktreeRefs, messages, readOnly, pending, lastState, canEditFiles
     }
 
     /// Lenient: only `id`, `prID` and `kind` are required.
@@ -184,6 +189,7 @@ public struct ChatSession: Codable, Equatable, Sendable {
         readOnly = (try? c.decodeIfPresent(Bool.self, forKey: .readOnly)) ?? false
         pending = (try? c.decodeIfPresent(Bool.self, forKey: .pending)) ?? false
         lastState = (try? c.decodeIfPresent(String.self, forKey: .lastState)) ?? nil
+        canEditFiles = (try? c.decodeIfPresent(Bool.self, forKey: .canEditFiles)) ?? nil
     }
 
     /// The only message that offers Undo: the last one with changes that wasn't undone. Undoing goes backwards.

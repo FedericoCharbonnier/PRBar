@@ -77,6 +77,14 @@ enum ChatEngineTests {
             try expect(!call.arguments.contains("--session-id"))
             try expectEqual(arg("-p", call), ChatPrompts.followUp(message: "Is #2 right?", state: "{\"x\":1}"))
         },
+        TestCase("chat engine: si cambiaron las capacidades, el --resume lleva la nota con las herramientas nuevas") {
+            let runner = FakeStreamingRunner { _, _, _ in ([chatLine("Ok.")], ok("")) }
+            var turn = input(session: oldID, edits: true, state: "{}", kind: .respond)
+            turn.capabilitiesChanged = true
+            _ = try await engine(runner, log: try temporaryDirectory().appendingPathComponent("r.log")).send(turn) { _ in }
+            try expectEqual(arg("-p", runner.calls[0]), ChatPrompts.followUp(message: "Is #2 right?", state: "{}", canEditFiles: true))
+            try expectEqual(arg("--tools", runner.calls[0]), "Read,Grep,Glob,Edit,Write,Skill,Agent")
+        },
         TestCase("chat engine: si --resume falla, relanza con sesión nueva, arranque y transcript") {
             let runner = FakeStreamingRunner { _, arguments, _ in
                 if arguments.contains("--resume") {

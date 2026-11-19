@@ -79,6 +79,14 @@ enum ChatPromptsTests {
             try expect(after.contains("Edit and Write") && after.contains("Never touch .git") && after.contains("/ctx/fixes.diff"))
             try expect(!after.contains("- setImplement"))
         },
+        TestCase("chat prompts: si cambian las capacidades, el turno siguiente lo dice con las reglas de edición") {
+            let edit = ChatPrompts.followUp(message: "Fix it", state: "{}", canEditFiles: true)
+            try expect(edit.contains("Edit and Write") && edit.contains("Never touch .git") && edit.contains("setImplement"), edit)
+            try expect(edit.hasSuffix(ChatPrompts.message("Fix it")))
+            let read = ChatPrompts.followUp(message: "Hm", state: nil, canEditFiles: false)
+            try expect(read.contains("can't modify files") && !read.contains("Edit and Write"), read)
+            try expectEqual(ChatPrompts.followUp(message: "Hm", state: nil, canEditFiles: nil), ChatPrompts.message("Hm"))
+        },
         TestCase("chat prompts: el turno siguiente manda el estado solo si cambió; el transcript omite errores") {
             try expectEqual(ChatPrompts.followUp(message: "Why?", state: nil), ChatPrompts.message("Why?"))
             let withState = ChatPrompts.followUp(message: "Why?", state: "{\"a\":1}")
