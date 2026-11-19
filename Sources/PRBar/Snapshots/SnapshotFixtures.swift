@@ -443,3 +443,16 @@ struct SnapshotFixtures {
         ])
     }
 }
+
+extension SnapshotFixtures {
+    /// Versión nueva ficticia para la ventana "Update PRBar" y Settings › General.
+    static let updateRelease = ReleaseInfo(
+        version: SemanticVersion(1, 3, 0), tag: "v1.3.0", title: "PRBar 1.3.0",
+        notes: """
+        - Chat with Claude in the Review and Respond windows
+        - New `prbar` command-line tool
+        - Faster refresh with many repos
+        """,
+        url: URL(string: "https://github.com/FedericoCharbonnier/PRBar/releases/tag/v1.3.0")!, publishedAt: nil
+    )
+}

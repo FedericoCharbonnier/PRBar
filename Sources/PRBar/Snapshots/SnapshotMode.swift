@@ -89,6 +89,7 @@ private final class SnapshotSession {
         try await history()
         try await settings()
         try await notification()
+        try await updateWindow()
         return written
     }
 
@@ -128,6 +129,14 @@ private final class SnapshotSession {
     }
 
     // MARK: Screens
+
+    private func updateWindow() async throws {
+        let model = try makeModel("update", snapshot: fixtures.snapshot)
+        model.updates.applySnapshotState(available: SnapshotFixtures.updateRelease)
+        try await window("update", title: "Update PRBar", size: UpdateWindow.size) {
+            UpdateWindow(updates: model.updates, mode: .available(SnapshotFixtures.updateRelease), close: {})
+        }
+    }
 
     private func menuBarIcon() throws {
         let icon = BadgeIcon.image(for: .count(5))
@@ -258,8 +267,9 @@ private final class SnapshotSession {
 
     private func settings() async throws {
         let model = try makeModel("settings", snapshot: fixtures.snapshot)
+        model.updates.applySnapshotState(available: SnapshotFixtures.updateRelease)
         let sizes: [SettingsWindow.Tab: NSSize] = [
-            .general: NSSize(width: 700, height: 780),
+            .general: NSSize(width: 700, height: 880),
             .claude: NSSize(width: 700, height: 820),
             .repos: NSSize(width: 700, height: 940),
             .slack: NSSize(width: 700, height: 1180),
