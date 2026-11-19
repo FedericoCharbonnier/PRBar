@@ -169,6 +169,7 @@ public struct SlackSettings: Hashable, Codable, Sendable {
     public static let defaultNewPRTemplate = "{link}"
     public static let defaultUpdateTemplate = "Updated {link}"
     public static let defaultRoundTemplate = "commented x{n}"
+    public static let defaultMergedTemplate = "Merged :white_check_mark:"
     public static let defaultEyesEmoji = "eyes"
     public static let defaultCommentEmoji = "speech_balloon"
     public static let defaultApprovedEmoji = "approved"
@@ -188,12 +189,15 @@ public struct SlackSettings: Hashable, Codable, Sendable {
     public var providerChosen: Bool { providerChoice != nil }
     public var newPRTemplate = Self.defaultNewPRTemplate
     public var updateTemplate = Self.defaultUpdateTemplate
+    /// Respuesta en el hilo del anuncio cuando mergeo desde PRBar (spec F.4).
+    public var mergedTemplate = Self.defaultMergedTemplate
     /// Cuándo se encendió Slack o se guardó un token donde no había: solo se anuncian PRs posteriores.
     public var enabledAt: Date?
 
     // Mis PRs (spec §17.1).
     public var announceNewPRs = true
     public var postUpdated = true
+    public var postMerged = true
 
     // PRs de otros: reacciones a mis reviews (spec §17.2).
     public var reactOnReviewStart = true
@@ -217,6 +221,7 @@ public struct SlackSettings: Hashable, Codable, Sendable {
         case providerChoice = "provider"
         case announceNewPRs, postUpdated, reactOnReviewStart, reactOnFirstComment, postRoundMessages, reactOnApprove
         case reviewReactionsEnabledAt, eyesEmoji, commentEmoji, approvedEmoji, roundTemplate, searchDays
+        case postMerged, mergedTemplate
     }
 
     public init(from decoder: Decoder) throws {
@@ -229,6 +234,8 @@ public struct SlackSettings: Hashable, Codable, Sendable {
         updateTemplate = try c.decodeIfPresent(String.self, forKey: .updateTemplate) ?? Self.defaultUpdateTemplate
         announceNewPRs = try c.decodeIfPresent(Bool.self, forKey: .announceNewPRs) ?? true
         postUpdated = try c.decodeIfPresent(Bool.self, forKey: .postUpdated) ?? true
+        postMerged = (try? c.decodeIfPresent(Bool.self, forKey: .postMerged)) ?? true
+        mergedTemplate = (try? c.decodeIfPresent(String.self, forKey: .mergedTemplate)) ?? Self.defaultMergedTemplate
         reactOnReviewStart = try c.decodeIfPresent(Bool.self, forKey: .reactOnReviewStart) ?? true
         reactOnFirstComment = try c.decodeIfPresent(Bool.self, forKey: .reactOnFirstComment) ?? true
         postRoundMessages = try c.decodeIfPresent(Bool.self, forKey: .postRoundMessages) ?? true
@@ -245,6 +252,7 @@ public struct SlackSettings: Hashable, Codable, Sendable {
     public var effectiveNewPRTemplate: String { Self.nonEmpty(newPRTemplate) ?? Self.defaultNewPRTemplate }
     public var effectiveUpdateTemplate: String { Self.nonEmpty(updateTemplate) ?? Self.defaultUpdateTemplate }
     public var effectiveRoundTemplate: String { Self.nonEmpty(roundTemplate) ?? Self.defaultRoundTemplate }
+    public var effectiveMergedTemplate: String { Self.nonEmpty(mergedTemplate) ?? Self.defaultMergedTemplate }
 
     /// La plantilla guardada es igual a la de por defecto (`\.newPRTemplate`, `\.updateTemplate`, `\.roundTemplate`).
     public func isDefault(_ keyPath: KeyPath<SlackSettings, String>) -> Bool {
@@ -281,6 +289,7 @@ public struct SlackSettings: Hashable, Codable, Sendable {
 /// Interruptores de la pestaña Slack (spec §17.3).
 public enum SlackToggle: CaseIterable, Sendable {
     case announceNewPRs, postUpdated, reactOnReviewStart, reactOnFirstComment, postRoundMessages, reactOnApprove
+    case postMerged
 
     public var keyPath: WritableKeyPath<SlackSettings, Bool> {
         switch self {
@@ -290,12 +299,13 @@ public enum SlackToggle: CaseIterable, Sendable {
         case .reactOnFirstComment: \.reactOnFirstComment
         case .postRoundMessages: \.postRoundMessages
         case .reactOnApprove: \.reactOnApprove
+        case .postMerged: \.postMerged
         }
     }
 
     var isReviewReaction: Bool {
         switch self {
-        case .announceNewPRs, .postUpdated: false
+        case .announceNewPRs, .postUpdated, .postMerged: false
         case .reactOnReviewStart, .reactOnFirstComment, .postRoundMessages, .reactOnApprove: true
         }
     }

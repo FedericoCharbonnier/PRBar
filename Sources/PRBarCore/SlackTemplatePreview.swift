@@ -15,17 +15,19 @@ public struct SlackTemplateVariable: Hashable, Sendable {
     public static let repo = SlackTemplateVariable(name: "repo", summary: "Repository name")
     public static let author = SlackTemplateVariable(name: "author", summary: "PR author")
     public static let round = SlackTemplateVariable(name: "n", summary: "Round number")
+    public static let method = SlackTemplateVariable(name: "method", summary: "Merge method (squash, merge or rebase)")
 }
 
-/// Las tres plantillas editables de la pestaña Slack.
+/// Las plantillas editables de la pestaña Slack.
 public enum SlackTemplateKind: CaseIterable, Sendable {
-    case newPR, update, round
+    case newPR, update, round, merged
 
     public var keyPath: WritableKeyPath<SlackSettings, String> {
         switch self {
         case .newPR: \.newPRTemplate
         case .update: \.updateTemplate
         case .round: \.roundTemplate
+        case .merged: \.mergedTemplate
         }
     }
 
@@ -34,17 +36,25 @@ public enum SlackTemplateKind: CaseIterable, Sendable {
         case .newPR: SlackSettings.defaultNewPRTemplate
         case .update: SlackSettings.defaultUpdateTemplate
         case .round: SlackSettings.defaultRoundTemplate
+        case .merged: SlackSettings.defaultMergedTemplate
         }
     }
 
-    /// Variables disponibles; `{n}` solo en el mensaje de ronda.
+    /// Variables disponibles; `{n}` solo en el mensaje de ronda y `{method}` solo en "Merged".
     public var variables: [SlackTemplateVariable] {
         let common: [SlackTemplateVariable] = [.link, .title, .number, .repo, .author]
-        return self == .round ? common + [.round] : common
+        switch self {
+        case .round: return common + [.round]
+        case .merged: return common + [.method]
+        case .newPR, .update: return common
+        }
     }
 
     /// Ronda con la que se previsualiza el mensaje de ronda (la segunda: «commented x2»).
     public var sampleRound: Int? { self == .round ? 2 : nil }
+
+    /// Método con el que se previsualiza "Merged".
+    public var sampleMethod: String? { self == .merged ? MergeMethod.squash.rawValue : nil }
 
     public func isDefault(_ template: String) -> Bool { template == defaultTemplate }
 
@@ -75,7 +85,7 @@ public enum SlackTemplatePreview {
     /// El texto tal como lo mandaría PRBar (con la plantilla por defecto si está vacía), en texto plano.
     public static func text(_ template: String, kind: SlackTemplateKind, author: String? = nil) -> String {
         let rendered = SlackTemplate.render(
-            kind.effective(template), pr: sample(author: author), n: kind.sampleRound
+            kind.effective(template), pr: sample(author: author), n: kind.sampleRound, method: kind.sampleMethod
         )
         return plainText(fromSlack: rendered)
     }
