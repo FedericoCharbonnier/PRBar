@@ -67,15 +67,15 @@ public struct ReviewContextWriter: Sendable {
     public static let maxDescriptionLength = 20_000
 
     /// `pr.md`: the PR's data and its description, clearly delimited and marked as untrusted. `headOid` is the
-    /// reviewed commit.
+    /// reviewed commit. The title, the author and the branches go in one line, neutralized (spec E.9).
     public static func metadata(_ pr: PullRequest, headOid: String, description: String) -> String {
         """
-        # PR #\(pr.number): \(pr.title)
+        # PR #\(pr.number): \(UntrustedText.singleLine(pr.title))
 
         - Repo: \(pr.repo.fullName)
         - URL: \(pr.url.absoluteString)
-        - Author: @\(pr.author)
-        - Branch: \(pr.headRef) → \(pr.baseRef)
+        - Author: @\(UntrustedText.singleLine(pr.author))
+        - Branch: \(UntrustedText.singleLine(pr.headRef)) → \(UntrustedText.singleLine(pr.baseRef))
         - Commit (HEAD): \(headOid)
         - Changes: +\(pr.additions) −\(pr.deletions)
         - Draft: \(pr.isDraft ? "yes" : "no")
@@ -92,8 +92,9 @@ public struct ReviewContextWriter: Sendable {
         """
     }
 
+    /// Also neutralized (spec E.9): it can't pass for the user's rules or PRBar's other blocks.
     static func sanitizedDescription(_ description: String) -> String {
-        var text = description
+        var text = UntrustedText.neutralize(description)
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "PR_DESCRIPTION", with: "PR-DESCRIPTION")
             .trimmingCharacters(in: .whitespacesAndNewlines)

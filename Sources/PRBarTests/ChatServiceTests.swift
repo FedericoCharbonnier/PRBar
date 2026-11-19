@@ -53,7 +53,8 @@ enum ChatServiceTests {
                                       api: FakeAPI(), gitPath: TempGitRepo.git, ghPath: nil, claudePath: "/usr/local/bin/claude",
                                       worktreeRoot: base.appendingPathComponent("wt"), gitEnvironment: env)
             let input = ChatTurnInput(kind: .respond, claudeSessionID: UUID(), bootstrap: "B", message: "m", stateIfChanged: nil,
-                                      transcript: [], canEditFiles: true, workingDirectory: dir, additionalDirectories: [], turn: 2)
+                                      transcript: [], canEditFiles: true, workingDirectory: dir, additionalDirectories: [], turn: 2,
+                                      fence: .random())
             _ = try await expectThrows {
                 _ = try await service.sendEditing(input, draft: draft, result: RespondResult(items: [], diffStat: "", tests: nil),
                                                   sessionID: UUID(), logURL: base.appendingPathComponent("chat.log")) { _ in }

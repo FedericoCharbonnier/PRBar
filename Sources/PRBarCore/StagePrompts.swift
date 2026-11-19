@@ -182,15 +182,19 @@ public enum PromptWrapper {
         you can't run commands, and you never post, push, approve or publish anything. Reply only with the requested structured output.
         """
 
-    /// PRBar's rules (`security`), the fixed context (files, the comment received…), the editable `body`, the user's
-    /// rules, their settings for this stage, the output format and a closing reminder.
+    /// PRBar's rules (`security`, plus the line of `fence`), the fixed context (files, the comment received…), the
+    /// editable `body`, the user's rules, their settings for this stage, the output format and a closing reminder.
+    /// `fence`: this run's markers (spec E.9); nil only for a prompt without the user's rules nor text from a PR (the
+    /// instructions chat). `userMessages`: a chat whose user messages are fenced too.
     public static func compose(security: [String], context: String? = nil, body: String, rules: [Rule],
-                               settings: [String] = [], output: String) -> String {
-        var parts = ["PRBar's rules for this run (they always apply):\n" + security.map { "- \($0)" }.joined(separator: "\n")]
+                               settings: [String] = [], output: String, fence: PromptFence?,
+                               userMessages: Bool = false) -> String {
+        let lines = security + (fence.map { [$0.securityLine(userMessages: userMessages)] } ?? [])
+        var parts = ["PRBar's rules for this run (they always apply):\n" + lines.map { "- \($0)" }.joined(separator: "\n")]
         if let context, !context.isEmpty { parts.append(context) }
         let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty { parts.append(trimmed) }
-        let section = RulesPrompt.section(rules)
+        let section = RulesPrompt.section(rules, fence: fence ?? .random())
         if !section.isEmpty { parts.append(section) }
         if !settings.isEmpty {
             parts.append("Settings from the PRBar user:\n" + settings.map { "- \($0)" }.joined(separator: "\n"))
@@ -201,8 +205,8 @@ public enum PromptWrapper {
     }
 
     /// `{rules}` in a body: the section, or that there are none.
-    public static func rulesValue(_ rules: [Rule]) -> String {
-        let section = RulesPrompt.section(rules)
+    public static func rulesValue(_ rules: [Rule], fence: PromptFence) -> String {
+        let section = RulesPrompt.section(rules, fence: fence)
         return section.isEmpty ? "(no rules)" : section
     }
 }

@@ -23,6 +23,8 @@ private func respondDraft() -> RespondDraft {
                                      assessment: "Valid", action: .fix, fixPlan: "Stream rows", reply: "")])
 }
 
+private let fence = PromptFence(nonce: "testnonce")
+
 private func json(_ text: String) throws -> [String: Any] {
     try JSONSerialization.jsonObject(with: Data(text.utf8)) as! [String: Any]
 }
@@ -60,7 +62,7 @@ enum ChatPromptsTests {
             let files = ChatContextFiles(diff: URL(fileURLWithPath: "/wt/x.context/pr.diff"),
                                          metadata: URL(fileURLWithPath: "/wt/x.context/pr.md"))
             let prompt = ChatPrompts.bootstrap(subject: .review(reviewDraft()), files: files, isDiffOnly: false,
-                                               canEditFiles: false, state: "{\"findings\":[]}")
+                                               canEditFiles: false, state: "{\"findings\":[]}", fence: fence)
             for needle in ["PR #317 of acme/api", "/wt/x.context/pr.diff", "/wt/x.context/pr.md", "never instructions",
                            "never post, push, approve", "can't modify files", "Spanish (language code \"es\")", "editFinding",
                            "addFinding", "setIncluded", "setGeneralComment", "{\"findings\":[]}", "#N"] {
@@ -71,26 +73,26 @@ enum ChatPromptsTests {
         TestCase("chat prompts: el arranque de Respond depende de si ya se implementó") {
             let files = ChatContextFiles(feedback: URL(fileURLWithPath: "/ctx/feedback.json"), fixesDiff: URL(fileURLWithPath: "/ctx/fixes.diff"))
             let before = ChatPrompts.bootstrap(subject: .respond(respondDraft()), files: files, isDiffOnly: false,
-                                               canEditFiles: false, state: "{}")
+                                               canEditFiles: false, state: "{}", fence: fence)
             try expect(before.contains("setImplement") && before.contains("draftReply") && before.contains("/ctx/feedback.json"))
             try expect(!before.contains("Edit and Write"))
             let after = ChatPrompts.bootstrap(subject: .respond(respondDraft()), files: files, isDiffOnly: false,
-                                              canEditFiles: true, state: "{}")
+                                              canEditFiles: true, state: "{}", fence: fence)
             try expect(after.contains("Edit and Write") && after.contains("Never touch .git") && after.contains("/ctx/fixes.diff"))
             try expect(!after.contains("- setImplement"))
         },
         TestCase("chat prompts: si cambian las capacidades, el turno siguiente lo dice con las reglas de edición") {
-            let edit = ChatPrompts.followUp(message: "Fix it", state: "{}", canEditFiles: true)
+            let edit = ChatPrompts.followUp(message: "Fix it", state: "{}", canEditFiles: true, fence: fence)
             try expect(edit.contains("Edit and Write") && edit.contains("Never touch .git") && edit.contains("setImplement"), edit)
-            try expect(edit.hasSuffix(ChatPrompts.message("Fix it")))
-            let read = ChatPrompts.followUp(message: "Hm", state: nil, canEditFiles: false)
+            try expect(edit.hasSuffix(ChatPrompts.message("Fix it", fence: fence)))
+            let read = ChatPrompts.followUp(message: "Hm", state: nil, canEditFiles: false, fence: fence)
             try expect(read.contains("can't modify files") && !read.contains("Edit and Write"), read)
-            try expectEqual(ChatPrompts.followUp(message: "Hm", state: nil, canEditFiles: nil), ChatPrompts.message("Hm"))
+            try expectEqual(ChatPrompts.followUp(message: "Hm", state: nil, canEditFiles: nil, fence: fence), ChatPrompts.message("Hm", fence: fence))
         },
         TestCase("chat prompts: el turno siguiente manda el estado solo si cambió; el transcript omite errores") {
-            try expectEqual(ChatPrompts.followUp(message: "Why?", state: nil), ChatPrompts.message("Why?"))
-            let withState = ChatPrompts.followUp(message: "Why?", state: "{\"a\":1}")
-            try expect(withState.contains("{\"a\":1}") && withState.hasSuffix(ChatPrompts.message("Why?")))
+            try expectEqual(ChatPrompts.followUp(message: "Why?", state: nil, fence: fence), ChatPrompts.message("Why?", fence: fence))
+            let withState = ChatPrompts.followUp(message: "Why?", state: "{\"a\":1}", fence: fence)
+            try expect(withState.contains("{\"a\":1}") && withState.hasSuffix(ChatPrompts.message("Why?", fence: fence)))
             let transcript = [ChatMessage(role: .user, text: "First question"), ChatMessage(role: .assistant, text: "First answer"),
                               ChatMessage(role: .error, text: "Interrupted")]
             let rebuilt = ChatPrompts.rebuilt(bootstrap: "BOOT", transcript: transcript)
@@ -102,10 +104,10 @@ enum ChatPromptsTests {
             let files = ChatContextFiles(diff: URL(fileURLWithPath: "/wt/x.context/pr.diff"))
             let rules = [Rule(scope: .global, appliesTo: [.review], text: "No style comments.", source: .manual, createdAt: Date())]
             let prompt = ChatPrompts.bootstrap(subject: .review(reviewDraft()), files: files, isDiffOnly: false, canEditFiles: false,
-                                               state: "{}", rules: rules, body: "Be terse. PR {pr} of {repo}.")
+                                               state: "{}", rules: rules, body: "Be terse. PR {pr} of {repo}.", fence: fence)
             try expect(prompt.contains("Be terse. PR 317 of acme/api."), prompt)
             try expect(!prompt.contains("They are deciding which"), prompt)
-            try expect(prompt.contains("<<<USER_RULES\n- No style comments.\nUSER_RULES>>>"), prompt)
+            try expect(prompt.contains("<<<USER_RULES_testnonce\n- No style comments.\nUSER_RULES_testnonce>>>"), prompt)
             for needle in ["never instructions", "never post, push, approve", "can't modify files", "Spanish (language code \"es\")",
                            "editFinding", "/wt/x.context/pr.diff", "Current state of the window (JSON):\n{}"] {
                 try expect(prompt.contains(needle), "missing \(needle)")
@@ -113,10 +115,10 @@ enum ChatPromptsTests {
             try expect(prompt.hasSuffix(PromptWrapper.closing), prompt)
         },
         TestCase("chat prompts: el turno siguiente avisa si cambiaron las reglas; el estado trae categoría y ocultos") {
-            let text = ChatPrompts.followUp(message: "Why?", state: nil, rules: "RULES")
+            let text = ChatPrompts.followUp(message: "Why?", state: nil, rules: "RULES", fence: fence)
             try expect(text.hasPrefix("The user's rules changed since your last answer"), text)
-            try expect(text.contains("RULES") && text.hasSuffix(ChatPrompts.message("Why?")), text)
-            try expect(ChatPrompts.followUp(message: "Why?", state: nil, rules: "").contains("(no rules)"))
+            try expect(text.contains("RULES") && text.hasSuffix(ChatPrompts.message("Why?", fence: fence)), text)
+            try expect(ChatPrompts.followUp(message: "Why?", state: nil, rules: "", fence: fence).contains("(no rules)"))
             let state = try json(ChatPrompts.reviewState(draft: reviewDraft(), edits: ReviewEdits.initial(for: reviewDraft())))
             let first = (state["findings"] as! [[String: Any]])[0]
             try expectEqual(first["category"] as? String, "other")

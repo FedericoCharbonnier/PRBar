@@ -80,16 +80,19 @@ public struct RespondAnalyzer: Sendable {
         "You never post or push anything: PRBar shows your analysis to the user, who decides.",
     ]
 
-    static func prompt(pr: PullRequest, feedbackFile: URL, metadataFile: URL, language: PRLanguage,
-                       settings: ClaudeSettings = ClaudeSettings(), rules: [Rule] = []) -> String {
-        let values = ["pr": "\(pr.number)", "repo": pr.repo.fullName, "title": pr.title, "feedback_path": feedbackFile.path,
+    /// `fence`: this run's markers (spec E.9). The title goes in one line and neutralized.
+    public static func prompt(pr: PullRequest, feedbackFile: URL, metadataFile: URL, language: PRLanguage,
+                              settings: ClaudeSettings = ClaudeSettings(), rules: [Rule] = [],
+                              fence: PromptFence = .random()) -> String {
+        let values = ["pr": "\(pr.number)", "repo": UntrustedText.singleLine(pr.repo.fullName),
+                      "title": UntrustedText.singleLine(pr.title), "feedback_path": feedbackFile.path,
                       "pr_md_path": metadataFile.path, "language": "\(language.displayName) (\(language.code))",
-                      "skill": settings.skill(for: .analysis) ?? "", "rules": PromptWrapper.rulesValue(rules)]
+                      "skill": settings.skill(for: .analysis) ?? "", "rules": PromptWrapper.rulesValue(rules, fence: fence)]
         return PromptWrapper.compose(
             security: securityLines,
             body: PlaceholderTemplate.render(settings.promptBody(for: .analysis), values: values),
             rules: rules, settings: FixImplementer.fixSettingsLines(settings.respond, planning: true),
-            output: analysisOutput(language))
+            output: analysisOutput(language), fence: fence)
     }
 
     static func analysisOutput(_ language: PRLanguage) -> String {

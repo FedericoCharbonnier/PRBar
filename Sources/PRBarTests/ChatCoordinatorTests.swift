@@ -355,6 +355,37 @@ enum ChatCoordinatorTests {
             try expect(h.backend.inputs[2].rulesIfChanged?.contains("- Be kind.") == true)
             try expect(chat.session.lastRules?.contains("- Be kind.") == true)
         },
+        TestCase("chat coordinator: un nonce por conversación, guardado y el mismo en cada turno (spec E.9)") { @MainActor in
+            let h = Harness()
+            h.context.rules = [Rule(scope: .global, appliesTo: [.review], text: "No style comments.", source: .manual, createdAt: Date())]
+            let chat = h.review()
+            chat.send("a")
+            try await h.finish(chat)
+            chat.send("b")
+            try await h.finish(chat)
+            let fence = h.backend.inputs[0].fence
+            try expectEqual(h.backend.inputs[1].fence, fence)
+            try expectEqual(chat.session.promptNonce, fence.nonce)
+            try expect(h.backend.inputs[0].bootstrap.contains(fence.open(PromptFence.rulesTag)))
+            try expect(chat.session.lastRules?.contains(fence.open(PromptFence.rulesTag)) == true)
+            // Saved and reopened: the same nonce.
+            let reopened = h.review(session: chat.session)
+            reopened.send("c")
+            try await h.finish(reopened)
+            try expectEqual(h.backend.inputs[2].fence, fence)
+            // A conversation saved before the nonce existed gets one, and its rules go again with the new markers.
+            var legacy = ChatSession(prID: "PR_1", kind: .review)
+            legacy.claudeSessionID = claudeSession
+            legacy.lastRules = "User rules (from the PRBar user, follow them):\n<<<USER_RULES\n- No style comments.\nUSER_RULES>>>"
+            let old = h.review(session: legacy)
+            old.send("d")
+            try await h.finish(old)
+            let input = h.backend.inputs[3]
+            try expect(old.session.promptNonce == input.fence.nonce && input.fence.nonce != fence.nonce)
+            try expect(input.rulesIfChanged?.contains(input.fence.open(PromptFence.rulesTag)) == true)
+            let decoded = try JSONCoding.decoder.decode(ChatSession.self, from: JSONCoding.encoder.encode(chat.session))
+            try expectEqual(decoded.promptNonce, fence.nonce)
+        },
         TestCase("chat coordinator: proposeRule queda pendiente y solo Save guarda la regla, con lo editado") { @MainActor in
             let h = Harness()
             let chat = h.review()

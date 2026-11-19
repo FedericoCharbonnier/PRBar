@@ -957,23 +957,26 @@ public struct FixImplementer: Sendable {
         - commitMessage: in English, in the style of the repo's commits, with a first line under 72 characters.
         """
 
-    /// `rules`: the effective ones of the draft's repo for `respond`.
-    static func prompt(item: RespondItem, fixPlan: String, settings: ClaudeSettings = ClaudeSettings(), rules: [Rule] = []) -> String {
+    /// `rules`: the effective ones of the draft's repo for `respond`. `fence`: this run's markers (spec E.9). The
+    /// comment goes between them, neutralized; its location and authors in one line. The assessment (Claude's, from
+    /// the comment) and the plan are neutralized too.
+    public static func prompt(item: RespondItem, fixPlan: String, settings: ClaudeSettings = ClaudeSettings(), rules: [Rule] = [],
+                              fence: PromptFence = .random()) -> String {
         let feedback = item.feedback
-        let location = feedback.path.map { path in feedback.line.map { "\(path):\($0)" } ?? path } ?? "general review comment"
-        let comments = feedback.comments.map { "@\($0.author): \($0.body)" }.joined(separator: "\n---\n")
+        let location = UntrustedText.singleLine(
+            feedback.path.map { path in feedback.line.map { "\(path):\($0)" } ?? path } ?? "general review comment")
+        let comments = feedback.comments.map { "@\(UntrustedText.singleLine($0.author)): \($0.body)" }.joined(separator: "\n---\n")
         let context = """
             Original comment (\(location)):
-            <<<COMMENT
-            \(comments)
-            COMMENT>>>
+            \(fence.block(PromptFence.commentTag, comments))
             """
-        let values = ["location": location, "assessment": item.assessment, "fix_plan": fixPlan,
-                      "skill": settings.skill(for: .implementation) ?? "", "rules": PromptWrapper.rulesValue(rules)]
+        let values = ["location": location, "assessment": UntrustedText.neutralize(item.assessment),
+                      "fix_plan": UntrustedText.neutralize(fixPlan),
+                      "skill": settings.skill(for: .implementation) ?? "", "rules": PromptWrapper.rulesValue(rules, fence: fence)]
         return PromptWrapper.compose(
             security: securityLines, context: context,
             body: PlaceholderTemplate.render(settings.promptBody(for: .implementation), values: values),
-            rules: rules, settings: fixSettingsLines(settings.respond), output: fixOutput)
+            rules: rules, settings: fixSettingsLines(settings.respond), output: fixOutput, fence: fence)
     }
 
     /// The user's fix settings as prompt lines (spec E.5). `planning`: the analysis, which plans the fixes.

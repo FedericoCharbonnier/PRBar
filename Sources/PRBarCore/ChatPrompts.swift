@@ -106,20 +106,24 @@ public enum ChatPrompts {
     /// `canEditFiles`: Respond after implementing (Edit/Write in the worktree). `rules`: the effective ones (spec
     /// E.1). `body`: the user's own prompt for this chat (spec E.6); nil = the default one. The fixed part (files,
     /// security, published language, actions and state) is always there (`PromptWrapper`).
+    /// `fence`: the conversation's markers (`ChatSession.promptNonce`, spec E.9). The title and the author go in
+    /// one line and the state neutralized.
     public static func bootstrap(subject: ChatSubject, files: ChatContextFiles, isDiffOnly: Bool, canEditFiles: Bool,
-                                 state: String, rules: [Rule] = [], body: String? = nil) -> String {
+                                 state: String, rules: [Rule] = [], body: String? = nil, fence: PromptFence) -> String {
         let language: PRLanguage
         var values: [String: String]
         switch subject {
         case .review(let draft):
             language = draft.language
-            values = ["pr": "\(draft.number)", "repo": draft.repo.fullName, "title": draft.title, "author": draft.author]
+            values = ["pr": "\(draft.number)", "title": draft.title, "author": draft.author]
         case .respond(let draft):
             language = draft.language
-            values = ["pr": "\(draft.number)", "repo": draft.repo.fullName, "title": draft.title, "author": draft.account]
+            values = ["pr": "\(draft.number)", "title": draft.title, "author": draft.account]
         }
+        values = values.mapValues { UntrustedText.singleLine($0) }
+        values["repo"] = UntrustedText.singleLine(subject.repo.fullName)
         values["language"] = "\(language.displayName) (\(language.code))"
-        values["rules"] = PromptWrapper.rulesValue(rules)
+        values["rules"] = PromptWrapper.rulesValue(rules, fence: fence)
 
         let published = { if case .review = subject { return "finding titles and bodies and the general comment" } else { return "replies" } }()
         let security = [
@@ -160,12 +164,12 @@ public enum ChatPrompts {
         output.append("- proposeRule {scope: global|repo, appliesTo: [review, respond], text}: only when the user asks you to remember something for future PRs (\"from now on…\", \"remember…\"). PRBar shows it as a card and saves it only if the user accepts. `repo` means \(subject.repo.fullName) only; `review` applies to reviews of other people's PRs and `respond` to fixing the feedback on the user's own PRs.")
         output.append("")
         output.append("Current state of the window (JSON):")
-        output.append(state)
+        output.append(UntrustedText.neutralize(state))
 
         let template = body ?? subject.promptStage.defaultBody(skill: nil)
         return PromptWrapper.compose(security: security, context: context.joined(separator: "\n"),
                                      body: PlaceholderTemplate.render(template, values: values), rules: rules,
-                                     output: output.joined(separator: "\n"))
+                                     output: output.joined(separator: "\n"), fence: fence, userMessages: true)
     }
 
     static let editRule = "- You have no shell, git or network. Use Read, Grep and Glob, and Edit and Write only inside the current directory and only when the user asks for a code change. Never touch .git, .gitattributes or .lfsconfig. PRBar commits your changes and shows the user the diff before anything is pushed."
@@ -182,15 +186,18 @@ public enum ChatPrompts {
         return "Your tools changed since your last answer. From now on:\n" + readOnlyRule
     }
 
-    /// The user's message, delimited.
-    public static func message(_ text: String) -> String {
-        "The user says:\n<<<USER\n\(text)\nUSER>>>"
+    /// The user's message, delimited: with the conversation's markers (spec E.9), or plain ones for the
+    /// instructions chat (`fence` nil: no text from a PR).
+    public static func message(_ text: String, fence: PromptFence?) -> String {
+        guard let fence else { return "The user says:\n<<<USER\n\(text)\nUSER>>>" }
+        return "The user says:\n" + fence.block(PromptFence.userTag, text)
     }
 
     /// A `--resume` turn: if `canEditFiles` isn't nil, a note saying what Claude can do now (its tools changed); the
     /// user's rules if they changed (`rules`: the new section, "" = none, spec E.1); and the state if it changed since
     /// Claude last saw it (the user may have edited it by hand).
-    public static func followUp(message text: String, state: String?, canEditFiles: Bool? = nil, rules: String? = nil) -> String {
+    public static func followUp(message text: String, state: String?, canEditFiles: Bool? = nil, rules: String? = nil,
+                                fence: PromptFence) -> String {
         var parts: [String] = []
         if let canEditFiles { parts.append(capabilityNote(canEditFiles: canEditFiles)) }
         if let rules {
@@ -198,17 +205,17 @@ public enum ChatPrompts {
                 + (rules.isEmpty ? "(no rules)" : rules))
         }
         if let state {
-            parts.append("The window changed since your last answer (the user may have edited it by hand). Current state (JSON):\n" + state)
+            parts.append("The window changed since your last answer (the user may have edited it by hand). Current state (JSON):\n" + UntrustedText.neutralize(state))
         }
-        return (parts + [message(text)]).joined(separator: "\n\n")
+        return (parts + [message(text, fence: fence)]).joined(separator: "\n\n")
     }
 
     /// When `--resume` fails: the first turn's prompt (with the current state) and the conversation so far.
     public static func rebuilt(bootstrap: String, transcript: [ChatMessage]) -> String {
         let lines = transcript.compactMap { message -> String? in
             switch message.role {
-            case .user: "User: \(message.text)"
-            case .assistant: "You: \(message.text)"
+            case .user: "User: \(UntrustedText.neutralize(message.text))"
+            case .assistant: "You: \(UntrustedText.neutralize(message.text))"
             case .error: nil
             }
         }

@@ -208,6 +208,9 @@ public struct ChatSession: Codable, Equatable, Sendable {
     public var canEditFiles: Bool?
     /// The user's rules section as Claude last saw it: the next turn sends it again only if it changed (spec E.1).
     public var lastRules: String?
+    /// The code of this conversation's markers (`PromptFence`, spec E.9): the same in every turn, so the rules and
+    /// messages of a `--resume` turn use the markers Claude was told about. Nil until the first message.
+    public var promptNonce: String?
 
     public init(id: UUID = UUID(), prID: String, kind: Kind) {
         self.id = id
@@ -222,11 +225,12 @@ public struct ChatSession: Codable, Equatable, Sendable {
         lastState = nil
         canEditFiles = nil
         lastRules = nil
+        promptNonce = nil
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, prID, kind, claudeSessionID, worktreePath, worktreeRefs, messages, readOnly, pending, lastState, canEditFiles
-        case lastRules
+        case lastRules, promptNonce
     }
 
     /// Lenient: only `id`, `prID` and `kind` are required.
@@ -244,6 +248,7 @@ public struct ChatSession: Codable, Equatable, Sendable {
         lastState = (try? c.decodeIfPresent(String.self, forKey: .lastState)) ?? nil
         canEditFiles = (try? c.decodeIfPresent(Bool.self, forKey: .canEditFiles)) ?? nil
         lastRules = (try? c.decodeIfPresent(String.self, forKey: .lastRules)) ?? nil
+        promptNonce = (try? c.decodeIfPresent(String.self, forKey: .promptNonce)) ?? nil
     }
 
     /// The only message that offers Undo: the last one with changes that wasn't undone. Undoing goes backwards.

@@ -143,8 +143,12 @@ public final class ChatCoordinator: ObservableObject {
         let context = self.context()
         let state = currentState(context)
         let stateChanged = state != session.lastState
+        // One fence per conversation (spec E.9), saved: a conversation from before it gets one now, and its rules
+        // go again with the new markers (the section changes).
+        if session.promptNonce == nil { session.promptNonce = PromptFence.random().nonce }
+        let fence = PromptFence(nonce: session.promptNonce ?? PromptFence.random().nonce)
         let rules = RulesPrompt.fitting(RulesPrompt.effective(context.rules, repo: subject.repo, stage: subject.ruleStage)).kept
-        let rulesText = RulesPrompt.section(rules)
+        let rulesText = RulesPrompt.section(rules, fence: fence)
         let rulesChanged = session.claudeSessionID != nil && rulesText != (session.lastRules ?? "")
         let transcript = session.messages
         let turn = session.messages.filter { $0.role == .user }.count + 1
@@ -182,11 +186,11 @@ public final class ChatCoordinator: ObservableObject {
                     kind: subject.kind, claudeSessionID: claudeSessionID,
                     bootstrap: ChatPrompts.bootstrap(subject: subject, files: workspace.files, isDiffOnly: workspace.isDiffOnly,
                                                      canEditFiles: canEdit, state: state, rules: rules,
-                                                     body: context.promptBody),
+                                                     body: context.promptBody, fence: fence),
                     message: text, stateIfChanged: stateChanged ? state : nil, transcript: transcript,
                     canEditFiles: canEdit, workingDirectory: workspace.directory,
                     additionalDirectories: [workspace.contextDirectory], turn: turn,
-                    capabilitiesChanged: capabilitiesChanged, rulesIfChanged: rulesChanged ? rulesText : nil)
+                    capabilitiesChanged: capabilitiesChanged, rulesIfChanged: rulesChanged ? rulesText : nil, fence: fence)
                 if case .respond(let draft) = subject, let result = editingResult {
                     let (output, files) = try await backend.sendEditing(input, draft: draft, result: result,
                                                                         sessionID: request.session.id, logURL: context.logURL) { relay.send($0) }

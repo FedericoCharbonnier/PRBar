@@ -90,7 +90,7 @@ enum InstructionsChatTests {
             try expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent("cwd").path))
             // The message's budget (deadline) caps the run.
             try expect((call.timeout ?? 0) <= InstructionsChatEngine.timeout && (call.timeout ?? 0) > InstructionsChatEngine.timeout - 5)
-            try expectEqual(arg("-p", call), "BOOT\n\n" + ChatPrompts.message("no style comments"))
+            try expectEqual(arg("-p", call), "BOOT\n\n" + ChatPrompts.message("no style comments", fence: nil))
         },
         TestCase("instructions chat: --resume con el estado si cambió; si falla, sesión nueva con transcript") {
             let dir = try temporaryDirectory()
@@ -105,7 +105,7 @@ enum InstructionsChatTests {
             try expectEqual(output.rebuiltContext, true)
             try expectEqual(output.claudeSessionID, newID)
             try expectEqual(arg("-p", failing.calls[1]),
-                            ChatPrompts.rebuilt(bootstrap: "BOOT", transcript: input().transcript) + "\n\n" + ChatPrompts.message("no style comments"))
+                            ChatPrompts.rebuilt(bootstrap: "BOOT", transcript: input().transcript) + "\n\n" + ChatPrompts.message("no style comments", fence: nil))
         },
         TestCase("instructions chat: el prompt trae repos, reglas con id, acciones y la parte fija") {
             let state = InstructionsPrompts.state(rules: existing(), repos: repos)

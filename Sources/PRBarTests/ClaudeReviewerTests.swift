@@ -303,7 +303,11 @@ enum ClaudeReviewerTests {
             _ = try await run(reviewer)
             for call in runner.calls {
                 let text = prompt(of: call)
-                try expect(text.contains("<<<USER_RULES\n- No style comments.\n- (o/r) Prefer async/await.\nUSER_RULES>>>"), text)
+                // Each run has its own markers (spec E.9).
+                let open = try text.range(of: #"<<<USER_RULES_[0-9a-f]{16}\n"#, options: .regularExpression)
+                    ?? { throw TestFailure(description: text) }()
+                let nonce = text[open].dropFirst("<<<USER_RULES_".count).dropLast()
+                try expect(text.contains("\n- No style comments.\n- (o/r) Prefer async/await.\nUSER_RULES_\(nonce)>>>"), text)
                 for absent in ["FIXES ONLY", "OTHER REPO", "DISABLED"] { try expect(!text.contains(absent), absent) }
                 try expect(text.hasSuffix(PromptWrapper.closing), text)
             }

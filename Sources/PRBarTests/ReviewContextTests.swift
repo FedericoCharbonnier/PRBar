@@ -153,7 +153,7 @@ enum ReviewContextTests {
             let end = try md.range(of: "PR_DESCRIPTION>>>") ?? { throw TestFailure(description: md) }()
             let inside = String(md[start.upperBound..<end.lowerBound])
             try expect(inside.contains("Agrega el login.") && inside.contains("rm -rf ~"), inside)
-            try expect(inside.contains("PR-DESCRIPTION>>>"), inside)
+            try expect(inside.contains("PR-DESCRIPTION›››"), inside)
         },
         TestCase("context: an empty description says so, and a huge one is cut") {
             let pr = makePR(number: 7)

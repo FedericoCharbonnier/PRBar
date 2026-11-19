@@ -204,14 +204,14 @@ public enum InstructionsPrompts {
         return PromptWrapper.compose(
             security: securityLines,
             body: PlaceholderTemplate.render(template, values: ["repos": repos.joined(separator: ", ")]),
-            rules: [], output: output)
+            rules: [], output: output, fence: nil)
     }
 
     /// A `--resume` turn: the repos and rules only if they changed since Claude last saw them.
     public static func followUp(message text: String, state: String?) -> String {
-        guard let state else { return ChatPrompts.message(text) }
+        guard let state else { return ChatPrompts.message(text, fence: nil) }
         return "The rules changed since your last answer (the user may have edited them). Current repos and rules (JSON):\n"
-            + state + "\n\n" + ChatPrompts.message(text)
+            + state + "\n\n" + ChatPrompts.message(text, fence: nil)
     }
 }
 
@@ -285,12 +285,12 @@ public struct InstructionsChatEngine: Sendable {
             }
             let id = newSessionID()
             let prompt = ChatPrompts.rebuilt(bootstrap: input.bootstrap, transcript: input.transcript)
-                + "\n\n" + ChatPrompts.message(input.message)
+                + "\n\n" + ChatPrompts.message(input.message, fence: nil)
             let output = try await run(prompt, session: .start(id), turn: input.turn, deadline: deadline, onEvent: onEvent)
             return InstructionsTurnOutput(reply: output.reply, actions: output.actions, claudeSessionID: id, rebuiltContext: true)
         }
         let id = newSessionID()
-        let output = try await run(input.bootstrap + "\n\n" + ChatPrompts.message(input.message), session: .start(id),
+        let output = try await run(input.bootstrap + "\n\n" + ChatPrompts.message(input.message, fence: nil), session: .start(id),
                                    turn: input.turn, deadline: deadline, onEvent: onEvent)
         return InstructionsTurnOutput(reply: output.reply, actions: output.actions, claudeSessionID: id, rebuiltContext: false)
     }

@@ -23,10 +23,12 @@ public struct ChatTurnInput: Sendable {
     public var turn: Int
     /// For `--resume` turns: the user's rules section if it changed ("" = there are none now).
     public var rulesIfChanged: String?
+    /// The conversation's markers (`ChatSession.promptNonce`, spec E.9): the user's message goes between them.
+    public var fence: PromptFence
 
     public init(kind: ChatSession.Kind, claudeSessionID: UUID?, bootstrap: String, message: String, stateIfChanged: String?,
                 transcript: [ChatMessage], canEditFiles: Bool, workingDirectory: URL, additionalDirectories: [URL], turn: Int,
-                capabilitiesChanged: Bool = false, rulesIfChanged: String? = nil) {
+                capabilitiesChanged: Bool = false, rulesIfChanged: String? = nil, fence: PromptFence) {
         self.kind = kind
         self.claudeSessionID = claudeSessionID
         self.bootstrap = bootstrap
@@ -39,6 +41,7 @@ public struct ChatTurnInput: Sendable {
         self.additionalDirectories = additionalDirectories
         self.turn = turn
         self.rulesIfChanged = rulesIfChanged
+        self.fence = fence
     }
 }
 
@@ -91,7 +94,7 @@ public struct ChatEngine: Sendable {
                 let output = try await run(input, deadline: deadline, session: .resume(existing),
                                            prompt: ChatPrompts.followUp(message: input.message, state: input.stateIfChanged,
                                                                        canEditFiles: input.capabilitiesChanged ? input.canEditFiles : nil,
-                                                                       rules: input.rulesIfChanged),
+                                                                       rules: input.rulesIfChanged, fence: input.fence),
                                            onEvent: onEvent)
                 return ChatTurnOutput(reply: output.reply, actions: output.actions, claudeSessionID: existing, rebuiltContext: false)
             } catch {
@@ -102,13 +105,14 @@ public struct ChatEngine: Sendable {
             }
             let id = newSessionID()
             let prompt = ChatPrompts.rebuilt(bootstrap: input.bootstrap, transcript: input.transcript)
-                + "\n\n" + ChatPrompts.message(input.message)
+                + "\n\n" + ChatPrompts.message(input.message, fence: input.fence)
             let output = try await run(input, deadline: deadline, session: .start(id), prompt: prompt, onEvent: onEvent)
             return ChatTurnOutput(reply: output.reply, actions: output.actions, claudeSessionID: id, rebuiltContext: true)
         }
         let id = newSessionID()
         let output = try await run(input, deadline: deadline, session: .start(id),
-                                   prompt: input.bootstrap + "\n\n" + ChatPrompts.message(input.message), onEvent: onEvent)
+                                   prompt: input.bootstrap + "\n\n" + ChatPrompts.message(input.message, fence: input.fence),
+                                   onEvent: onEvent)
         return ChatTurnOutput(reply: output.reply, actions: output.actions, claudeSessionID: id, rebuiltContext: false)
     }
 

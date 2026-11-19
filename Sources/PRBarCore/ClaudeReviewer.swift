@@ -115,19 +115,23 @@ public struct ClaudeReviewer: Sendable {
         "You never post, approve or publish anything: PRBar shows your result to the user, who decides.",
     ]
 
-    /// The variables both stages share.
-    static func promptValues(_ pr: PullRequest, workspace: ReviewWorkspace, language: PRLanguage, rules: [Rule]) -> [String: String] {
-        ["pr": "\(pr.number)", "repo": pr.repo.fullName, "title": pr.title, "author": pr.author,
-         "head_ref": pr.headRef, "base_ref": pr.baseRef, "diff_path": workspace.diffFile.path,
+    /// The variables both stages share. What the PR's author wrote (title, login, branches) goes in one line and
+    /// neutralized (spec E.9).
+    static func promptValues(_ pr: PullRequest, workspace: ReviewWorkspace, language: PRLanguage, rules: [Rule],
+                             fence: PromptFence) -> [String: String] {
+        ["pr": "\(pr.number)", "repo": UntrustedText.singleLine(pr.repo.fullName), "title": UntrustedText.singleLine(pr.title),
+         "author": UntrustedText.singleLine(pr.author), "head_ref": UntrustedText.singleLine(pr.headRef),
+         "base_ref": UntrustedText.singleLine(pr.baseRef), "diff_path": workspace.diffFile.path,
          "pr_md_path": workspace.metadataFile.path, "language": "\(language.displayName) (\(language.code))",
-         "rules": PromptWrapper.rulesValue(rules)]
+         "rules": PromptWrapper.rulesValue(rules, fence: fence)]
     }
 
     /// `rules`: the effective ones (`RulesPrompt.effective`). `ignorePaths`: the repo's, on top of the settings'.
-    static func stageOnePrompt(pr: PullRequest, workspace: ReviewWorkspace, language: PRLanguage,
-                               settings: ClaudeSettings = ClaudeSettings(), rules: [Rule] = [],
-                               ignorePaths: [String] = []) -> String {
-        var values = promptValues(pr, workspace: workspace, language: language, rules: rules)
+    /// `fence`: this run's markers (spec E.9).
+    public static func stageOnePrompt(pr: PullRequest, workspace: ReviewWorkspace, language: PRLanguage,
+                                      settings: ClaudeSettings = ClaudeSettings(), rules: [Rule] = [],
+                                      ignorePaths: [String] = [], fence: PromptFence = .random()) -> String {
+        var values = promptValues(pr, workspace: workspace, language: language, rules: rules, fence: fence)
         values["code_location"] = workspace.isDiffOnly
             ? "There is no local checkout of the repo: review from the diff."
             : "The PR's code (new version, HEAD) is in the current directory."
@@ -136,7 +140,7 @@ public struct ClaudeReviewer: Sendable {
             security: securityLines,
             body: PlaceholderTemplate.render(settings.promptBody(for: .review), values: values),
             rules: rules, settings: reviewSettingsLines(settings.review, ignorePaths: ignorePaths),
-            output: stageOneOutput(language))
+            output: stageOneOutput(language), fence: fence)
     }
 
     static func stageOneOutput(_ language: PRLanguage) -> String {
@@ -175,10 +179,12 @@ public struct ClaudeReviewer: Sendable {
         return lines
     }
 
-    static func stageTwoPrompt(pr: PullRequest, findingsJSON: String, workspace: ReviewWorkspace,
-                               settings: ClaudeSettings = ClaudeSettings(), rules: [Rule] = []) -> String {
-        var values = promptValues(pr, workspace: workspace, language: .english, rules: rules)
-        values["findings_json"] = findingsJSON
+    /// `findingsJSON`: stage 1's findings, written from the PR's content: neutralized.
+    public static func stageTwoPrompt(pr: PullRequest, findingsJSON: String, workspace: ReviewWorkspace,
+                                      settings: ClaudeSettings = ClaudeSettings(), rules: [Rule] = [],
+                                      fence: PromptFence = .random()) -> String {
+        var values = promptValues(pr, workspace: workspace, language: .english, rules: rules, fence: fence)
+        values["findings_json"] = UntrustedText.neutralize(findingsJSON)
         values["code_location"] = workspace.isDiffOnly
             ? "There is no local checkout of the repo: the diff is in \(workspace.diffFile.path)"
             : "the PR's code is in the current directory and the diff in \(workspace.diffFile.path)"
@@ -186,7 +192,7 @@ public struct ClaudeReviewer: Sendable {
         return PromptWrapper.compose(
             security: securityLines,
             body: PlaceholderTemplate.render(settings.promptBody(for: .filter), values: values),
-            rules: rules, output: stageTwoOutput)
+            rules: rules, output: stageTwoOutput, fence: fence)
     }
 
     static let stageTwoOutput = """

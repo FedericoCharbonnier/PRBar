@@ -15,11 +15,13 @@ private func chatLine(_ reply: String, actions: [[String: Any]] = []) -> String 
 /// What `claude -p --resume <id>` prints for a session that doesn't exist (checked with the real CLI, 2.1.318).
 private let missingSessionLine = #"{"type":"result","subtype":"error_during_execution","is_error":true,"num_turns":0,"errors":["No conversation found with session ID: aaaaaaaa"]}"#
 
+private let chatFence = PromptFence(nonce: "chatnonce")
+
 private func input(session: UUID? = nil, edits: Bool = false, state: String? = nil, kind: ChatSession.Kind = .review) -> ChatTurnInput {
     ChatTurnInput(
         kind: kind, claudeSessionID: session, bootstrap: "BOOTSTRAP", message: "Is #2 right?", stateIfChanged: state,
         transcript: [ChatMessage(role: .user, text: "Earlier question"), ChatMessage(role: .assistant, text: "Earlier answer")],
-        canEditFiles: edits, workingDirectory: workdir, additionalDirectories: [context], turn: 3)
+        canEditFiles: edits, workingDirectory: workdir, additionalDirectories: [context], turn: 3, fence: chatFence)
 }
 
 private func engine(_ runner: FakeStreamingRunner, log: URL, startedAt: @escaping @Sendable () -> Date = { Date() }) -> ChatEngine {
@@ -56,12 +58,12 @@ enum ChatEngineTests {
             try expect((call.timeout ?? 0) <= ChatEngine.timeout && (call.timeout ?? 0) > ChatEngine.timeout - 5, "\(String(describing: call.timeout))")
             // The exact isolation of every Claude run (settings, dontAsk, strict MCP…).
             let expected = ClaudeRunner.arguments(
-                for: ClaudeInvocation(prompt: "BOOTSTRAP\n\n" + ChatPrompts.message("Is #2 right?"), schema: ChatSchemas.turn,
+                for: ClaudeInvocation(prompt: "BOOTSTRAP\n\n" + ChatPrompts.message("Is #2 right?", fence: chatFence), schema: ChatSchemas.turn,
                                       tools: ChatEngine.readTools, workingDirectory: workdir, additionalDirectories: [context],
                                       timeout: ChatEngine.timeout, logHeader: "=== chat 3 ===", session: .start(newID)),
                 pluginDirs: ["/plugins/x"])
             try expectEqual(call.arguments, expected)
-            try expectEqual(arg("-p", call), "BOOTSTRAP\n\n" + ChatPrompts.message("Is #2 right?"))
+            try expectEqual(arg("-p", call), "BOOTSTRAP\n\n" + ChatPrompts.message("Is #2 right?", fence: chatFence))
             try expect(try String(contentsOf: log, encoding: .utf8).contains("=== chat 3 ==="))
         },
         TestCase("chat engine: Respond con edición suma Edit y Write acotados al cwd, nunca Bash") {
@@ -88,14 +90,14 @@ enum ChatEngineTests {
             let call = runner.calls[0]
             try expectEqual(arg("--resume", call), oldID.uuidString.lowercased())
             try expect(!call.arguments.contains("--session-id"))
-            try expectEqual(arg("-p", call), ChatPrompts.followUp(message: "Is #2 right?", state: "{\"x\":1}"))
+            try expectEqual(arg("-p", call), ChatPrompts.followUp(message: "Is #2 right?", state: "{\"x\":1}", fence: chatFence))
         },
         TestCase("chat engine: si cambiaron las capacidades, el --resume lleva la nota con las herramientas nuevas") {
             let runner = FakeStreamingRunner { _, _, _ in ([chatLine("Ok.")], ok("")) }
             var turn = input(session: oldID, edits: true, state: "{}", kind: .respond)
             turn.capabilitiesChanged = true
             _ = try await engine(runner, log: try temporaryDirectory().appendingPathComponent("r.log")).send(turn) { _ in }
-            try expectEqual(arg("-p", runner.calls[0]), ChatPrompts.followUp(message: "Is #2 right?", state: "{}", canEditFiles: true))
+            try expectEqual(arg("-p", runner.calls[0]), ChatPrompts.followUp(message: "Is #2 right?", state: "{}", canEditFiles: true, fence: chatFence))
             try expectEqual(arg("--tools", runner.calls[0]), "Read,Grep,Glob,Edit,Write,Skill,Agent")
         },
         TestCase("chat engine: si --resume falla, relanza con sesión nueva, arranque y transcript") {
@@ -114,7 +116,7 @@ enum ChatEngineTests {
             let retry = runner.calls[1]
             try expectEqual(arg("--session-id", retry), newID.uuidString.lowercased())
             try expectEqual(arg("-p", retry), ChatPrompts.rebuilt(bootstrap: "BOOTSTRAP", transcript: input().transcript)
-                + "\n\n" + ChatPrompts.message("Is #2 right?"))
+                + "\n\n" + ChatPrompts.message("Is #2 right?", fence: chatFence))
             try expect(try String(contentsOf: log, encoding: .utf8).contains("rebuilding"))
         },
         TestCase("chat engine: el error real de sesión inexistente (línea result con `errors`) reconstruye el contexto") {
