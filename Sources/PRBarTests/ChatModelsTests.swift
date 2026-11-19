@@ -82,6 +82,22 @@ enum ChatModelsTests {
             let data = try JSONCoding.encoder.encode(full)
             try expectEqual(try JSONCoding.decoder.decode(ChatSession.self, from: data), full)
         },
+        TestCase("chat models: one bad message or change doesn't drop the rest of the conversation") {
+            var good = ChatMessage(role: .assistant, text: "Done", createdAt: t0)
+            good.changes = [.replyDrafted(commentID: "thread:A"), .filesChanged(["a.ts"])]
+            var session = ChatSession(prID: "PR_1", kind: .respond)
+            session.messages = [ChatMessage(role: .user, text: "q", createdAt: t0), good]
+            var object = try JSONSerialization.jsonObject(with: try JSONCoding.encoder.encode(session)) as! [String: Any]
+            var messages = object["messages"] as! [[String: Any]]
+            var changes = messages[1]["changes"] as! [Any]
+            changes.insert(["somethingNew": ["x": 1]], at: 1)
+            messages[1]["changes"] = changes
+            messages.insert(["role": "user"], at: 1)   // no id, no text
+            object["messages"] = messages
+            let decoded = try JSONCoding.decoder.decode(ChatSession.self, from: try JSONSerialization.data(withJSONObject: object))
+            try expectEqual(decoded.messages.map(\.text), ["q", "Done"])
+            try expectEqual(decoded.messages[1].changes, good.changes)
+        },
         TestCase("chat models: ReviewDraft and RespondRecord keep the chat; old files decode without it") {
             var draft = reviewDraft()
             try expectEqual(draft.chat, nil)

@@ -64,10 +64,31 @@ public struct ChatMessage: Codable, Equatable, Identifiable, Sendable {
         role = try c.decode(Role.self, forKey: .role)
         text = try c.decode(String.self, forKey: .text)
         createdAt = (try? c.decodeIfPresent(Date.self, forKey: .createdAt)) ?? Date(timeIntervalSince1970: 0)
-        changes = (try? c.decodeIfPresent([ChatChange].self, forKey: .changes)) ?? []
+        changes = (try? c.decodeIfPresent(LossyArray<ChatChange>.self, forKey: .changes))?.elements ?? []
         undone = (try? c.decodeIfPresent(Bool.self, forKey: .undone)) ?? false
         notes = (try? c.decodeIfPresent([String].self, forKey: .notes)) ?? []
         restore = (try? c.decodeIfPresent(ChatRestorePoint.self, forKey: .restore)) ?? nil
+    }
+}
+
+/// An array decoded element by element: the elements that don't decode are skipped, so one bad (or newer) entry
+/// doesn't lose the others.
+struct LossyArray<Element: Decodable>: Decodable {
+    let elements: [Element]
+
+    private struct Skip: Decodable { init(from decoder: Decoder) throws {} }
+
+    init(from decoder: Decoder) throws {
+        var container = try decoder.unkeyedContainer()
+        var elements: [Element] = []
+        while !container.isAtEnd {
+            if let element = try? container.decode(Element.self) {
+                elements.append(element)
+            } else {
+                _ = try container.decode(Skip.self)
+            }
+        }
+        self.elements = elements
     }
 }
 
@@ -185,7 +206,7 @@ public struct ChatSession: Codable, Equatable, Sendable {
         claudeSessionID = (try? c.decodeIfPresent(UUID.self, forKey: .claudeSessionID)) ?? nil
         worktreePath = (try? c.decodeIfPresent(String.self, forKey: .worktreePath)) ?? nil
         worktreeRefs = (try? c.decodeIfPresent([String].self, forKey: .worktreeRefs)) ?? []
-        messages = (try? c.decodeIfPresent([ChatMessage].self, forKey: .messages)) ?? []
+        messages = (try? c.decodeIfPresent(LossyArray<ChatMessage>.self, forKey: .messages))?.elements ?? []
         readOnly = (try? c.decodeIfPresent(Bool.self, forKey: .readOnly)) ?? false
         pending = (try? c.decodeIfPresent(Bool.self, forKey: .pending)) ?? false
         lastState = (try? c.decodeIfPresent(String.self, forKey: .lastState)) ?? nil
