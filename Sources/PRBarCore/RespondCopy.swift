@@ -17,6 +17,29 @@ public enum RespondCopy {
     }
 }
 
+extension RespondCopy {
+    /// "Push and Reply" had to run the tests first and they couldn't start.
+    public static let testsDidNotStart = "PRBar couldn’t run the tests before pushing: something else is running on this PR "
+        + "(a chat message, the tests or a push). Nothing was pushed. Try again when it ends."
+}
+
+/// An alert that only informs (an error), as a sheet of the active window.
+@MainActor
+public enum InfoAlert {
+    public static func present(title: String, message: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        if let window = NSApp.keyWindow, window.attachedSheet == nil {
+            alert.beginSheetModal(for: window) { _ in }
+        } else {
+            alert.runModal()
+        }
+    }
+}
+
 /// Alerta de confirmación de una acción que no se puede deshacer (pushear, publicar, aprobar): **Return
 /// cancela** (es el botón por defecto); la acción no tiene atajo y necesita un clic.
 @MainActor

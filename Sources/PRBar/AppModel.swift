@@ -900,14 +900,18 @@ final class AppModel: ObservableObject {
     /// Push and reply, running the tests first if the settings ask for it. Returns what it did: `.testsFailed` means it
     /// didn't push (the window offers "Push Anyway", which calls this with `ignoringFailedTests`).
     @discardableResult
-    func pushRespond(prID: String, ignoringFailedTests: Bool = false) -> RespondPushGate {
+    /// Throws if the tests that must run first can't start now (a chat turn or another job on the PR): nothing is
+    /// pushed, and the window says so.
+    func pushRespond(prID: String, ignoringFailedTests: Bool = false) throws -> RespondPushGate {
         let gate = respondPushGate(prID: prID)
         switch gate {
         case .ready:
             respond.publish(prID: prID)
         case .runTests:
-            guard let draft = respond.records[prID]?.draft, let command = testCommand(for: draft) else { return gate }
-            respond.pushAfterTests(prID: prID, testCommand: command)
+            guard let draft = respond.records[prID]?.draft, let command = testCommand(for: draft),
+                  respond.pushAfterTests(prID: prID, testCommand: command) else {
+                throw PRBarError.respond(RespondCopy.testsDidNotStart)
+            }
         case .testsFailed:
             if ignoringFailedTests { respond.publish(prID: prID) }
         }

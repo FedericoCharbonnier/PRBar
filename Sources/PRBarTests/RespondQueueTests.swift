@@ -816,6 +816,19 @@ enum RespondPipelineTests {
             try expectEqual(try h.saved(1).result?.tests?.passed, true)
             try expect(!h.queue.pushBlockedByTests.contains(prID(1)))
         },
+        TestCase("respond queue: pushAfterTests dice si arrancó; con un turno del chat corriendo no arranca") { @MainActor in
+            let h = try Harness()
+            h.pipeline.testsPass = true
+            try await h.toReadyToPush(1)
+            h.queue.setChatRunning(true, prID: prID(1))
+            try expect(!h.queue.pushAfterTests(prID: prID(1), testCommand: "make test"))
+            try expect(!h.queue.runningTests.contains(prID(1)))
+            try expect(!h.queue.runTests(prID: prID(1), testCommand: "make test"))
+            h.queue.setChatRunning(false, prID: prID(1))
+            try expect(!h.queue.pushAfterTests(prID: prID(1), testCommand: "  "))
+            try expect(h.queue.pushAfterTests(prID: prID(1), testCommand: "make test"))
+            try await h.events.wait(for: reached(1, "done"))
+        },
         TestCase("respond queue: si los tests fallan no pushea; Push Anyway pushea y limpia el bloqueo") { @MainActor in
             let h = try Harness()
             try await h.toReadyToPush(1)

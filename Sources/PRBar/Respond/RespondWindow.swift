@@ -529,8 +529,12 @@ struct RespondWindow: View {
     }
 
     private func push(ignoringFailedTests: Bool) {
-        if case .testsFailed(let run) = model.pushRespond(prID: prID, ignoringFailedTests: ignoringFailedTests) {
-            confirmPushAnyway(run)
+        do {
+            if case .testsFailed(let run) = try model.pushRespond(prID: prID, ignoringFailedTests: ignoringFailedTests) {
+                confirmPushAnyway(run)
+            }
+        } catch {
+            InfoAlert.present(title: "Couldn’t push", message: (error as? LocalizedError)?.errorDescription ?? "\(error)")
         }
     }
 

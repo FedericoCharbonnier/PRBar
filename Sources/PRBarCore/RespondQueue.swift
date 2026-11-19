@@ -161,13 +161,18 @@ public final class RespondQueue: ObservableObject {
 
     /// En `readyToPush`: corre el `testCommand` y guarda el `TestRun` en el resultado y en el registro. Lo que
     /// ejecuta lo escribió Claude: la UI lo llama solo cuando el usuario lo pide, después de ver el diff.
-    public func runTests(prID: String, testCommand: String) {
+    /// Returns whether they started (not if something else runs on the PR, or the command is empty).
+    @discardableResult
+    public func runTests(prID: String, testCommand: String) -> Bool {
         startTests(prID: prID, testCommand: testCommand, afterwards: nil)
     }
 
     /// "Run tests before pushing" (spec E.5): runs the tests and, if they pass, pushes and replies (like `publish`).
-    /// If they fail it stays in `readyToPush` with the failed run and the PR in `pushBlockedByTests`.
-    public func pushAfterTests(prID: String, testCommand: String) {
+    /// If they fail it stays in `readyToPush` with the failed run and the PR in `pushBlockedByTests`. Returns whether
+    /// the tests started: false if the PR isn't in `readyToPush`, something else runs on it (a chat turn, another job)
+    /// or the command is empty; the caller tells the user.
+    @discardableResult
+    public func pushAfterTests(prID: String, testCommand: String) -> Bool {
         startTests(prID: prID, testCommand: testCommand) { [weak self] run in
             guard let self else { return }
             if run.passed {
@@ -178,9 +183,9 @@ public final class RespondQueue: ObservableObject {
         }
     }
 
-    private func startTests(prID: String, testCommand: String, afterwards: (@MainActor (TestRun) -> Void)?) {
+    private func startTests(prID: String, testCommand: String, afterwards: (@MainActor (TestRun) -> Void)?) -> Bool {
         guard case .readyToPush(let draft, _)? = phases[prID], canStart(prID),
-              !testCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+              !testCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         pushBlockedByTests.remove(prID)
         runningTests.insert(prID)
         let pipeline = self.pipeline
@@ -197,6 +202,7 @@ public final class RespondQueue: ObservableObject {
             self.finish(prID, .readyToPush(current, stored))
             afterwards?(run)
         })
+        return true
     }
 
     /// readyToPush → pushing → done | failed. Desde `failed`, con fixes ya implementados, reintenta: no vuelve a
