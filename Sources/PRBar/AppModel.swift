@@ -643,6 +643,49 @@ final class AppModel: ObservableObject {
         chats.removeValue(forKey: draftID)?.discardWorkspace()
     }
 
+    /// The Respond window's coordinator: the decisions start as saved (or Claude's), and the conversation comes from
+    /// the record.
+    func respondChat(for draft: RespondDraft) -> ChatCoordinator {
+        if let chat = chats[draft.id] { return chat }
+        let prID = draft.prID
+        let record = respond.records[prID].flatMap { $0.id == draft.id ? $0 : nil }
+        let saved = record?.selections ?? [:]
+        let selections = Dictionary(uniqueKeysWithValues: draft.items.map { item in
+            (item.id, saved[item.id] ?? RespondSelection.defaults(for: item))
+        })
+        let logURL = respondHistory.logURL(for: draft.id)
+        let chat = ChatCoordinator(
+            subject: .respond(draft), session: record?.chat ?? ChatSession(prID: prID, kind: .respond),
+            selections: selections, backend: chatBackend, scheduler: chatScheduler,
+            context: { [weak self] in
+                self?.respondChatContext(draft)
+                    ?? ChatContext(pr: nil, localPath: nil, respondResult: nil, canEditFiles: false, logURL: logURL)
+            },
+            hooks: ChatHooks(
+                persist: { [weak self] chat in
+                    self?.respond.setChat(prID: prID, draftID: draft.id, chat: chat.session)
+                    self?.respond.updateSelections(prID: prID, draftID: draft.id, selections: chat.selections)
+                },
+                runningChanged: { [weak self] running in self?.respond.setChatRunning(running, prID: prID) },
+                resultChanged: { [weak self] result in self?.respond.replaceResult(prID: prID, draftID: draft.id, result: result) }
+            )
+        )
+        chats[draft.id] = chat
+        return chat
+    }
+
+    /// Claude may edit the worktree only in `readyToPush` (after implementing, before pushing): PRBar commits what it
+    /// changes and the diff above Push shows it (plan decision 6).
+    private func respondChatContext(_ draft: RespondDraft) -> ChatContext {
+        let record = respond.records[draft.prID].flatMap { $0.id == draft.id ? $0 : nil }
+        var canEditFiles = false
+        if case .readyToPush(let current, _)? = respond.phases[draft.prID], current.id == draft.id, record?.pushed != true {
+            canEditFiles = true
+        }
+        return ChatContext(pr: currentPR(draft.prID), localPath: draft.worktree.localPath, respondResult: record?.result,
+                           canEditFiles: canEditFiles, logURL: respondHistory.logURL(for: draft.id))
+    }
+
     // MARK: Responder
 
     /// Por qué no se puede responder el feedback de este PR (`nil` = se puede).
@@ -665,6 +708,7 @@ final class AppModel: ObservableObject {
     }
 
     func dismissRespond(prID: String) {
+        if let draft = respond.records[prID]?.draft { discardChat(draftID: draft.id) }
         respond.dismiss(prID: prID)
         WindowPresenter.shared.close(id: Self.respondWindowID(prID))
     }
@@ -696,7 +740,7 @@ final class AppModel: ObservableObject {
             contentID: draft.id.uuidString,
             replaceConfirmation: "The previous analysis has unused decisions. Replace it?"
         ) {
-            RespondWindow(model: self, prID: prID, draft: draft) { unsaved in
+            RespondWindow(model: self, prID: prID, draft: draft, chat: self.respondChat(for: draft)) { unsaved in
                 WindowPresenter.shared.setUnsavedChanges(unsaved, for: windowID)
             } close: {
                 WindowPresenter.shared.close(id: windowID)

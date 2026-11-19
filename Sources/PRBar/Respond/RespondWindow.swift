@@ -20,14 +20,15 @@ struct RespondWindow: View {
     /// Avisa si hay decisiones o textos sin usar (etapa de elección).
     let reportUnsaved: (Bool) -> Void
     let close: () -> Void
+    /// The decisions (shared with the chat, which can draft replies and choose fixes).
+    @ObservedObject var chat: ChatCoordinator
     private let initialSelections: [String: RespondSelection]
 
-    @State private var selections: [String: RespondSelection]
     @FocusState private var focus: RespondFocus?
 
     static let size = NSSize(width: 760, height: 680)
 
-    init(model: AppModel, prID: String, draft: RespondDraft,
+    init(model: AppModel, prID: String, draft: RespondDraft, chat: ChatCoordinator,
          reportUnsaved: @escaping (Bool) -> Void = { _ in }, close: @escaping () -> Void) {
         self.model = model
         queue = model.respond
@@ -36,13 +37,10 @@ struct RespondWindow: View {
         self.draft = draft
         self.reportUnsaved = reportUnsaved
         self.close = close
-        // Lo que ya se eligió (p. ej. se canceló la implementación o falló la publicación) o, si no, lo que propuso Claude.
-        let saved = model.respond.records[prID].flatMap { $0.id == draft.id ? $0.selections : nil } ?? [:]
-        let initial = Dictionary(uniqueKeysWithValues: draft.items.map { item in
-            (item.id, saved[item.id] ?? RespondSelection.defaults(for: item))
-        })
-        initialSelections = initial
-        _selections = State(initialValue: initial)
+        // Lo que ya se eligió (p. ej. se canceló la implementación o falló la publicación) o, si no, lo que propuso
+        // Claude: `AppModel.respondChat` arma las decisiones del coordinador.
+        self.chat = chat
+        initialSelections = chat.selections
     }
 
     // MARK: Estado
@@ -99,11 +97,28 @@ struct RespondWindow: View {
         return false
     }
 
-    private var hasUnsavedChanges: Bool { isChoosing && selections != initialSelections }
-    private var fixCount: Int { RespondCounts.fixes(draft, selections) }
-    private var replyCount: Int { RespondCounts.plannedReplies(draft, selections) }
+    private var hasUnsavedChanges: Bool { isChoosing && chat.selections != initialSelections }
+    private var fixCount: Int { RespondCounts.fixes(draft, chat.selections) }
+    private var replyCount: Int { RespondCounts.plannedReplies(draft, chat.selections) }
     private var testCommand: String? { model.testCommand(for: draft) }
     private var runningTests: Bool { queue.runningTests.contains(prID) }
+
+    /// The chat waits while PRBar analyzes, implements, tests or pushes.
+    private var chatLock: String? {
+        switch stage {
+        case .waiting: "Wait for the analysis to finish."
+        case .implementing: "Claude is implementing the fixes."
+        case .pushing: "Pushing and posting the replies…"
+        case .review where runningTests: "The tests are running."
+        default: nil
+        }
+    }
+
+    /// Pushed or done: the conversation stays, read only.
+    private var isFinished: Bool {
+        if case .done = stage { return true }
+        return record?.pushed == true
+    }
 
     // MARK: Vista
 
@@ -118,6 +133,8 @@ struct RespondWindow: View {
         }
         .frame(minWidth: 620, maxWidth: .infinity, minHeight: 520, maxHeight: .infinity, alignment: .top)
         .onChange(of: hasUnsavedChanges, initial: true) { _, unsaved in reportUnsaved(unsaved) }
+        .onChange(of: chatLock, initial: true) { _, reason in chat.setLock(reason) }
+        .onChange(of: isFinished, initial: true) { _, finished in if finished { chat.markReadOnly() } }
     }
 
     @ViewBuilder
@@ -153,7 +170,7 @@ struct RespondWindow: View {
                     .font(.callout.weight(.semibold))
                 Spacer()
                 Button("Reset to Claude’s Suggestions") {
-                    selections = Dictionary(uniqueKeysWithValues: draft.items.map { ($0.id, RespondSelection.defaults(for: $0)) })
+                    chat.selections = Dictionary(uniqueKeysWithValues: draft.items.map { ($0.id, RespondSelection.defaults(for: $0)) })
                 }
                 .controlSize(.small)
                 .help("Go back to Claude’s decisions and texts")
@@ -164,7 +181,7 @@ struct RespondWindow: View {
                 LazyVStack(spacing: 8) {
                     ForEach(draft.items) { item in
                         RespondItemCard(item: item, selection: selection(item), disabled: false, focus: $focus,
-                                        language: draft.language)
+                                        language: draft.language, isHighlighted: chat.highlighted.contains(item.id))
                     }
                 }
                 .padding(.horizontal, 20)
@@ -194,10 +211,11 @@ struct RespondWindow: View {
                 if fixCount > 0 {
                     if canAct {
                         Button(fixCount == 1 ? "Implement 1 Fix" : "Implement \(fixCount) Fixes") {
-                            queue.implement(prID: prID, selections: selections)
+                            queue.implement(prID: prID, selections: chat.selections)
                         }
                         .buttonStyle(.borderedProminent)
                         .keyboardShortcut(.return, modifiers: .command)
+                        .disabled(chat.isRunning)
                         .help("Claude implements each fix and PRBar makes one commit per fix. Nothing is pushed yet.")
                     } else {
                         // After an error, fixes aren't re-implemented on top of whatever was left: the PR is analyzed again.
@@ -208,7 +226,7 @@ struct RespondWindow: View {
                     }
                 } else {
                     Button(alreadyPosted > 0 ? "Retry Pending Replies" : replyCount == 1 ? "Post 1 Reply" : "Post \(replyCount) Replies") {
-                        let selections = self.selections
+                        let selections = chat.selections
                         ConfirmAlert.present(
                             title: replyCount == 1 ? "Post 1 reply?" : "Post \(replyCount) replies?",
                             message: "They’ll be posted to \(draft.repo.name)#\(draft.number) as @\(draft.account). Nothing is pushed.",
@@ -217,7 +235,7 @@ struct RespondWindow: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.return, modifiers: .command)
-                    .disabled(replyCount == 0)
+                    .disabled(replyCount == 0 || chat.isRunning)
                 }
             }
         }
@@ -230,8 +248,8 @@ struct RespondWindow: View {
 
     private func selection(_ item: RespondItem) -> Binding<RespondSelection> {
         Binding(
-            get: { selections[item.id] ?? RespondSelection.defaults(for: item) },
-            set: { selections[item.id] = $0 }
+            get: { chat.selections[item.id] ?? RespondSelection.defaults(for: item) },
+            set: { chat.selections[item.id] = $0 }
         )
     }
 
@@ -248,7 +266,7 @@ struct RespondWindow: View {
     // MARK: Etapa: implementando
 
     private func implementing(done: Int, total: Int) -> some View {
-        let chosen = draft.items.filter { selections[$0.id]?.implement == true }
+        let chosen = draft.items.filter { chat.selections[$0.id]?.implement == true }
         return VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
@@ -312,12 +330,13 @@ struct RespondWindow: View {
                         SensitiveChangesBanner(paths: result.sensitiveChanges)
                     }
                     commitsSection(result)
+                    repliesSection()
                     diffSection(result)
                     // El diff completo va antes de "Correr tests" y del push: es lo que se ejecuta y se pushea.
                     fullDiffSection(result)
                     if let testCommand {
                         TestsSection(command: testCommand, run: result.tests, running: runningTests,
-                                     disabled: queue.phases[prID] != .readyToPush(draft, result),
+                                     disabled: queue.phases[prID] != .readyToPush(draft, result) || chat.isRunning,
                                      start: { model.runRespondTests(prID: prID) },
                                      cancel: { queue.cancel(prID: prID) })
                     }
@@ -438,8 +457,9 @@ struct RespondWindow: View {
                 Button(title) { confirmPublish(commits: commits, pending: pending, pushed: pushed, result: result) }
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.return, modifiers: .command)
-                    .disabled(runningTests || (pushed && pending == 0))
-                    .help(runningTests ? "Wait for the tests to finish" : "Asks for confirmation before pushing and posting")
+                    .disabled(runningTests || (pushed && pending == 0) || chat.isRunning)
+                    .help(chat.isRunning ? "Wait for Claude to finish"
+                        : runningTests ? "Wait for the tests to finish" : "Asks for confirmation before pushing and posting")
             }
         }
         .padding(.horizontal, 20)
@@ -474,6 +494,34 @@ struct RespondWindow: View {
     }
 
     // MARK: Piezas
+
+    /// The replies the push will post, as the window and the chat left them (highlighted when the chat changed them).
+    @ViewBuilder
+    private func repliesSection() -> some View {
+        let items = draft.items.filter { chat.selections[$0.id]?.reply == true }
+        if !items.isEmpty {
+            section("Replies to post (\(items.count))") {
+                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                    if index > 0 { Divider() }
+                    VStack(alignment: .leading, spacing: 4) {
+                        RespondItemHeader(feedback: item.feedback)
+                        Text(replyPreview(item))
+                            .font(.callout)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(10)
+                    .background(chat.highlighted.contains(item.id) ? Theme.tint(Theme.accent) : Color.clear)
+                }
+            }
+        }
+    }
+
+    private func replyPreview(_ item: RespondItem) -> String {
+        let text = chat.selections[item.id]?.replyText.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return text.isEmpty ? "Only “Fixed in <commit>”" : text
+    }
 
     private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 6) {

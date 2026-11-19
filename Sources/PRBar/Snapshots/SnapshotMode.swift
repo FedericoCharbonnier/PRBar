@@ -208,7 +208,7 @@ private final class SnapshotSession {
         guard let draft = model.respond.records[prID]?.draft else { throw SnapshotError(message: "No respond draft") }
         let title = "Respond · \(draft.repo.name)#\(draft.number)"
         try await window("respond-choose", title: title, size: NSSize(width: 760, height: 1400)) {
-            RespondWindow(model: model, prID: prID, draft: draft, close: {})
+            RespondWindow(model: model, prID: prID, draft: draft, chat: model.respondChat(for: draft), close: {})
         }
 
         let selections = Dictionary(uniqueKeysWithValues: draft.items.map { ($0.id, RespondSelection.defaults(for: $0)) })
@@ -223,7 +223,7 @@ private final class SnapshotSession {
             return false
         }
         try await window("respond-ready-to-push", title: title, size: NSSize(width: 760, height: 1100)) {
-            RespondWindow(model: model, prID: prID, draft: draft, close: {})
+            RespondWindow(model: model, prID: prID, draft: draft, chat: model.respondChat(for: draft), close: {})
         }
     }
 

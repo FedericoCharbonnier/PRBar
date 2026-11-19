@@ -16,6 +16,8 @@ struct RespondItemCard: View {
     var focus: FocusState<RespondFocus?>.Binding
     /// The PR's language: replies (and PRBar's "Fixed in …") are posted in it.
     var language: PRLanguage = .english
+    /// The chat changed it just now (3 s).
+    var isHighlighted = false
     @State private var showThread = false
 
     private var feedback: FeedbackItem { item.feedback }
@@ -30,7 +32,9 @@ struct RespondItemCard: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(RoundedRectangle(cornerRadius: Theme.Radius.card).fill(Color(nsColor: .controlBackgroundColor)))
+        .background(RoundedRectangle(cornerRadius: Theme.Radius.card)
+            .fill(isHighlighted ? Theme.tint(Theme.accent) : Color(nsColor: .controlBackgroundColor)))
+        .animation(.easeInOut(duration: 0.3), value: isHighlighted)
         .cardBorder()
     }
 
