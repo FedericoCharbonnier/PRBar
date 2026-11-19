@@ -479,6 +479,47 @@ enum RespondQueueTests {
             try await h.events.wait(for: [.started("analyze:\(prID(1))")])
             try expectEqual(h.emitted.count, 0)
         },
+        TestCase("respond queue: con un turno de chat corriendo no arranca implementar ni publicar") { @MainActor in
+            let h = try Harness()
+            try await h.toReady(1)
+            h.queue.setChatRunning(true, prID: prID(1))
+            try expect(h.queue.chatting.contains(prID(1)))
+            h.queue.implement(prID: prID(1), selections: bothSelected)
+            await h.settle()
+            try expectEqual(h.queue.phases[prID(1)]?.name, "ready")
+            h.queue.setChatRunning(false, prID: prID(1))
+            try expect(h.queue.canChat(prID: prID(1)))
+            h.queue.implement(prID: prID(1), selections: bothSelected)
+            try await h.events.wait(for: [.started("implement:\(prID(1))")])
+            try expect(!h.queue.canChat(prID: prID(1)))
+        },
+        TestCase("respond queue: replaceResult solo en readyToPush; guarda selecciones y chat en el registro") { @MainActor in
+            let h = try Harness()
+            try await h.toReady(1)
+            let draft = try h.draft(1)
+            let edited = bothSelected.mapValues { var s = $0; s.replyText = "Editado"; return s }
+            h.queue.updateSelections(prID: prID(1), draftID: draft.id, selections: edited)
+            try expectEqual(try h.saved(1).selections, edited)
+            h.queue.updateSelections(prID: prID(1), draftID: UUID(), selections: [:])
+            try expectEqual(try h.saved(1).selections, edited)
+            let other = RespondResult(items: [], diffStat: "x", tests: nil)
+            h.queue.replaceResult(prID: prID(1), draftID: draft.id, result: other)
+            try expectEqual(try h.saved(1).result, nil)
+
+            h.queue.implement(prID: prID(1), selections: bothSelected)
+            try await h.events.wait(for: [.started("implement:\(prID(1))")])
+            h.pipeline.completeImplementation(prID(1), .success(fixResult))
+            try await h.events.wait(for: reached(1, "readyToPush"))
+            h.queue.replaceResult(prID: prID(1), draftID: draft.id, result: other)
+            try expectEqual(h.queue.phases[prID(1)], .readyToPush(draft, other))
+            try expectEqual(try h.saved(1).result, other)
+
+            var chat = ChatSession(prID: prID(1), kind: .respond)
+            chat.messages = [ChatMessage(role: .user, text: "hola", createdAt: t0)]
+            h.queue.setChat(prID: prID(1), draftID: draft.id, chat: chat)
+            try expectEqual(try h.saved(1).chat, chat)
+            try expectEqual(h.queue.records[prID(1)]?.chat, chat)
+        },
     ] + RespondPipelineTests.cases
 }
 

@@ -22,6 +22,8 @@ public final class RespondQueue: ObservableObject {
     @Published public private(set) var runningTests: Set<String> = []
     /// El registro vigente de cada PR, desde que terminó el análisis hasta `dismiss`.
     @Published public private(set) var records: [String: RespondRecord] = [:]
+    /// PRs with a chat turn running (spec B.2): no job starts on them until it ends.
+    @Published public private(set) var chatting: Set<String> = []
 
     private enum Kind { case analyze, implement, tests, publish }
 
@@ -50,6 +52,40 @@ public final class RespondQueue: ObservableObject {
     }
 
     // MARK: - Acciones
+
+    public func setChatRunning(_ running: Bool, prID: String) {
+        if running { chatting.insert(prID) } else { chatting.remove(prID) }
+    }
+
+    /// A chat turn may start: nothing is running or queued on the PR (implementing, tests, pushing).
+    public func canChat(prID: String) -> Bool {
+        jobs[prID] == nil && cancelling[prID] == nil && !runningTests.contains(prID)
+    }
+
+    /// The decisions as the window and the chat left them, saved in the record of `draftID`.
+    public func updateSelections(prID: String, draftID: UUID, selections: [String: RespondSelection]) {
+        guard var record = records[prID], record.id == draftID, jobs[prID] == nil else { return }
+        record.selections = selections
+        records[prID] = record
+        save(record)
+    }
+
+    /// A chat turn committed (or undid) changes in `readyToPush`: the diff the user reviews and what gets pushed change.
+    public func replaceResult(prID: String, draftID: UUID, result: RespondResult) {
+        guard case .readyToPush(let draft, _)? = phases[prID], draft.id == draftID, jobs[prID] == nil,
+              var record = records[prID], record.id == draftID else { return }
+        record.result = result
+        records[prID] = record
+        save(record)
+        phases[prID] = .readyToPush(draft, result)
+    }
+
+    public func setChat(prID: String, draftID: UUID, chat: ChatSession) {
+        guard var record = records[prID], record.id == draftID else { return }
+        record.chat = chat
+        records[prID] = record
+        save(record)
+    }
 
     /// → queued → preparing → analyzing → ready | failed. Se ignora si el PR tiene un job, o está en
     /// `implementing`/`readyToPush`/`pushing` (hay fixes sin publicar).
@@ -235,7 +271,7 @@ public final class RespondQueue: ObservableObject {
     // MARK: - Jobs
 
     private func canStart(_ prID: String) -> Bool {
-        jobs[prID] == nil && cancelling[prID] == nil && !scheduler.isActive(prID)
+        jobs[prID] == nil && cancelling[prID] == nil && !scheduler.isActive(prID) && !chatting.contains(prID)
     }
 
     /// Encola `work` como el job vigente de `prID`. `phase` se pone al encolar y `onStart` al arrancar.
