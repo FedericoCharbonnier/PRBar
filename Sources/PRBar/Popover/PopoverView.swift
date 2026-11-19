@@ -16,6 +16,7 @@ struct PopoverView: View {
             header
             Divider().padding(.bottom, 4)
             content
+            UpdateRow(updates: model.updates) { model.openUpdateWindow() }
         }
         .frame(width: Theme.popoverWidth)
     }

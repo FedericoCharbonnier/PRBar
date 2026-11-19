@@ -185,6 +185,7 @@ final class AppModel: ObservableObject {
         WindowPresenter.shared.openSettings = { [weak self] in self?.openSettings() }
         notifications?.onOpenReview = { [weak self] prID, recordID in self?.openFromNotification(prID: prID, recordID: recordID) }
         notifications?.onOpenRespond = { [weak self] prID in self?.openRespondFromNotification(prID: prID) }
+        notifications?.onOpenUpdate = { [weak self] in self?.openUpdateWindow() }
         // Al salir se cancela todo: el runner manda SIGTERM al grupo de procesos de cada Claude (y sus `git`/`gh`).
         // Los worktrees que queden los borra la limpieza de huérfanos del próximo arranque.
         terminationObserver = NotificationCenter.default.addObserver(
@@ -215,6 +216,8 @@ final class AppModel: ObservableObject {
         await reloadAccounts()
         notifications?.requestAuthorization()
         prStore.start()
+        // La versión nueva recién instalada borra la anterior y muestra "Updated to …" (spec D.3, paso 6).
+        if let installed = updates.finishPendingInstall() { openUpdateWindow(.installed(installed)) }
         updates.startAutomaticChecks()
     }
 

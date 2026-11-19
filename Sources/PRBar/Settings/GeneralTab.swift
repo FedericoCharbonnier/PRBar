@@ -65,6 +65,8 @@ struct GeneralTab: View {
                     }
                 }
             }
+
+            UpdatesSection(model: model, updates: model.updates, configStore: configStore)
         }
         .formStyle(.grouped)
         .toggleStyle(.switch)
