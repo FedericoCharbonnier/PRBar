@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<div style="width:380px;box-sizing:border-box;border-radius:12px;background:var(--pop);backdrop-filter:blur(50px) saturate(190%);-webkit-backdrop-filter:blur(50px) saturate(190%);box-shadow:var(--popshadow);color:var(--fg);font-size:13px;letter-spacing:-0.08px;overflow:hidden;padding-bottom:6px">
+  <div style="display:flex;align-items:center;gap:8px;padding:10px 8px 9px 14px">
+    <div style="flex:1;min-width:0;display:flex;align-items:baseline;gap:7px">
+      <span style="font-size:13px;font-weight:700">PRBar</span>
+      <span style="font-size:11px;color:var(--fg2)">{{ updated }}</span>
+    </div>
+    <div style="display:flex;gap:2px;color:var(--fg2)">
+      <div style="width:26px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center" style-hover="background:var(--hover)"><x-import component="SFIcon" from="./sf-icons.js" name="arrow.clockwise" size="14" weight="2" hint-size="14px,14px"></x-import></div>
+      <div style="width:26px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center" style-hover="background:var(--hover)"><x-import component="SFIcon" from="./sf-icons.js" name="gearshape" size="15" weight="1.8" hint-size="15px,15px"></x-import></div>
+    </div>
+  </div>
+  <div style="height:1px;background:var(--sep);margin:0 0 4px"></div>
+
+  <sc-if value="{{ isMain }}" hint-placeholder-val="{{ true }}">
+    <sc-for list="{{ sections }}" as="sec" hint-placeholder-count="3">
+      <div style="display:flex;align-items:center;gap:6px;padding:7px 14px 3px 12px;color:var(--fg2)">
+        <x-import component="SFIcon" from="./sf-icons.js" name="chevron.down" size="10" weight="2.6" hint-size="10px,10px"></x-import>
+        <span style="font-size:12px;font-weight:600;color:var(--fg)">{{ sec.title }}</span>
+        <span style="font-size:10.5px;font-weight:600;min-width:18px;height:15px;padding:0 5px;box-sizing:border-box;border-radius:8px;background:var(--fill);display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums">{{ sec.count }}</span>
+      </div>
+      <sc-for list="{{ sec.rows }}" as="r" hint-placeholder-count="2">
+        <div style="margin:0 6px;padding:6px 8px;border-radius:7px;display:flex;gap:8px;align-items:center;background:{{ r.rowBg }}">
+          <div style="width:22px;height:22px;border-radius:11px;flex:none;background:{{ r.color }};color:#fff;font-size:9.5px;font-weight:700;display:flex;align-items:center;justify-content:center;align-self:flex-start;margin-top:1px">{{ r.initials }}</div>
+          <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
+            <div style="display:flex;align-items:baseline;gap:6px;min-width:0">
+              <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500">{{ r.title }}</span>
+              
+            </div>
+            <div style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--fg2);min-width:0;white-space:nowrap">
+              <span style="display:flex;min-width:0"><span style="overflow:hidden;text-overflow:ellipsis;min-width:0">{{ r.repo }}</span><span style="flex:none;color:var(--fg)">#{{ r.num }}</span></span>
+              <span style="color:var(--fg3)">·</span>
+              <x-import component="SFIcon" from="./sf-icons.js" name="arrow.triangle.branch" size="10" weight="2" hint-size="10px,10px"></x-import>
+              <span>{{ r.base }}</span>
+              <span style="color:var(--fg3)">·</span>
+              <span style="flex:none">{{ r.age }}</span>
+            </div>
+          </div>
+          <div style="flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+            <sc-if value="{{ r.isIdle }}" hint-placeholder-val="{{ false }}">
+              <div style="height:20px;padding:0 10px;border-radius:6px;background:var(--btn);box-shadow:var(--btnshadow);font-size:11px;font-weight:500;display:flex;align-items:center;gap:4px">Review</div>
+            </sc-if>
+            <sc-if value="{{ r.isQueued }}" hint-placeholder-val="{{ false }}">
+              <div style="height:20px;padding:0 8px;border-radius:6px;background:var(--fill);color:var(--fg2);font-size:11px;font-weight:500;display:flex;align-items:center;gap:4px"><x-import component="SFIcon" from="./sf-icons.js" name="pause.fill" size="9" hint-size="9px,9px"></x-import>En cola</div>
+            </sc-if>
+            <sc-if value="{{ r.isPreparing }}" hint-placeholder-val="{{ false }}">
+              <div style="height:20px;padding:0 8px;border-radius:6px;background:var(--violetbg);color:var(--violet);font-size:11px;font-weight:500;display:flex;align-items:center;gap:4px"><x-import component="SFIcon" from="./sf-icons.js" name="hourglass" size="10" weight="2.2" hint-size="10px,10px"></x-import>Preparando…</div>
+            </sc-if>
+            <sc-if value="{{ r.isReviewing }}" hint-placeholder-val="{{ false }}">
+              <div style="height:20px;padding:0 6px 0 8px;border-radius:6px;background:var(--violetbg);color:var(--violet);font-size:11px;font-weight:500;display:flex;align-items:center;gap:4px"><x-import component="SFSpinner" from="./sf-icons.js" size="10" hint-size="10px,10px"></x-import>Revisando…<sc-if value="{{ r.hover }}" hint-placeholder-val="{{ false }}"><span style="margin-left:2px;display:flex;opacity:0.9"><x-import component="SFIcon" from="./sf-icons.js" name="xmark.circle.fill" size="12" hint-size="12px,12px"></x-import></span></sc-if></div>
+            </sc-if>
+            <sc-if value="{{ r.isFiltering }}" hint-placeholder-val="{{ false }}">
+              <div style="height:20px;padding:0 8px;border-radius:6px;background:var(--violetbg);color:var(--violet);font-size:11px;font-weight:500;display:flex;align-items:center;gap:4px"><x-import component="SFIcon" from="./sf-icons.js" name="line.3.horizontal.decrease" size="11" weight="2.4" hint-size="11px,11px"></x-import>Filtrando…</div>
+            </sc-if>
+            <sc-if value="{{ r.isDone }}" hint-placeholder-val="{{ false }}">
+              <div style="height:20px;padding:0 8px 0 6px;border-radius:6px;background:var(--greenbg);color:var(--green);font-size:11px;font-weight:600;display:flex;align-items:center;gap:4px"><x-import component="SFIcon" from="./sf-icons.js" name="checkmark.circle.fill" size="12" hint-size="12px,12px"></x-import>5 comentarios</div>
+            </sc-if>
+            <sc-if value="{{ r.isError }}" hint-placeholder-val="{{ false }}">
+              <div style="height:20px;padding:0 8px 0 6px;border-radius:6px;background:var(--redbg);color:var(--red);font-size:11px;font-weight:500;display:flex;align-items:center;gap:4px"><x-import component="SFIcon" from="./sf-icons.js" name="exclamationmark.triangle.fill" size="11" hint-size="11px,11px"></x-import>Error</div>
+            </sc-if>
+            <sc-if value="{{ r.isMine }}" hint-placeholder-val="{{ false }}">
+              <div style="height:20px;display:flex;align-items:center;gap:4px;font-size:11px;font-weight:500;color:{{ r.fbColor }};white-space:nowrap"><x-import component="SFIcon" from="./sf-icons.js" name="{{ r.fbIcon }}" size="11" weight="2" hint-size="11px,11px"></x-import>{{ r.fbLabel }}</div>
+            </sc-if>
+            <div style="display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10px;white-space:nowrap">
+              <span style="display:flex;color:{{ r.ciColor }}"><x-import component="SFIcon" from="./sf-icons.js" name="{{ r.ciIcon }}" size="10" weight="2.8" hint-size="10px,10px"></x-import></span>
+              <span style="color:var(--green)">+{{ r.add }}</span>
+              <span style="color:var(--red)">−{{ r.del }}</span>
+            </div>
+          </div>
+        </div>
+      </sc-for>
+    </sc-for>
+    <div style="height:1px;background:var(--sep);margin:6px 0 2px"></div>
+    <div style="display:flex;align-items:center;gap:6px;padding:6px 14px 2px 12px;color:var(--fg3)">
+      <x-import component="SFIcon" from="./sf-icons.js" name="chevron.right" size="10" weight="2.6" hint-size="10px,10px"></x-import>
+      <span style="font-size:12px;font-weight:600">Otros</span>
+      <span style="font-size:11px">drafts y sin acción pendiente · 4</span>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isEmpty }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;flex-direction:column;align-items:center;text-align:center;padding:34px 40px 30px;gap:6px">
+      <div style="color:var(--green);margin-bottom:6px"><x-import component="SFIcon" from="./sf-icons.js" name="checkmark.seal" size="40" weight="1.5" hint-size="40px,40px"></x-import></div>
+      <div style="font-size:15px;font-weight:600">Todo al día</div>
+      <div style="font-size:12px;color:var(--fg2);line-height:1.4;text-wrap:pretty">No hay PRs esperando tu review ni feedback nuevo en los tuyos.</div>
+    </div>
+    <div style="height:1px;background:var(--sep);margin:0 0 2px"></div>
+    <div style="display:flex;align-items:center;gap:6px;padding:6px 14px 2px 12px;color:var(--fg3)">
+      <x-import component="SFIcon" from="./sf-icons.js" name="chevron.right" size="10" weight="2.6" hint-size="10px,10px"></x-import>
+      <span style="font-size:12px;font-weight:600">Otros</span>
+      <span style="font-size:11px">drafts y sin acción pendiente · 3</span>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isError }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;flex-direction:column;align-items:center;text-align:center;padding:34px 40px 28px;gap:6px">
+      <div style="color:var(--fg2);margin-bottom:6px"><x-import component="SFIcon" from="./sf-icons.js" name="wifi.slash" size="38" weight="1.6" hint-size="38px,38px"></x-import></div>
+      <div style="font-size:15px;font-weight:600">Sin conexión</div>
+      <div style="font-size:12px;color:var(--fg2);line-height:1.4;text-wrap:pretty">No pudimos contactar a GitHub. Los datos que ves son de hace 14 min.</div>
+      <div style="margin-top:10px;height:22px;padding:0 14px;border-radius:6px;background:var(--btn);box-shadow:var(--btnshadow);font-size:12px;font-weight:500;display:flex;align-items:center">Reintentar</div>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:380,&quot;height&quot;:720},&quot;variant&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;main&quot;,&quot;empty&quot;,&quot;error&quot;],&quot;default&quot;:&quot;main&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const v = this.props.variant ?? 'main';
+    const C = ['#C2410C', '#0E7490', '#6D28D9', '#15803D', '#A16207', '#BE185D', '#1D4ED8'];
+    const PM = 'posts-api', PF = 'web-app';
+    const ci = { ok: ['checkmark', 'var(--green)'], fail: ['xmark', 'var(--red)'], run: ['circle.fill', 'var(--orange)'] };
+    const row = (o) => {
+      const [ciIcon, ciColor] = ci[o.ci];
+      const st = o.st;
+      return Object.assign({}, o, {
+        ciIcon, ciColor, rowBg: o.hover ? 'var(--hover)' : 'transparent',
+        isIdle: st === 'idle', isQueued: st === 'queued', isPreparing: st === 'preparing',
+        isReviewing: st === 'reviewing', isFiltering: st === 'filtering', isDone: st === 'done',
+        isError: st === 'error', isMine: st === 'mine',
+      });
+    };
+    const sections = [
+      { title: 'Para revisar', count: 5, rows: [
+        row({ initials: 'JP', color: C[0], title: 'Add rate limiting to posts sync endpoint', age: '3h', repo: PM, num: 282, base: 'develop', ci: 'ok', add: 214, del: 38, st: 'reviewing', hover: true }),
+        row({ initials: 'SR', color: C[1], title: 'Migrate feed timeline to React Query', age: '5h', repo: PF, num: 690, base: 'develop', ci: 'run', add: 486, del: 312, st: 'preparing' }),
+        row({ initials: 'VM', color: C[2], title: 'Fix login redirect when session expires', age: '1d', repo: PF, num: 687, base: 'develop', ci: 'fail', add: 18, del: 6, st: 'queued' }),
+        row({ initials: 'NG', color: C[3], title: 'Fix N+1 in weekly report query', age: '1d', repo: PM, num: 279, base: 'main', ci: 'ok', add: 42, del: 17, st: 'idle' }),
+        row({ initials: 'CA', color: C[6], title: 'Bump sidekiq to 7.3 and tune queue weights', age: '2d', repo: PM, num: 274, base: 'develop', ci: 'ok', add: 61, del: 44, st: 'error' }),
+      ]},
+      { title: 'Actualizados desde mi review', count: 2, rows: [
+        row({ initials: 'FD', color: C[4], title: 'Backfill post snapshots for archived authors', age: '40 min', repo: PM, num: 271, base: 'develop', ci: 'ok', add: 96, del: 12, st: 'done' }),
+        row({ initials: 'JP', color: C[0], title: 'Admin dashboard: filter by tag', age: '2h', repo: PF, num: 679, base: 'develop', ci: 'run', add: 133, del: 41, st: 'filtering' }),
+      ]},
+      { title: 'Mis PRs con feedback', count: 2, rows: [
+        row({ initials: 'ML', color: C[5], title: 'Add CSV export for audit logs', age: '6h', repo: PM, num: 276, base: 'develop', ci: 'ok', add: 302, del: 20, st: 'mine', fbLabel: 'Cambios pedidos', fbColor: 'var(--orange)', fbIcon: 'exclamationmark.triangle' }),
+        row({ initials: 'ML', color: C[5], title: 'Accessible color tokens for charts', age: '1d', repo: PF, num: 684, base: 'main', ci: 'fail', add: 77, del: 64, st: 'mine', fbLabel: '3 comentarios', fbColor: 'var(--fg2)', fbIcon: 'text.bubble' }),
+      ]},
+    ];
+    return {
+      sections, isMain: v === 'main', isEmpty: v === 'empty', isError: v === 'error',
+      updated: v === 'error' ? 'sin conexión' : 'actualizado hace 1 min',
+    };
+  }
+}
+</script>
+</body>
+</html>

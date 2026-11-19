@@ -1,0 +1,873 @@
+import AppKit
+import PRBarCore
+import SwiftUI
+
+/// Ventana de Responder (spec §14): elegir qué arreglar y qué responder, ver los fixes de Claude (diff, archivos
+/// sensibles, tests a pedido) y pushear + responder. Sigue en vivo la fase del PR en `RespondQueue`.
+///
+/// Seguridad: nada que escribió Claude se ejecuta antes de que el usuario vea el diff **completo** (y los commits
+/// con sus mensajes), que va arriba de "Correr tests" y del push. Los tests corren solo con "Correr tests"; el push
+/// (con los hooks del usuario, en el worktree de PRBar) y las respuestas, solo después de confirmar, y Return en
+/// la confirmación cancela (`ConfirmAlert`).
+struct RespondWindow: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var queue: RespondQueue
+    @ObservedObject var prStore: PRStore
+    let prID: String
+    /// El análisis con el que se abrió la ventana. Si el PR se vuelve a analizar, `AppModel.openRespond` la
+    /// reemplaza con el nuevo.
+    let draft: RespondDraft
+    /// Avisa si hay decisiones o textos sin usar (etapa de elección).
+    let reportUnsaved: (Bool) -> Void
+    let close: () -> Void
+    private let initialSelections: [String: RespondSelection]
+
+    @State private var selections: [String: RespondSelection]
+    @FocusState private var focus: RespondFocus?
+
+    static let size = NSSize(width: 760, height: 680)
+
+    init(model: AppModel, prID: String, draft: RespondDraft,
+         reportUnsaved: @escaping (Bool) -> Void = { _ in }, close: @escaping () -> Void) {
+        self.model = model
+        queue = model.respond
+        prStore = model.prStore
+        self.prID = prID
+        self.draft = draft
+        self.reportUnsaved = reportUnsaved
+        self.close = close
+        // Lo que ya se eligió (p. ej. se canceló la implementación o falló la publicación) o, si no, lo que propuso Claude.
+        let saved = model.respond.records[prID].flatMap { $0.id == draft.id ? $0.selections : nil } ?? [:]
+        let initial = Dictionary(uniqueKeysWithValues: draft.items.map { item in
+            (item.id, saved[item.id] ?? RespondSelection.defaults(for: item))
+        })
+        initialSelections = initial
+        _selections = State(initialValue: initial)
+    }
+
+    // MARK: Estado
+
+    /// El registro de este análisis (nil si se descartó o se reemplazó).
+    private var record: RespondRecord? {
+        queue.records[prID].flatMap { $0.id == draft.id ? $0 : nil }
+    }
+
+    private enum Stage {
+        /// Elegir qué arreglar y qué responder; `error` si falló lo último que se intentó.
+        case choosing(error: String?, canAct: Bool)
+        case waiting(String)
+        case implementing(done: Int, total: Int)
+        /// Fixes hechos: diff, tests y push. `error` si falló el push o alguna respuesta.
+        case review(RespondResult, error: String?)
+        case pushing
+        case done(RespondRecord)
+        /// Hay un análisis más nuevo de este PR.
+        case superseded
+        /// Ya no hay nada que mostrar (se descartó o el análisis nuevo falló).
+        case gone(String?)
+    }
+
+    private var stage: Stage {
+        switch queue.phases[prID] {
+        case .ready(let ready)?:
+            return ready.id == draft.id ? .choosing(error: nil, canAct: true) : .superseded
+        case .queued?:
+            return .waiting(record?.result == nil ? "Queued…" : "Queued to post…")
+        case .preparing?:
+            return .waiting("Preparing the worktree…")
+        case .analyzing?:
+            return .waiting("Claude is analyzing the comments…")
+        case .implementing(let done, let total)?:
+            return .implementing(done: done, total: total)
+        case .readyToPush(let current, let result)?:
+            return current.id == draft.id ? .review(result, error: nil) : .superseded
+        case .pushing?:
+            return .pushing
+        case .done(let done)?:
+            return done.id == draft.id ? .done(done) : .superseded
+        case .failed(let message, _)?:
+            guard let record else { return .gone(message) }
+            if let result = record.result { return .review(result, error: message) }
+            return .choosing(error: message, canAct: false)
+        case nil:
+            return .gone(nil)
+        }
+    }
+
+    private var isChoosing: Bool {
+        if case .choosing = stage { return true }
+        return false
+    }
+
+    private var hasUnsavedChanges: Bool { isChoosing && selections != initialSelections }
+    private var fixCount: Int { RespondCounts.fixes(draft, selections) }
+    private var replyCount: Int { RespondCounts.plannedReplies(draft, selections) }
+    private var testCommand: String? { model.testCommand(for: draft) }
+    private var runningTests: Bool { queue.runningTests.contains(prID) }
+
+    // MARK: Vista
+
+    var body: some View {
+        VStack(spacing: 0) {
+            RespondHeader(draft: draft)
+                .padding(.horizontal, 20)
+                .padding(.top, 14)
+                .padding(.bottom, 12)
+            Divider()
+            content
+        }
+        .frame(minWidth: 620, maxWidth: .infinity, minHeight: 520, maxHeight: .infinity, alignment: .top)
+        .onChange(of: hasUnsavedChanges, initial: true) { _, unsaved in reportUnsaved(unsaved) }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch stage {
+        case .choosing(let error, let canAct):
+            choosing(error: error, canAct: canAct)
+        case .waiting(let text):
+            progress(text, cancellable: true)
+        case .implementing(let done, let total):
+            implementing(done: done, total: total)
+        case .review(let result, let error):
+            review(result, error: error)
+        case .pushing:
+            progress("Pushing to \(draft.headRef) and posting the replies…", cancellable: false)
+        case .done(let record):
+            RespondDoneView(record: record, close: close)
+        case .superseded:
+            message(icon: "arrow.triangle.2.circlepath", title: "There’s a Newer Analysis of This PR",
+                    text: "This window shows the previous one.", action: ("Open New Analysis", { model.openRespond(prID: prID) }))
+        case .gone(let error):
+            message(icon: error == nil ? "tray" : "exclamationmark.triangle", title: error == nil ? "Discarded" : "Couldn’t Analyze the PR",
+                    text: error ?? "This analysis is no longer in progress. It’s still in History.", action: nil)
+        }
+    }
+
+    // MARK: Etapa: elegir
+
+    private func choosing(error: String?, canAct: Bool) -> some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("\(draft.items.count) unresolved comment\(draft.items.count == 1 ? "" : "s")")
+                    .font(.callout.weight(.semibold))
+                Spacer()
+                Button("Reset to Claude’s Suggestions") {
+                    selections = Dictionary(uniqueKeysWithValues: draft.items.map { ($0.id, RespondSelection.defaults(for: $0)) })
+                }
+                .controlSize(.small)
+                .help("Go back to Claude’s decisions and texts")
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 8)
+            ScrollView {
+                LazyVStack(spacing: 8) {
+                    ForEach(draft.items) { item in
+                        RespondItemCard(item: item, selection: selection(item), disabled: false, focus: $focus,
+                                        language: draft.language)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 2)
+                .padding(.bottom, 14)
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) { choosingFooter(error: error, canAct: canAct) }
+        }
+    }
+
+    private func choosingFooter(error: String?, canAct: Bool) -> some View {
+        let alreadyPosted = record?.posted.count ?? 0
+        return VStack(alignment: .leading, spacing: 10) {
+            if let error {
+                ErrorBanner(messages: [error]).padding(.horizontal, -10)
+            }
+            Label("Replies will be posted in \(draft.language.displayName)", systemImage: "globe")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .help("Detected from the PR description, including PRBar’s “Fixed in …” prefix. Text you write is posted as is.")
+            HStack(spacing: 8) {
+                Text("\(fixCount) fix\(fixCount == 1 ? "" : "es") · \(replyCount) repl\(replyCount == 1 ? "y" : "ies")")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("\(fixCount) fix\(fixCount == 1 ? "" : "es") and \(replyCount) repl\(replyCount == 1 ? "y" : "ies") selected")
+                Spacer()
+                if fixCount > 0 {
+                    if canAct {
+                        Button(fixCount == 1 ? "Implement 1 Fix" : "Implement \(fixCount) Fixes") {
+                            queue.implement(prID: prID, selections: selections)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .keyboardShortcut(.return, modifiers: .command)
+                        .help("Claude implements each fix and PRBar makes one commit per fix. Nothing is pushed yet.")
+                    } else {
+                        // After an error, fixes aren't re-implemented on top of whatever was left: the PR is analyzed again.
+                        Button("Analyze Again", action: reanalyze)
+                            .buttonStyle(.borderedProminent)
+                            .keyboardShortcut(.return, modifiers: .command)
+                            .disabled(currentItem == nil)
+                    }
+                } else {
+                    Button(alreadyPosted > 0 ? "Retry Pending Replies" : replyCount == 1 ? "Post 1 Reply" : "Post \(replyCount) Replies") {
+                        let selections = self.selections
+                        ConfirmAlert.present(
+                            title: replyCount == 1 ? "Post 1 reply?" : "Post \(replyCount) replies?",
+                            message: "They’ll be posted to \(draft.repo.name)#\(draft.number) as @\(draft.account). Nothing is pushed.",
+                            action: "Post"
+                        ) { queue.publishRepliesOnly(prID: prID, selections: selections) }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.return, modifiers: .command)
+                    .disabled(replyCount == 0)
+                }
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 12)
+        .padding(.bottom, 14)
+        .background(.bar)
+        .overlay(alignment: .top) { Divider() }
+    }
+
+    private func selection(_ item: RespondItem) -> Binding<RespondSelection> {
+        Binding(
+            get: { selections[item.id] ?? RespondSelection.defaults(for: item) },
+            set: { selections[item.id] = $0 }
+        )
+    }
+
+    /// El PR tal como está en el último snapshot (para volver a analizarlo).
+    private var currentItem: ClassifiedPR? {
+        prStore.snapshot?.items.first { $0.id == prID }
+    }
+
+    private func reanalyze() {
+        guard let item = currentItem else { return }
+        model.startRespond(item)
+    }
+
+    // MARK: Etapa: implementando
+
+    private func implementing(done: Int, total: Int) -> some View {
+        let chosen = draft.items.filter { selections[$0.id]?.implement == true }
+        return VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(chosen.enumerated()), id: \.element.id) { index, item in
+                        if index > 0 { Divider() }
+                        HStack(spacing: 10) {
+                            implementingStatus(index: index, done: done)
+                                .frame(width: 18)
+                            RespondItemHeader(feedback: item.feedback)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                    }
+                }
+                .background(RoundedRectangle(cornerRadius: Theme.Radius.card).fill(Color(nsColor: .controlBackgroundColor)))
+                .cardBorder()
+                .padding(20)
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                HStack(spacing: 8) {
+                    ProgressView(value: Double(done), total: Double(max(total, 1)))
+                        .frame(width: 120)
+                        .accessibilityLabel("Fixes implemented")
+                    Text("Implementing \(min(done + 1, max(total, 1))) of \(max(total, 1))…")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Cancel") { queue.cancel(prID: prID) }
+                        .keyboardShortcut(.cancelAction)
+                        .help("Stops Claude. Commits already made stay unpushed in the worktree.")
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                .background(.bar)
+                .overlay(alignment: .top) { Divider() }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func implementingStatus(index: Int, done: Int) -> some View {
+        if index < done {
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.green).accessibilityLabel("Done")
+        } else if index == done {
+            ProgressView().controlSize(.small).accessibilityLabel("In progress")
+        } else {
+            Image(systemName: "circle").foregroundStyle(.secondary).accessibilityLabel("Pending")
+        }
+    }
+
+    // MARK: Etapa: revisar y pushear
+
+    private func review(_ result: RespondResult, error: String?) -> some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    if let error {
+                        ErrorBanner(messages: [error]).padding(.horizontal, -10)
+                    }
+                    if !result.sensitiveChanges.isEmpty {
+                        SensitiveChangesBanner(paths: result.sensitiveChanges)
+                    }
+                    commitsSection(result)
+                    diffSection(result)
+                    // El diff completo va antes de "Correr tests" y del push: es lo que se ejecuta y se pushea.
+                    fullDiffSection(result)
+                    if let testCommand {
+                        TestsSection(command: testCommand, run: result.tests, running: runningTests,
+                                     disabled: queue.phases[prID] != .readyToPush(draft, result),
+                                     start: { model.runRespondTests(prID: prID) },
+                                     cancel: { queue.cancel(prID: prID) })
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) { reviewFooter(result) }
+        }
+    }
+
+    private func commitsSection(_ result: RespondResult) -> some View {
+        let commits = RespondCounts.commits(result)
+        return section("Commits (\(commits))") {
+            ForEach(Array(result.items.enumerated()), id: \.element.id) { index, itemResult in
+                if index > 0 { Divider() }
+                CommitRow(result: itemResult, item: draft.items.first { $0.id == itemResult.id },
+                          commitURL: record?.pushed == true ? commitURL(itemResult.commit) : nil)
+            }
+            if result.items.isEmpty {
+                Text("No fixes were implemented.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .padding(10)
+            }
+            if let commits = result.commits, !commits.isEmpty {
+                Divider()
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Messages of the commits to push").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                    ForEach(commits, id: \.sha) { commit in
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(String(commit.sha.prefix(7))).foregroundStyle(.secondary)
+                            Text(commit.message).fixedSize(horizontal: false, vertical: true)
+                        }
+                        .font(.system(.subheadline, design: .monospaced))
+                        .textSelection(.enabled)
+                    }
+                }
+                .padding(10)
+            }
+        }
+    }
+
+    /// I3: el diff completo (`startHeadOid..HEAD`), con scroll, monoespaciado y +/- en color.
+    @ViewBuilder
+    private func fullDiffSection(_ result: RespondResult) -> some View {
+        if let diff = result.diff {
+            section("Full diff") {
+                VStack(alignment: .leading, spacing: 0) {
+                    DiffTextView(diff: diff)
+                        .frame(minHeight: 160, idealHeight: 360, maxHeight: 420)
+                    if result.diffTruncated == true {
+                        Divider()
+                        Label(RespondCopy.diffTruncatedNote, systemImage: "scissors")
+                            .font(.subheadline)
+                            .foregroundStyle(Theme.orangeText)
+                            .padding(10)
+                    }
+                }
+            }
+        } else {
+            Text("This result doesn’t include the full diff: review it in the worktree before pushing.")
+                .font(.subheadline)
+                .foregroundStyle(Theme.orangeText)
+        }
+    }
+
+    private func diffSection(_ result: RespondResult) -> some View {
+        section("Changes") {
+            let lines = result.diffStat.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+            VStack(alignment: .leading, spacing: 1) {
+                if result.diffStat.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text("No changes").foregroundStyle(.secondary)
+                } else {
+                    ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                        let sensitive = result.sensitiveChanges.contains { line.contains($0) }
+                        Text(line)
+                            .foregroundStyle(sensitive ? Theme.redText : .primary)
+                            .fontWeight(sensitive ? .semibold : .regular)
+                    }
+                }
+            }
+            .font(.system(.subheadline, design: .monospaced))
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(10)
+        }
+    }
+
+    private func reviewFooter(_ result: RespondResult) -> some View {
+        let commits = RespondCounts.commits(result)
+        let pending = record.map(RespondCounts.pendingReplies) ?? 0
+        let pushed = record?.pushed == true
+        let title: String = if pushed {
+            "Retry Pending Replies"
+        } else if commits == 0 {
+            pending == 1 ? "Post 1 Reply" : "Post \(pending) Replies"
+        } else {
+            "Push and Reply"
+        }
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("Pushing runs your hooks (pre-push) in PRBar’s worktree, on Claude’s code. " + RespondCopy.ownWorktreeNote)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 8) {
+                Button {
+                    NSWorkspace.shared.open(URL(fileURLWithPath: draft.worktree.path, isDirectory: true))
+                } label: {
+                    Image(systemName: "folder")
+                }
+                .buttonStyle(.borderless)
+                .help("Show Worktree in Finder (\(draft.worktree.path))")
+                .accessibilityLabel("Show Worktree in Finder")
+                Spacer()
+                Button(title) { confirmPublish(commits: commits, pending: pending, pushed: pushed, result: result) }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.return, modifiers: .command)
+                    .disabled(runningTests || (pushed && pending == 0))
+                    .help(runningTests ? "Wait for the tests to finish" : "Asks for confirmation before pushing and posting")
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+        .background(.bar)
+        .overlay(alignment: .top) { Divider() }
+    }
+
+    /// M1: Return cancela; pushear o publicar necesita un clic.
+    private func confirmPublish(commits: Int, pending: Int, pushed: Bool, result: RespondResult) {
+        let onlyReplies = pushed || commits == 0
+        ConfirmAlert.present(
+            title: pushQuestion(commits: commits, pending: pending, pushed: pushed),
+            message: onlyReplies
+                ? "They’ll be posted as @\(draft.account)."
+                : RespondCopy.pushConfirmation(account: draft.account, worktree: draft.worktree.path, headRef: draft.headRef,
+                                               sha: result.headOid ?? ""),
+            action: onlyReplies ? "Post" : "Push and Reply"
+        ) { queue.publish(prID: prID) }
+    }
+
+    private func pushQuestion(commits: Int, pending: Int, pushed: Bool) -> String {
+        let replies = pending == 1 ? "1 reply" : "\(pending) replies"
+        if pushed { return "Post \(pending == 1 ? "1 pending reply" : "\(pending) pending replies")?" }
+        if commits == 0 { return "Post \(replies)?" }
+        return "Push \(commits) commit\(commits == 1 ? "" : "s") to \(draft.headRef) and post \(replies)?"
+    }
+
+    private func commitURL(_ sha: String?) -> URL? {
+        guard let sha, !sha.isEmpty else { return nil }
+        return URL(string: "https://github.com/\(draft.repo.owner)/\(draft.repo.name)/commit/\(sha)")
+    }
+
+    // MARK: Piezas
+
+    private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 0) { content() }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: Theme.Radius.card).fill(Color(nsColor: .controlBackgroundColor)))
+                .cardBorder()
+        }
+    }
+
+    private func progress(_ text: String, cancellable: Bool) -> some View {
+        VStack(spacing: 12) {
+            ProgressView().controlSize(.large)
+            Text(text).font(.title3).foregroundStyle(.secondary)
+            if cancellable {
+                Button("Cancel") { queue.cancel(prID: prID) }
+                    .keyboardShortcut(.cancelAction)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func message(icon: String, title: String, text: String, action: (String, () -> Void)?) -> some View {
+        VStack(spacing: 10) {
+            MessageView(icon: icon, title: title, text: text)
+            HStack(spacing: 8) {
+                if let action {
+                    Button(action.0, action: action.1)
+                }
+                Button("Close", action: close)
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// Encabezado: `repo#N` + "Abrir en GitHub", título, cuenta, rama y worktree.
+private struct RespondHeader: View {
+    let draft: RespondDraft
+
+    private var origin: String {
+        switch draft.worktree.origin {
+        case .mainClone: "main clone"
+        case .existingWorktree: "existing worktree"
+        case .created: "new worktree"
+        case .dedicated: "PRBar worktree"
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            PRReferenceLine(repo: draft.repo, number: draft.number, url: draft.url, linkTitle: "Open on GitHub")
+            Text(draft.title)
+                .font(.title2.weight(.semibold))
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 6) {
+                Text("@\(draft.account)").foregroundStyle(.primary)
+                Text("·").foregroundStyle(.tertiary)
+                Image(systemName: "arrow.triangle.branch").imageScale(.small).fontWeight(.semibold)
+                Text(draft.headRef)
+                    .font(.system(.callout, design: .monospaced))
+                    .foregroundStyle(.primary)
+                    .truncationMode(.middle)
+            }
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            HStack(spacing: 4) {
+                Image(systemName: "folder").imageScale(.small).fontWeight(.semibold)
+                Text("Worktree:")
+                Text(draft.worktree.path)
+                    .font(.system(.subheadline, design: .monospaced))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+                    .help(draft.worktree.path)
+                Text("(\(origin))")
+            }
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .accessibilityElement(children: .combine)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Banner rojo con los archivos que pueden ejecutar código. Va arriba de "Correr tests" y del push.
+struct SensitiveChangesBanner: View {
+    let paths: [String]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label {
+                Text("Claude changed files that can run code (hooks, scripts, CI, dependencies). Review them before running tests or pushing.")
+                    .font(.callout.weight(.semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+            } icon: {
+                Image(systemName: "exclamationmark.octagon.fill")
+            }
+            VStack(alignment: .leading, spacing: 1) {
+                ForEach(paths, id: \.self) { path in
+                    Text(path).font(.system(.subheadline, design: .monospaced)).textSelection(.enabled)
+                }
+            }
+            .padding(.leading, 24)
+        }
+        .foregroundStyle(Theme.redText)
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: Theme.Radius.card).fill(Theme.tint(Theme.red)))
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// Un fix: estado, sha corto (con link si ya se pusheó), resumen de Claude y a qué comentario responde.
+struct CommitRow: View {
+    let result: ItemResult
+    let item: RespondItem?
+    let commitURL: URL?
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            status.frame(width: 14)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    sha
+                    Text(result.summary.isEmpty ? "No summary" : result.summary)
+                        .font(.callout)
+                        .foregroundStyle(result.summary.isEmpty ? .secondary : .primary)
+                        .lineLimit(2)
+                        .help(result.summary)
+                }
+                if let item {
+                    Text("\(item.feedback.reviewer) · \(RespondItemHeader.location(item.feedback))")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+    }
+
+    @ViewBuilder
+    private var status: some View {
+        switch result.status {
+        case .committed:
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.green).accessibilityLabel("Committed")
+        case .noChanges:
+            Image(systemName: "minus.circle").foregroundStyle(.secondary).accessibilityLabel("No changes")
+        case .failed:
+            Image(systemName: "xmark.octagon.fill").foregroundStyle(Theme.red).accessibilityLabel("Failed")
+        }
+    }
+
+    @ViewBuilder
+    private var sha: some View {
+        switch result.status {
+        case .committed:
+            let short = String((result.commit ?? "").prefix(7))
+            if let commitURL {
+                Link(short, destination: commitURL)
+                    .font(.system(.subheadline, design: .monospaced))
+                    .pointingHandCursor()
+                    .help(commitURL.absoluteString)
+            } else {
+                Text(short).font(.system(.subheadline, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled)
+            }
+        case .noChanges:
+            StatusPill(text: "No changes", color: .secondary, background: Color.primary.opacity(0.08))
+        case .failed:
+            StatusPill(text: "Failed", color: Theme.redText, background: Theme.tint(Theme.red))
+        }
+    }
+}
+
+/// "Correr tests": solo a pedido, después de ver el diff. Muestra el progreso y el resultado con la salida.
+private struct TestsSection: View {
+    let command: String
+    let run: TestRun?
+    let running: Bool
+    let disabled: Bool
+    let start: () -> Void
+    let cancel: () -> Void
+    @State private var showOutput = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Tests").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Text(command)
+                        .font(.system(.subheadline, design: .monospaced))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                        .help(command)
+                    Spacer()
+                    if running {
+                        ProgressView().controlSize(.small)
+                        Text("Running tests…").font(.subheadline).foregroundStyle(.secondary)
+                        Button("Cancel", action: cancel)
+                    } else {
+                        Button(run == nil ? "Run Tests" : "Run Again", action: start)
+                            .disabled(disabled)
+                    }
+                }
+                Text("Runs the code Claude wrote in the worktree: do it after reviewing the diff.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                if let run, !running {
+                    result(run)
+                }
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: Theme.Radius.card).fill(Color(nsColor: .controlBackgroundColor)))
+            .cardBorder()
+        }
+    }
+
+    private func result(_ run: TestRun) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label(run.passed ? "Tests passed" : "Tests failed",
+                  systemImage: run.passed ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(run.passed ? Theme.greenText : Theme.orangeText)
+            if !run.passed {
+                Text("This doesn’t block the push: it’s your call.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            if !run.outputTail.isEmpty {
+                DisclosureGroup(isExpanded: $showOutput) {
+                    ScrollView {
+                        Text(run.outputTail)
+                            .font(.system(.caption, design: .monospaced))
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(8)
+                    }
+                    .frame(maxHeight: 220)
+                    .background(RoundedRectangle(cornerRadius: Theme.Radius.button).fill(Color(nsColor: .textBackgroundColor)))
+                } label: {
+                    Text("Show output (last lines)").font(.subheadline)
+                }
+            }
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: Theme.Radius.button)
+            .fill(Theme.tint(run.passed ? Theme.green : Theme.orange)))
+    }
+}
+
+/// Estado final: lo que se pusheó y las respuestas publicadas, con sus links.
+private struct RespondDoneView: View {
+    let record: RespondRecord
+    let close: () -> Void
+
+    private var commits: Int { record.result.map(RespondCounts.commits) ?? 0 }
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 52))
+                .foregroundStyle(Theme.green)
+                .padding(.bottom, 6)
+            Text("Responded").font(.title.weight(.semibold))
+            Text(summary).font(.callout).foregroundStyle(.secondary)
+            RespondRepliesList(record: record)
+                .frame(maxWidth: 520)
+                .padding(.top, 8)
+            HStack(spacing: 8) {
+                ExternalLink("View on GitHub", destination: record.draft.url)
+                    .padding(.trailing, 8)
+                Button("Close", action: close)
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+            }
+            .padding(.top, 14)
+        }
+        .multilineTextAlignment(.center)
+        .padding(.horizontal, 40)
+        .padding(.bottom, 20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var summary: String {
+        let replies = record.posted.count
+        let posted = replies == 1 ? "1 reply posted" : "\(replies) replies posted"
+        guard record.pushed, commits > 0 else { return posted }
+        return "Pushed ✓ · \(commits) commit\(commits == 1 ? "" : "s") · \(posted)"
+    }
+}
+
+/// Lista de las respuestas publicadas de un registro, cada una con su link.
+struct RespondRepliesList: View {
+    let record: RespondRecord
+
+    var body: some View {
+        let posted = record.draft.items.compactMap { item in record.posted[item.id].map { (item, $0) } }
+        if !posted.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(posted.enumerated()), id: \.element.0.id) { index, pair in
+                    if index > 0 { Divider() }
+                    HStack(spacing: 8) {
+                        Image(systemName: "arrowshape.turn.up.left.fill").font(.caption).foregroundStyle(.secondary)
+                        Text("\(pair.0.feedback.reviewer) · \(RespondItemHeader.location(pair.0.feedback))")
+                            .font(.callout)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer(minLength: 4)
+                        ExternalLink("View Reply", destination: pair.1.url)
+                            .font(.subheadline)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                }
+            }
+            .multilineTextAlignment(.leading)
+            .background(RoundedRectangle(cornerRadius: Theme.Radius.card).fill(Color(nsColor: .controlBackgroundColor)))
+            .cardBorder()
+        }
+    }
+}
+
+/// El diff en un `NSTextView` de solo lectura (rápido con miles de líneas): monoespaciado, seleccionable, con las
+/// líneas `+` en verde, las `-` en rojo y los encabezados (`diff --git`, `@@`) en gris.
+struct DiffTextView: NSViewRepresentable {
+    let diff: String
+
+    final class Coordinator {
+        var shown: String?
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scroll = NSTextView.scrollableTextView()
+        scroll.hasHorizontalScroller = true
+        scroll.borderType = .noBorder
+        if let text = scroll.documentView as? NSTextView {
+            text.isEditable = false
+            text.isSelectable = true
+            text.isRichText = false
+            text.drawsBackground = false
+            text.textContainerInset = NSSize(width: 8, height: 8)
+            // Sin cortar líneas: el scroll horizontal muestra el código como es.
+            text.isHorizontallyResizable = true
+            text.textContainer?.widthTracksTextView = false
+            text.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+            text.setAccessibilityLabel("Full diff")
+        }
+        update(scroll, context.coordinator)
+        return scroll
+    }
+
+    func updateNSView(_ scroll: NSScrollView, context: Context) {
+        update(scroll, context.coordinator)
+    }
+
+    /// Solo se vuelve a colorear si cambió el diff.
+    private func update(_ scroll: NSScrollView, _ coordinator: Coordinator) {
+        guard coordinator.shown != diff, let text = scroll.documentView as? NSTextView else { return }
+        coordinator.shown = diff
+        text.textStorage?.setAttributedString(Self.colored(diff))
+    }
+
+    static func colored(_ diff: String) -> NSAttributedString {
+        let font = NSFont.monospacedSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
+        let result = NSMutableAttributedString()
+        for line in diff.split(separator: "\n", omittingEmptySubsequences: false) {
+            let color: NSColor
+            if line.hasPrefix("+++") || line.hasPrefix("---") || line.hasPrefix("diff --git") || line.hasPrefix("index ") {
+                color = .secondaryLabelColor
+            } else if line.hasPrefix("@@") {
+                color = .systemPurple
+            } else if line.hasPrefix("+") {
+                color = Theme.AppKitColors.greenText
+            } else if line.hasPrefix("-") {
+                color = Theme.AppKitColors.redText
+            } else {
+                color = .labelColor
+            }
+            result.append(NSAttributedString(string: String(line) + "\n", attributes: [.font: font, .foregroundColor: color]))
+        }
+        return result
+    }
+}

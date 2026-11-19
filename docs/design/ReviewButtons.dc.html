@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<div style="display:grid;grid-template-columns:130px minmax(0,1fr);row-gap:9px;column-gap:10px;align-items:center;color:var(--fg);font-size:11px;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif">
+  <div style="display:flex"><div style="height:20px;padding:0 10px;border-radius:6px;background:var(--btn);box-shadow:var(--btnshadow);font-weight:500;display:flex;align-items:center">Review</div></div><span style="color:var(--fg2)">Idle</span>
+  <div style="display:flex"><div style="height:20px;padding:0 8px;border-radius:6px;background:var(--fill);color:var(--fg2);font-weight:500;display:flex;align-items:center;gap:4px"><x-import component="SFIcon" from="./sf-icons.js" name="pause.fill" size="9" hint-size="9px,9px"></x-import>En cola</div></div><span style="color:var(--fg2)">pause.fill</span>
+  <div style="display:flex"><div style="height:20px;padding:0 8px;border-radius:6px;background:var(--violetbg);color:var(--violet);font-weight:500;display:flex;align-items:center;gap:4px"><x-import component="SFIcon" from="./sf-icons.js" name="hourglass" size="10" weight="2.2" hint-size="10px,10px"></x-import>Preparando…</div></div><span style="color:var(--fg2)">hourglass</span>
+  <div style="display:flex"><div style="height:20px;padding:0 8px;border-radius:6px;background:var(--violetbg);color:var(--violet);font-weight:500;display:flex;align-items:center;gap:4px"><x-import component="SFSpinner" from="./sf-icons.js" size="10" hint-size="10px,10px"></x-import>Revisando…</div></div><span style="color:var(--fg2)">ProgressView</span>
+  <div style="display:flex"><div style="height:20px;padding:0 6px 0 8px;border-radius:6px;background:var(--violetbg);color:var(--violet);font-weight:500;display:flex;align-items:center;gap:4px"><x-import component="SFSpinner" from="./sf-icons.js" size="10" hint-size="10px,10px"></x-import>Revisando…<x-import component="SFIcon" from="./sf-icons.js" name="xmark.circle.fill" size="12" hint-size="12px,12px"></x-import></div></div><span style="color:var(--fg2)">hover · cancelar</span>
+  <div style="display:flex"><div style="height:20px;padding:0 8px;border-radius:6px;background:var(--violetbg);color:var(--violet);font-weight:500;display:flex;align-items:center;gap:4px"><x-import component="SFIcon" from="./sf-icons.js" name="line.3.horizontal.decrease" size="11" weight="2.4" hint-size="11px,11px"></x-import>Filtrando…</div></div><span style="color:var(--fg2)">line.3.horizontal.decrease</span>
+  <div style="display:flex"><div style="height:20px;padding:0 8px 0 6px;border-radius:6px;background:var(--greenbg);color:var(--green);font-weight:600;display:flex;align-items:center;gap:4px"><x-import component="SFIcon" from="./sf-icons.js" name="checkmark.circle.fill" size="12" hint-size="12px,12px"></x-import>5 comentarios</div></div><span style="color:var(--fg2)">click abre Review</span>
+  <div style="display:flex"><div style="height:20px;padding:0 8px 0 6px;border-radius:6px;background:var(--redbg);color:var(--red);font-weight:500;display:flex;align-items:center;gap:4px"><x-import component="SFIcon" from="./sf-icons.js" name="exclamationmark.triangle.fill" size="11" hint-size="11px,11px"></x-import>Error</div></div><span style="color:var(--fg2)">click reintenta</span>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:300,&quot;height&quot;:240}}"></script>
+</body>
+</html>

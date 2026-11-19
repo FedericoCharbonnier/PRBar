@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<div style="padding:28px 28px 30px;display:flex;flex-direction:column;gap:18px">
+  <div style="display:flex;align-items:baseline;justify-content:space-between">
+    <span style="font-size:13px;font-weight:600;color:var(--fg)">Estados del ícono · ampliado 2×</span>
+    <span style="font-size:11px;color:var(--fg2)">Template image monocroma 16×16pt · badge cápsula 14pt</span>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px">
+    <sc-for list="{{ states }}" as="s" hint-placeholder-count="5">
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="height:48px;border-radius:8px;overflow:hidden;background:var(--wall);box-shadow:0 0 0 0.5px var(--sep)">
+          <div style="width:80px;transform:scale(2);transform-origin:0 0">
+            <dc-import name="MenuBar" compact="true" state="{{ s.state }}" active="{{ s.active }}" count="7" hint-size="80px,24px"></dc-import>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:1px">
+          <span style="font-size:12px;font-weight:600;color:var(--fg)">{{ s.label }}</span>
+          <span style="font-size:11px;color:var(--fg2)">{{ s.note }}</span>
+        </div>
+      </div>
+    </sc-for>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:900,&quot;height&quot;:176}}">
+class Component extends DCLogic {
+  renderVals() {
+    return { states: [
+      { state: 'idle', active: false, label: 'Sin pendientes', note: 'Solo el glifo' },
+      { state: 'count', active: false, label: 'Con pendientes', note: 'Badge con el total' },
+      { state: 'refreshing', active: false, label: 'Refrescando', note: 'Glifo al 55% + spinner' },
+      { state: 'error', active: false, label: 'Error', note: 'exclamationmark.triangle' },
+      { state: 'count', active: true, label: 'Popover abierto', note: 'Resaltado del sistema' },
+    ] };
+  }
+}
+</script>
+</body>
+</html>

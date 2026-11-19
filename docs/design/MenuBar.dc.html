@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<div style="height:24px;width:100%;display:flex;align-items:center;justify-content:space-between;padding:0 10px 0 14px;box-sizing:border-box;background:var(--menubar);backdrop-filter:blur(40px) saturate(180%);-webkit-backdrop-filter:blur(40px) saturate(180%);color:var(--menufg);font-size:13px;letter-spacing:-0.08px;white-space:nowrap;overflow:hidden">
+  <sc-if value="{{ showMenus }}" hint-placeholder-val="{{ true }}">
+    <div style="display:flex;align-items:center;gap:18px">
+      <span style="font-weight:700">Finder</span>
+      <span>Archivo</span><span>Edición</span><span>Visualización</span><span>Ir</span><span>Ventana</span><span>Ayuda</span>
+    </div>
+  </sc-if>
+  <sc-if value="{{ hideMenus }}" hint-placeholder-val="{{ false }}"><div></div></sc-if>
+  <div style="display:flex;align-items:center;gap:4px">
+    <div style="height:22px;display:flex;align-items:center;gap:3px;padding:0 7px;border-radius:5px;background:{{ itemBg }}">
+      <sc-if value="{{ isRefreshing }}" hint-placeholder-val="{{ false }}">
+        <div style="opacity:0.55;display:flex"><x-import component="SFIcon" from="./sf-icons.js" name="prbar" size="16" weight="2" hint-size="16px,16px"></x-import></div>
+        <x-import component="SFSpinner" from="./sf-icons.js" size="10" hint-size="10px,10px"></x-import>
+      </sc-if>
+      <sc-if value="{{ notRefreshing }}" hint-placeholder-val="{{ true }}">
+        <x-import component="SFIcon" from="./sf-icons.js" name="prbar" size="16" weight="2" hint-size="16px,16px"></x-import>
+      </sc-if>
+      <sc-if value="{{ isCount }}" hint-placeholder-val="{{ false }}">
+        <span style="min-width:15px;height:14px;padding:0 4px;box-sizing:border-box;border-radius:7px;background:var(--menufg);color:var(--menuknock);font-size:10.5px;font-weight:700;display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums;mix-blend-mode:normal">{{ count }}</span>
+      </sc-if>
+      <sc-if value="{{ isError }}" hint-placeholder-val="{{ false }}">
+        <x-import component="SFIcon" from="./sf-icons.js" name="exclamationmark.triangle" size="13" weight="2" hint-size="13px,13px"></x-import>
+      </sc-if>
+    </div>
+    <div style="display:flex;align-items:center;gap:14px;padding:0 8px">
+      <x-import component="SFIcon" from="./sf-icons.js" name="wifi" size="15" weight="2" hint-size="15px,15px"></x-import>
+      <x-import component="SFIcon" from="./sf-icons.js" name="battery.100" size="19" weight="1.6" hint-size="19px,19px"></x-import>
+      <x-import component="SFIcon" from="./sf-icons.js" name="switch.2" size="15" weight="2" hint-size="15px,15px"></x-import>
+      <span>Mié 18 nov  10:42</span>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:900,&quot;height&quot;:24},&quot;state&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;idle&quot;,&quot;count&quot;,&quot;refreshing&quot;,&quot;error&quot;],&quot;default&quot;:&quot;count&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;count&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:7,&quot;tsType&quot;:&quot;number&quot;},&quot;active&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;compact&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const s = this.props.state ?? 'count';
+    const compact = this.props.compact === true || this.props.compact === 'true';
+    const active = this.props.active === true || this.props.active === 'true';
+    return {
+      isCount: s === 'count', isError: s === 'error',
+      isRefreshing: s === 'refreshing', notRefreshing: s !== 'refreshing',
+      count: this.props.count ?? 7,
+      itemBg: active ? 'var(--menuhl)' : 'transparent',
+      showMenus: !compact, hideMenus: compact,
+    };
+  }
+}
+</script>
+</body>
+</html>

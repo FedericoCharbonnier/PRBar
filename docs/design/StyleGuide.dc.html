@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<div data-screen-label="15 Guía de estilo" style="width:1848px;display:flex;flex-direction:column;gap:56px;color:#E5E5E5;font-family:'PP Neue Montreal',Manrope,sans-serif">
+  <div style="display:flex;flex-direction:column;gap:16px;padding-top:56px;border-top:1px solid #1F1F1F">
+    <div style="font-size:13px;font-weight:500;letter-spacing:0.08em;color:#666666">15 · GUÍA DE ESTILO · SWIFTUI</div>
+    <div style="font-size:72px;font-weight:500;letter-spacing:-0.03em;line-height:1.05;color:#FFFFFF">Guía de estilo.</div>
+    <div style="font-size:20px;line-height:1.5;color:#B3B3B3;max-width:900px">Todo en puntos. Tipografía del sistema (SF Pro / SF Mono), materiales del sistema para fondos y un único color de acento: PRBar Blue.</div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:32px">
+    <div style="background:#0D0D0D;border:1px solid #1F1F1F;border-radius:24px;padding:32px;display:flex;flex-direction:column;gap:20px">
+      <div style="font-size:13px;font-weight:500;letter-spacing:0.08em;color:#666666">TIPOGRAFÍA</div>
+      <div style="display:flex;flex-direction:column">
+        <sc-for list="{{ type }}" as="t" hint-placeholder-count="9">
+          <div style="display:grid;grid-template-columns:minmax(0,1.3fr) 150px minmax(0,1.4fr);gap:16px;align-items:baseline;padding:11px 0;border-top:1px solid #1F1F1F">
+            <span style="font-family:{{ t.family }};font-size:{{ t.px }};font-weight:{{ t.w }};color:#FFFFFF;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ t.sample }}</span>
+            <span style="font-size:13px;color:#B3B3B3">{{ t.spec }}</span>
+            <span style="font-family:'SF Mono',ui-monospace,Menlo,monospace;font-size:12px;color:#8299FF">{{ t.swift }}</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:32px">
+      <div style="background:#0D0D0D;border:1px solid #1F1F1F;border-radius:24px;padding:32px;display:flex;flex-direction:column;gap:18px">
+        <div style="font-size:13px;font-weight:500;letter-spacing:0.08em;color:#666666">ESPACIADO</div>
+        <div style="display:flex;flex-direction:column;gap:9px">
+          <sc-for list="{{ spacing }}" as="s" hint-placeholder-count="7">
+            <div style="display:grid;grid-template-columns:40px 100px minmax(0,1fr);gap:14px;align-items:center">
+              <span style="font-size:16px;font-weight:500;color:#FFFFFF">{{ s.v }}</span>
+              <span style="height:10px;width:{{ s.px }};background:#2D4EFF;border-radius:2px"></span>
+              <span style="font-size:13px;color:#B3B3B3">{{ s.use }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      <div style="background:#0D0D0D;border:1px solid #1F1F1F;border-radius:24px;padding:32px;display:flex;flex-direction:column;gap:18px">
+        <div style="font-size:13px;font-weight:500;letter-spacing:0.08em;color:#666666">RADIOS Y MEDIDAS</div>
+        <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px">
+          <sc-for list="{{ radii }}" as="r" hint-placeholder-count="8">
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <div style="height:44px;border:1.5px solid #3A3A3A;border-radius:{{ r.px }};background:#141414"></div>
+              <span style="font-size:13px;color:#FFFFFF">{{ r.v }} · {{ r.use }}</span>
+            </div>
+          </sc-for>
+        </div>
+        <div style="font-size:13px;line-height:1.7;color:#B3B3B3;border-top:1px solid #1F1F1F;padding-top:14px">Popover 380 ancho · fila ≈ 46 alto · avatar 22 · botón Review 20 alto · ítem de barra 22 alto · Review 720×640 · Historial 760×520 (sidebar 290) · Configuración 620 ancho · banner 356</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="background:#0D0D0D;border:1px solid #1F1F1F;border-radius:24px;padding:32px;display:flex;flex-direction:column;gap:18px">
+    <div style="font-size:13px;font-weight:500;letter-spacing:0.08em;color:#666666">COLOR</div>
+    <div style="display:grid;grid-template-columns:220px 170px 170px minmax(0,1fr);gap:16px;font-size:12px;color:#666666;letter-spacing:0.06em;padding-bottom:4px"><span>TOKEN</span><span>CLARO</span><span>OSCURO</span><span>USO · SWIFTUI</span></div>
+    <sc-for list="{{ colors }}" as="c" hint-placeholder-count="10">
+      <div style="display:grid;grid-template-columns:220px 170px 170px minmax(0,1fr);gap:16px;align-items:center;padding:10px 0;border-top:1px solid #1F1F1F">
+        <span style="font-size:16px;font-weight:500;color:#FFFFFF">{{ c.name }}</span>
+        <span style="display:flex;align-items:center;gap:10px"><span style="width:28px;height:28px;border-radius:7px;background:{{ c.light }};box-shadow:inset 0 0 0 1px rgba(255,255,255,0.1)"></span><span style="font-family:'SF Mono',ui-monospace,Menlo,monospace;font-size:12px;color:#B3B3B3">{{ c.light }}</span></span>
+        <span style="display:flex;align-items:center;gap:10px"><span style="width:28px;height:28px;border-radius:7px;background:{{ c.dark }};box-shadow:inset 0 0 0 1px rgba(255,255,255,0.1)"></span><span style="font-family:'SF Mono',ui-monospace,Menlo,monospace;font-size:12px;color:#B3B3B3">{{ c.dark }}</span></span>
+        <span style="font-size:14px;color:#B3B3B3">{{ c.use }}</span>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:32px">
+    <div style="background:#0D0D0D;border:1px solid #1F1F1F;border-radius:24px;padding:32px;display:flex;flex-direction:column;gap:18px">
+      <div style="font-size:13px;font-weight:500;letter-spacing:0.08em;color:#666666">BOTÓN REVIEW · ESTADOS</div>
+      <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);border-radius:14px;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif">
+        <div style="background:#F2F2F5;padding:16px;display:flex;flex-direction:column;gap:8px;--btn:#FFFFFF;--btnshadow:0 0 0 0.5px rgba(0,0,0,0.18),0 0.5px 1.5px rgba(0,0,0,0.16);--fill:rgba(0,0,0,0.06);--fg:rgba(0,0,0,0.86);--fg2:rgba(0,0,0,0.54);--violet:#8B3FD9;--violetbg:rgba(175,82,222,0.14);--green:#1A9E46;--greenbg:rgba(40,180,80,0.14);--red:#D92D20;--redbg:rgba(255,59,48,0.12)">
+          <dc-import name="ReviewButtons" hint-size="100%,220px"></dc-import>
+        </div>
+        <div style="background:#1E1E21;padding:16px;display:flex;flex-direction:column;gap:8px;--btn:rgba(255,255,255,0.15);--btnshadow:0 0 0 0.5px rgba(255,255,255,0.05),0 0.5px 1px rgba(0,0,0,0.35);--fill:rgba(255,255,255,0.09);--fg:rgba(255,255,255,0.88);--fg2:rgba(255,255,255,0.56);--violet:#C88BFF;--violetbg:rgba(191,90,242,0.22);--green:#32D35A;--greenbg:rgba(48,209,88,0.17);--red:#FF5A50;--redbg:rgba(255,69,58,0.17)">
+          <dc-import name="ReviewButtons" hint-size="100%,220px"></dc-import>
+        </div>
+      </div>
+      <div style="font-size:14px;line-height:1.6;color:#B3B3B3">Los emojis del brief se traducen a SF Symbols para que el botón se lea como control nativo. Mientras el review corre (Preparando, Revisando, Filtrando), el hover agrega <span style="font-family:'SF Mono',ui-monospace,monospace;font-size:12px;color:#E5E5E5">xmark.circle.fill</span> para cancelar. El spinner es un <span style="font-family:'SF Mono',ui-monospace,monospace;font-size:12px;color:#E5E5E5">ProgressView().controlSize(.mini)</span>.</div>
+    </div>
+
+    <div style="background:#0D0D0D;border:1px solid #1F1F1F;border-radius:24px;padding:32px;display:flex;flex-direction:column;gap:18px">
+      <div style="font-size:13px;font-weight:500;letter-spacing:0.08em;color:#666666">SF SYMBOLS</div>
+      <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:24px">
+        <sc-for list="{{ symbols }}" as="y" hint-placeholder-count="20">
+          <div style="display:flex;align-items:center;gap:12px;padding:7px 0;border-top:1px solid #1F1F1F;color:#E5E5E5">
+            <span style="width:22px;display:flex;justify-content:center"><x-import component="SFIcon" from="./sf-icons.js" name="{{ y.icon }}" size="17" hint-size="17px,17px"></x-import></span>
+            <span style="font-family:'SF Mono',ui-monospace,Menlo,monospace;font-size:12px;color:#FFFFFF;flex:none">{{ y.name }}</span>
+            <span style="font-size:12px;color:#666666;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ y.use }}</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+
+  <div style="background:#0D0D0D;border:1px solid #1F1F1F;border-radius:24px;padding:32px;display:grid;grid-template-columns:240px minmax(0,1fr);gap:32px">
+    <div style="font-size:13px;font-weight:500;letter-spacing:0.08em;color:#666666">NOTAS SWIFTUI</div>
+    <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px 32px">
+      <sc-for list="{{ notes }}" as="n" hint-placeholder-count="6">
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <span style="font-size:16px;font-weight:500;color:#FFFFFF">{{ n.t }}</span>
+          <span style="font-size:14px;line-height:1.55;color:#B3B3B3">{{ n.d }}</span>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1848,&quot;height&quot;:2400}}">
+class Component extends DCLogic {
+  renderVals() {
+    const SF = "-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif", MONO = "'SF Mono',ui-monospace,Menlo,monospace";
+    const type = [
+      ['Publicado ✓', '20 · Semibold', '.title2 (+3pt) .semibold', 20, 600],
+      ['Add rate limiting to posts sync', '17 · Semibold', '.title2.weight(.semibold)', 17, 600],
+      ['Sin conexión', '15 · Semibold', '.title3.weight(.semibold)', 15, 600],
+      ['Para revisar · PRBar', '13 · Semibold/Bold', '.headline', 13, 600],
+      ['Fix N+1 in weekly report query', '13 · Medium', '.body.weight(.medium)', 13, 500],
+      ['Agrega un rate limiter por cliente', '12 · Regular', '.callout', 12, 400],
+      ['posts-api#282 · develop · 3h', '11 · Regular', '.subheadline', 11, 400],
+      ['Revisando…', '11 · Medium', '.subheadline.weight(.medium)', 11, 500],
+      ['config/initializers/rack_attack.rb:18', '11 · SF Mono', '.system(size: 11, design: .monospaced)', 11, 400, true],
+      ['7', '10.5 · Bold', '.system(size: 10.5, weight: .bold).monospacedDigit()', 10.5, 700],
+    ].map(([sample, spec, swift, px, w, mono]) => ({ sample, spec, swift, px: px + 'px', w, family: mono ? MONO : SF }));
+    const spacing = [[2, 'título ↔ meta en filas'], [4, 'ícono ↔ texto, chips'], [6, 'inset de fila en popover, gaps de botones'], [8, 'avatar ↔ texto, entre tarjetas'], [12, 'padding de tarjetas y grupos'], [14, 'padding horizontal del popover'], [20, 'márgenes de ventanas']].map(([v, use]) => ({ v, use, px: (v * 4) + 'px' }));
+    const radii = [[12, 'Popover'], [10, 'Ventana'], [18, 'Notificación'], [8, 'Tarjeta / grupo'], [7, 'Fila seleccionable'], [6, 'Botón'], [4, 'Checkbox'], [999, 'Badge / pill']].map(([v, use]) => ({ v: v === 999 ? 'Capsule' : v, use, px: Math.min(v, 22) + 'px' }));
+    const colors = [
+      ['Acento', '#2D4EFF', '#4D6BFF', 'PRBar Blue. Selección, links, toggles, checkboxes · .tint(.accent)'],
+      ['Verde', '#1A9E46', '#32D35A', 'Aprobado, CI OK, review listo, +líneas · Color.green'],
+      ['Naranja', '#D46B00', '#FF9F0A', 'Cambios pedidos, CI pendiente, severidad Media · Color.orange'],
+      ['Rojo', '#D92D20', '#FF5A50', 'CI fallando, error, severidad Alta, −líneas · Color.red'],
+      ['Violeta', '#8B3FD9', '#C88BFF', 'Claude trabajando y resúmenes de Claude · Color.purple'],
+      ['Azul', '#0A72E8', '#47A0FF', 'Severidad Baja · Color.blue'],
+      ['Tinte de estado', 'rgba(40,180,80,0.14)', 'rgba(48,209,88,0.17)', 'Fondo de pills y botones de estado · color.opacity(0.14 / 0.2)'],
+      ['Texto', '#000000DB', '#FFFFFFE0', '.primary · secundario .secondary (54%) · terciario .tertiary (32%)'],
+      ['Separador', '#0000001A', '#FFFFFF1A', 'Divider() · Color(nsColor: .separatorColor)'],
+      ['Popover', '#F4F4F7D1', '#26262CCC', '.background(.regularMaterial) dentro de MenuBarExtra(.window)'],
+      ['Ventana', '#FFFFFF', '#1E1E21', 'Color(nsColor: .windowBackgroundColor) · sidebar: .sidebar material'],
+    ].map(([name, light, dark, use]) => ({ name, light, dark, use }));
+    const symbols = [
+      ['prbar', 'arrow.triangle.pull', 'glifo de la app (template)'], ['arrow.clockwise', 'arrow.clockwise', 'refrescar'],
+      ['gearshape', 'gearshape', 'configuración'], ['chevron.down', 'chevron.down / .right', 'secciones colapsables'],
+      ['checkmark', 'checkmark', 'CI OK'], ['xmark', 'xmark', 'CI falla, quitar chip'],
+      ['circle.fill', 'circle.fill', 'CI corriendo'], ['arrow.triangle.branch', 'arrow.triangle.branch', 'rama base'],
+      ['pause.fill', 'pause.fill', 'En cola'], ['hourglass', 'hourglass', 'Preparando'],
+      ['magnifyingglass', 'magnifyingglass', 'búsqueda'], ['line.3.horizontal.decrease', 'line.3.horizontal.decrease', 'Filtrando / razón de descarte'],
+      ['checkmark.circle.fill', 'checkmark.circle.fill', 'listo, remote verificado'], ['exclamationmark.triangle.fill', 'exclamationmark.triangle.fill', 'error, sin cuentas'],
+      ['xmark.circle.fill', 'xmark.circle.fill', 'cancelar review (hover)'], ['exclamationmark.triangle', 'exclamationmark.triangle', 'error en la barra de menú'],
+      ['sparkles', 'sparkles', 'resumen de Claude'], ['arrow.up.right', 'arrow.up.right', 'abrir en GitHub'],
+      ['checkmark.seal', 'checkmark.seal', 'Todo al día'], ['wifi.slash', 'wifi.slash', 'sin conexión'],
+      ['text.bubble', 'text.bubble', 'comentarios nuevos'], ['terminal', 'terminal', 'log de Claude'],
+      ['person.crop.circle', 'person.crop.circle', 'tab Cuentas'], ['books.vertical', 'books.vertical', 'tab Repos'],
+      ['person.2', 'person.2', 'tab Usuarios'], ['folder', 'folder', 'carpeta local'],
+      ['doc.on.doc', 'doc.on.doc', 'copiar comando'], ['chevron.up.chevron.down', 'chevron.up.chevron.down', 'popup buttons'],
+    ].map(([icon, name, use]) => ({ icon, name, use }));
+    const notes = [
+      { t: 'Barra de menú', d: 'MenuBarExtra con .menuBarExtraStyle(.window). Ícono como Image template de 16pt; el badge es texto 10.5 Bold en una cápsula del mismo color del glifo.' },
+      { t: 'Popover', d: 'ScrollView con LazyVStack y DisclosureGroup por sección. Altura máxima 640; filas con hover usando .onHover y fondo .quaternary.' },
+      { t: 'Botón Review', d: 'Button con .buttonStyle(.borderless) y fondo propio en estados de progreso; .controlSize(.small). Idle usa .bordered.' },
+      { t: 'Ventana de Review', d: 'Window scene de 720×640, .windowResizability(.contentMinSize). Footer fijo con .safeAreaInset(edge: .bottom).' },
+      { t: 'Historial', d: 'NavigationSplitView con sidebar de 290, .searchable y un Picker de repo en la toolbar del sidebar.' },
+      { t: 'Configuración', d: 'Settings scene con TabView y .tabItem; contenido con Form y .formStyle(.grouped). Toggles con .toggleStyle(.switch).' },
+    ];
+    return { type, spacing, radii, colors, symbols, notes };
+  }
+}
+</script>
+</body>
+</html>

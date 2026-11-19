@@ -1,0 +1,72 @@
+import Foundation
+import PRBarCore
+
+/// Los tests nunca escriben en ~/Library/Logs/PRBar/prbar.log.
+enum TestEnvironment {
+    static let logFile = FileManager.default.temporaryDirectory
+        .appendingPathComponent("prbar-tests-\(UUID().uuidString).log")
+}
+AppLog.setDestination(TestEnvironment.logFile)
+
+let allTests: [TestCase] = []
+    + SmokeTests.cases
+    + ModelsTests.cases
+    + ClassifierTests.cases
+    + FormattingTests.cases
+    + ConfigTests.cases
+    + ProcessTests.cases
+    + GitHubClientTests.cases
+    + SnapshotTests.cases
+    + NotificationPlannerTests.cases
+    + AppLogTests.cases
+    + SlackConfigTests.cases
+    + SlackTemplatePreviewTests.cases
+    + SlackPlannerTests.cases
+    + SlackReviewReactionsTests.cases
+    + SlackClientTests.cases
+    + SlackAnnouncerTests.cases
+    + SlackAntiDuplicateTests.cases
+    + SlackSelfTestTests.cases
+    + ReviewModelsTests.cases
+    + ClaudeStreamTests.cases
+    + WorktreeTests.cases
+    + ClaudeRunnerTests.cases
+    + ClaudeConnectorTests.cases
+    + SlackConnectorParsingTests.cases
+    + ClaudeReviewerTests.cases
+    + ReviewContextTests.cases
+    + ClaudeSkillsTests.cases
+    + JobSchedulerTests.cases
+    + ReviewQueueTests.cases
+    + ReviewPublisherTests.cases
+    + ReviewHistoryTests.cases
+    + RespondModelsTests.cases
+    + RespondConfirmationTests.cases
+    + FeedbackAPITests.cases
+    + WorktreeResolverTests.cases
+    + RespondAnalyzerTests.cases
+    + FixImplementerTests.cases
+    + RespondPublisherTests.cases
+    + RespondQueueTests.cases
+    + PRLanguageTests.cases
+    + ReviewSummaryTextTests.cases
+    + SnapshotOptionsTests.cases
+
+let filter = CommandLine.arguments.dropFirst().first
+let selected = allTests.filter { test in
+    guard let filter else { return true }
+    return test.name.localizedCaseInsensitiveContains(filter)
+}
+
+var failures = 0
+for test in selected {
+    do {
+        try await test.body()
+        print("✓ \(test.name)")
+    } catch {
+        failures += 1
+        print("✗ \(test.name)\n    \(error)")
+    }
+}
+print("\n\(selected.count - failures)/\(selected.count) passed")
+exit(failures == 0 ? 0 : 1)

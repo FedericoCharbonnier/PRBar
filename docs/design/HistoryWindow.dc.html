@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<div style="width:760px;height:520px;display:flex;border-radius:10px;overflow:hidden;background:var(--win);box-shadow:var(--winshadow);color:var(--fg);font-size:13px;letter-spacing:-0.08px">
+  <div style="width:290px;flex:none;display:flex;flex-direction:column;background:var(--sidebar);border-right:1px solid var(--sep)">
+    <div style="height:52px;flex:none;display:flex;align-items:center;gap:8px;padding-left:16px">
+      <span style="width:12px;height:12px;border-radius:6px;background:#FF5F57;box-shadow:inset 0 0 0 0.5px rgba(0,0,0,0.15)"></span>
+      <span style="width:12px;height:12px;border-radius:6px;background:#FEBC2E;box-shadow:inset 0 0 0 0.5px rgba(0,0,0,0.15)"></span>
+      <span style="width:12px;height:12px;border-radius:6px;background:#28C840;box-shadow:inset 0 0 0 0.5px rgba(0,0,0,0.15)"></span>
+    </div>
+    <div style="display:flex;gap:6px;padding:0 10px 8px">
+      <div style="flex:1;height:24px;border-radius:6px;background:var(--fill);display:flex;align-items:center;gap:5px;padding:0 7px;color:var(--fg3);font-size:12px"><x-import component="SFIcon" from="./sf-icons.js" name="magnifyingglass" size="12" weight="2.2" hint-size="12px,12px"></x-import>Buscar</div>
+      <div style="height:24px;border-radius:6px;background:var(--btn);box-shadow:var(--btnshadow);display:flex;align-items:center;gap:4px;padding:0 6px 0 9px;font-size:12px;white-space:nowrap">Todos los repos<span style="color:var(--fg2);display:flex"><x-import component="SFIcon" from="./sf-icons.js" name="chevron.up.chevron.down" size="10" weight="2.4" hint-size="10px,10px"></x-import></span></div>
+    </div>
+    <div style="flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;gap:2px;padding:0 8px">
+      <div style="font-size:11px;font-weight:600;color:var(--fg3);padding:6px 8px 2px">Esta semana</div>
+      <sc-for list="{{ items }}" as="h" hint-placeholder-count="6">
+        <div style="padding:7px 9px 8px;border-radius:7px;display:flex;flex-direction:column;gap:3px;background:{{ h.bg }};color:{{ h.fg }}">
+          <div style="display:flex;justify-content:space-between;gap:8px;font-size:11px">
+            <span style="font-family:var(--mono);opacity:0.75;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ h.ref }}</span>
+            <span style="opacity:0.6;white-space:nowrap">{{ h.date }}</span>
+          </div>
+          <div style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ h.title }}</div>
+          <div style="display:flex"><span style="padding:1px 7px;border-radius:9px;font-size:10.5px;font-weight:600;background:{{ h.pillBg }};color:{{ h.pillFg }}">{{ h.action }}</span></div>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+    <div style="height:52px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 16px 0 22px;border-bottom:1px solid var(--sep);background:var(--win)">
+      <div style="display:flex;flex-direction:column">
+        <span style="font-size:15px;font-weight:700">Historial</span>
+        <span style="font-size:11px;color:var(--fg2)">38 reviews · solo lectura</span>
+      </div>
+    </div>
+    <div style="flex:1;min-height:0;overflow:hidden;padding:16px 22px;display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;flex-direction:column;gap:5px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="font-family:var(--mono);font-size:11.5px;color:var(--fg2)">posts-api#271</span>
+          <a href="#" style="display:flex;align-items:center;gap:3px;font-size:12px;color:var(--link);text-decoration:none">Abrir PR<x-import component="SFIcon" from="./sf-icons.js" name="arrow.up.right" size="11" weight="2.2" hint-size="11px,11px"></x-import></a>
+        </div>
+        <div style="font-size:17px;font-weight:600;letter-spacing:-0.2px">Backfill post snapshots for archived authors</div>
+        <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--fg2)">
+          <span style="width:16px;height:16px;border-radius:8px;background:#A16207;color:#fff;font-size:7.5px;font-weight:700;display:flex;align-items:center;justify-content:center">FD</span>
+          <span style="color:var(--fg)">fede-d</span><span style="color:var(--fg3)">·</span><span>Hoy 09:58</span><span style="color:var(--fg3)">·</span>
+          <span style="padding:1px 7px;border-radius:9px;font-size:10.5px;font-weight:600;background:var(--orangebg);color:var(--orange)">Cambios pedidos</span>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <div style="display:flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:var(--violet)"><x-import component="SFIcon" from="./sf-icons.js" name="sparkles" size="12" hint-size="12px,12px"></x-import>Resumen</div>
+        <div style="font-size:12px;line-height:1.45;text-wrap:pretty">Rake task que recalcula los snapshots de metas de clases archivadas. Corre en batches pero sin transacción por clase, y el job no es idempotente si se interrumpe a mitad.</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <div style="font-size:11px;font-weight:600;color:var(--fg2)">Publicados (3)</div>
+        <div style="border-radius:8px;box-shadow:0 0 0 1px var(--cardborder);background:var(--card);display:flex;flex-direction:column">
+          <sc-for list="{{ published }}" as="c" hint-placeholder-count="3">
+            <div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-top:{{ c.border }};white-space:nowrap;font-size:12px">
+              <span style="width:8px;height:8px;border-radius:4px;flex:none;background:{{ c.color }}"></span>
+              <span style="font-family:var(--mono);font-size:11px;color:var(--fg2);flex:none">{{ c.file }}</span>
+              <span style="overflow:hidden;text-overflow:ellipsis">{{ c.summary }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <div style="font-size:11px;font-weight:600;color:var(--fg2)">Descartados (2)</div>
+        <div style="border-radius:8px;background:var(--fill);display:flex;flex-direction:column;color:var(--fg2)">
+          <sc-for list="{{ dropped }}" as="c" hint-placeholder-count="2">
+            <div style="display:flex;flex-direction:column;gap:2px;padding:7px 10px;border-top:{{ c.border }};font-size:12px">
+              <div style="display:flex;gap:8px;white-space:nowrap;align-items:center"><span style="font-family:var(--mono);font-size:11px;flex:none">{{ c.file }}</span><span style="overflow:hidden;text-overflow:ellipsis">{{ c.summary }}</span></div>
+              <span style="font-size:11px;color:var(--fg3)">{{ c.reason }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+    <div style="flex:none;display:flex;justify-content:flex-end;gap:8px;padding:10px 16px;border-top:1px solid var(--sep);background:var(--winbar)">
+      <div style="height:24px;padding:0 12px;border-radius:6px;background:var(--btn);box-shadow:var(--btnshadow);font-size:13px;display:flex;align-items:center;gap:6px"><x-import component="SFIcon" from="./sf-icons.js" name="terminal" size="13" hint-size="13px,13px"></x-import>Ver log de Claude</div>
+      <div style="height:24px;padding:0 12px;border-radius:6px;background:var(--btn);box-shadow:var(--btnshadow);font-size:13px;display:flex;align-items:center;gap:4px">Abrir en GitHub<x-import component="SFIcon" from="./sf-icons.js" name="arrow.up.right" size="11" weight="2.2" hint-size="11px,11px"></x-import></div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:760,&quot;height&quot;:520}}">
+class Component extends DCLogic {
+  renderVals() {
+    const A = { 'Aprobado': ['var(--greenbg)', 'var(--green)'], 'Cambios pedidos': ['var(--orangebg)', 'var(--orange)'], 'Comentado': ['var(--accentbg)', 'var(--link)'] };
+    const raw = [
+      ['posts-api#271', 'Hoy 09:58', 'Backfill post snapshots for archived authors', 'Cambios pedidos'],
+      ['web-app#681', 'Ayer 17:20', 'Add skeleton loaders to post list', 'Aprobado'],
+      ['posts-api#268', 'Ayer 11:04', 'Extract RSS feed importer to a service', 'Comentado'],
+      ['web-app#676', '14 nov', 'Fix timezone in weekly chart labels', 'Aprobado'],
+      ['posts-api#265', '13 nov', 'Add audit trail to post edits', 'Cambios pedidos'],
+      ['web-app#670', '12 nov', 'Replace moment with date-fns', 'Aprobado'],
+    ];
+    const items = raw.map(([ref, date, title, action], i) => {
+      const sel = i === 0;
+      return { ref, date, title, action,
+        bg: sel ? 'var(--accent)' : 'transparent', fg: sel ? '#fff' : 'var(--fg)',
+        pillBg: sel ? 'rgba(255,255,255,0.22)' : A[action][0], pillFg: sel ? '#fff' : A[action][1] };
+    });
+    const b = (i) => i ? '1px solid var(--sep)' : 'none';
+    const published = [
+      { color: 'var(--red)', file: 'lib/tasks/backfill_post_snapshots.rake:22', summary: 'Envolver cada autor en una transacción para no dejar snapshots a medias' },
+      { color: 'var(--orange)', file: 'app/jobs/post_snapshot_job.rb:14', summary: 'El job no es idempotente: guardar el último author_id procesado' },
+      { color: 'var(--blue)', file: 'lib/tasks/backfill_post_snapshots.rake:9', summary: 'Loguear el progreso cada 100 autores' },
+    ].map((c, i) => ({ ...c, border: b(i) }));
+    const dropped = [
+      { file: 'app/models/post_snapshot.rb:31', summary: 'Agregar índice compuesto en (author_id, taken_on)', reason: 'No aplica: el índice ya existe en la migración 20261102' },
+      { file: 'lib/tasks/backfill_post_snapshots.rake:3', summary: 'Usar find_in_batches', reason: 'No aplica: ya usa in_batches(of: 500)' },
+    ].map((c, i) => ({ ...c, border: b(i) }));
+    return { items, published, dropped };
+  }
+}
+</script>
+</body>
+</html>

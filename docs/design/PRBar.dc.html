@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<style>
+@font-face{font-family:"PP Neue Montreal";src:url("./fonts/PPNeueMontreal-Book.otf") format("opentype");font-weight:400}
+@font-face{font-family:"PP Neue Montreal";src:url("./fonts/PPNeueMontreal-Medium.otf") format("opentype");font-weight:500}
+html,body{margin:0;background:#0A0A0A;-webkit-font-smoothing:antialiased}
+a{color:#2D4EFF;text-decoration:none}
+a:hover{text-decoration:underline}
+</style>
+</helmet>
+<div style="background:#0A0A0A;min-width:1950px;padding:88px 72px 120px;box-sizing:border-box;font-family:'PP Neue Montreal',Manrope,sans-serif;color:#E5E5E5">
+  <div style="max-width:1848px;display:flex;justify-content:space-between;align-items:flex-end;gap:48px;margin-bottom:72px">
+    <div style="display:flex;flex-direction:column;gap:20px">
+      <div style="font-size:13px;font-weight:500;letter-spacing:0.08em;color:#666666">PRBAR · UI macOS SEQUOIA</div>
+      <div style="display:flex;align-items:baseline;gap:14px"><span style="font-size:120px;font-weight:500;letter-spacing:-0.03em;line-height:1;color:#FFFFFF">PRBar</span><span style="width:18px;height:18px;border-radius:9px;background:#2D4EFF"></span></div>
+      <div style="font-size:20px;line-height:1.5;color:#B3B3B3;max-width:760px">App de barra de menú para seguir Pull Requests de GitHub y hacer code review asistido por Claude. Artboards a tamaño real (1px = 1pt), claro y oscuro.</div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px;font-size:13px;color:#666666;text-align:right;line-height:1.6">
+      <span>01 Ícono · 02–04 Popover · 05–07 Review</span>
+      <span>08 Historial · 09–13 Configuración · 14 Notificaciones</span>
+      <span>15 Guía de estilo para SwiftUI</span>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:900px 900px;gap:48px;align-items:start">
+    <div style="font-size:13px;font-weight:500;letter-spacing:0.08em;color:#B3B3B3;padding-bottom:16px;border-bottom:1px solid #1F1F1F">CLARO</div>
+    <div style="font-size:13px;font-weight:500;letter-spacing:0.08em;color:#B3B3B3;padding-bottom:16px;border-bottom:1px solid #1F1F1F">OSCURO</div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:900px 900px;gap:48px;align-items:start;margin-top:40px">
+    <!-- LIGHT -->
+    <div style="display:flex;flex-direction:column;gap:64px;--wall:radial-gradient(90% 70% at 85% 0%,#BFD0F7 0%,rgba(191,208,247,0) 60%),radial-gradient(80% 80% at 0% 100%,#F1CFDC 0%,rgba(241,207,220,0) 60%),linear-gradient(160deg,#DCE3F2,#EEF0F6);--menubar:rgba(246,246,250,0.55);--menufg:#1D1D1F;--menuknock:#E3E8F4;--menuhl:rgba(0,0,0,0.13);--pop:rgba(244,244,247,0.82);--popshadow:0 0 0 0.5px rgba(0,0,0,0.2),0 14px 44px rgba(0,0,0,0.22);--win:#FFFFFF;--winalt:#F2F2F5;--winbar:#F4F4F6;--sidebar:#EDEDF1;--winshadow:0 0 0 0.5px rgba(0,0,0,0.24),0 24px 70px rgba(0,0,0,0.28);--fg:rgba(0,0,0,0.86);--fg2:rgba(0,0,0,0.54);--fg3:rgba(0,0,0,0.32);--sep:rgba(0,0,0,0.1);--fill:rgba(0,0,0,0.06);--hover:rgba(0,0,0,0.065);--btn:#FFFFFF;--btnshadow:0 0 0 0.5px rgba(0,0,0,0.18),0 0.5px 1.5px rgba(0,0,0,0.16);--field:#FFFFFF;--fieldborder:rgba(0,0,0,0.16);--card:#FFFFFF;--cardborder:rgba(0,0,0,0.1);--group:#FFFFFF;--groupborder:rgba(0,0,0,0.08);--accent:#2D4EFF;--accentbg:rgba(45,78,255,0.11);--link:#2D4EFF;--green:#1A9E46;--greenbg:rgba(40,180,80,0.14);--orange:#D46B00;--orangebg:rgba(255,149,0,0.15);--red:#D92D20;--redbg:rgba(255,59,48,0.12);--violet:#8B3FD9;--violetbg:rgba(175,82,222,0.14);--blue:#0A72E8;--mono:'SF Mono',SFMono-Regular,ui-monospace,Menlo,monospace;--banner:rgba(246,246,249,0.8)">
+      <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:15px;color:#E5E5E5">01 · Ícono en la barra de menú</div>
+        <div data-screen-label="01 Ícono claro" style="width:900px;border-radius:14px;overflow:hidden;background:var(--wall);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;color:var(--fg)">
+          <dc-import name="MenuBar" state="count" count="7" hint-size="100%,24px"></dc-import>
+          <dc-import name="IconStates" hint-size="100%,176px"></dc-import>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:15px;color:#E5E5E5">02 · Popover — con PRs y todos los estados del botón Review</div>
+        <div data-screen-label="02 Popover claro" style="width:900px;border-radius:14px;overflow:hidden;background:var(--wall);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;color:var(--fg)">
+          <dc-import name="MenuBar" state="count" count="7" active="true" hint-size="100%,24px"></dc-import>
+          <div style="display:flex;justify-content:flex-end;padding:5px 196px 48px 0"><dc-import name="Popover" variant="main" hint-size="380px,700px"></dc-import></div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:15px;color:#E5E5E5">03 · Popover — vacío</div>
+        <div data-screen-label="03 Popover vacío claro" style="width:900px;border-radius:14px;overflow:hidden;background:var(--wall);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;color:var(--fg)">
+          <dc-import name="MenuBar" state="idle" active="true" hint-size="100%,24px"></dc-import>
+          <div style="display:flex;justify-content:flex-end;padding:5px 196px 48px 0"><dc-import name="Popover" variant="empty" hint-size="380px,280px"></dc-import></div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:15px;color:#E5E5E5">04 · Popover — error de conexión</div>
+        <div data-screen-label="04 Popover error claro" style="width:900px;border-radius:14px;overflow:hidden;background:var(--wall);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;color:var(--fg)">
+          <dc-import name="MenuBar" state="error" active="true" hint-size="100%,24px"></dc-import>
+          <div style="display:flex;justify-content:flex-end;padding:5px 196px 48px 0"><dc-import name="Popover" variant="error" hint-size="380px,280px"></dc-import></div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:15px;color:#E5E5E5">05 · Review — selección y edición de comentarios</div>
+        <div data-screen-label="05 Review claro" style="width:900px;border-radius:14px;overflow:hidden;background:var(--wall);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;color:var(--fg)">
+          <dc-import name="MenuBar" state="count" count="6" hint-size="100%,24px"></dc-import>
+          <div style="display:flex;justify-content:center;padding:36px 0 44px"><dc-import name="ReviewWindow" state="default" hint-size="720px,640px"></dc-import></div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:15px;color:#E5E5E5">06 · Review — descartados por el filtro</div>
+        <div data-screen-label="06 Review descartados claro" style="width:900px;border-radius:14px;overflow:hidden;background:var(--wall);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;color:var(--fg)">
+          <dc-import name="MenuBar" state="count" count="6" hint-size="100%,24px"></dc-import>
+          <div style="display:flex;justify-content:center;padding:36px 0 44px"><dc-import name="ReviewWindow" state="discarded" hint-size="720px,640px"></dc-import></div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:15px;color:#E5E5E5">07 · Review — publicado</div>
+        <div data-screen-label="07 Review publicado claro" style="width:900px;border-radius:14px;overflow:hidden;background:var(--wall);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;color:var(--fg)">
+          <dc-import name="MenuBar" state="count" count="6" hint-size="100%,24px"></dc-import>
+          <div style="display:flex;justify-content:center;padding:36px 0 44px"><dc-import name="ReviewWindow" state="published" hint-size="720px,640px"></dc-import></div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:15px;color:#E5E5E5">08 · Historial</div>
+        <div data-screen-label="08 Historial claro" style="width:900px;border-radius:14px;overflow:hidden;background:var(--wall);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;color:var(--fg)">
+          <dc-import name="MenuBar" state="count" count="7" hint-size="100%,24px"></dc-import>
+          <div style="display:flex;justify-content:center;padding:36px 0 44px"><dc-import name="HistoryWindow" hint-size="760px,520px"></dc-import></div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:15px;color:#E5E5E5">09 · Configuración — Cuentas</div>
+        <div data-screen-label="09 Config Cuentas claro" style="width:900px;border-radius:14px;overflow:hidden;background:var(--wall);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;color:var(--fg)">
+          <dc-import name="MenuBar" state="count" count="7" hint-size="100%,24px"></dc-import>
+          <div style="display:flex;justify-content:center;padding:36px 0 44px"><dc-import name="SettingsWindow" tab="accounts" hint-size="620px,380px"></dc-import></div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:15px;color:#E5E5E5">10 · Configuración — Cuentas, sin gh</div>
+        <div data-screen-label="10 Config Cuentas vacío claro" style="width:900px;border-radius:14px;overflow:hidden;background:var(--wall);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;color:var(--fg)">
+          <dc-import name="MenuBar" state="error" hint-size="100%,24px"></dc-import>
+          <div style="display:flex;justify-content:center;padding:36px 0 44px"><dc-import name="SettingsWindow" tab="accounts-empty" hint-size="620px,380px"></dc-import></div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:15px;color:#E5E5E5">11 · Configuración — Repos</div>
+        <div data-screen-label="11 Config Repos claro" style="width:900px;border-radius:14px;overflow:hidden;background:var(--wall);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;color:var(--fg)">
+          <dc-import name="MenuBar" state="count" count="7" hint-size="100%,24px"></dc-import>
+          <div style="display:flex;justify-content:center;padding:36px 0 44px"><dc-import name="SettingsWindow" tab="repos" hint-size="620px,460px"></dc-import></div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:15px;color:#E5E5E5">12 · Configuración — Usuarios</div>
+        <div data-screen-label="12 Config Usuarios claro" style="width:900px;border-radius:14px;overflow:hidden;background:var(--wall);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;color:var(--fg)">
+          <dc-import name="MenuBar" state="count" count="7" hint-size="100%,24px"></dc-import>
+          <div style="display:flex;justify-content:center;padding:36px 0 44px"><dc-import name="SettingsWindow" tab="users" hint-size="620px,480px"></dc-import></div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:15px;color:#E5E5E5">13 · Configuración — General</div>
+        <div data-screen-label="13 Config General claro" style="width:900px;border-radius:14px;overflow:hidden;background:var(--wall);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;color:var(--fg)">
+          <dc-import name="MenuBar" state="count" count="7" hint-size="100%,24px"></dc-import>
+          <div style="display:flex;justify-content:center;padding:36px 0 44px"><dc-import name="SettingsWindow" tab="general" hint-size="620px,560px"></dc-import></div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:15px;color:#E5E5E5">14 · Notificaciones de macOS</div>
+        <div data-screen-label="14 Notificaciones claro" style="width:900px;border-radius:14px;overflow:hidden;background:var(--wall);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;color:var(--fg)">
+          <dc-import name="MenuBar" state="count" count="8" hint-size="100%,24px"></dc-import>
+          <div style="display:flex;justify-content:flex-end;padding:10px 12px 40px"><dc-import name="Notifications" hint-size="356px,300px"></dc-import></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- DARK -->
+    <div style="display:flex;flex-direction:column;gap:64px;--wall:radial-gradient(90% 70% at 85% 0%,#1E2C66 0%,rgba(30,44,102,0) 60%),radial-gradient(80% 80% at 0% 100%,#3B1C3F 0%,rgba(59,28,63,0) 60%),linear-gradient(160deg,#10152A,#161219);--menubar:rgba(18,18,24,0.5);--menufg:#F5F5F7;--menuknock:#151A2E;--menuhl:rgba(255,255,255,0.2);--pop:rgba(38,38,44,0.8);--popshadow:0 0 0 0.5px rgba(0,0,0,0.7),inset 0 0 0 0.5px rgba(255,255,255,0.14),0 14px 44px rgba(0,0,0,0.5);--win:#1E1E21;--winalt:#252528;--winbar:#2B2B2F;--sidebar:#28282C;--winshadow:0 0 0 0.5px rgba(0,0,0,0.8),inset 0 0 0 0.5px rgba(255,255,255,0.12),0 24px 70px rgba(0,0,0,0.55);--fg:rgba(255,255,255,0.88);--fg2:rgba(255,255,255,0.56);--fg3:rgba(255,255,255,0.3);--sep:rgba(255,255,255,0.1);--fill:rgba(255,255,255,0.09);--hover:rgba(255,255,255,0.08);--btn:rgba(255,255,255,0.15);--btnshadow:0 0 0 0.5px rgba(255,255,255,0.05),0 0.5px 1px rgba(0,0,0,0.35);--field:rgba(255,255,255,0.06);--fieldborder:rgba(255,255,255,0.14);--card:rgba(255,255,255,0.045);--cardborder:rgba(255,255,255,0.09);--group:rgba(255,255,255,0.045);--groupborder:rgba(255,255,255,0.07);--accent:#4D6BFF;--accentbg:rgba(77,107,255,0.24);--link:#8299FF;--green:#32D35A;--greenbg:rgba(48,209,88,0.17);--orange:#FF9F0A;--orangebg:rgba(255,159,10,0.17);--red:#FF5A50;--redbg:rgba(255,69,58,0.17);--violet:#C88BFF;--violetbg:rgba(191,90,242,0.22);--blue:#47A0FF;--mono:'SF Mono',SFMono-Regular,ui-monospace,Menlo,monospace;--banner:rgba(40,40,46,0.78)">
+      <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:15px;color:#E5E5E5">01 · Ícono en la barra de menú</div>
+        <div data-screen-label="01 Ícono oscuro" style="width:900px;border-radius:14px;overflow:hidden;background:var(--wall);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;color:var(--fg)">
+          <dc-import name="MenuBar" state="count" count="7" hint-size="100%,24px"></dc-import>
+          <dc-import name="IconStates" hint-size="100%,176px"></dc-import>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:15px;color:#E5E5E5">02 · Popover — con PRs y todos los estados del botón Review</div>
+        <div data-screen-label="02 Popover oscuro" style="width:900px;border-radius:14px;overflow:hidden;background:var(--wall);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;color:var(--fg)">
+          <dc-import name="MenuBar" state="count" count="7" active="true" hint-size="100%,24px"></dc-import>
+          <div style="display:flex;justify-content:flex-end;padding:5px 196px 48px 0"><dc-import name="Popover" variant="main" hint-size="380px,700px"></dc-import></div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:15px;color:#E5E5E5">03 · Popover — vacío</div>
+        <div data-screen-label="03 Popover vacío oscuro" style="width:900px;border-radius:14px;overflow:hidden;background:var(--wall);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;color:var(--fg)">
+          <dc-import name="MenuBar" state="idle" active="true" hint-size="100%,24px"></dc-import>
+          <div style="display:flex;justify-content:flex-end;padding:5px 196px 48px 0"><dc-import name="Popover" variant="empty" hint-size="380px,280px"></dc-import></div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:15px;color:#E5E5E5">04 · Popover — error de conexión</div>
+        <div data-screen-label="04 Popover error oscuro" style="width:900px;border-radius:14px;overflow:hidden;background:var(--wall);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;color:var(--fg)">
+          <dc-import name="MenuBar" state="error" active="true" hint-size="100%,24px"></dc-import>
+          <div style="display:flex;justify-content:flex-end;padding:5px 196px 48px 0"><dc-import name="Popover" variant="error" hint-size="380px,280px"></dc-import></div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:15px;color:#E5E5E5">05 · Review — selección y edición de comentarios</div>
+        <div data-screen-label="05 Review oscuro" style="width:900px;border-radius:14px;overflow:hidden;background:var(--wall);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;color:var(--fg)">
+          <dc-import name="MenuBar" state="count" count="6" hint-size="100%,24px"></dc-import>
+          <div style="display:flex;justify-content:center;padding:36px 0 44px"><dc-import name="ReviewWindow" state="default" hint-size="720px,640px"></dc-import></div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:15px;color:#E5E5E5">06 · Review — descartados por el filtro</div>
+        <div data-screen-label="06 Review descartados oscuro" style="width:900px;border-radius:14px;overflow:hidden;background:var(--wall);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;color:var(--fg)">
+          <dc-import name="MenuBar" state="count" count="6" hint-size="100%,24px"></dc-import>
+          <div style="display:flex;justify-content:center;padding:36px 0 44px"><dc-import name="ReviewWindow" state="discarded" hint-size="720px,640px"></dc-import></div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:15px;color:#E5E5E5">07 · Review — publicado</div>
+        <div data-screen-label="07 Review publicado oscuro" style="width:900px;border-radius:14px;overflow:hidden;background:var(--wall);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;color:var(--fg)">
+          <dc-import name="MenuBar" state="count" count="6" hint-size="100%,24px"></dc-import>
+          <div style="display:flex;justify-content:center;padding:36px 0 44px"><dc-import name="ReviewWindow" state="published" hint-size="720px,640px"></dc-import></div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:15px;color:#E5E5E5">08 · Historial</div>
+        <div data-screen-label="08 Historial oscuro" style="width:900px;border-radius:14px;overflow:hidden;background:var(--wall);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;color:var(--fg)">
+          <dc-import name="MenuBar" state="count" count="7" hint-size="100%,24px"></dc-import>
+          <div style="display:flex;justify-content:center;padding:36px 0 44px"><dc-import name="HistoryWindow" hint-size="760px,520px"></dc-import></div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:15px;color:#E5E5E5">09 · Configuración — Cuentas</div>
+        <div data-screen-label="09 Config Cuentas oscuro" style="width:900px;border-radius:14px;overflow:hidden;background:var(--wall);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;color:var(--fg)">
+          <dc-import name="MenuBar" state="count" count="7" hint-size="100%,24px"></dc-import>
+          <div style="display:flex;justify-content:center;padding:36px 0 44px"><dc-import name="SettingsWindow" tab="accounts" hint-size="620px,380px"></dc-import></div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:15px;color:#E5E5E5">10 · Configuración — Cuentas, sin gh</div>
+        <div data-screen-label="10 Config Cuentas vacío oscuro" style="width:900px;border-radius:14px;overflow:hidden;background:var(--wall);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;color:var(--fg)">
+          <dc-import name="MenuBar" state="error" hint-size="100%,24px"></dc-import>
+          <div style="display:flex;justify-content:center;padding:36px 0 44px"><dc-import name="SettingsWindow" tab="accounts-empty" hint-size="620px,380px"></dc-import></div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:15px;color:#E5E5E5">11 · Configuración — Repos</div>
+        <div data-screen-label="11 Config Repos oscuro" style="width:900px;border-radius:14px;overflow:hidden;background:var(--wall);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;color:var(--fg)">
+          <dc-import name="MenuBar" state="count" count="7" hint-size="100%,24px"></dc-import>
+          <div style="display:flex;justify-content:center;padding:36px 0 44px"><dc-import name="SettingsWindow" tab="repos" hint-size="620px,460px"></dc-import></div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:15px;color:#E5E5E5">12 · Configuración — Usuarios</div>
+        <div data-screen-label="12 Config Usuarios oscuro" style="width:900px;border-radius:14px;overflow:hidden;background:var(--wall);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;color:var(--fg)">
+          <dc-import name="MenuBar" state="count" count="7" hint-size="100%,24px"></dc-import>
+          <div style="display:flex;justify-content:center;padding:36px 0 44px"><dc-import name="SettingsWindow" tab="users" hint-size="620px,480px"></dc-import></div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:15px;color:#E5E5E5">13 · Configuración — General</div>
+        <div data-screen-label="13 Config General oscuro" style="width:900px;border-radius:14px;overflow:hidden;background:var(--wall);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;color:var(--fg)">
+          <dc-import name="MenuBar" state="count" count="7" hint-size="100%,24px"></dc-import>
+          <div style="display:flex;justify-content:center;padding:36px 0 44px"><dc-import name="SettingsWindow" tab="general" hint-size="620px,560px"></dc-import></div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:15px;color:#E5E5E5">14 · Notificaciones de macOS</div>
+        <div data-screen-label="14 Notificaciones oscuro" style="width:900px;border-radius:14px;overflow:hidden;background:var(--wall);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;color:var(--fg)">
+          <dc-import name="MenuBar" state="count" count="8" hint-size="100%,24px"></dc-import>
+          <div style="display:flex;justify-content:flex-end;padding:10px 12px 40px"><dc-import name="Notifications" hint-size="356px,300px"></dc-import></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <dc-import name="StyleGuide" hint-size="1848px,1800px" style="margin-top:120px"></dc-import>
+</div>
+</x-dc>
+</body>
+</html>
