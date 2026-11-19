@@ -264,6 +264,7 @@ public enum ChatActions {
         var general = false
         var replies = 0, marked = 0, unmarked = 0
         var files: Set<String> = []
+        var rulesAdded = 0, rulesEdited = 0, rulesRemoved = 0, rulesOn = 0, rulesOff = 0
         func append(_ id: String, to list: inout [String]) { if !list.contains(id) { list.append(id) } }
         for change in changes {
             switch change {
@@ -274,6 +275,10 @@ public enum ChatActions {
             case .replyDrafted: replies += 1
             case .implementSet(_, let on): if on { marked += 1 } else { unmarked += 1 }
             case .filesChanged(let paths): files.formUnion(paths)
+            case .ruleAdded: rulesAdded += 1
+            case .ruleEdited: rulesEdited += 1
+            case .ruleRemoved: rulesRemoved += 1
+            case .ruleToggled(_, let on): if on { rulesOn += 1 } else { rulesOff += 1 }
             }
         }
         func refs(_ ids: [String]) -> String { ids.map { number($0).map { "#\($0)" } ?? $0 }.joined(separator: ", ") }
@@ -287,6 +292,12 @@ public enum ChatActions {
         if marked > 0 { parts.append("marked \(marked) fix\(marked == 1 ? "" : "es") to implement") }
         if unmarked > 0 { parts.append("unmarked \(unmarked) fix\(unmarked == 1 ? "" : "es")") }
         if !files.isEmpty { parts.append("changed \(files.count) file\(files.count == 1 ? "" : "s")") }
+        func rules(_ count: Int) -> String { "\(count) rule\(count == 1 ? "" : "s")" }
+        if rulesAdded > 0 { parts.append("added \(rules(rulesAdded))") }
+        if rulesEdited > 0 { parts.append("edited \(rules(rulesEdited))") }
+        if rulesRemoved > 0 { parts.append("removed \(rules(rulesRemoved))") }
+        if rulesOn > 0 { parts.append("turned on \(rules(rulesOn))") }
+        if rulesOff > 0 { parts.append("turned off \(rules(rulesOff))") }
         let text = parts.joined(separator: ", ")
         return text.prefix(1).uppercased() + text.dropFirst()
     }

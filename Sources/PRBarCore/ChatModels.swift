@@ -118,13 +118,19 @@ public enum ChatChange: Codable, Equatable, Sendable {
     case implementSet(commentID: String, implement: Bool)
     /// Paths relative to the worktree.
     case filesChanged([String])
+    /// The instructions chat (spec E.2). Ids are the rules' UUID strings.
+    case ruleAdded(id: String)
+    case ruleEdited(id: String)
+    case ruleRemoved(id: String)
+    case ruleToggled(id: String, enabled: Bool)
 
     /// The finding or comment the window highlights for this change.
     public var highlightID: String? {
         switch self {
         case .findingEdited(let id), .findingAdded(let id), .findingIncluded(let id, _): id
         case .replyDrafted(let id), .implementSet(let id, _): id
-        case .generalCommentEdited, .filesChanged: nil
+        case .ruleAdded(let id), .ruleEdited(let id), .ruleToggled(let id, _): id
+        case .generalCommentEdited, .filesChanged, .ruleRemoved: nil
         }
     }
 }
@@ -157,15 +163,20 @@ public struct ChatRestorePoint: Codable, Equatable, Sendable {
     public var selections: [String: RespondSelection]?
     public var selectionsAfter: [String: RespondSelection]?
     public var files: ChatFileSnapshot?
+    /// The instructions chat (spec E.2): the rules before and after the turn.
+    public var rules: [Rule]?
+    public var rulesAfter: [Rule]?
 
     public init(reviewEdits: ReviewEdits? = nil, reviewEditsAfter: ReviewEdits? = nil,
                 selections: [String: RespondSelection]? = nil, selectionsAfter: [String: RespondSelection]? = nil,
-                files: ChatFileSnapshot? = nil) {
+                files: ChatFileSnapshot? = nil, rules: [Rule]? = nil, rulesAfter: [Rule]? = nil) {
         self.reviewEdits = reviewEdits
         self.reviewEditsAfter = reviewEditsAfter
         self.selections = selections
         self.selectionsAfter = selectionsAfter
         self.files = files
+        self.rules = rules
+        self.rulesAfter = rulesAfter
     }
 }
 
