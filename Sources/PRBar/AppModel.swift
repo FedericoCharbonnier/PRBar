@@ -38,6 +38,8 @@ struct AppModelServices {
     var chatBackend: (any ChatBackend)? = nil
     /// Para chequear los releases en GitHub (spec D.2). El modo de capturas nunca chequea.
     var updateTransport: any HTTPTransport = URLSessionTransport()
+    /// `nil`: `instructions.json` in Application Support.
+    var instructionsStore: InstructionsStore? = nil
 
     static func live(runner: SystemProcessRunner) -> AppModelServices {
         let accounts = AccountProvider(runner: runner, ghPath: nil)
@@ -106,6 +108,8 @@ final class AppModel: ObservableObject {
     )
     /// Corridas de "Responder" (spec §14), en `history/respond/`.
     let respondHistory: RespondHistory
+    /// Rules, suggestion decisions and the instructions chat (spec E).
+    let instructions: InstructionsStore
     /// Cola de "Responder" en los PRs propios con feedback. `lazy` por lo mismo que `reviews`.
     private(set) lazy var respond = RespondQueue(
         pipeline: respondPipeline ?? LiveRespondPipeline(
@@ -165,6 +169,7 @@ final class AppModel: ObservableObject {
         self.slack = slack
         self.history = services.history
         self.respondHistory = services.respondHistory
+        self.instructions = services.instructionsStore ?? InstructionsStore()
         self.claudeSkills = services.claudeSkills
         self.reviewPipeline = services.reviewPipeline
         self.respondPipeline = services.respondPipeline
@@ -703,6 +708,46 @@ final class AppModel: ObservableObject {
         }
         return ChatContext(pr: currentPR(draft.prID), localPath: draft.worktree.localPath, respondResult: record?.result,
                            canEditFiles: canEditFiles, logURL: respondHistory.logURL(for: draft.id))
+    }
+
+    // MARK: Instructions
+
+    /// The repos of the enabled accounts (`owner/name`), sorted. Rules can only be for one of these.
+    var configuredRepos: [String] {
+        var repos: [String] = []
+        for repo in configStore.config.accounts.filter(\.enabled).flatMap(\.repos) where !repos.contains(repo.id) {
+            repos.append(repo.id)
+        }
+        return repos.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    var rules: [Rule] { instructions.rules }
+
+    @discardableResult
+    func addRule(_ text: String, scope: RuleScope, appliesTo: Set<RuleStage>, source: RuleSource = .manual,
+                 category: FindingCategory? = nil) throws -> Rule {
+        try instructions.addRule(text, scope: try configuredScope(scope), appliesTo: appliesTo, source: source, category: category)
+    }
+
+    func editRule(_ id: UUID, text: String? = nil, scope: RuleScope? = nil, appliesTo: Set<RuleStage>? = nil) throws {
+        try instructions.editRule(id, text: text, scope: try scope.map(configuredScope), appliesTo: appliesTo)
+    }
+
+    func removeRule(_ id: UUID) throws {
+        try instructions.removeRule(id)
+    }
+
+    func setRuleEnabled(_ id: UUID, _ enabled: Bool) throws {
+        try instructions.setRuleEnabled(id, enabled)
+    }
+
+    /// A repo scope must be a configured repo; it's saved with the configured name.
+    private func configuredScope(_ scope: RuleScope) throws -> RuleScope {
+        guard case .repo(let name) = scope else { return scope }
+        guard let match = configuredRepos.first(where: { $0.caseInsensitiveCompare(name) == .orderedSame }) else {
+            throw RuleError.unknownRepo(name)
+        }
+        return .repo(match)
     }
 
     // MARK: Responder

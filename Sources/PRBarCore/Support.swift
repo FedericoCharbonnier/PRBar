@@ -134,6 +134,17 @@ public enum AppPaths {
         FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Logs/PRBar/prbar.log")
     }
+    /// Rules, decisions about suggestions and the instructions chat (spec E.1).
+    public static var instructionsFile: URL { appSupport.appendingPathComponent("instructions.json") }
+    /// The findings the user discarded when posting, for the suggestions (spec E.4).
+    public static var discardStatsFile: URL { appSupport.appendingPathComponent("discard-stats.json") }
+    /// The instructions chat's cwd: an empty folder, always the same so `--resume` finds the session (spec E.2).
+    public static var instructionsChatDir: URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("PRBar/instructions-chat", isDirectory: true)
+    }
+    public static var instructionsChatLog: URL {
+        logFile.deletingLastPathComponent().appendingPathComponent("instructions-chat.log")
+    }
 }
 
 /// Log de texto plano. Las escrituras se serializan en una cola propia porque llegan desde el main actor
