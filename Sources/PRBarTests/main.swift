@@ -51,6 +51,7 @@ let allTests: [TestCase] = []
     + PRLanguageTests.cases
     + ReviewSummaryTextTests.cases
     + SnapshotOptionsTests.cases
+    + ChatModelsTests.cases
 
 let filter = CommandLine.arguments.dropFirst().first
 let selected = allTests.filter { test in

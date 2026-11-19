@@ -92,9 +92,14 @@ public struct ReviewDraft: Codable, Equatable, Sendable, Identifiable {
     public let items: [ReviewItem]
     /// The PR's language (from its description): the comments are published in it. English in old history files.
     public let language: PRLanguage
+    /// The chat about this review (spec B.3). Nil until the first message.
+    public var chat: ChatSession?
+    /// The window's state as the chat last left it (selection, edited texts, added findings, general comment).
+    public var edits: ReviewEdits?
 
     public init(prID: String, repo: RepoRef, number: Int, title: String, url: URL, author: String,
-                headOid: String, account: String, summary: String, items: [ReviewItem], language: PRLanguage = .english) {
+                headOid: String, account: String, summary: String, items: [ReviewItem], language: PRLanguage = .english,
+                chat: ChatSession? = nil, edits: ReviewEdits? = nil) {
         self.prID = prID
         self.repo = repo
         self.number = number
@@ -106,10 +111,12 @@ public struct ReviewDraft: Codable, Equatable, Sendable, Identifiable {
         self.summary = summary
         self.items = items
         self.language = language
+        self.chat = chat
+        self.edits = edits
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, prID, repo, number, title, url, author, headOid, account, summary, items, language
+        case id, prID, repo, number, title, url, author, headOid, account, summary, items, language, chat, edits
     }
 
     public init(from decoder: Decoder) throws {
@@ -122,6 +129,8 @@ public struct ReviewDraft: Codable, Equatable, Sendable, Identifiable {
             summary: try c.decode(String.self, forKey: .summary), items: try c.decode([ReviewItem].self, forKey: .items),
             language: (try? c.decodeIfPresent(PRLanguage.self, forKey: .language)) ?? .english)
         id = try c.decode(UUID.self, forKey: .id)
+        chat = (try? c.decodeIfPresent(ChatSession.self, forKey: .chat)) ?? nil
+        edits = (try? c.decodeIfPresent(ReviewEdits.self, forKey: .edits)) ?? nil
     }
 
     public var keptCount: Int { items.filter(\.keep).count }

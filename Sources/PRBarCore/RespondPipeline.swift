@@ -46,10 +46,12 @@ public struct RespondRecord: Codable, Equatable, Sendable, Identifiable {
     public var startedAt: Date
     public var finishedAt: Date?
     public var errorMessage: String?
+    /// The chat about this run (spec B.3).
+    public var chat: ChatSession?
 
     public init(draft: RespondDraft, selections: [String: RespondSelection] = [:], result: RespondResult? = nil,
                 posted: [String: PostedReply] = [:], pushed: Bool = false, startedAt: Date, finishedAt: Date? = nil,
-                errorMessage: String? = nil) {
+                errorMessage: String? = nil, chat: ChatSession? = nil) {
         self.draft = draft
         self.selections = selections
         self.result = result
@@ -58,6 +60,25 @@ public struct RespondRecord: Codable, Equatable, Sendable, Identifiable {
         self.startedAt = startedAt
         self.finishedAt = finishedAt
         self.errorMessage = errorMessage
+        self.chat = chat
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case draft, selections, result, posted, pushed, startedAt, finishedAt, errorMessage, chat
+    }
+
+    /// A broken `chat` doesn't lose the record.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        draft = try c.decode(RespondDraft.self, forKey: .draft)
+        selections = try c.decodeIfPresent([String: RespondSelection].self, forKey: .selections) ?? [:]
+        result = try c.decodeIfPresent(RespondResult.self, forKey: .result)
+        posted = try c.decodeIfPresent([String: PostedReply].self, forKey: .posted) ?? [:]
+        pushed = try c.decodeIfPresent(Bool.self, forKey: .pushed) ?? false
+        startedAt = try c.decode(Date.self, forKey: .startedAt)
+        finishedAt = try c.decodeIfPresent(Date.self, forKey: .finishedAt)
+        errorMessage = try c.decodeIfPresent(String.self, forKey: .errorMessage)
+        chat = (try? c.decodeIfPresent(ChatSession.self, forKey: .chat)) ?? nil
     }
 }
 
