@@ -56,7 +56,7 @@ public struct ClaudeReviewer: Sendable {
             ReviewFinding(
                 id: finding.id, severity: finding.severity,
                 file: DiffLineMap.normalizePath(redact(finding.file), worktree: workspace.directory), line: finding.line,
-                title: redact(finding.title), body: redact(finding.body)
+                title: redact(finding.title), body: redact(finding.body), category: finding.category
             )
         }
         guard !findings.isEmpty else { return (summary, []) }

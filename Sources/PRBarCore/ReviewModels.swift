@@ -12,6 +12,28 @@ public enum Severity: String, Codable, Sendable, CaseIterable {
     }
 }
 
+/// What a finding is about (spec E.4). Lenient: a missing or unknown category is `other`.
+public enum FindingCategory: String, Codable, Sendable, CaseIterable {
+    case bug, security, performance, tests, style, docs, other
+
+    public var label: String {
+        switch self {
+        case .bug: "Bugs"
+        case .security: "Security"
+        case .performance: "Performance"
+        case .tests: "Tests"
+        case .style: "Style"
+        case .docs: "Docs"
+        case .other: "Other"
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = FindingCategory(rawValue: raw) ?? .other
+    }
+}
+
 public struct ReviewFinding: Codable, Equatable, Sendable, Identifiable {
     public let id: String
     public let severity: Severity
@@ -19,14 +41,31 @@ public struct ReviewFinding: Codable, Equatable, Sendable, Identifiable {
     public let line: Int?
     public let title: String
     public let body: String
+    /// Spec E.4. Old history files and answers without it: `other`.
+    public let category: FindingCategory
 
-    public init(id: String, severity: Severity, file: String, line: Int?, title: String, body: String) {
+    public init(id: String, severity: Severity, file: String, line: Int?, title: String, body: String,
+                category: FindingCategory = .other) {
         self.id = id
         self.severity = severity
         self.file = file
         self.line = line
         self.title = title
         self.body = body
+        self.category = category
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, severity, file, line, title, body, category }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        severity = try c.decode(Severity.self, forKey: .severity)
+        file = try c.decode(String.self, forKey: .file)
+        line = try c.decodeIfPresent(Int.self, forKey: .line)
+        title = try c.decode(String.self, forKey: .title)
+        body = try c.decode(String.self, forKey: .body)
+        category = (try? c.decodeIfPresent(FindingCategory.self, forKey: .category)) ?? .other
     }
 
     public var location: String { line.map { "\(file):\($0)" } ?? file }
@@ -59,14 +98,23 @@ public struct ReviewItem: Codable, Equatable, Sendable, Identifiable {
     /// Veredicto del filtro (etapa 2). Un hallazgo sin veredicto se mantiene.
     public let keep: Bool
     public let reason: String?
+    /// Spec E.5: why the user's settings (minimum severity, categories, ignored paths, maximum) hide it; nil = shown.
+    public let hiddenBy: String?
 
-    public init(finding: ReviewFinding, keep: Bool, reason: String?) {
+    public init(finding: ReviewFinding, keep: Bool, reason: String?, hiddenBy: String? = nil) {
         self.finding = finding
         self.keep = keep
         self.reason = reason
+        self.hiddenBy = hiddenBy
     }
 
     public var id: String { finding.id }
+    public var isHidden: Bool { hiddenBy != nil }
+
+    /// The same item, hidden by the user's settings.
+    public func hiding(_ why: String) -> ReviewItem {
+        ReviewItem(finding: finding, keep: keep, reason: reason, hiddenBy: why)
+    }
 
     public static func combine(findings: [ReviewFinding], verdicts: [ReviewVerdict]) -> [ReviewItem] {
         let byID = Dictionary(verdicts.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -133,7 +181,8 @@ public struct ReviewDraft: Codable, Equatable, Sendable, Identifiable {
         edits = (try? c.decodeIfPresent(ReviewEdits.self, forKey: .edits)) ?? nil
     }
 
-    public var keptCount: Int { items.filter(\.keep).count }
+    /// Findings to choose from: the filter kept them and the user's settings don't hide them.
+    public var keptCount: Int { items.filter { $0.keep && !$0.isHidden }.count }
 }
 
 public enum ReviewSchemas {
@@ -142,10 +191,11 @@ public enum ReviewSchemas {
      "properties":{
       "summary":{"type":"string"},
       "findings":{"type":"array","items":{"type":"object","additionalProperties":false,
-        "required":["id","severity","file","line","title","body"],
+        "required":["id","severity","category","file","line","title","body"],
         "properties":{
           "id":{"type":"string"},
           "severity":{"type":"string","enum":["high","medium","low"]},
+          "category":{"type":"string","enum":["bug","security","performance","tests","style","docs","other"]},
           "file":{"type":"string"},
           "line":{"type":["integer","null"]},
           "title":{"type":"string"},

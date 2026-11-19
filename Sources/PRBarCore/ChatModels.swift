@@ -274,9 +274,9 @@ public struct ReviewEdits: Codable, Equatable, Sendable {
         }.max() ?? 0
     }
 
-    /// What the window shows when a review opens: the findings the filter kept, selected.
+    /// What the window shows when a review opens: the findings the filter kept and the settings don't hide, selected.
     public static func initial(for draft: ReviewDraft) -> ReviewEdits {
-        ReviewEdits(selected: Set(draft.items.filter(\.keep).map(\.id)))
+        ReviewEdits(selected: Set(draft.items.filter { $0.keep && !$0.isHidden }.map(\.id)))
     }
 
     /// The draft's findings and then the added ones, with edited titles. Position + 1 is the number (#N).
@@ -285,9 +285,15 @@ public struct ReviewEdits: Codable, Equatable, Sendable {
             guard let title = titles[item.id] else { return item }
             let f = item.finding
             return ReviewItem(finding: ReviewFinding(id: f.id, severity: f.severity, file: f.file, line: f.line,
-                                                     title: title, body: f.body),
-                              keep: item.keep, reason: item.reason)
+                                                     title: title, body: f.body, category: f.category),
+                              keep: item.keep, reason: item.reason, hiddenBy: item.hiddenBy)
         }
+    }
+
+    /// Spec E.4: the draft's findings the user chose not to post (the filter kept them, the settings didn't hide
+    /// them, and they aren't selected). The ones the chat added don't count.
+    public func userDiscarded(of draft: ReviewDraft) -> [ReviewItem] {
+        draft.items.filter { $0.keep && !$0.isHidden && !selected.contains($0.id) }
     }
 
     /// `#N` of a finding (from 1), or nil if it doesn't exist.
