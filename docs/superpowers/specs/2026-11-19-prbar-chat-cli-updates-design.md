@@ -574,7 +574,7 @@ Nueva categoría `readyToMerge` en `ActionClassifier`, para **mis PRs** (autor =
 - no draft, abierto;
 - `reviewDecision == APPROVED` (o, si el repo no exige reviews y `reviewDecision` es nulo, al menos una review `APPROVED` vigente y ninguna `CHANGES_REQUESTED` vigente);
 - `mergeable != CONFLICTING`;
-- **sin feedback nuevo**: si `ActionClassifier.newFeedback` reporta algo (cambios pedidos o comentarios sin responder desde el último push), el PR sigue en **My PRs with Feedback**. Ready to Merge es lo que queda cuando ya no hay nada que responder.
+- **sin feedback nuevo**: si `ActionClassifier.newFeedback` reporta algo (cambios pedidos o comentarios sin responder desde el último push), el PR sigue en **My PRs with Feedback**. Ready to Merge es lo que queda cuando ya no hay nada que responder. Para esta decisión no cuenta el feedback ya cerrado: el de un reviewer cuya última review `APPROVED` es posterior a ese feedback, ni los comentarios del PR seguidos por un comentario mío (el autor). Ver F.8.18.
 
 El CI corriendo o fallando **no** saca al PR de la lista: se ve el estado (ícono de CI) y el botón refleja si GitHub permite mergear. Cuenta para el badge (es algo que el usuario tiene que hacer).
 
@@ -644,6 +644,7 @@ prbar notify set ready-to-merge on|off
 15. **Clave de la plantilla para la CLI:** el spec dice `myPR.merged`, pero el Plan 7 nombra las plantillas `new-pr`, `update` y `round`. Se recomienda `merged` (y aceptar `myPR.merged` como alias). Ver "APIs para la CLI".
 16. **Mientras se instala una actualización** (spec D.3) no empieza ningún merge: el botón Merge, su chevron y "Merge" / "Merge With…" del menú contextual se deshabilitan con el mismo tooltip que Review y Respond (`jobsBlockedReason`), y `MergeQueue` rechaza el pedido con `MergeError.blocked` (la fila lo muestra como error). La mutación de merge y la respuesta "Merged" en Slack cuentan en `postings`: una actualización espera a que terminen.
 17. El método fijado del repo se busca sin distinguir mayúsculas (`AppConfig.repoConfig(account:repo:)`), como el resto de los ajustes por repo.
+18. **Feedback que no bloquea Ready to Merge** (`ActionClassifier.feedbackBlockingMerge`): de lo que cuenta `newFeedback` (reviews `COMMENTED`/`CHANGES_REQUESTED` y comentarios de otros, no bots, posteriores al último commit) se descarta, solo para decidir Ready to Merge, (a) todo lo de un reviewer cuya última `APPROVED` es posterior a ese feedback (un "LGTM" o un nit seguido de la aprobación), y (b) los comentarios del PR (no las reviews) seguidos por un comentario mío. Lo que queda decide: si es vacío y el PR está aprobado, Ready to Merge; si no, My PRs with Feedback como antes (`newFeedback` no cambia). Un comentario posterior a la aprobación sigue bloqueando.
 
 Además:
 - **F.2:** se agregan `viewerPermission` (repo) y `commits.totalCount` (PR); los datos del repo van en `Snapshot.repoMergeSettings` por cuenta y repo.

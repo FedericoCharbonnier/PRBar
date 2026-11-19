@@ -19,9 +19,10 @@ public enum ActionClassifier {
         let author = pr.author.lowercased()
 
         if author == me {
-            // Ready to Merge es lo que queda cuando ya no hay nada que responder (spec F.1).
-            if !newFeedback(pr, me: me).isEmpty { return .myFeedback }
-            return isReadyToMerge(pr, me: me) ? .readyToMerge : .other
+            // Ready to Merge es lo que queda cuando ya no hay nada que responder (spec F.1). Para decidirlo no cuenta
+            // el feedback ya cerrado por una aprobación posterior o por mi respuesta (spec F.8.18).
+            if isReadyToMerge(pr, me: me) && feedbackBlockingMerge(pr, me: me).isEmpty { return .readyToMerge }
+            return newFeedback(pr, me: me).isEmpty ? .other : .myFeedback
         }
 
         let watched = Set(watchedUsers.map { $0.lowercased() })
@@ -45,7 +46,34 @@ public enum ActionClassifier {
 
     /// Reviews (cambios pedidos o comentarios) y comentarios de otras personas posteriores al último commit.
     public static func newFeedback(_ pr: PullRequest, me: String) -> FeedbackSummary {
+        let (reviews, comments) = feedback(pr, me: me.lowercased())
+        return summary(reviews: reviews, comments: comments)
+    }
+
+    /// El feedback nuevo que todavía impide Ready to Merge (spec F.8.18): sin lo de quien aprobó después (su última
+    /// aprobación es posterior) ni los comentarios que ya respondí con un comentario mío posterior. Solo decide
+    /// Ready to Merge: My PRs with Feedback sigue usando `newFeedback`.
+    public static func feedbackBlockingMerge(_ pr: PullRequest, me: String) -> FeedbackSummary {
         let me = me.lowercased()
+        var lastApproval: [String: Date] = [:]
+        for review in pr.reviews where review.state == .approved {
+            let key = review.author.lowercased()
+            lastApproval[key] = max(lastApproval[key] ?? .distantPast, review.submittedAt)
+        }
+        let lastMine = pr.comments.filter { $0.author.lowercased() == me }.map(\.createdAt).max()
+        func approvedLater(_ author: String, than date: Date) -> Bool {
+            lastApproval[author.lowercased()].map { $0 > date } ?? false
+        }
+        let (reviews, comments) = feedback(pr, me: me)
+        return summary(
+            reviews: reviews.filter { !approvedLater($0.author, than: $0.submittedAt) },
+            comments: comments.filter { comment in
+                !approvedLater(comment.author, than: comment.createdAt) && !(lastMine.map { $0 > comment.createdAt } ?? false)
+            }
+        )
+    }
+
+    private static func feedback(_ pr: PullRequest, me: String) -> (reviews: [PRReview], comments: [PRComment]) {
         let reviews = pr.reviews.filter {
             !$0.isBot && $0.author.lowercased() != me
                 && ($0.state == .changesRequested || $0.state == .commented)
@@ -54,10 +82,11 @@ public enum ActionClassifier {
         let comments = pr.comments.filter {
             !$0.isBot && $0.author.lowercased() != me && $0.createdAt > pr.lastCommitAt
         }
-        return FeedbackSummary(
-            changesRequested: reviews.contains { $0.state == .changesRequested },
-            count: reviews.count + comments.count
-        )
+        return (reviews, comments)
+    }
+
+    private static func summary(reviews: [PRReview], comments: [PRComment]) -> FeedbackSummary {
+        FeedbackSummary(changesRequested: reviews.contains { $0.state == .changesRequested }, count: reviews.count + comments.count)
     }
 
     /// Mi PR está aprobado, no es draft y no tiene conflictos (spec F.1). El CI no cuenta: se ve en la fila.

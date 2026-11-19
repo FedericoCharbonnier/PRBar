@@ -24,6 +24,37 @@ enum ReadyToMergeTests {
             let pr = mine(decision: .approved, reviews: [review("ana", .approved, at: 5)], comments: [comment("leo", at: 20)])
             try expectEqual(classify(pr), .myFeedback)
         },
+        TestCase("ready to merge: feedback de quien aprobó después no lo saca (spec F.8.18)") {
+            let reviews = [review("ana", .commented, at: 20), review("ana", .changesRequested, at: 22), review("ana", .approved, at: 30)]
+            let pr = mine(decision: .approved, reviews: reviews, comments: [comment("ana", at: 25)])
+            try expectEqual(classify(pr), .readyToMerge)
+        },
+        TestCase("ready to merge: un comentario posterior a la aprobación sigue siendo feedback") {
+            let pr = mine(decision: .approved, reviews: [review("ana", .approved, at: 30)], comments: [comment("ana", at: 35)])
+            try expectEqual(classify(pr), .myFeedback)
+            let laterReview = mine(decision: .approved, reviews: [review("ana", .approved, at: 30), review("ana", .commented, at: 35)])
+            try expectEqual(classify(laterReview), .myFeedback)
+        },
+        TestCase("ready to merge: la aprobación de otra persona no tapa el feedback de alguien más") {
+            let pr = mine(decision: .approved, reviews: [review("ana", .approved, at: 30), review("leo", .commented, at: 20)])
+            try expectEqual(classify(pr), .myFeedback)
+        },
+        TestCase("ready to merge: un comentario que ya respondí no lo saca") {
+            let pr = mine(decision: .approved, reviews: [review("ana", .approved, at: 5)], comments: [comment("leo", at: 20), comment("ME", at: 25)])
+            try expectEqual(classify(pr), .readyToMerge)
+        },
+        TestCase("ready to merge: mi comentario anterior, o una review con comentarios, no cuentan como respuesta") {
+            let before = mine(decision: .approved, reviews: [review("ana", .approved, at: 5)], comments: [comment("me", at: 15), comment("leo", at: 20)])
+            try expectEqual(classify(before), .myFeedback)
+            let reviewed = mine(decision: .approved, reviews: [review("ana", .approved, at: 5), review("leo", .commented, at: 20)],
+                                comments: [comment("me", at: 25)])
+            try expectEqual(classify(reviewed), .myFeedback)
+        },
+        TestCase("ready to merge: sin aprobación el feedback respondido sigue en myFeedback") {
+            let pr = mine(decision: .reviewRequired, comments: [comment("leo", at: 20), comment("me", at: 25)])
+            try expectEqual(classify(pr), .myFeedback)
+            try expectEqual(ActionClassifier.newFeedback(pr, me: "me").count, 1)
+        },
         TestCase("ready to merge: con conflictos → other") {
             let conflicting = PRMergeState(nodeID: "PR_1", mergeable: .conflicting, status: .unknown)
             try expectEqual(classify(mine(decision: .approved, merge: conflicting)), .other)
