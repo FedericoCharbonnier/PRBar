@@ -23,7 +23,8 @@ func myPR(number: Int = 1, isDraft: Bool = false, lastCommit: Int = 0, head: Str
 
 private func text(_ action: SlackAction) -> String {
     switch action {
-    case .announce(_, _, _, _, let text), .update(_, _, _, _, _, let text, _), .reply(_, _, _, _, let text, _): text
+    case .announce(_, _, _, _, let text), .update(_, _, _, _, _, let text, _), .reply(_, _, _, _, let text, _),
+         .merged(_, _, _, _, let text): text
     case .findMessage, .react: ""
     }
 }

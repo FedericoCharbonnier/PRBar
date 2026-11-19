@@ -117,6 +117,28 @@ public struct SlackBackoff: Codable, Equatable, Sendable {
     }
 }
 
+/// "Merged" en el hilo de un PR mío que mergeé desde PRBar (spec F.4): pendiente hasta que se publica.
+public struct MergedReply: Codable, Equatable, Sendable {
+    public var repo: RepoRef
+    public var channelID: String
+    /// `ts` del anuncio: la respuesta va en su hilo.
+    public var threadTS: String
+    /// Texto ya armado con la plantilla (el método solo se conoce al mergear).
+    public var text: String
+    public var requestedAt: Date
+    /// `nil` mientras no se publicó.
+    public var postedAt: Date?
+
+    public init(repo: RepoRef, channelID: String, threadTS: String, text: String, requestedAt: Date, postedAt: Date? = nil) {
+        self.repo = repo
+        self.channelID = channelID
+        self.threadTS = threadTS
+        self.text = text
+        self.requestedAt = requestedAt
+        self.postedAt = postedAt
+    }
+}
+
 public struct SlackState: Codable, Equatable, Sendable {
     /// Desde cuándo vale este estado. Un estado nuevo (sin archivo, o el anterior era ilegible) arranca en
     /// `now`: así perder el archivo no vuelve a anunciar los PRs que ya existían (spec §15.3).
@@ -138,6 +160,8 @@ public struct SlackState: Codable, Equatable, Sendable {
     public var backoff: [String: SlackBackoff] = [:]
     /// ID de Slack (`U…`) de quien publica, para reconocer sus mensajes. Se olvida al cambiar de conexión.
     public var selfUserID: String?
+    /// "Merged" pedidos al mergear desde PRBar. Clave: `owner/repo#número`.
+    public var mergedReplies: [String: MergedReply] = [:]
 
     public init(baselineAt: Date) {
         self.baselineAt = baselineAt
@@ -150,12 +174,14 @@ public struct SlackState: Codable, Equatable, Sendable {
         case .announce(let prID, _, _, _, _): "announce:\(prID)"
         case .update(let prID, _, _, _, _, _, _): "update:\(prID)"
         case .reply(let prID, _, _, _, _, let round): "reply:\(prID):\(round)"
+        case .merged(let prID, _, _, _, _): "merged:\(prID)"
         case .findMessage, .react: nil
         }
     }
 
     private enum CodingKeys: String, CodingKey {
         case baselineAt, announcements, seenAsDraft, needsUserToken, reviewTracking, uncertain, backoff, selfUserID
+        case mergedReplies
     }
 
     /// Lectura tolerante. Un archivo sin `baselineAt` es anterior a ese campo: el estado no se perdió, así que
@@ -175,6 +201,7 @@ public struct SlackState: Codable, Equatable, Sendable {
         uncertain = (try? c.decodeIfPresent([String: Date].self, forKey: .uncertain)) ?? [:]
         backoff = (try? c.decodeIfPresent([String: SlackBackoff].self, forKey: .backoff)) ?? [:]
         selfUserID = try? c.decodeIfPresent(String.self, forKey: .selfUserID)
+        mergedReplies = (try? c.decodeIfPresent([String: MergedReply].self, forKey: .mergedReplies)) ?? [:]
     }
 }
 

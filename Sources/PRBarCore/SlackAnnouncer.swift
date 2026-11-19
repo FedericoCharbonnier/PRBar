@@ -259,6 +259,16 @@ public final class SlackAnnouncer: ObservableObject {
                         }
                         let posted = state.reviewTracking[prID]?.roundsPosted ?? 0
                         state.reviewTracking[prID, default: ReviewTracking()].roundsPosted = max(posted, round)
+                    case .merged(let prID, _, let channelID, let threadTS, let text):
+                        // Igual que "Updated": si un intento anterior quedó dudoso, primero se mira el hilo.
+                        if let since = uncertainSince,
+                           try await existingReply(channelID: channelID, threadTS: threadTS, text: text, since: since, token: token) {
+                            AppLog.write("Slack: the “Merged” reply for \(prID) is already in the thread; not posting it again")
+                        } else {
+                            begin(action)
+                            _ = try await api.postMessage(channel: channelID, text: text, threadTS: threadTS, token: token)
+                        }
+                        state.mergedReplies[prID]?.postedAt = now()
                     }
                     succeeded(action)
                     persist()
@@ -365,7 +375,7 @@ public final class SlackAnnouncer: ObservableObject {
     private static func issueDetail(_ error: PRBarError, for action: SlackAction) -> String? {
         guard error == .slack("missing_scope") else { return nil }
         return switch action {
-        case .announce, .update, .reply: "chat:write"
+        case .announce, .update, .reply, .merged: "chat:write"
         case .findMessage: "channels:history, groups:history"
         case .react: "reactions:write"
         }
@@ -393,6 +403,23 @@ public final class SlackAnnouncer: ObservableObject {
         snapshot.items.append(item)
         snapshot.fetchedScopes.insert(Snapshot.scope(account: item.account, repo: item.pr.repo))
         await process(snapshot: snapshot, config: config)
+    }
+
+    /// Lo llama `AppModel` después de mergear un PR mío desde PRBar (spec F.4). Si PRBar lo había anunciado, deja
+    /// "Merged" pendiente (persistido) y corre un ciclo para publicarlo ya. Pedirlo de nuevo para el mismo PR no hace
+    /// nada. Los errores van a `issues` y al log: el merge ya está hecho.
+    public func prMerged(_ pr: PullRequest, method: MergeMethod, config: AppConfig) async {
+        let settings = config.slack
+        guard settings.enabled, settings.postMerged, let announcement = state.announcements[pr.id],
+              state.mergedReplies[pr.id] == nil else { return }
+        state.mergedReplies[pr.id] = MergedReply(
+            repo: pr.repo, channelID: announcement.channelID, threadTS: announcement.ts,
+            text: SlackTemplate.render(settings.effectiveMergedTemplate, pr: pr, method: method.rawValue),
+            requestedAt: now()
+        )
+        saveState()
+        AppLog.write("Slack: “Merged” queued for \(pr.id)")
+        await process(snapshot: pending?.snapshot ?? lastSnapshot ?? Snapshot(items: [], fetchedAt: now()), config: config)
     }
 
     /// Vuelve a correr el plan con el último snapshot después de un cambio de configuración (token, interruptor,

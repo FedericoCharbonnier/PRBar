@@ -11,18 +11,20 @@ public enum SlackAction: Equatable, Sendable {
     case react(prID: String, repo: RepoRef, channelName: String?, ref: SlackMessageRef, emoji: String, kind: ReviewReactionKind)
     /// "commented xN" en el hilo del mensaje del PR ajeno; `round` = N.
     case reply(prID: String, repo: RepoRef, channelName: String?, ref: SlackMessageRef, text: String, round: Int)
+    /// "Merged" en el hilo del anuncio de un PR mío que mergeé desde PRBar (spec F.4).
+    case merged(prID: String, repo: RepoRef, channelID: String, threadTS: String, text: String)
 
     public var prID: String {
         switch self {
         case .announce(let prID, _, _, _, _), .update(let prID, _, _, _, _, _, _), .findMessage(let prID, _, _, _, _),
-             .react(let prID, _, _, _, _, _), .reply(let prID, _, _, _, _, _): prID
+             .react(let prID, _, _, _, _, _), .reply(let prID, _, _, _, _, _), .merged(let prID, _, _, _, _): prID
         }
     }
 
     public var repo: RepoRef {
         switch self {
         case .announce(_, let repo, _, _, _), .update(_, let repo, _, _, _, _, _), .findMessage(_, let repo, _, _, _),
-             .react(_, let repo, _, _, _, _), .reply(_, let repo, _, _, _, _): repo
+             .react(_, let repo, _, _, _, _), .reply(_, let repo, _, _, _, _), .merged(_, let repo, _, _, _): repo
         }
     }
 
@@ -30,6 +32,7 @@ public enum SlackAction: Equatable, Sendable {
         switch self {
         case .announce(_, _, _, let name, _), .update(_, _, _, let name, _, _, _), .findMessage(_, _, _, let name, _),
              .react(_, _, let name, _, _, _), .reply(_, _, let name, _, _, _): name
+        case .merged: nil
         }
     }
 }
@@ -48,6 +51,8 @@ public struct SlackPlan: Equatable, Sendable {
 public enum SlackPlanner {
     /// Sin mensaje encontrado, la búsqueda de un PR se repite como máximo cada 10 minutos.
     public static let searchInterval: TimeInterval = 10 * 60
+    /// Un "Merged" que no se pudo publicar se reintenta en cada ciclo durante un día como máximo.
+    public static let mergedReplyWindow: TimeInterval = 24 * 60 * 60
 
     /// `now` (por defecto, la hora del snapshot) solo se usa para espaciar las búsquedas.
     public static func plan(snapshot: Snapshot, config: AppConfig, state: SlackState, now: Date? = nil) -> SlackPlan {
@@ -103,6 +108,17 @@ public enum SlackPlanner {
                         ))
                     }
                 }
+            }
+        }
+        // "Merged" en el hilo de los PRs que mergeé desde PRBar (spec F.4). No depende del snapshot: el PR ya no
+        // está abierto.
+        if config.slack.postMerged {
+            let reference = now ?? snapshot.fetchedAt
+            for (prID, reply) in state.mergedReplies.sorted(by: { $0.key < $1.key })
+            where reply.postedAt == nil && reference.timeIntervalSince(reply.requestedAt) < mergedReplyWindow {
+                plan.actions.append(.merged(
+                    prID: prID, repo: reply.repo, channelID: reply.channelID, threadTS: reply.threadTS, text: reply.text
+                ))
             }
         }
         return plan
