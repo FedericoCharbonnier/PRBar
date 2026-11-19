@@ -105,6 +105,12 @@ public enum AppPaths {
     /// Clon propio del repo de PRBar del que se compilan las actualizaciones (spec D.3). Nunca es el checkout de
     /// desarrollo del usuario.
     public static var updateSourceDir: URL { appSupport.appendingPathComponent("source", isDirectory: true) }
+    /// Donde se arma el `.app` nuevo: misma unidad que `~/Applications`, así reemplazarlo es un rename.
+    public static var updateStagingDir: URL { appSupport.appendingPathComponent("update-staging", isDirectory: true) }
+    /// La versión recién instalada; la lee la versión nueva al arrancar para mostrar "Updated to …".
+    public static var pendingUpdateFile: URL { appSupport.appendingPathComponent("update-installed.json") }
+    /// Log de la última actualización ("Show Log").
+    public static var updateLog: URL { logFile.deletingLastPathComponent().appendingPathComponent("update.log") }
     /// Worktrees y carpetas temporales de las reviews (y las carpetas de contexto de "Responder"). Se vacía al
     /// arrancar. Está en la carpeta temporal del usuario y no en `~/Library`, porque Claude tiene `~/Library/**`
     /// negado (`ClaudeRunner.deniedPaths`) y ahí no podría leer el código.
