@@ -206,7 +206,7 @@ struct PopoverView: View {
         if !collapsed.contains(category) {
             ForEach(items) { item in
                 PRRowView(item: item, dimmed: dimmed, model: model, reviews: model.reviews, respond: model.respond,
-                          updateSession: model.updates.session)
+                          merges: model.merges, updateSession: model.updates.session)
             }
         }
     }

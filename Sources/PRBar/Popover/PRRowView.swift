@@ -9,7 +9,8 @@ struct PRRowView: View {
     let model: AppModel
     @ObservedObject var reviews: ReviewQueue
     @ObservedObject var respond: RespondQueue
-    /// While an update installs, Review and Respond are disabled (`AppModel.jobsBlockedReason`).
+    @ObservedObject var merges: MergeQueue
+    /// While an update installs, Review, Respond and Merge are disabled (`AppModel.jobsBlockedReason`).
     @ObservedObject var updateSession: UpdateInstallSession
     @State private var hovering = false
 
@@ -81,6 +82,12 @@ struct PRRowView: View {
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
+                if item.category == .readyToMerge {
+                    MergeStatusLabel(availability: model.mergeOptions(item).availability)
+                        .font(.subheadline)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
             }
             Spacer(minLength: 4)
             VStack(alignment: .trailing, spacing: 4) {
@@ -113,6 +120,11 @@ struct PRRowView: View {
             )
         case .toReview, .updatedSinceMyReview:
             ReviewButton(phase: reviews.phases[item.id], unavailableReason: model.jobsBlockedReason, actions: reviewActions)
+        case .readyToMerge:
+            MergeButton(
+                phase: merges.phases[item.id], options: model.mergeOptions(item), baseRef: pr.baseRef,
+                unavailableReason: model.jobsBlockedReason, actions: mergeActions
+            )
         default:
             EmptyView()
         }
@@ -156,6 +168,19 @@ struct PRRowView: View {
                 Button("View Response", action: actions.open)
             }
         }
+        if item.category == .readyToMerge {
+            Divider()
+            let options = model.mergeOptions(item)
+            let canMerge = options.availability.isEnabled && merges.phases[item.id] == nil && model.jobsBlockedReason == nil
+            Button("Merge") { model.requestMerge(item) }
+                .disabled(!canMerge)
+            Menu("Merge With…") {
+                ForEach(options.methods) { method in
+                    Button(method.actionTitle) { model.requestMerge(item, method: method) }
+                }
+            }
+            .disabled(!canMerge)
+        }
     }
 
     /// Con fixes sin pushear (o tests corriendo) no se vuelve a analizar: primero hay que pushear o descartar.
@@ -175,6 +200,9 @@ struct PRRowView: View {
         if item.category == .myFeedback {
             let feedback = ActionClassifier.newFeedback(pr, me: item.account)
             parts.append(FeedbackLabel.text(for: feedback))
+        }
+        if item.category == .readyToMerge {
+            parts.append(MergeStatusLabel.text(for: model.mergeOptions(item).availability))
         }
         return parts.joined(separator: ", ")
     }
@@ -208,6 +236,16 @@ struct PRRowView: View {
             open: { model.openReview(prID: item.id) },
             retry: { model.startReview(item) },
             dismiss: { model.dismissReview(prID: item.id) }
+        )
+    }
+
+    private var mergeActions: MergeButtonActions {
+        let model = self.model
+        let item = self.item
+        return MergeButtonActions(
+            merge: { method in model.requestMerge(item, method: method) },
+            retry: { model.retryMerge(prID: item.id) },
+            dismiss: { model.dismissMergeError(prID: item.id) }
         )
     }
 }
