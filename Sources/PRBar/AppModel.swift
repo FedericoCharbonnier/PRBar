@@ -36,6 +36,8 @@ struct AppModelServices {
     var respondPipeline: (any RespondPipelineRunning)?
     /// `nil`: the real chat backend (`LiveChatBackend`).
     var chatBackend: (any ChatBackend)? = nil
+    /// Para chequear los releases en GitHub (spec D.2). El modo de capturas nunca chequea.
+    var updateTransport: any HTTPTransport = URLSessionTransport()
 
     static func live(runner: SystemProcessRunner) -> AppModelServices {
         let accounts = AccountProvider(runner: runner, ghPath: nil)
@@ -76,6 +78,7 @@ final class AppModel: ObservableObject {
     private let reviewPipeline: (any ReviewPipelineRunning)?
     private let respondPipeline: (any RespondPipelineRunning)?
     private let chatBackendOverride: (any ChatBackend)?
+    private let updateTransport: any HTTPTransport
     /// Chat turns running at once across the app (spec B.4): at most 2, one per PR.
     let chatScheduler = JobScheduler<String>(maxConcurrent: ChatCoordinator.maxConcurrentChats)
     /// The chat backend. `lazy` like the queues, so it can capture `self` (weakly).
@@ -114,6 +117,13 @@ final class AppModel: ObservableObject {
         ),
         history: respondHistory,
         onEvent: { [weak self] prID, phase in self?.respondEvent(prID: prID, phase: phase) }
+    )
+    /// Actualizaciones (spec D). `lazy` por lo mismo que `reviews`: sus closures capturan `self` (débil).
+    private(set) lazy var updates = UpdateController(
+        configStore: configStore, transport: updateTransport, runner: runner, notifications: notifications,
+        gitPath: { [weak self] in self?.tools.git },
+        activeJobs: { [weak self] in self?.activeJobCount ?? 0 },
+        cancelJobs: { [weak self] in self?.cancelJobsForUpdate() }
     )
     /// Limpieza de worktrees huérfanos del arranque; cada review la espera antes de crear el suyo.
     private var orphanCleanup: Task<Void, Never>?
@@ -159,6 +169,7 @@ final class AppModel: ObservableObject {
         self.reviewPipeline = services.reviewPipeline
         self.respondPipeline = services.respondPipeline
         self.chatBackendOverride = services.chatBackend
+        self.updateTransport = services.updateTransport
         self.prStore = PRStore(
             builder: SnapshotBuilder(api: services.api, tokens: services.accounts),
             configStore: configStore,
@@ -204,6 +215,7 @@ final class AppModel: ObservableObject {
         await reloadAccounts()
         notifications?.requestAuthorization()
         prStore.start()
+        updates.startAutomaticChecks()
     }
 
     func resolveTools() async {
@@ -638,6 +650,9 @@ final class AppModel: ObservableObject {
         }
         historyRevision += 1
     }
+
+    /// Los chats (Review o Respond) con un turno corriendo o en cola: cuentan como trabajos al actualizar (spec D.3).
+    var runningChats: [ChatCoordinator] { chats.values.filter(\.isRunning) }
 
     /// The chat's worktree goes away with its review or respond (spec B.5).
     private func discardChat(draftID: UUID) {
