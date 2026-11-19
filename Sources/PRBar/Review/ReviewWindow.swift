@@ -20,6 +20,7 @@ struct ReviewWindow: View {
     @State private var inlineRejected: ReviewEvent?
     @State private var result: PublishedReview?
     @State private var showDiscarded: Bool
+    @State private var showHidden = false
     @State private var showsChat: Bool
     /// The panel's width, remembered between windows (320–480).
     @AppStorage("ChatPanelWidth") private var chatWidth = 360.0
@@ -73,8 +74,10 @@ struct ReviewWindow: View {
     }
 
     private var items: [ReviewItem] { chat.reviewEdits.items(of: draft) }
-    private var kept: [ReviewItem] { items.filter(\.keep) }
-    private var discarded: [ReviewItem] { items.filter { !$0.keep } }
+    private var kept: [ReviewItem] { items.filter { $0.keep && !$0.isHidden } }
+    private var discarded: [ReviewItem] { items.filter { !$0.keep && !$0.isHidden } }
+    /// Spec E.5: hidden by the user's settings (severity, categories, paths, maximum).
+    private var hiddenBySettings: [ReviewItem] { items.filter(\.isHidden) }
     private var selected: Set<String> { chat.reviewEdits.selected }
     private var general: String { chat.reviewEdits.generalComment }
 
@@ -91,7 +94,7 @@ struct ReviewWindow: View {
                 .padding(.horizontal, 20)
                 .padding(.bottom, 12)
             if let result {
-                ReviewPublishedView(result: result, close: close)
+                ReviewPublishedView(result: result, close: close, model: model, repo: draft.repo)
             } else {
                 editor
             }
@@ -152,6 +155,7 @@ struct ReviewWindow: View {
                             .padding(.vertical, 20)
                     }
                     if !discarded.isEmpty { discardedSection }
+                    if !hiddenBySettings.isEmpty { hiddenSection }
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 2)
@@ -177,7 +181,7 @@ struct ReviewWindow: View {
         .padding(.vertical, 8)
     }
 
-    private var selectedDiscardedCount: Int { discarded.filter { selected.contains($0.id) }.count }
+    private var selectedDiscardedCount: Int { (discarded + hiddenBySettings).filter { selected.contains($0.id) }.count }
 
     private var discardedSection: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -202,6 +206,34 @@ struct ReviewWindow: View {
                 ForEach(discarded) { item in
                     DiscardedFindingCard(item: item, number: chat.number(of: item.id) ?? 0, isSelected: selection(item.id),
                                          isHighlighted: chat.highlighted.contains(item.id))
+                }
+            }
+        }
+    }
+
+    private var hiddenSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                showHidden.toggle()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: showHidden ? "chevron.down" : "chevron.right")
+                        .imageScale(.small)
+                        .fontWeight(.semibold)
+                    Text("Hidden by your settings (\(hiddenBySettings.count))").fontWeight(.semibold)
+                    Text("· Settings › Claude").foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 8)
+            if showHidden {
+                ForEach(hiddenBySettings) { item in
+                    DiscardedFindingCard(item: item, number: chat.number(of: item.id) ?? 0, isSelected: selection(item.id),
+                                         isHighlighted: chat.highlighted.contains(item.id), note: item.hiddenBy)
                 }
             }
         }

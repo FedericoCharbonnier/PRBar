@@ -108,6 +108,8 @@ struct DiscardedFindingCard: View {
     let number: Int
     @Binding var isSelected: Bool
     var isHighlighted = false
+    /// Why the user's settings hide it (spec E.5); nil = discarded by the filter.
+    var note: String? = nil
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -125,8 +127,9 @@ struct DiscardedFindingCard: View {
                     .lineLimit(1)
                     .help(item.finding.title)
                 HStack(alignment: .firstTextBaseline, spacing: 5) {
-                    Image(systemName: "line.3.horizontal.decrease").imageScale(.small).fontWeight(.semibold)
-                    Text(item.reason?.isEmpty == false ? item.reason! : "No reason given")
+                    Image(systemName: note == nil ? "line.3.horizontal.decrease" : "eye.slash")
+                        .imageScale(.small).fontWeight(.semibold)
+                    Text(note ?? (item.reason?.isEmpty == false ? item.reason! : "No reason given"))
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .fixedSize(horizontal: false, vertical: true)
                     Button(isSelected ? "Remove" : "Include Anyway") { isSelected.toggle() }

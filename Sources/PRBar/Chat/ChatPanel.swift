@@ -45,7 +45,14 @@ struct ChatPanel: View {
                         ChatMessageRow(
                             message: message, summary: summary(message),
                             canUndo: message.id == chat.session.undoableMessageID && chat.canUndo,
-                            undo: { undo(message.id) }, logURL: logURL
+                            undo: { undo(message.id) }, logURL: logURL,
+                            proposalActions: RuleProposalActions(
+                                repo: chat.subject.repo.fullName,
+                                save: { id, text, scope, stages in
+                                    chat.saveProposal(id, in: message.id, text: text, scope: scope, appliesTo: stages)
+                                },
+                                dismiss: { id in chat.dismissProposal(id, in: message.id) }
+                            )
                         )
                         .id(message.id)
                     }
@@ -176,6 +183,7 @@ struct ChatMessageRow: View {
     let canUndo: Bool
     let undo: (() -> Void)?
     let logURL: URL?
+    var proposalActions: RuleProposalActions? = nil
 
     var body: some View {
         switch message.role {
@@ -197,6 +205,9 @@ struct ChatMessageRow: View {
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
                 if !message.changes.isEmpty { changes }
+                ForEach(message.proposals) { proposal in
+                    RuleProposalCard(proposal: proposal, actions: proposalActions)
+                }
                 ForEach(message.notes, id: \.self) { note in
                     Text(note).font(.caption).foregroundStyle(.tertiary)
                 }
@@ -281,5 +292,93 @@ enum ChatMarkdown {
     static func attributed(_ text: String) -> AttributedString {
         (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
             ?? AttributedString(text)
+    }
+}
+
+/// What a rule proposal card can do (spec E.3). Without it (History), the card is read only.
+struct RuleProposalActions {
+    /// The chat's repo, for the scope menu.
+    let repo: String
+    let save: (_ proposalID: UUID, _ text: String, _ scope: RuleScope, _ stages: Set<RuleStage>) -> String?
+    let dismiss: (_ proposalID: UUID) -> Void
+}
+
+/// "Save as rule — Global — Review": a rule Claude proposed. Editable before saving; nothing is saved without Save.
+struct RuleProposalCard: View {
+    let proposal: RuleProposal
+    let actions: RuleProposalActions?
+
+    @State private var text: String
+    @State private var scope: RuleScope
+    @State private var stages: Set<RuleStage>
+    @State private var error: String?
+
+    init(proposal: RuleProposal, actions: RuleProposalActions?) {
+        self.proposal = proposal
+        self.actions = actions
+        _text = State(initialValue: proposal.text)
+        _scope = State(initialValue: proposal.scope)
+        _stages = State(initialValue: proposal.appliesTo)
+    }
+
+    private var editable: Bool { proposal.status == .pending && actions != nil }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "bookmark.fill").foregroundStyle(Color.accentColor)
+                Text("Save as rule").font(.caption.weight(.semibold))
+                Text("— \(scope.title) — \(stages.sorted().map(\.title).joined(separator: " + "))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            if editable, let actions {
+                TextField("Rule", text: $text, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.callout)
+                    .lineLimit(1...4)
+                HStack(spacing: 6) {
+                    Picker("Scope", selection: $scope) {
+                        Text("Global").tag(RuleScope.global)
+                        Text(actions.repo).tag(RuleScope.repo(actions.repo))
+                    }
+                    .labelsHidden()
+                    .fixedSize()
+                    ForEach(RuleStage.allCases, id: \.self) { stage in
+                        StageChip(stage: stage, isOn: stages.contains(stage)) {
+                            if stages.contains(stage) { stages.remove(stage) } else { stages.insert(stage) }
+                        }
+                    }
+                    Spacer(minLength: 4)
+                    Button("Dismiss") { actions.dismiss(proposal.id) }
+                    Button("Save") { error = actions.save(proposal.id, text, scope, stages) }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || stages.isEmpty)
+                }
+                .controlSize(.small)
+                if let error {
+                    Text(error).font(.caption).foregroundStyle(Theme.redText)
+                }
+            } else {
+                Text(proposal.text)
+                    .font(.callout)
+                    .foregroundStyle(proposal.status == .dismissed ? .secondary : .primary)
+                    .strikethrough(proposal.status == .dismissed)
+                    .fixedSize(horizontal: false, vertical: true)
+                switch proposal.status {
+                case .saved:
+                    Label("Saved as a rule (Settings › Instructions)", systemImage: "checkmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(Theme.green)
+                case .dismissed:
+                    Text("Dismissed").font(.caption).foregroundStyle(.tertiary)
+                case .pending:
+                    Text("Not saved").font(.caption).foregroundStyle(.tertiary)
+                }
+            }
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.tint(Theme.accent).opacity(0.5)))
     }
 }

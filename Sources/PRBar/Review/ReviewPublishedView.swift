@@ -50,6 +50,17 @@ struct PublishedReview: Equatable {
 struct ReviewPublishedView: View {
     let result: PublishedReview
     let close: () -> Void
+    let model: AppModel
+    let repo: RepoRef
+    @ObservedObject private var instructions: InstructionsStore
+
+    init(result: PublishedReview, close: @escaping () -> Void, model: AppModel, repo: RepoRef) {
+        self.result = result
+        self.close = close
+        self.model = model
+        self.repo = repo
+        _instructions = ObservedObject(wrappedValue: model.instructions)
+    }
 
     var body: some View {
         VStack(spacing: 8) {
@@ -74,6 +85,17 @@ struct ReviewPublishedView: View {
                     .keyboardShortcut(.defaultAction)
             }
             .padding(.top, 14)
+            let suggestions = model.ruleSuggestions(for: repo)
+            if !suggestions.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(suggestions) { RuleSuggestionCard(model: model, suggestion: $0) }
+                }
+                .multilineTextAlignment(.leading)
+                .padding(14)
+                .frame(maxWidth: 460)
+                .background(RoundedRectangle(cornerRadius: Theme.Radius.card).fill(Color(nsColor: .controlBackgroundColor)))
+                .padding(.top, 18)
+            }
         }
         .multilineTextAlignment(.center)
         .padding(.horizontal, 80)
