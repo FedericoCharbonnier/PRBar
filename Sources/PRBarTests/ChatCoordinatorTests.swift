@@ -386,6 +386,43 @@ enum ChatCoordinatorTests {
             let decoded = try JSONCoding.decoder.decode(ChatSession.self, from: JSONCoding.encoder.encode(chat.session))
             try expectEqual(decoded.promptNonce, fence.nonce)
         },
+        TestCase("chat coordinator: un turno detenido (en cola o corriendo) o fallido no da por vistos el estado ni las reglas") { @MainActor in
+            let h = Harness()
+            let chat = h.review()
+            chat.send("a")
+            try await h.finish(chat)
+            // Two other chats fill the scheduler: this turn waits in the queue and is stopped there.
+            h.backend.held = true
+            let others = [h.review(reviewDraft("PR_2")), h.review(reviewDraft("PR_3"))]
+            for other in others { other.send("x") }
+            try await waitUntil { h.backend.inputs.count == 3 }
+            chat.reviewEdits.generalComment = "Edited by hand"
+            h.context.rules = [Rule(scope: .global, appliesTo: [.review], text: "Be kind.", source: .manual, createdAt: Date())]
+            chat.send("b")
+            chat.stop()
+            try await h.finish(chat)
+            try expectEqual(chat.session.messages.last?.text, ChatCoordinator.stoppedText)
+            h.backend.held = false
+            for other in others { try await h.finish(other) }
+            // Stopped while running.
+            h.backend.held = true
+            chat.send("c")
+            try await waitUntil { h.backend.inputs.count == 4 }
+            chat.stop()
+            try await h.finish(chat)
+            h.backend.held = false
+            // A failed turn.
+            h.backend.reply(.failure(ClaudeError.invalidOutput("no json")))
+            chat.send("d")
+            try await h.finish(chat)
+            chat.send("e")
+            try await h.finish(chat)
+            let last = h.backend.inputs.last
+            try expect(last?.stateIfChanged?.contains("Edited by hand") == true)
+            try expect(last?.rulesIfChanged?.contains("- Be kind.") == true)
+            try expect(chat.session.lastState?.contains("Edited by hand") == true)
+            try expect(chat.session.lastRules?.contains("- Be kind.") == true)
+        },
         TestCase("chat coordinator: proposeRule queda pendiente y solo Save guarda la regla, con lo editado") { @MainActor in
             let h = Harness()
             let chat = h.review()

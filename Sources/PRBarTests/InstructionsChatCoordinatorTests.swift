@@ -104,5 +104,36 @@ enum InstructionsChatCoordinatorTests {
             try expectEqual(reopened.chat.messages.last?.text, ChatSession.interruptedText)
             try expectEqual(store.file.chat.pending, false)
         },
+        TestCase("instructions coordinator: un turno detenido o fallido no da el estado por visto") { @MainActor in
+            let dir = try temporaryDirectory()
+            let backend = FakeInstructionsBackend()
+            let (store, chat) = make(dir, backend: backend)
+            chat.send("a")
+            try await waitUntil { !chat.isRunning }
+            try store.addRule("New rule.", scope: .global, appliesTo: [.review], source: .manual)
+            // Stopped while queued: the scheduler is busy with another chat.
+            let busy = JobScheduler<String>(maxConcurrent: 1)
+            busy.enqueue("other", onStart: {}, work: { try await Task.sleep(nanoseconds: 2_000_000_000) }, onComplete: { _ in })
+            let queued = InstructionsChatCoordinator(store: store, backend: backend, scheduler: busy, repos: { ["acme/web-app"] })
+            queued.send("b")
+            queued.stop()
+            try await waitUntil { !queued.isRunning }
+            try expectEqual(queued.chat.messages.last?.text, ChatCoordinator.stoppedText)
+            busy.cancel("other")
+            queued.send("c")
+            try await waitUntil { !queued.isRunning }
+            try expect(backend.inputs.last?.stateIfChanged?.contains("New rule.") == true)
+            // Stopped while running.
+            try store.addRule("Another.", scope: .global, appliesTo: [.review], source: .manual)
+            backend.held = true
+            queued.send("d")
+            try await waitUntil { backend.inputs.count == 3 }
+            queued.stop()
+            try await waitUntil { !queued.isRunning }
+            backend.held = false
+            queued.send("e")
+            try await waitUntil { !queued.isRunning }
+            try expect(backend.inputs.last?.stateIfChanged?.contains("Another.") == true)
+        },
     ]
 }

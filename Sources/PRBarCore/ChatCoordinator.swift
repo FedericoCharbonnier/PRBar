@@ -56,6 +56,9 @@ private struct TurnResult: Sendable {
     let canSetImplement: Bool
     /// What Claude was told it can do in this turn.
     let canEditFiles: Bool
+    /// The window's state and the rules section this turn sent: Claude saw them only if the turn succeeded.
+    let state: String
+    let rulesText: String
 }
 
 /// The chat of one Review or Respond window (spec B): the conversation and the window's editable state, which the
@@ -154,8 +157,6 @@ public final class ChatCoordinator: ObservableObject {
         let turn = session.messages.filter { $0.role == .user }.count + 1
         session.messages.append(ChatMessage(role: .user, text: text))
         session.pending = true
-        session.lastState = state
-        session.lastRules = rulesText
         hooks.persist(self)
 
         let id = UUID()
@@ -195,11 +196,12 @@ public final class ChatCoordinator: ObservableObject {
                     let (output, files) = try await backend.sendEditing(input, draft: draft, result: result,
                                                                         sessionID: request.session.id, logURL: context.logURL) { relay.send($0) }
                     outcome = .success(TurnResult(output: output, files: files, workspace: workspace, canSetImplement: false,
-                                                  canEditFiles: true))
+                                                  canEditFiles: true, state: state, rulesText: rulesText))
                 } else {
                     let output = try await backend.send(input, subject: subject, logURL: context.logURL) { relay.send($0) }
                     outcome = .success(TurnResult(output: output, files: nil, workspace: workspace,
-                                                  canSetImplement: context.respondResult == nil, canEditFiles: false))
+                                                  canSetImplement: context.respondResult == nil, canEditFiles: false,
+                                                  state: state, rulesText: rulesText))
                 }
             } catch {
                 outcome = .failure(error)
@@ -263,6 +265,9 @@ public final class ChatCoordinator: ObservableObject {
     private func apply(_ turn: TurnResult) {
         session.claudeSessionID = turn.output.claudeSessionID
         session.canEditFiles = turn.canEditFiles
+        // Only now did Claude see them: a stopped or failed turn sends them again next time.
+        session.lastState = turn.state
+        session.lastRules = turn.rulesText
         var notes: [String] = []
         if turn.output.rebuiltContext { notes.append(Self.rebuiltNote) }
         if let note = turn.workspace.note, !session.messages.contains(where: { $0.notes.contains(note) }) {

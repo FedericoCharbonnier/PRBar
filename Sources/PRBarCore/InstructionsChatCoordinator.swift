@@ -81,7 +81,6 @@ public final class InstructionsChatCoordinator: ObservableObject {
         let turn = chat.messages.filter { $0.role == .user }.count + 1
         chat.messages.append(ChatMessage(role: .user, text: text))
         chat.pending = true
-        chat.lastState = state
         persist()
 
         let id = UUID()
@@ -104,7 +103,7 @@ public final class InstructionsChatCoordinator: ObservableObject {
                 outcome = .failure(error)
             }
             await relay.finish()
-            await self?.finishTurn(id, outcome, repos: repos)
+            await self?.finishTurn(id, outcome, repos: repos, state: state)
         }, onComplete: { _ in })
         return true
     }
@@ -115,7 +114,7 @@ public final class InstructionsChatCoordinator: ObservableObject {
         stopping = id
         if scheduler.isQueued(Self.key) {
             scheduler.cancel(Self.key)
-            finishTurn(id, .failure(CancellationError()), repos: [])
+            finishTurn(id, .failure(CancellationError()), repos: [], state: nil)
             return
         }
         activity = "Stopping…"
@@ -156,7 +155,8 @@ public final class InstructionsChatCoordinator: ObservableObject {
         }
     }
 
-    private func finishTurn(_ id: UUID, _ outcome: Result<InstructionsTurnOutput, Error>, repos: [String]) {
+    /// `state`: what the turn sent; it counts as seen (`lastState`) only if the turn succeeded.
+    private func finishTurn(_ id: UUID, _ outcome: Result<InstructionsTurnOutput, Error>, repos: [String], state: String?) {
         guard turnID == id else { return }
         turnID = nil
         chat.pending = false
@@ -165,6 +165,7 @@ public final class InstructionsChatCoordinator: ObservableObject {
         switch outcome {
         case .success(let output):
             chat.claudeSessionID = output.claudeSessionID
+            if let state { chat.lastState = state }
             let before = store.rules
             let applied = RuleActions.apply(output.actions, to: before, repos: repos)
             var notes = applied.notes
