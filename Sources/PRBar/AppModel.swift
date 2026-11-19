@@ -648,7 +648,11 @@ final class AppModel: ObservableObject {
                             rules: self?.instructions.rules ?? [],
                             promptBody: self?.configStore.config.claude.chatPromptBody(.reviewChat))
             },
-            hooks: ChatHooks(persist: { [weak self] chat in self?.saveReviewChat(draft, chat) })
+            hooks: ChatHooks(persist: { [weak self] chat in self?.saveReviewChat(draft, chat) },
+                             saveRule: { [weak self] proposal in
+                                 guard let self else { throw RuleError.unavailable }
+                                 return try self.saveProposedRule(proposal)
+                             })
         )
         chats[draft.id] = chat
         return chat
@@ -698,7 +702,11 @@ final class AppModel: ObservableObject {
                     self?.respond.updateSelections(prID: prID, draftID: draft.id, selections: chat.selections)
                 },
                 runningChanged: { [weak self] running in self?.respond.setChatRunning(running, prID: prID) },
-                resultChanged: { [weak self] result in self?.respond.replaceResult(prID: prID, draftID: draft.id, result: result) }
+                resultChanged: { [weak self] result in self?.respond.replaceResult(prID: prID, draftID: draft.id, result: result) },
+                saveRule: { [weak self] proposal in
+                    guard let self else { throw RuleError.unavailable }
+                    return try self.saveProposedRule(proposal)
+                }
             )
         )
         chats[draft.id] = chat
@@ -730,6 +738,11 @@ final class AppModel: ObservableObject {
     }
 
     var rules: [Rule] { instructions.rules }
+
+    /// A rule Claude proposed in a PR chat, saved because the user pressed Save (spec E.3).
+    func saveProposedRule(_ proposal: RuleProposal) throws -> UUID {
+        try addRule(proposal.text, scope: proposal.scope, appliesTo: proposal.appliesTo, source: .prChat).id
+    }
 
     @discardableResult
     func addRule(_ text: String, scope: RuleScope, appliesTo: Set<RuleStage>, source: RuleSource = .manual,

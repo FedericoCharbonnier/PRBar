@@ -35,13 +35,17 @@ public struct ChatHooks {
     public var runningChanged: @MainActor (Bool) -> Void
     /// A turn committed files, or an undo reverted them: the fixes' result changed.
     public var resultChanged: @MainActor (RespondResult) -> Void
+    /// Saves a proposal as a rule (`source = prChat`) and returns its id (spec E.3). Called only from `saveProposal`.
+    public var saveRule: @MainActor (RuleProposal) throws -> UUID
 
     public init(persist: @escaping @MainActor (ChatCoordinator) -> Void = { _ in },
                 runningChanged: @escaping @MainActor (Bool) -> Void = { _ in },
-                resultChanged: @escaping @MainActor (RespondResult) -> Void = { _ in }) {
+                resultChanged: @escaping @MainActor (RespondResult) -> Void = { _ in },
+                saveRule: @escaping @MainActor (RuleProposal) throws -> UUID = { _ in throw RuleError.unavailable }) {
         self.persist = persist
         self.runningChanged = runningChanged
         self.resultChanged = resultChanged
+        self.saveRule = saveRule
     }
 }
 
@@ -285,8 +289,10 @@ public final class ChatCoordinator: ObservableObject {
                 if let result = files.result { hooks.resultChanged(result) }
             }
         }
+        let proposed = ChatActions.proposals(turn.output.actions, repo: subject.repo, stage: subject.ruleStage)
+        notes += proposed.notes
         session.messages.append(ChatMessage(role: .assistant, text: turn.output.reply, changes: changes, notes: notes,
-                                            restore: changes.isEmpty ? nil : restore))
+                                            restore: changes.isEmpty ? nil : restore, proposals: proposed.proposals))
         highlight(changes)
     }
 
@@ -372,6 +378,39 @@ public final class ChatCoordinator: ObservableObject {
     private func finishUndo(_ index: Int) {
         session.messages[index].undone = true
         highlight(session.messages[index].changes)
+        hooks.persist(self)
+    }
+
+    // MARK: Reglas propuestas
+
+    /// Spec E.3: saves a pending proposal as a rule, with the user's edits, only when they press Save. Returns the
+    /// error to show, or nil. It works on a read-only conversation too: a rule doesn't touch the PR.
+    @discardableResult
+    public func saveProposal(_ proposalID: UUID, in messageID: UUID, text: String, scope: RuleScope,
+                             appliesTo: Set<RuleStage>) -> String? {
+        guard let m = session.messages.firstIndex(where: { $0.id == messageID }),
+              let p = session.messages[m].proposals.firstIndex(where: { $0.id == proposalID }),
+              session.messages[m].proposals[p].status == .pending else { return nil }
+        var proposal = session.messages[m].proposals[p]
+        proposal.text = text
+        proposal.scope = scope
+        proposal.appliesTo = appliesTo
+        do {
+            proposal.ruleID = try hooks.saveRule(proposal)
+        } catch {
+            return (error as? LocalizedError)?.errorDescription ?? "\(error)"
+        }
+        proposal.status = .saved
+        session.messages[m].proposals[p] = proposal
+        hooks.persist(self)
+        return nil
+    }
+
+    public func dismissProposal(_ proposalID: UUID, in messageID: UUID) {
+        guard let m = session.messages.firstIndex(where: { $0.id == messageID }),
+              let p = session.messages[m].proposals.firstIndex(where: { $0.id == proposalID }),
+              session.messages[m].proposals[p].status == .pending else { return }
+        session.messages[m].proposals[p].status = .dismissed
         hooks.persist(self)
     }
 

@@ -78,6 +78,8 @@ public enum ChatActions {
                 }
                 edits.generalComment = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 changes.append(.generalCommentEdited)
+            case "proposeRule":
+                continue   // Not a change: `proposals(_:repo:stage:)` turns it into a card the user decides on.
             default:
                 notes.append(otherKindNote(action.type, available: reviewTypes, here: "Review"))
             }
@@ -126,11 +128,41 @@ public enum ChatActions {
                 }
                 selections[id] = selection
                 changes.append(.implementSet(commentID: id, implement: implement))
+            case "proposeRule":
+                continue   // Not a change: `proposals(_:repo:stage:)` turns it into a card the user decides on.
             default:
                 notes.append(otherKindNote(action.type, available: respondTypes, here: "Respond"))
             }
         }
         return ChatApplication(state: selections, changes: changes, notes: notes)
+    }
+
+    // MARK: Reglas
+
+    public static let maxProposals = 3
+
+    /// Spec E.3: the `proposeRule` actions as proposals, validated (text trimmed, redacted, 1–1000 characters).
+    /// `repo` scope = the PR's repo; without stages, `stage` (the chat's). At most `maxProposals`.
+    public static func proposals(_ actions: [ChatAction], repo: RepoRef, stage: RuleStage) -> (proposals: [RuleProposal], notes: [String]) {
+        var proposals: [RuleProposal] = []
+        var notes: [String] = []
+        for action in actions where action.type == "proposeRule" {
+            guard proposals.count < maxProposals else {
+                notes.append("Ignored a rule proposal: at most \(maxProposals) per answer.")
+                continue
+            }
+            let text: String
+            do {
+                text = try RuleText.validated(action.text ?? "")
+            } catch {
+                notes.append("Ignored a rule proposal: \((error as? LocalizedError)?.errorDescription ?? "\(error)")")
+                continue
+            }
+            let stages = Set((action.appliesTo ?? []).compactMap(RuleStage.init(rawValue:)))
+            proposals.append(RuleProposal(scope: action.scope == "repo" ? .repo(repo.fullName) : .global,
+                                          appliesTo: stages.isEmpty ? [stage] : stages, text: text))
+        }
+        return (proposals, notes)
     }
 
     // MARK: Diff y resumen

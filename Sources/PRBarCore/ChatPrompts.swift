@@ -157,6 +157,7 @@ public enum ChatPrompts {
                 output.append("- setImplement {commentID, implement}: whether a fix is implemented for that comment.")
             }
         }
+        output.append("- proposeRule {scope: global|repo, appliesTo: [review, respond], text}: only when the user asks you to remember something for future PRs (\"from now on…\", \"remember…\"). PRBar shows it as a card and saves it only if the user accepts. `repo` means \(subject.repo.fullName) only; `review` applies to reviews of other people's PRs and `respond` to fixing the feedback on the user's own PRs.")
         output.append("")
         output.append("Current state of the window (JSON):")
         output.append(state)

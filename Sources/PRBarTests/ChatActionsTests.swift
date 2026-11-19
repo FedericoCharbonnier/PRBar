@@ -176,5 +176,25 @@ enum ChatActionsTests {
                             "Edited the general comment, drafted 1 reply, marked 1 fix to implement, changed 1 file")
             try expectEqual(ChatActions.summary([]) { _ in nil }, "")
         },
+        TestCase("chat actions: proposeRule da propuestas validadas y no cambia el estado") {
+            let draft = draft()
+            let start = ReviewEdits.initial(for: draft)
+            let actions = [ChatAction(type: "proposeRule", text: "  No style comments. ", scope: "repo", appliesTo: ["review"]),
+                           ChatAction(type: "proposeRule", text: "Always ghp_abcdefghijklmnopqrstuvwxyz0123", appliesTo: []),
+                           ChatAction(type: "proposeRule", text: "   "),
+                           ChatAction(type: "proposeRule", text: "b"), ChatAction(type: "proposeRule", text: "c")]
+            let applied = ChatActions.applyReview(actions, to: start, draft: draft, diffFiles: diffFiles)
+            try expectEqual(applied.state, start)
+            try expectEqual(applied.changes, [])
+            try expectEqual(applied.notes, [])
+            let (proposals, notes) = ChatActions.proposals(actions, repo: draft.repo, stage: .review)
+            try expectEqual(proposals.map(\.text), ["No style comments.", "Always ***", "b"])
+            try expectEqual(proposals[0].scope, .repo("o/r"))
+            try expectEqual(proposals[1].scope, .global)
+            try expectEqual(proposals[1].appliesTo, [.review])
+            try expect(proposals.allSatisfy { $0.status == .pending })
+            try expectEqual(notes.count, 2)
+            try expect(ChatSchemas.turn.contains("\"proposeRule\""))
+        },
     ]
 }

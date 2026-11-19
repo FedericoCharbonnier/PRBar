@@ -95,11 +95,16 @@ private final class Harness {
     var persisted = 0
     var running: [Bool] = []
     var results: [RespondResult] = []
+    var savedRules: [RuleProposal] = []
 
     private var hooks: ChatHooks {
         ChatHooks(persist: { [unowned self] _ in self.persisted += 1 },
                   runningChanged: { [unowned self] in self.running.append($0) },
-                  resultChanged: { [unowned self] in self.results.append($0) })
+                  resultChanged: { [unowned self] in self.results.append($0) },
+                  saveRule: { [unowned self] proposal in
+                      self.savedRules.append(proposal)
+                      return UUID()
+                  })
     }
 
     func review(_ draft: ReviewDraft = reviewDraft(), session: ChatSession? = nil) -> ChatCoordinator {
@@ -349,6 +354,40 @@ enum ChatCoordinatorTests {
             try await h.finish(chat)
             try expect(h.backend.inputs[2].rulesIfChanged?.contains("- Be kind.") == true)
             try expect(chat.session.lastRules?.contains("- Be kind.") == true)
+        },
+        TestCase("chat coordinator: proposeRule queda pendiente y solo Save guarda la regla, con lo editado") { @MainActor in
+            let h = Harness()
+            let chat = h.review()
+            h.backend.reply(.success(output("I can remember that.", [ChatAction(type: "proposeRule", text: "No style comments.",
+                                                                                scope: "global", appliesTo: ["review"])])))
+            chat.send("from now on, no style comments")
+            try await h.finish(chat)
+            let message = chat.session.messages[1]
+            try expectEqual(message.proposals.count, 1)
+            try expectEqual(message.proposals[0].status, .pending)
+            try expectEqual(message.changes, [])
+            try expectEqual(h.savedRules, [])
+            let proposal = message.proposals[0].id
+            let error = chat.saveProposal(proposal, in: message.id, text: "No style or format comments.",
+                                          scope: .repo("o/r"), appliesTo: [.review, .respond])
+            try expectEqual(error, nil)
+            try expectEqual(h.savedRules.map(\.text), ["No style or format comments."])
+            try expectEqual(h.savedRules[0].scope, .repo("o/r"))
+            try expectEqual(chat.session.messages[1].proposals[0].status, .saved)
+            try expect(chat.session.messages[1].proposals[0].ruleID != nil)
+            _ = chat.saveProposal(proposal, in: message.id, text: "again", scope: .global, appliesTo: [.review])
+            try expectEqual(h.savedRules.count, 1)
+        },
+        TestCase("chat coordinator: Dismiss no guarda nada") { @MainActor in
+            let h = Harness()
+            let chat = h.review()
+            h.backend.reply(.success(output("Noted.", [ChatAction(type: "proposeRule", text: "x")])))
+            chat.send("remember x")
+            try await h.finish(chat)
+            let message = chat.session.messages[1]
+            chat.dismissProposal(message.proposals[0].id, in: message.id)
+            try expectEqual(chat.session.messages[1].proposals[0].status, .dismissed)
+            try expectEqual(h.savedRules, [])
         },
     ]
 }

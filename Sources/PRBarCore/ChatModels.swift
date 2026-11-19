@@ -55,9 +55,11 @@ public struct ChatMessage: Codable, Equatable, Identifiable, Sendable {
     public var notes: [String]
     /// How to undo the message (only messages with changes).
     public var restore: ChatRestorePoint?
+    /// Rules Claude proposed in this message (spec E.3). They're saved only if the user presses Save.
+    public var proposals: [RuleProposal]
 
     public init(id: UUID = UUID(), role: Role, text: String, createdAt: Date = Date(), changes: [ChatChange] = [],
-                undone: Bool = false, notes: [String] = [], restore: ChatRestorePoint? = nil) {
+                undone: Bool = false, notes: [String] = [], restore: ChatRestorePoint? = nil, proposals: [RuleProposal] = []) {
         self.id = id
         self.role = role
         self.text = text
@@ -66,9 +68,10 @@ public struct ChatMessage: Codable, Equatable, Identifiable, Sendable {
         self.undone = undone
         self.notes = notes
         self.restore = restore
+        self.proposals = proposals
     }
 
-    private enum CodingKeys: String, CodingKey { case id, role, text, createdAt, changes, undone, notes, restore }
+    private enum CodingKeys: String, CodingKey { case id, role, text, createdAt, changes, undone, notes, restore, proposals }
 
     /// Lenient: only `id`, `role` and `text` are required.
     public init(from decoder: Decoder) throws {
@@ -81,6 +84,7 @@ public struct ChatMessage: Codable, Equatable, Identifiable, Sendable {
         undone = (try? c.decodeIfPresent(Bool.self, forKey: .undone)) ?? false
         notes = (try? c.decodeIfPresent([String].self, forKey: .notes)) ?? []
         restore = (try? c.decodeIfPresent(ChatRestorePoint.self, forKey: .restore)) ?? nil
+        proposals = (try? c.decodeIfPresent(LossyArray<RuleProposal>.self, forKey: .proposals))?.elements ?? []
     }
 }
 
@@ -334,7 +338,8 @@ public struct ReviewEdits: Codable, Equatable, Sendable {
 /// One action of Claude's answer (`ChatSchemas.turn`). `type` is a string, so an unknown type doesn't break the
 /// decoding: `ChatActions` discards it with a note.
 public struct ChatAction: Codable, Equatable, Sendable {
-    public static let allTypes = ["editFinding", "addFinding", "setIncluded", "setGeneralComment", "draftReply", "setImplement"]
+    public static let allTypes = ["editFinding", "addFinding", "setIncluded", "setGeneralComment", "draftReply", "setImplement",
+                                   "proposeRule"]
 
     public var type: String
     public var id: String?
@@ -347,10 +352,14 @@ public struct ChatAction: Codable, Equatable, Sendable {
     public var text: String?
     public var commentID: String?
     public var implement: Bool?
+    /// proposeRule: "global" or "repo" (the PR's repo).
+    public var scope: String?
+    /// proposeRule: "review" and/or "respond".
+    public var appliesTo: [String]?
 
     public init(type: String, id: String? = nil, title: String? = nil, body: String? = nil, severity: String? = nil,
                 file: String? = nil, line: Int? = nil, included: Bool? = nil, text: String? = nil,
-                commentID: String? = nil, implement: Bool? = nil) {
+                commentID: String? = nil, implement: Bool? = nil, scope: String? = nil, appliesTo: [String]? = nil) {
         self.type = type
         self.id = id
         self.title = title
@@ -362,6 +371,8 @@ public struct ChatAction: Codable, Equatable, Sendable {
         self.text = text
         self.commentID = commentID
         self.implement = implement
+        self.scope = scope
+        self.appliesTo = appliesTo
     }
 }
 
@@ -384,7 +395,7 @@ public enum ChatSchemas {
       "reply":{"type":"string"},
       "actions":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["type"],
         "properties":{
-          "type":{"type":"string","enum":["editFinding","addFinding","setIncluded","setGeneralComment","draftReply","setImplement"]},
+          "type":{"type":"string","enum":["editFinding","addFinding","setIncluded","setGeneralComment","draftReply","setImplement","proposeRule"]},
           "id":{"type":"string"},
           "title":{"type":"string"},
           "body":{"type":"string"},
@@ -394,6 +405,8 @@ public enum ChatSchemas {
           "included":{"type":"boolean"},
           "text":{"type":"string"},
           "commentID":{"type":"string"},
-          "implement":{"type":"boolean"}}}}}}
+          "implement":{"type":"boolean"},
+          "scope":{"type":"string","enum":["global","repo"]},
+          "appliesTo":{"type":"array","items":{"type":"string","enum":["review","respond"]}}}}}}}
     """
 }
