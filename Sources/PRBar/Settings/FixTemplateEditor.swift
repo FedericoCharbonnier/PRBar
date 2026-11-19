@@ -8,6 +8,8 @@ import SwiftUI
 struct FixTemplateEditor: View {
     let title: String
     let kind: FixTemplateKind
+    /// The fixes' commit mode, for `FixTemplates.warning`.
+    var commitMode: CommitMode = .perComment
     /// Saved value ("" = none).
     let value: String
     let onCommit: (String) -> Void
@@ -18,9 +20,11 @@ struct FixTemplateEditor: View {
     @State private var saveTask: Task<Void, Never>?
     @FocusState private var focused: Bool
 
-    init(title: String, kind: FixTemplateKind, value: String, onCommit: @escaping (String) -> Void) {
+    init(title: String, kind: FixTemplateKind, commitMode: CommitMode = .perComment, value: String,
+         onCommit: @escaping (String) -> Void) {
         self.title = title
         self.kind = kind
+        self.commitMode = commitMode
         self.value = value
         self.onCommit = onCommit
         _draft = State(initialValue: value)
@@ -55,6 +59,11 @@ struct FixTemplateEditor: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
+            if let warning = FixTemplates.warning(draft, kind: kind, commitMode: commitMode) {
+                Label(warning, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(Theme.orangeText)
+            }
         }
         .onChange(of: draft) { scheduleSave() }
         .onChange(of: focused) { _, isFocused in if !isFocused { flush() } }

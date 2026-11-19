@@ -81,7 +81,8 @@ struct ClaudeTab: View {
                 Picker("Commits", selection: binding(\.respond.commitMode)) {
                     ForEach(CommitMode.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
-                FixTemplateEditor(title: "Commit message", kind: .commitMessage, value: settings.respond.commitMessageTemplate ?? "") { text in
+                FixTemplateEditor(title: "Commit message", kind: .commitMessage, commitMode: settings.respond.commitMode,
+                                  value: settings.respond.commitMessageTemplate ?? "") { text in
                     update { $0.respond.commitMessageTemplate = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text }
                 }
                 Toggle("Allow new tests", isOn: binding(\.respond.allowNewTests))

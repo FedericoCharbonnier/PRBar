@@ -32,11 +32,12 @@ public enum FixTemplates {
     public static let summary = PromptVariable(name: "summary", summary: "What the fix did, in one line")
     static let maxCommentLength = 100
 
-    /// The values of the variables. `item` gives `{comment}`; `commit` (a sha) gives `{commit}` as a link.
+    /// The values of the variables. `item` gives `{comment}` (empty without one: a single commit covers several
+    /// comments); `commit` (a sha) gives `{commit}` as a link.
     public static func values(draft: RespondDraft, item: RespondItem?, count: Int, commit: String? = nil,
                               summary: String? = nil) -> [String: String] {
         var values = ["n": "\(count)", "pr": "#\(draft.number)", "title": draft.title]
-        if let item { values["comment"] = firstLine(item.feedback.comments.first?.body ?? "") }
+        values["comment"] = item.map { firstLine($0.feedback.comments.first?.body ?? "") } ?? ""
         if let commit { values["commit"] = "https://github.com/\(draft.repo.owner)/\(draft.repo.name)/commit/\(commit)" }
         if let summary { values["summary"] = summary }
         return values
@@ -46,6 +47,13 @@ public enum FixTemplates {
     public static func firstLine(_ text: String) -> String {
         let line = text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty } ?? ""
         return line.count > maxCommentLength ? String(line.prefix(maxCommentLength)) + "…" : line
+    }
+
+    /// What Settings warns about a template: `{comment}` in the commit message of a single commit, where it's empty.
+    public static func warning(_ template: String, kind: FixTemplateKind, commitMode: CommitMode) -> String? {
+        guard kind == .commitMessage, commitMode == .single,
+              PlaceholderTemplate.names(in: template).contains(comment.name) else { return nil }
+        return "With a single commit, {comment} is empty: the commit covers several comments."
     }
 
     /// The template with sample values, for Settings. Empty = what PRBar does without one.

@@ -32,5 +32,14 @@ enum FixTemplatesTests {
             try expect(FixTemplates.preview("", kind: .commitMessage).contains("Address review feedback (2 comments)"))
             try expectEqual(FixTemplates.preview("  ", kind: .reply), "Fixed in https://github.com/acme/web/commit/1a2b3c4.")
         },
+        TestCase("fix templates: en el commit único {comment} sale vacío y el editor lo avisa") {
+            let values = FixTemplates.values(draft: draft(), item: nil, count: 2)
+            try expectEqual(values["comment"], "")
+            try expectEqual(PlaceholderTemplate.render("Fix {pr}: {comment}", values: values), "Fix #42: ")
+            try expect(FixTemplates.warning("Fix {pr}: {comment}", kind: .commitMessage, commitMode: .single) != nil)
+            try expectEqual(FixTemplates.warning("Fix {pr}: {comment}", kind: .commitMessage, commitMode: .perComment), nil)
+            try expectEqual(FixTemplates.warning("Fix {pr}", kind: .commitMessage, commitMode: .single), nil)
+            try expectEqual(FixTemplates.warning("{comment}", kind: .reply, commitMode: .single), nil)
+        },
     ]
 }
