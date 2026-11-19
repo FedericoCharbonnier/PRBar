@@ -124,7 +124,8 @@ enum ReleaseScriptTests {
             try expect(result.stdout.contains("would run: git push"), result.stdout)
             try expect(result.stdout.contains("would run: gh release create"), result.stdout)
             let calls = sandbox.calls()
-            try expect(calls.contains("swift build"), "\(calls)")
+            try expect(calls.contains("swift build --product PRBar"), "\(calls)")
+            try expect(calls.contains("swift build --product PRBarCLI"), "\(calls)")
             try expect(calls.contains("swift run PRBarTests"), "\(calls)")
             try expect(!calls.contains { $0.hasPrefix("gh release") }, "\(calls)")
         },

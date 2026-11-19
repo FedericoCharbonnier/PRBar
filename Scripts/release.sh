@@ -3,7 +3,7 @@
 #   1. chequea gh, la rama main limpia y al día con origin, y que el tag no exista;
 #   2. arma las notas con los commits desde el tag anterior y las abre en $EDITOR (vacías = cancelar);
 #   3. sube la versión (CFBundleShortVersionString, CFBundleVersion + 1 y PRBarCore.version);
-#   4. corre `swift build` y `swift run PRBarTests` (si fallan, revierte el cambio de versión);
+#   4. corre `swift build` (PRBar y PRBarCLI) y `swift run PRBarTests` (si fallan, revierte el cambio de versión);
 #   5. commitea "Release vX.Y.Z", crea el tag anotado vX.Y.Z, pushea los dos y crea el GitHub Release.
 # Uso: Scripts/release.sh [--dry-run] <X.Y.Z>
 #   --dry-run  corre los chequeos (los que fallan solo avisan), el build y los tests, muestra las notas y lista los
@@ -163,7 +163,10 @@ if (( ! DRY_RUN )); then
 fi
 
 step "Building and testing"
-swift build
+# Por producto: `swift build` a secas también compila los plugins de swift-argument-parser, que no enlazan con
+# algunas Command Line Tools (PackagePlugin desparejo), y no los usamos.
+swift build --product PRBar
+swift build --product PRBarCLI
 swift run PRBarTests
 
 step "Committing and tagging"
