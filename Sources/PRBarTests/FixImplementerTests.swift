@@ -1208,6 +1208,67 @@ enum FixImplementerTests {
             try expectEqual(repo.read("ignored.txt"), "secreto del usuario\n")
             try expectEqual(try repo.git(["for-each-ref", "refs/prbar/"]), "")
         },
+        TestCase("fix implementer: chatTurn corta si Claude reescribe el archivo .git del worktree") {
+            let repo = try LinkedRepo.make()
+            defer { repo.remove() }
+            let draft = try repo.draft(items: [])
+            let error = try await expectThrows {
+                _ = try await implementer(fakeClaude([]), log: try logURL())
+                    .chatTurn(draft: draft, current: RespondResult(items: [], diffStat: "", tests: nil), sessionID: UUID(), turn: 1) {
+                        try put(repo.work.appendingPathComponent("README.md"), "cambio\n")
+                        try put(repo.work.appendingPathComponent(".git"), "gitdir: /tmp/evil\n")
+                        return "ok"
+                    }
+            }
+            try expect(try respondMessage(error).contains("Git configuration or hooks changed"), "\(error)")
+            // No commit: the worktree's HEAD (in its admin dir) is still the start.
+            try expectEqual(try String(contentsOf: repo.admin.appendingPathComponent("HEAD"), encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines), draft.startHeadOid)
+        },
+        TestCase("fix implementer: chatTurn corta con un .git anidado, un .gitattributes o un symlink, sin commitear") {
+            let cases: [(String, (URL) throws -> Void, String)] = [
+                ("nested", { dir in try edit("sub/.git/config", "[core]\n\tfsmonitor = x\n")(dir) }, "nested .git"),
+                ("attributes", { dir in try edit(".gitattributes", "* filter=evil\n")(dir) }, ".gitattributes"),
+                ("symlink", { dir in
+                    try FileManager.default.createSymbolicLink(atPath: dir.appendingPathComponent("link").path, withDestinationPath: "/etc/passwd")
+                }, "symlink"),
+            ]
+            for (name, action, message) in cases {
+                let repo = try FixRepo.make()
+                defer { repo.remove() }
+                let error = try await expectThrows {
+                    _ = try await implementer(fakeClaude([]), log: try logURL())
+                        .chatTurn(draft: try draft(repo, items: []), current: RespondResult(items: [], diffStat: "", tests: nil),
+                                  sessionID: UUID(), turn: 1) {
+                            try edit("README.md", "cambio\n")(repo.dir)
+                            try action(repo.dir)
+                            return "ok"
+                        }
+                }
+                try expect(try respondMessage(error).contains(message), "\(name): \(error)")
+                try expectEqual(try repo.subjects(), ["base"])
+            }
+        },
+        TestCase("fix implementer: chatTurn revierte y borra la ref si Claude crea un archivo ignorado") {
+            let repo = try FixRepo.make()
+            defer { repo.remove() }
+            let error = try await expectThrows {
+                _ = try await implementer(fakeClaude([]), log: try logURL())
+                    .chatTurn(draft: try draft(repo, items: []), current: RespondResult(items: [], diffStat: "", tests: nil),
+                              sessionID: UUID(), turn: 1) {
+                        try edit("README.md", "cambio\n")(repo.dir)
+                        try edit("build/out.txt", "x\n")(repo.dir)
+                        return "ok"
+                    }
+            }
+            try expect(try respondMessage(error).contains("ignored by git"), "\(error)")
+            try expectEqual(repo.read("README.md"), "hola\n")
+            try expectEqual(repo.read("build/out.txt"), nil)
+            try expectEqual(repo.read("ignored.txt"), "secreto del usuario\n")
+            try expectEqual(try repo.status(), "")
+            try expectEqual(try repo.subjects(), ["base"])
+            try expectEqual(try repo.git(["for-each-ref", "refs/prbar/"]), "")
+        },
         TestCase("fix implementer: chatTurn se niega si cambió un hook desde los fixes (no rebasa la huella del push)") {
             let repo = try FixRepo.make()
             defer { repo.remove() }
