@@ -11,6 +11,7 @@ public final class JobScheduler<Key: Hashable & Sendable> {
         let onStart: @MainActor () -> Void
         let work: @Sendable () async throws -> Void
         let onComplete: @MainActor (Result<Void, Error>) -> Void
+        let onCancelledEnd: (@MainActor (Result<Void, Error>) -> Void)?
     }
 
     private struct Running {
@@ -26,15 +27,19 @@ public final class JobScheduler<Key: Hashable & Sendable> {
         self.maxConcurrent = max(1, maxConcurrent)
     }
 
-    /// Encola `work` si `key` no está activa ni en cola. `work` corre fuera del main actor.
-    /// `onStart` se llama en el main actor cuando arranca; `onComplete` cuando termina (no se llama si se canceló).
+    /// Encola `work` si `key` no está activa ni en cola; si no, devuelve false y no hace nada. `work` corre fuera
+    /// del main actor. `onStart` se llama en el main actor cuando arranca; `onComplete` cuando termina, con el lugar
+    /// ya libre (no se llama si se canceló). `onCancelledEnd`, para una corrida cancelada mientras corría
+    /// (`cancel`/`cancelAll`): cuando su `work` de verdad termina; el lugar ya se había liberado al cancelar. Una
+    /// corrida sacada de la cola no avisa nada: su `work` nunca corrió.
     @discardableResult
     public func enqueue(_ key: Key,
                         onStart: @escaping @MainActor () -> Void,
                         work: @escaping @Sendable () async throws -> Void,
-                        onComplete: @escaping @MainActor (Result<Void, Error>) -> Void) -> Bool {
+                        onComplete: @escaping @MainActor (Result<Void, Error>) -> Void,
+                        onCancelledEnd: (@MainActor (Result<Void, Error>) -> Void)? = nil) -> Bool {
         guard !isActive(key) else { return false }
-        waiting.append(Pending(key: key, onStart: onStart, work: work, onComplete: onComplete))
+        waiting.append(Pending(key: key, onStart: onStart, work: work, onComplete: onComplete, onCancelledEnd: onCancelledEnd))
         startNext()
         return true
     }
@@ -75,6 +80,7 @@ public final class JobScheduler<Key: Hashable & Sendable> {
         let id = UUID()
         let work = job.work
         let onComplete = job.onComplete
+        let onCancelledEnd = job.onCancelledEnd
         let task = Task { [weak self] in
             let result: Result<Void, Error>
             do {
@@ -83,16 +89,20 @@ public final class JobScheduler<Key: Hashable & Sendable> {
             } catch {
                 result = .failure(error)
             }
-            self?.finish(key, id: id, result: result, onComplete: onComplete)
+            self?.finish(key, id: id, result: result, onComplete: onComplete, onCancelledEnd: onCancelledEnd)
         }
         running[key] = Running(id: id, task: task)
         job.onStart()
     }
 
     private func finish(_ key: Key, id: UUID, result: Result<Void, Error>,
-                        onComplete: @MainActor (Result<Void, Error>) -> Void) {
-        // Una corrida cancelada ya se sacó de `running` (y quizás la reemplazó otra): no toca nada.
-        guard running[key]?.id == id else { return }
+                        onComplete: @MainActor (Result<Void, Error>) -> Void,
+                        onCancelledEnd: (@MainActor (Result<Void, Error>) -> Void)?) {
+        // Una corrida cancelada ya se sacó de `running` (y quizás la reemplazó otra): no toca el estado.
+        guard running[key]?.id == id else {
+            onCancelledEnd?(result)
+            return
+        }
         running[key] = nil
         onComplete(result)
         startNext()

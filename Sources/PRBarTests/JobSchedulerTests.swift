@@ -62,6 +62,8 @@ private final class SchedulerHarness {
     let scheduler: JobScheduler<String>
     var starts: [String] = []
     var completions: [(String, Result<Void, Error>)] = []
+    /// `onCancelledEnd`: runs cancelled while running whose work really ended.
+    var cancelledEnds: [(String, Result<Void, Error>)] = []
 
     init(maxConcurrent: Int = 2, ignoresCancellation: Bool = false) {
         jobs = FakeJobs(events: events, ignoresCancellation: ignoresCancellation)
@@ -75,6 +77,8 @@ private final class SchedulerHarness {
         }, work: jobs.work(key), onComplete: { [unowned self] result in
             self.completions.append((key, result))
             self.events.record(.finished(key))
+        }, onCancelledEnd: { [unowned self] result in
+            self.cancelledEnds.append((key, result))
         })
     }
 
@@ -176,6 +180,27 @@ enum JobSchedulerTests {
             await h.settle()
             try expect(h.completions.isEmpty, "onComplete no debe llamarse al cancelar")
         },
+        TestCase("job scheduler: onCancelledEnd avisa cuando un trabajo cancelado corriendo termina de verdad") { @MainActor in
+            let h = SchedulerHarness(ignoresCancellation: true)
+            for key in ["a", "b", "c"] { h.enqueue(key) }
+            try await h.events.wait(for: started("a", "b"))
+            h.scheduler.cancel("a")
+            h.scheduler.cancel("c")   // en cola: su trabajo nunca corre, no hay nada que avisar
+            try await h.events.wait(for: [.cancelled("a")])
+            await h.settle()
+            try expect(h.cancelledEnds.isEmpty, "el trabajo de \"a\" todavía no terminó")
+            h.jobs.complete("a", .failure(Kaboom()))
+            try await waitUntil { !h.cancelledEnds.isEmpty }
+            try expectEqual(h.cancelledEnds.map(\.0), ["a"])
+            if case .success = h.cancelledEnds[0].1 { throw TestFailure(description: "esperaba el error del trabajo") }
+            try expect(h.completions.isEmpty, "onComplete no debe llamarse al cancelar")
+            // cancelAll también avisa a los que corrían.
+            h.scheduler.cancelAll()
+            h.jobs.complete("b")
+            try await waitUntil { h.cancelledEnds.count == 2 }
+            try expectEqual(h.cancelledEnds.map(\.0), ["a", "b"])
+            try expect(h.completions.isEmpty)
+        },
         TestCase("job scheduler: cancel de uno en cola lo saca de la cola") { @MainActor in
             let h = SchedulerHarness()
             for key in ["a", "b", "c"] { h.enqueue(key) }
@@ -246,6 +271,7 @@ enum JobSchedulerTests {
             h.jobs.complete("a")
             await h.settle()
             try expect(h.completions.isEmpty, "el callback tardío no debe llegar")
+            try expectEqual(h.cancelledEnds.map(\.0), ["a"])
             try expect(h.scheduler.isActive("a") && !h.scheduler.isQueued("a"))
             try expect(h.scheduler.isQueued("b"))
             try expectEqual(h.events.count(.started("b")), 0)
