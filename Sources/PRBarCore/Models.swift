@@ -100,13 +100,15 @@ public struct PullRequest: Hashable, Codable, Sendable, Identifiable {
     public let reviews: [PRReview]
     public let comments: [PRComment]
     public let requestedReviewers: [String]
+    /// Si se puede mergear (spec F.2). `.unknown` en `state.json` viejos.
+    public let merge: PRMergeState
 
     public init(
         repo: RepoRef, number: Int, title: String, url: URL, isDraft: Bool,
         author: String, authorAvatarURL: URL?, baseRef: String, headRef: String, headOid: String,
         additions: Int, deletions: Int, createdAt: Date, updatedAt: Date, lastCommitAt: Date,
         ciState: CIState, reviewDecision: ReviewDecision,
-        reviews: [PRReview], comments: [PRComment], requestedReviewers: [String]
+        reviews: [PRReview], comments: [PRComment], requestedReviewers: [String], merge: PRMergeState = .unknown
     ) {
         self.repo = repo
         self.number = number
@@ -128,9 +130,41 @@ public struct PullRequest: Hashable, Codable, Sendable, Identifiable {
         self.reviews = reviews
         self.comments = comments
         self.requestedReviewers = requestedReviewers
+        self.merge = merge
     }
 
     public var id: String { "\(repo.fullName)#\(number)" }
+
+    private enum CodingKeys: String, CodingKey {
+        case repo, number, title, url, isDraft, author, authorAvatarURL, baseRef, headRef, headOid, additions, deletions
+        case createdAt, updatedAt, lastCommitAt, ciState, reviewDecision, reviews, comments, requestedReviewers, merge
+    }
+
+    /// Los `state.json` de antes de Ready to Merge no tienen `merge`: se leen con `.unknown`.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        repo = try c.decode(RepoRef.self, forKey: .repo)
+        number = try c.decode(Int.self, forKey: .number)
+        title = try c.decode(String.self, forKey: .title)
+        url = try c.decode(URL.self, forKey: .url)
+        isDraft = try c.decode(Bool.self, forKey: .isDraft)
+        author = try c.decode(String.self, forKey: .author)
+        authorAvatarURL = try c.decodeIfPresent(URL.self, forKey: .authorAvatarURL)
+        baseRef = try c.decode(String.self, forKey: .baseRef)
+        headRef = try c.decode(String.self, forKey: .headRef)
+        headOid = try c.decode(String.self, forKey: .headOid)
+        additions = try c.decode(Int.self, forKey: .additions)
+        deletions = try c.decode(Int.self, forKey: .deletions)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        updatedAt = try c.decode(Date.self, forKey: .updatedAt)
+        lastCommitAt = try c.decode(Date.self, forKey: .lastCommitAt)
+        ciState = try c.decode(CIState.self, forKey: .ciState)
+        reviewDecision = try c.decode(ReviewDecision.self, forKey: .reviewDecision)
+        reviews = try c.decode([PRReview].self, forKey: .reviews)
+        comments = try c.decode([PRComment].self, forKey: .comments)
+        requestedReviewers = try c.decode([String].self, forKey: .requestedReviewers)
+        merge = (try? c.decodeIfPresent(PRMergeState.self, forKey: .merge)) ?? .unknown
+    }
 }
 
 public enum PRCategory: String, Codable, Sendable, CaseIterable, Comparable, Identifiable {

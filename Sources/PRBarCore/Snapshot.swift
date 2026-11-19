@@ -74,10 +74,14 @@ public struct Snapshot: Codable, Equatable, Sendable {
     /// Scopes (`Snapshot.scope(account:repo:)`) consultados con éxito en este refresco. Las notificaciones
     /// solo se disparan para PRs cuyo scope ya se había consultado bien en el refresco anterior (spec §9).
     public var fetchedScopes: Set<String>
+    /// Ajustes de merge de cada repo consultado, por scope (`Snapshot.scope(account:repo:)`): dependen de la cuenta
+    /// (método por defecto, permiso). Spec F.2.
+    public var repoMergeSettings: [String: RepoMergeSettings]
 
     public init(
         items: [ClassifiedPR], fetchedAt: Date, issues: [RefreshIssue] = [], failedCompletely: Bool = false,
-        rateLimitedUntil: Date? = nil, fetchedScopes: Set<String> = []
+        rateLimitedUntil: Date? = nil, fetchedScopes: Set<String> = [],
+        repoMergeSettings: [String: RepoMergeSettings] = [:]
     ) {
         self.items = items
         self.fetchedAt = fetchedAt
@@ -85,6 +89,7 @@ public struct Snapshot: Codable, Equatable, Sendable {
         self.failedCompletely = failedCompletely
         self.rateLimitedUntil = rateLimitedUntil
         self.fetchedScopes = fetchedScopes
+        self.repoMergeSettings = repoMergeSettings
     }
 
     /// `"login|owner/repo"`.
@@ -93,7 +98,7 @@ public struct Snapshot: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case items, fetchedAt, issues, failedCompletely, rateLimitedUntil, fetchedScopes
+        case items, fetchedAt, issues, failedCompletely, rateLimitedUntil, fetchedScopes, repoMergeSettings
     }
 
     /// Los `state.json` viejos guardaban `errors: [String]`; se ignoran y se leen como sin issues.
@@ -105,6 +110,7 @@ public struct Snapshot: Codable, Equatable, Sendable {
         failedCompletely = try container.decodeIfPresent(Bool.self, forKey: .failedCompletely) ?? false
         rateLimitedUntil = try container.decodeIfPresent(Date.self, forKey: .rateLimitedUntil)
         fetchedScopes = try container.decodeIfPresent(Set<String>.self, forKey: .fetchedScopes) ?? []
+        repoMergeSettings = (try? container.decodeIfPresent([String: RepoMergeSettings].self, forKey: .repoMergeSettings)) ?? [:]
     }
 
     /// Issues agrupados por cuenta, en el orden en que aparecieron.

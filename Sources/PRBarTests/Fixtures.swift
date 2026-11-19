@@ -28,7 +28,8 @@ func makePR(
     reviews: [PRReview] = [],
     comments: [PRComment] = [],
     requested: [String] = [],
-    updated: Int = 0
+    updated: Int = 0,
+    merge: PRMergeState = .unknown
 ) -> PullRequest {
     PullRequest(
         repo: repo, number: number, title: "PR \(number)",
@@ -38,6 +39,6 @@ func makePR(
         additions: 10, deletions: 2,
         createdAt: at(-60), updatedAt: at(updated), lastCommitAt: at(lastCommit),
         ciState: ci, reviewDecision: decision,
-        reviews: reviews, comments: comments, requestedReviewers: requested
+        reviews: reviews, comments: comments, requestedReviewers: requested, merge: merge
     )
 }
