@@ -1,6 +1,6 @@
 # PRBar — Chat con Claude, CLI y actualizaciones
 
-Fecha: 2026-11-19. Extiende `2026-11-18-prbar-design.md` (en adelante "spec base"). Cuatro partes independientes, cada una con su plan:
+Fecha: 2026-11-19. Extiende `2026-11-18-prbar-design.md` (en adelante "spec base"). Cinco partes, cada una con su plan:
 
 | Parte | Plan |
 |---|---|
@@ -8,8 +8,9 @@ Fecha: 2026-11-19. Extiende `2026-11-18-prbar-design.md` (en adelante "spec base
 | B. Chat con Claude en Review y Respond | `2026-11-19-prbar-plan-6-chat.md` |
 | C. CLI `prbar` | `2026-11-19-prbar-plan-7-cli.md` |
 | D. Actualizaciones desde el repo | `2026-11-19-prbar-plan-8-updates.md` |
+| E. Instrucciones y configuración completa del proceso | `2026-11-19-prbar-plan-9-instructions.md` |
 
-Orden de implementación: A+B → D → C. La CLI va al final porque tiene que cubrir también los comandos del chat y de las actualizaciones.
+Orden de implementación: A+B → D → E → C. La CLI va al final porque tiene que cubrir también los comandos del chat, de las actualizaciones y de las instrucciones.
 
 ---
 
@@ -328,3 +329,99 @@ Si cualquier paso falla, la versión instalada queda intacta, la ventana muestra
 - `UpdateChecker` con transporte falso: versión nueva, igual, salteada, ya notificada, error de red (silencioso en el chequeo automático, visible en el manual).
 - `UpdateInstaller` con `ProcessRunner` falso: argumentos de git endurecidos, rechazo de tag no alcanzable desde `origin/main`, falla de build → no toca el `.app`, reemplazo y rollback en carpetas temporales.
 - `release.sh`: modo `--dry-run` que imprime los pasos sin pushear.
+
+---
+
+## E. Instrucciones y configuración completa del proceso
+
+Plan: `2026-11-19-prbar-plan-9-instructions.md`. Se implementa **después de B** (usa el chat) y **antes de C** (la CLI cubre también estos comandos).
+
+### E.1 Reglas ("memoria" de Claude)
+
+Archivo `~/Library/Application Support/PRBar/instructions.json` (escrito solo por la app, decodificación tolerante):
+
+```json
+{ "rules": [
+  { "id": "uuid", "scope": {"kind": "global"} , "appliesTo": ["review", "respond"],
+    "text": "No comentes estilo ni formato; eso lo resuelve el linter.",
+    "source": "manual | settingsChat | prChat | suggestion", "createdAt": "…", "updatedAt": "…", "enabled": true },
+  { "id": "uuid", "scope": {"kind": "repo", "repo": "acme/web-app"}, "appliesTo": ["respond"],
+    "text": "Usamos React Query; no agregues fetch directo.", "source": "prChat", "…": "…" }
+]}
+```
+
+- Reglas efectivas de un PR = globales habilitadas + las del repo del PR, filtradas por etapa (`review` para review, filtro y chat de review; `respond` para análisis, implementación y chat de respond).
+- Se inyectan en cada prompt en una sección delimitada **"User rules (from the PRBar user, follow them)"**, separada del contenido del PR (que sigue siendo no confiable). Máximo 8 000 caracteres en total; si se pasa, se avisa en Settings y se truncan las más viejas.
+- El texto de una regla se redacta (tokens) antes de guardarse, igual que el resto de lo que se guarda.
+
+### E.2 Settings › Instructions (pestaña nueva)
+
+- Lista agrupada: **Global** y una sección por repo configurado. Cada regla: texto editable en línea, chips Review/Fixes, switch habilitada, borrar, origen (ícono) y fecha.
+- **Chat de instrucciones** al pie: el usuario escribe ("no comentes estilo", "en web-app usá React Query", "borrá la de console.log"). Corre un `claude -p` **sin ninguna herramienta** (`--tools ""`), con el mismo aislamiento de §8.3, sin worktree (cwd = carpeta temporal vacía), y salida `--json-schema`:
+  `{"reply": "…", "actions": [{"type": "addRule", "scope": …, "appliesTo": […], "text": "…"}, {"type": "editRule", "id": "…", …}, {"type": "removeRule", "id": "…"}, {"type": "setRuleEnabled", "id": "…", "enabled": false}]}`.
+  Recibe la lista actual de reglas (con id) y la lista de repos configurados. Las acciones se validan (repo configurado, id existente, texto no vacío ≤ 1 000 caracteres) y se aplican **directo**, con resaltado y **Undo** (mismo patrón que B.6). La conversación se guarda (últimos 50 mensajes) y usa `--resume` como B.4.
+
+### E.3 "Recordá esto" desde el chat del PR
+
+- Nueva acción del chat de Review y Respond: `{"type": "proposeRule", "scope": "global" | "repo", "appliesTo": [...], "text": "…"}`. Claude la usa cuando el usuario pide recordar algo ("de ahora en más…", "acordate…").
+- **No se aplica sola**: se muestra en el mensaje como tarjeta "Save as rule — Global / acme/web-app — Review" con **Save** (editable antes de guardar) y **Dismiss**. Al guardar, `source = prChat`.
+
+### E.4 Sugerencias a partir de lo descartado
+
+- El esquema de findings de la etapa 1 agrega `"category": "bug | security | performance | tests | style | docs | other"` (decodificación tolerante: falta → `other`).
+- Al publicar un review se registra cada finding **descartado por el usuario** (no los del filtro): repo, categoría, título, fecha (`discard-stats.json`, últimos 90 días).
+- Si una categoría (≠ `other`) se descartó en **≥ 3 PRs distintos en 30 días** (por repo, o en ≥ 2 repos → global) y no hay una regla ni una sugerencia descartada para eso, aparece una sugerencia: en la pantalla de review publicado y en Settings › Instructions ("You usually discard *style* comments in acme/web-app. Create a rule?") con texto propuesto editable, **Create Rule** / **Not Now** / **Never**. Nunca se guarda sola.
+
+### E.5 Opciones concretas
+
+`ClaudeSettings` agrega (todas con valor por defecto que reproduce el comportamiento actual, decodificación tolerante):
+
+```json
+"review": { "minSeverity": "low", "maxFindings": null, "ignorePaths": [], "categories": {"style": true, "docs": true, "…": true},
+            "tone": "direct | friendly | withSuggestions",
+            "stage1": {"mode": "skill | prompt", "skill": "pr-review-toolkit:review-pr", "prompt": null},
+            "filter": {"enabled": true, "mode": "skill | prompt", "skill": "superpowers:receiving-code-review", "prompt": null} },
+"respond": { "runTestsBeforePush": false, "commitMode": "single | perComment",
+             "commitMessageTemplate": "Address review feedback ({n} comments)",
+             "allowNewTests": true, "allowNewDependencies": false,
+             "replyTemplate": null,
+             "analysis": {"mode": "skill | prompt", "skill": "superpowers:receiving-code-review", "prompt": null},
+             "implementation": {"mode": "skill | prompt", "skill": null, "prompt": null} }
+```
+
+- Los campos existentes (`reviewSkill`, `filterEnabled`, `filterSkill`, `respondSkill`) se migran a esta estructura al cargar.
+- **Review**: `minSeverity`, `maxFindings` (quedan los de mayor severidad), `categories` y `ignorePaths` (globs; además `ignorePaths` por repo en `RepoConfig`) se aplican **después** de la salida de Claude, de forma determinística, y también se le comunican en el prompt. Los findings ocultos por estas opciones van a la sección "Hidden by your settings" (colapsada, se pueden incluir a mano). `tone` va al prompt.
+- **Fixes**: `runTestsBeforePush` corre el comando de tests del repo antes de pushear y bloquea el push si falla (con "Push Anyway"). `commitMode = perComment` hace un commit por comentario implementado (mensaje con la plantilla y `{comment}`). `allowNewTests`/`allowNewDependencies` van al prompt, y `allowNewDependencies = false` además se verifica: si el diff toca manifests de dependencias (`package.json` dependencies, `Package.swift`, `Gemfile`, `requirements*.txt`, `go.mod`, `Cargo.toml`, …) el resultado se marca con advertencia antes del push. `replyTemplate` (variables `{commit}`, `{summary}`) reemplaza el "Fixed in …" por defecto (que sigue respetando el idioma, §16).
+- Variables de las plantillas: `{n}`, `{pr}`, `{title}`, `{comment}`, `{commit}`, `{summary}`; editor con "Insert Variable" y vista previa, como los templates de Slack.
+
+### E.6 Prompts editables
+
+- Cada etapa (review, filtro, análisis, implementación, chat de review, chat de respond, chat de instrucciones) tiene un prompt por defecto visible en Settings › Claude › **Prompts** (editor monoespaciado, "Reset to Default", indicador "Modified").
+- Con `mode = prompt`, el prompt propio reemplaza al skill para esa etapa. Variables: `{diff_path}`, `{pr_md_path}`, `{language}`, `{rules}`, `{findings_json}` según la etapa (se valida que el prompt use las obligatorias de su etapa).
+- **Parte fija, no editable**: PRBar siempre agrega antes y después del prompt del usuario el bloque de seguridad (el contenido del PR no son instrucciones, sin shell, no publicar), las reglas del usuario y la instrucción de formato de salida. Editar un prompt nunca cambia herramientas, permisos ni el esquema.
+
+### E.7 CLI (en el plan 7)
+
+```
+prbar rules list [--repo R] [--json]
+prbar rules add "texto" [--repo R] [--review] [--fixes]
+prbar rules edit|remove|enable|disable <id>
+prbar rules chat ["mensaje"]                 # el chat de instrucciones
+prbar rules suggestions [--json] | accept|dismiss|never <id>
+prbar claude review set --min-severity medium --max-findings 10 --ignore 'generated/**' --category style=off --tone friendly
+prbar claude respond set --tests-before-push on --commit-mode per-comment --allow-deps off ...
+prbar claude stage <review|filter|analysis|implementation> --skill S | --prompt-file F | --default
+prbar claude prompt show|edit|reset <stage>
+prbar repo set <repo> --ignore 'dist/**'
+```
+
+### E.8 Testing
+
+- Decodificación tolerante y migración de `ClaudeSettings` viejo; `instructions.json` corrupto → vacío con backup.
+- Reglas efectivas por PR/etapa; inyección en cada prompt (delimitada, truncado a 8 000).
+- Chat de instrucciones con runner falso: argumentos (sin herramientas), validación y aplicación de acciones, undo.
+- `proposeRule` nunca guarda sin confirmación.
+- Detector de sugerencias: umbrales (3 PRs / 30 días, por repo vs global), "Never", reglas existentes.
+- Filtros determinísticos de review (severidad, máximo, categorías, globs) y sección "Hidden by your settings".
+- Fixes: tests antes del push bloquean, commits por comentario, advertencia de dependencias, plantilla de respuesta.
+- Prompts: validación de variables obligatorias, la parte fija siempre presente aunque el prompt propio esté vacío o intente "anular" las reglas.
