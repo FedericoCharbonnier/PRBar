@@ -119,6 +119,8 @@ final class WindowPresenter: NSObject, NSWindowDelegate {
 
     /// Cierra la ventana `id` (si está abierta) sin pedir confirmación. Se olvida su contenido: la próxima vez
     /// se arma de cero.
+    func isOpen(id: String) -> Bool { windows[id] != nil }
+
     func close(id: String) {
         windows[id]?.close()
     }

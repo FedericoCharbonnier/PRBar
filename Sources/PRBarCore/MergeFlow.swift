@@ -1,0 +1,71 @@
+import Foundation
+
+/// Decisiones puras del botón Merge, Retry y el diálogo de confirmación (spec F.3, F.8.11). `AppModel` solo las
+/// ejecuta: abrir el diálogo, mergear, mostrar el error o refrescar.
+public enum MergeFlow {
+    /// Qué hacer cuando se pide un merge (botón, menú, Retry).
+    public enum RequestRoute: Equatable, Sendable {
+        /// Ya se está mergeando o ya se mergeó: nada.
+        case ignore
+        /// Abrir la confirmación con este método.
+        case confirm(MergeMethod)
+        /// Mergear ya con este método.
+        case merge(MergeMethod)
+        /// No se puede: la fila muestra el error (nunca un silencio).
+        case fail(MergeMethod?, MergeError)
+    }
+
+    /// `method == nil` = el método por defecto. `confirm` = `merge.confirm`. `blockedReason`: se está instalando una
+    /// actualización.
+    public static func request(
+        _ item: ClassifiedPR, method: MergeMethod?, options: MergeOptions, confirm: Bool, blockedReason: String?,
+        phase: MergePhase?
+    ) -> RequestRoute {
+        switch phase {
+        case .merging?, .merged?: return .ignore
+        default: break
+        }
+        let chosen = method ?? options.defaultMethod
+        if let blockedReason { return .fail(chosen, .blocked(blockedReason)) }
+        if let problem = MergePolicy.problem(item, method: chosen, options: options) { return .fail(chosen, problem) }
+        guard let chosen else { return .fail(nil, .unavailable("This repo doesn’t allow any merge method")) }
+        return confirm ? .confirm(chosen) : .merge(chosen)
+    }
+
+    /// Qué hace Retry después de refrescar.
+    public enum RetryRoute: Equatable, Sendable {
+        /// Pedir de nuevo (`request`) con el PR refrescado y el mismo método.
+        case request(ClassifiedPR, MergeMethod?)
+        /// El PR cambió desde lo que se mostró: solo se limpia el error; la fila muestra el PR nuevo y el usuario
+        /// vuelve a apretar Merge. Nunca se mergea un head que no se vio, con o sin confirmación.
+        case changed
+        /// El PR ya no está en la lista: hay que preguntarle a GitHub si se mergeó (`MergeQueue.resolveMissing`).
+        case missing
+    }
+
+    /// `current`: el PR en el snapshot refrescado (`nil` si ya no está).
+    public static func retry(_ failure: MergeFailure, current: ClassifiedPR?) -> RetryRoute {
+        guard let current else { return .missing }
+        if failure.error == .headChanged || current.pr.headOid != failure.item.pr.headOid { return .changed }
+        return .request(current, failure.method)
+    }
+
+    /// Los diálogos de confirmación abiertos (por prID) que hay que cerrar con este snapshot: el PR ya no está o ya no
+    /// está en Ready to Merge.
+    public static func confirmationsToClose(open prIDs: Set<String>, snapshot: Snapshot) -> Set<String> {
+        let ready = Set(snapshot.items.filter { $0.category == .readyToMerge }.map(\.id))
+        return prIDs.subtracting(ready)
+    }
+
+    /// Identifica lo que muestra el diálogo: si cambia algo, la ventana reusada reemplaza su contenido.
+    public static func confirmationContentID(
+        _ item: ClassifiedPR, method: MergeMethod, options: MergeOptions, deletesBranch: Bool
+    ) -> String {
+        let pr = item.pr
+        return [
+            pr.headOid, method.rawValue, options.methods.map(\.rawValue).joined(separator: ","),
+            options.availability.note ?? "", deletesBranch ? "deletes" : "keeps", pr.title, pr.baseRef, pr.headRef,
+            pr.merge.commitCount.map(String.init) ?? "",
+        ].joined(separator: "|")
+    }
+}

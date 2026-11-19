@@ -18,12 +18,31 @@ public enum MergePhase: Equatable, Sendable {
     case merging(MergeMethod)
     /// Hecho: la fila muestra "Merged" hasta que el refresco la saca.
     case merged(MergeMethod)
-    /// El texto del error y el método que se intentó (para Retry).
-    case failed(method: MergeMethod, message: String)
+    /// El error y el método que se intentó (para Retry); `nil` si no se llegó a elegir uno.
+    case failed(method: MergeMethod?, error: MergeError)
 
     public var isActive: Bool {
         if case .merging = self { return true }
         return false
+    }
+
+    /// El texto del error (la fila y la CLI); `nil` si no falló.
+    public var message: String? {
+        if case .failed(_, let error) = self { return error.localizedDescription }
+        return nil
+    }
+}
+
+/// Un merge que falló: el PR tal como se intentó (con el head que se mostró), el método y el error. Lo usa Retry.
+public struct MergeFailure: Equatable, Sendable {
+    public let item: ClassifiedPR
+    public let method: MergeMethod?
+    public let error: MergeError
+
+    public init(item: ClassifiedPR, method: MergeMethod?, error: MergeError) {
+        self.item = item
+        self.method = method
+        self.error = error
     }
 }
 
@@ -32,6 +51,8 @@ public enum MergePhase: Equatable, Sendable {
 @MainActor
 public final class MergeQueue: ObservableObject {
     @Published public private(set) var phases: [String: MergePhase] = [:]
+    /// El PR tal como se intentó, por cada fase `.failed`.
+    private var failedItems: [String: ClassifiedPR] = [:]
 
     private let api: GitHubAPI
     private let tokens: TokenProviding
@@ -53,18 +74,23 @@ public final class MergeQueue: ObservableObject {
     }
 
     /// Mergea `item` con `method`, con el `headOid` que tiene `item` (el que se mostró): si alguien pusheó después,
-    /// GitHub lo rechaza. Un PR que ya se está mergeando o que ya se mergeó no se vuelve a mandar.
+    /// GitHub lo rechaza. Un PR que ya se está mergeando o que ya se mergeó no se vuelve a mandar. `precheck`: un
+    /// motivo para no mandarlo (`MergePolicy.problem`), que queda como error de la fila.
     @discardableResult
-    public func merge(_ item: ClassifiedPR, method: MergeMethod) async -> Result<MergeCompletion, MergeError> {
+    public func merge(
+        _ item: ClassifiedPR, method: MergeMethod, precheck: MergeError? = nil
+    ) async -> Result<MergeCompletion, MergeError> {
         let prID = item.id
         switch phases[prID] {
         case .merging?: return .failure(.alreadyInProgress)
         case .merged?: return .failure(.alreadyMerged)
         default: break
         }
-        if let reason = blockedReason() { return fail(prID, method: method, .blocked(reason)) }
-        guard let nodeID = item.pr.merge.nodeID else { return fail(prID, method: method, .missingMergeData) }
+        if let reason = blockedReason() { return fail(item, method: method, .blocked(reason)) }
+        if let precheck { return fail(item, method: method, precheck) }
+        guard let nodeID = item.pr.merge.nodeID else { return fail(item, method: method, .missingMergeData) }
         phases[prID] = .merging(method)
+        failedItems[prID] = nil
         do {
             let token = try await tokens.token(for: item.account)
             let mergedAt = try await api.mergePullRequest(
@@ -75,7 +101,52 @@ public final class MergeQueue: ObservableObject {
             onMerged(completion)
             return .success(completion)
         } catch {
-            return fail(prID, method: method, MergeError(error))
+            return fail(item, method: method, MergeError(error))
+        }
+    }
+
+    /// Muestra en la fila por qué no se pudo pedir el merge (p. ej. Retry de un PR que ya no se puede mergear).
+    /// No toca un merge en curso ni uno hecho.
+    public func reject(_ item: ClassifiedPR, method: MergeMethod?, error: MergeError) {
+        switch phases[item.id] {
+        case .merging?, .merged?: return
+        default: _ = fail(item, method: method, error)
+        }
+    }
+
+    /// El merge fallido de `prID`, si la fila muestra un error.
+    public func failure(prID: String) -> MergeFailure? {
+        guard case .failed(let method, let error)? = phases[prID], let item = failedItems[prID] else { return nil }
+        return MergeFailure(item: item, method: method, error: error)
+    }
+
+    /// Retry de un PR que ya no está en la lista: pudo mergearse aunque el pedido diera error (p. ej. se cortó la red
+    /// después de que GitHub lo mergeó). Si GitHub dice que está mergeado, queda "Merged" y avisa como un merge
+    /// propio (Slack "Merged"); si no, la fila muestra por qué no se puede.
+    public func resolveMissing(_ failure: MergeFailure) async {
+        let item = failure.item
+        let method = failure.method ?? .merge
+        do {
+            let token = try await tokens.token(for: item.account)
+            let details = try await api.pullRequestDetails(repo: item.pr.repo, number: item.pr.number, token: token)
+            switch details.state {
+            case .merged?:
+                switch phases[item.id] {
+                case .merging?, .merged?: return
+                default: break
+                }
+                phases[item.id] = .merged(method)
+                failedItems[item.id] = nil
+                AppLog.write("\(item.id) was already merged on GitHub")
+                onMerged(MergeCompletion(item: item, method: method, mergedAt: details.mergedAt ?? now()))
+            case .closed?:
+                reject(item, method: failure.method, error: .noLongerOpen)
+            case .open?, nil:
+                reject(item, method: failure.method,
+                       error: .unavailable("This PR isn’t in PRBar’s list anymore — refresh and try again."))
+            }
+        } catch {
+            reject(item, method: failure.method, error: MergeError(error))
         }
     }
 
@@ -83,16 +154,19 @@ public final class MergeQueue: ObservableObject {
     public func dismiss(prID: String) {
         guard phases[prID]?.isActive != true else { return }
         phases[prID] = nil
+        failedItems[prID] = nil
     }
 
     /// Descarta las fases de los PRs que ya no están en la lista (después del refresco que saca la fila).
     public func prune(keeping ids: Set<String>) {
         phases = phases.filter { ids.contains($0.key) || $0.value.isActive }
+        failedItems = failedItems.filter { phases[$0.key] != nil }
     }
 
-    private func fail(_ prID: String, method: MergeMethod, _ error: MergeError) -> Result<MergeCompletion, MergeError> {
-        phases[prID] = .failed(method: method, message: error.localizedDescription)
-        AppLog.write("Couldn't merge \(prID): \(error.localizedDescription)")
+    private func fail(_ item: ClassifiedPR, method: MergeMethod?, _ error: MergeError) -> Result<MergeCompletion, MergeError> {
+        phases[item.id] = .failed(method: method, error: error)
+        failedItems[item.id] = item
+        AppLog.write("Couldn't merge \(item.id): \(error.localizedDescription)")
         return .failure(error)
     }
 }

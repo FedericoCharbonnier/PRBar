@@ -172,6 +172,9 @@ final class AppModel: ObservableObject {
     /// Descarta las fases de merge de los PRs que ya no están en cada snapshot nuevo (spec F.8.10), aunque el refresco
     /// de después del merge no haya podido correr.
     private var mergePruneObserver: AnyCancellable?
+    /// PRs con el diálogo de confirmación de merge abierto (pueden haberse cerrado a mano: se filtra con
+    /// `WindowPresenter.isOpen`).
+    var mergeConfirmations: Set<String> = []
 
     @Published private(set) var tools = ResolvedTools()
     @Published private(set) var toolsResolved = false
@@ -231,6 +234,7 @@ final class AppModel: ObservableObject {
         installStateObserver = updates.session.$state.removeDuplicates().sink { [weak self] _ in self?.objectWillChange.send() }
         mergePruneObserver = prStore.$snapshot.dropFirst().compactMap { $0 }.sink { [weak self] snapshot in
             self?.merges.prune(keeping: Set(snapshot.items.map(\.id)))
+            self?.closeStaleMergeConfirmations(snapshot)
         }
         guard startsServices else { return }
         WindowPresenter.shared.openSettings = { [weak self] in self?.openSettings() }

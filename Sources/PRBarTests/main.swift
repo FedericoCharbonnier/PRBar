@@ -90,6 +90,7 @@ let allTests: [TestCase] = []
     + MergePolicyTests.cases
     + MergeMutationTests.cases
     + MergeQueueTests.cases
+    + MergeFlowTests.cases
     + SlackMergedTemplateTests.cases
     + SlackMergedReplyTests.cases
 

@@ -6,8 +6,8 @@ private func queue(_ api: FakeAPI, tokens: FakeTokens = FakeTokens(), merged: Bo
     MergeQueue(api: api, tokens: tokens, now: { t0 }, onMerged: { merged.value.append($0) })
 }
 
-private func ready(nodeID: String? = "PR_7") -> ClassifiedPR {
-    let pr = makePR(number: 7, author: "me", head: "cafe7", decision: .approved,
+private func ready(nodeID: String? = "PR_7", head: String = "cafe7") -> ClassifiedPR {
+    let pr = makePR(number: 7, author: "me", head: head, decision: .approved,
                     merge: PRMergeState(nodeID: nodeID, mergeable: .mergeable, status: .clean))
     return ClassifiedPR(pr: pr, category: .readyToMerge, account: "me")
 }
@@ -45,7 +45,7 @@ enum MergeQueueTests {
             let result = await q.merge(ready(), method: .squash)
             try expectEqual(result, .failure(.headChanged))
             let phases = await q.phases
-            try expectEqual(phases["o/r#7"], .failed(method: .squash, message: MergeError.headChanged.localizedDescription))
+            try expectEqual(phases["o/r#7"], .failed(method: .squash, error: .headChanged))
             try expectEqual(merged.value.count, 0)
         },
         TestCase("merge queue: sin token no llama a GitHub") {
@@ -62,7 +62,7 @@ enum MergeQueueTests {
             try expectEqual(result, .failure(.missingMergeData))
             try expectEqual(api.mergeCalls.value.count, 0)
             let phases = await q.phases
-            try expectEqual(phases["o/r#7"], .failed(method: .squash, message: MergeError.missingMergeData.localizedDescription))
+            try expectEqual(phases["o/r#7"], .failed(method: .squash, error: .missingMergeData))
         },
         TestCase("merge queue: un segundo merge mientras corre el primero se rechaza; uno ya mergeado también") {
             let holder = Box<MergeQueue?>(nil)
@@ -96,6 +96,69 @@ enum MergeQueueTests {
             let pruned = await q.phases
             try expectEqual(pruned, [:])
         },
+        TestCase("merge queue: el error queda con el PR que se intentó (para Retry) y su texto") {
+            var api = FakeAPI()
+            api.mergeResult = .failure(MergeError.headChanged)
+            let q = await queue(api)
+            _ = await q.merge(ready(head: "old"), method: .merge)
+            let failure = await q.failure(prID: "o/r#7")
+            try expectEqual(failure, MergeFailure(item: ready(head: "old"), method: .merge, error: .headChanged))
+            let phase = await q.phases["o/r#7"]
+            try expectEqual(phase?.message, MergeError.headChanged.localizedDescription)
+            await q.dismiss(prID: "o/r#7")
+            let cleared = await q.failure(prID: "o/r#7")
+            try expectEqual(cleared, nil)
+        },
+        TestCase("merge queue: precheck rechaza sin llamar a GitHub") {
+            let api = FakeAPI()
+            let q = await queue(api)
+            let result = await q.merge(ready(), method: .squash, precheck: .unavailable("This PR isn’t ready to merge"))
+            try expectEqual(result, .failure(.unavailable("This PR isn’t ready to merge")))
+            try expectEqual(api.mergeCalls.value.count, 0)
+            let phase = await q.phases["o/r#7"]
+            try expectEqual(phase, .failed(method: .squash, error: .unavailable("This PR isn’t ready to merge")))
+        },
+        TestCase("merge queue: reject muestra el error salvo con un merge en curso o hecho") {
+            let q = await queue(FakeAPI())
+            await q.reject(ready(), method: nil, error: .blocked("Installing an update"))
+            let failed = await q.phases["o/r#7"]
+            try expectEqual(failed, .failed(method: nil, error: .blocked("Installing an update")))
+            await q.dismiss(prID: "o/r#7")
+            _ = await q.merge(ready(), method: .squash)
+            await q.reject(ready(), method: .squash, error: .unavailable("x"))
+            let merged = await q.phases["o/r#7"]
+            try expectEqual(merged, .merged(.squash))
+        },
+        TestCase("merge queue: un PR que ya no está y GitHub dice mergeado → Merged y avisa (Slack)") {
+            var api = FakeAPI()
+            api.details = .success(PRDetails(title: "PR", body: "", headOid: "cafe7", state: .merged, mergedAt: at(3)))
+            let merged = Box<[MergeCompletion]>([])
+            let q = await queue(api, merged: merged)
+            await q.resolveMissing(MergeFailure(item: ready(), method: .rebase, error: .github(.network("offline"))))
+            let phase = await q.phases["o/r#7"]
+            try expectEqual(phase, .merged(.rebase))
+            try expectEqual(merged.value, [MergeCompletion(item: ready(), method: .rebase, mergedAt: at(3))])
+            try expectEqual(api.detailsTokens.value, ["tok-me"])
+            try expectEqual(api.mergeCalls.value.count, 0)
+        },
+        TestCase("merge queue: un PR que ya no está, cerrado o abierto, o sin respuesta → error visible") {
+            let cases: [(Result<PRDetails, PRBarError>, MergeError)] = [
+                (.success(PRDetails(title: "", body: "", headOid: nil, state: .closed)), .noLongerOpen),
+                (.success(PRDetails(title: "", body: "", headOid: nil, state: .open)),
+                 .unavailable("This PR isn’t in PRBar’s list anymore — refresh and try again.")),
+                (.failure(.network("offline")), .github(.network("offline"))),
+            ]
+            for (details, expected) in cases {
+                var api = FakeAPI()
+                api.details = details
+                let merged = Box<[MergeCompletion]>([])
+                let q = await queue(api, merged: merged)
+                await q.resolveMissing(MergeFailure(item: ready(), method: .squash, error: .other("x")))
+                let phase = await q.phases["o/r#7"]
+                try expectEqual(phase, .failed(method: .squash, error: expected))
+                try expectEqual(merged.value.count, 0)
+            }
+        },
         TestCase("merge queue: mientras se instala una actualización no llama a GitHub") {
             let api = FakeAPI()
             let reason = Box<String?>("Installing an update")
@@ -104,7 +167,7 @@ enum MergeQueueTests {
             try expectEqual(result, .failure(.blocked("Installing an update")))
             try expectEqual(api.mergeCalls.value.count, 0)
             let phases = await q.phases
-            try expectEqual(phases["o/r#7"], .failed(method: .squash, message: "Installing an update"))
+            try expectEqual(phases["o/r#7"], .failed(method: .squash, error: .blocked("Installing an update")))
             reason.value = nil
             await q.dismiss(prID: "o/r#7")
             _ = await q.merge(ready(), method: .squash)

@@ -57,7 +57,8 @@ struct MergeButton: View {
             }
             .help("Merged on GitHub")
             .accessibilityLabel("Merged")
-        case .failed(_, let message)?:
+        case .failed(_, let error)?:
+            let message = error.localizedDescription
             Button {
                 FailureMenu.show(message: message, logURL: AppPaths.logFile, items: [
                     ClosureMenuItem(title: "Retry", action: actions.retry),

@@ -73,6 +73,18 @@ public enum MergePolicy {
         }
     }
 
+    /// Por qué no se puede pedir el merge de `item` con `method` (`nil` = el por defecto, que no existe si el repo no
+    /// permite ninguno); `nil` = se puede. Lo usan el botón (vía `MergeFlow.request`), `AppModel.merge` y la CLI.
+    public static func problem(_ item: ClassifiedPR, method: MergeMethod?, options: MergeOptions) -> MergeError? {
+        guard item.category == .readyToMerge else { return .unavailable("This PR isn’t ready to merge") }
+        if let reason = options.availability.reason { return .unavailable(reason) }
+        guard let method = method ?? options.defaultMethod else {
+            return .unavailable("This repo doesn’t allow any merge method")
+        }
+        guard options.methods.contains(method) else { return .unavailable("This repo doesn’t allow \(method.actionTitle)") }
+        return nil
+    }
+
     /// Junta los ajustes del repo vistos por la cuenta del PR, el método fijado en la config y el estado del PR.
     public static func options(for item: ClassifiedPR, snapshot: Snapshot?, config: AppConfig) -> MergeOptions {
         let settings = snapshot?.repoMergeSettings[Snapshot.scope(account: item.account, repo: item.pr.repo)]
