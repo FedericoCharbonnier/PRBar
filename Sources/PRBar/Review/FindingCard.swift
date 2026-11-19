@@ -10,18 +10,24 @@ enum ReviewFocus: Hashable {
 /// Tarjeta de un hallazgo que el filtro mantuvo: checkbox, severidad, ubicación, título y el comentario editable.
 struct FindingCard: View {
     let item: ReviewItem
+    /// `#N`: the position in the window, the same the chat uses.
+    let number: Int
     @Binding var isSelected: Bool
     @Binding var text: String
     let isEdited: Bool
+    /// The chat changed it just now (3 s).
+    let isHighlighted: Bool
     var focus: FocusState<ReviewFocus?>.Binding
     @State private var expanded: Bool
 
-    init(item: ReviewItem, isSelected: Binding<Bool>, text: Binding<String>, isEdited: Bool,
-         focus: FocusState<ReviewFocus?>.Binding, initiallyExpanded: Bool = false) {
+    init(item: ReviewItem, number: Int, isSelected: Binding<Bool>, text: Binding<String>, isEdited: Bool,
+         isHighlighted: Bool = false, focus: FocusState<ReviewFocus?>.Binding, initiallyExpanded: Bool = false) {
         self.item = item
+        self.number = number
         _isSelected = isSelected
         _text = text
         self.isEdited = isEdited
+        self.isHighlighted = isHighlighted
         self.focus = focus
         _expanded = State(initialValue: initiallyExpanded)
     }
@@ -35,7 +41,10 @@ struct FindingCard: View {
                 .labelsHidden()
                 .help(isSelected ? "Don’t post this comment" : "Post this comment")
             VStack(alignment: .leading, spacing: 4) {
-                FindingMeta(finding: finding, dotColor: finding.severity.color, labelColor: finding.severity.textColor)
+                HStack(spacing: 6) {
+                    FindingNumber(number: number)
+                    FindingMeta(finding: finding, dotColor: finding.severity.color, labelColor: finding.severity.textColor)
+                }
                 Text(finding.title)
                     .font(.body)
                     .foregroundStyle(isSelected ? .primary : .secondary)
@@ -63,7 +72,9 @@ struct FindingCard: View {
         .padding(.horizontal, 12)
         .padding(.top, 9)
         .padding(.bottom, 8)
-        .background(RoundedRectangle(cornerRadius: Theme.Radius.card).fill(Color(nsColor: .controlBackgroundColor)))
+        .background(RoundedRectangle(cornerRadius: Theme.Radius.card)
+            .fill(isHighlighted ? Theme.tint(Theme.accent) : Color(nsColor: .controlBackgroundColor)))
+        .animation(.easeInOut(duration: 0.3), value: isHighlighted)
         .cardBorder()
     }
 
@@ -94,7 +105,9 @@ struct FindingCard: View {
 /// Tarjeta gris de un hallazgo que el filtro descartó, con la razón y "Incluir igual" / "Quitar".
 struct DiscardedFindingCard: View {
     let item: ReviewItem
+    let number: Int
     @Binding var isSelected: Bool
+    var isHighlighted = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -103,7 +116,10 @@ struct DiscardedFindingCard: View {
                 .labelsHidden()
                 .help(isSelected ? "Don’t post this comment" : "Post this comment anyway")
             VStack(alignment: .leading, spacing: 4) {
-                FindingMeta(finding: item.finding, dotColor: Color.secondary.opacity(0.6), labelColor: .secondary)
+                HStack(spacing: 6) {
+                    FindingNumber(number: number)
+                    FindingMeta(finding: item.finding, dotColor: Color.secondary.opacity(0.6), labelColor: .secondary)
+                }
                 Text(item.finding.title)
                     .font(.body)
                     .lineLimit(1)
@@ -124,7 +140,21 @@ struct DiscardedFindingCard: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
-        .background(RoundedRectangle(cornerRadius: Theme.Radius.card).fill(Color.primary.opacity(0.05)))
+        .background(RoundedRectangle(cornerRadius: Theme.Radius.card)
+            .fill(isHighlighted ? Theme.tint(Theme.accent) : Color.primary.opacity(0.05)))
+        .animation(.easeInOut(duration: 0.3), value: isHighlighted)
+    }
+}
+
+/// `#N` before a finding's severity.
+struct FindingNumber: View {
+    let number: Int
+
+    var body: some View {
+        Text("#\(number)")
+            .font(.subheadline.monospacedDigit().weight(.semibold))
+            .foregroundStyle(.secondary)
+            .accessibilityLabel("Finding \(number)")
     }
 }
 

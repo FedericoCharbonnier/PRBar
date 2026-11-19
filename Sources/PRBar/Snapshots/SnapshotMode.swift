@@ -119,7 +119,8 @@ private final class SnapshotSession {
             reviewPipeline: SnapshotReviewPipeline(drafts: [fixtures.reactQuery.id: fixtures.reactQueryDraft],
                                                    inProgress: [fixtures.loginRedirect.id]),
             respondPipeline: SnapshotRespondPipeline(draft: fixtures.csvDraft, result: fixtures.csvResult, tests: fixtures.csvTests,
-                                                     logDirectory: respondHistory.directory.appendingPathComponent("logs"))
+                                                     logDirectory: respondHistory.directory.appendingPathComponent("logs")),
+            chatBackend: SnapshotChatBackend()
         )
         let model = AppModel(services: services, startsServices: false)
         model.applySnapshotState(tools: SnapshotFixtures.tools, ghAccounts: SnapshotFixtures.ghAccounts, launchAtLogin: true)
@@ -182,14 +183,17 @@ private final class SnapshotSession {
     private func reviewWindows(model: AppModel) async throws {
         let draft = fixtures.loginRedirectDraft
         let title = "Review · \(draft.repo.name)#\(draft.number)"
+        let chat = model.reviewChat(for: draft)
+        chat.reviewEdits.generalComment = SnapshotFixtures.generalComment
         try await window("review-window", title: title, size: NSSize(width: 760, height: 940)) {
-            ReviewWindow(model: model, draft: draft, published: nil, close: {}, initialState: .init(
-                generalComment: SnapshotFixtures.generalComment, showsDiscarded: true, expandedFindings: ["open-redirect"]
+            ReviewWindow(model: model, draft: draft, chat: chat, published: nil, close: {}, initialState: .init(
+                showsDiscarded: true, expandedFindings: ["open-redirect"]
             ))
         }
         let published = PublishedReview(record: fixtures.publishedLoginRedirect)
+        let publishedDraft = fixtures.loginRedirectDraft
         try await window("review-published", title: title, size: ReviewWindow.size) {
-            ReviewWindow(model: model, draft: draft, published: published, close: {})
+            ReviewWindow(model: model, draft: publishedDraft, chat: model.reviewChat(for: publishedDraft), published: published, close: {})
         }
     }
 

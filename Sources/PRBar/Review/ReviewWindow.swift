@@ -10,11 +10,10 @@ struct ReviewWindow: View {
     /// Avisa si hay cambios sin publicar (selección, textos editados o comentario general).
     let reportUnsaved: (Bool) -> Void
     let close: () -> Void
-    private let initialSelection: Set<String>
+    /// The window's editable state (selection, texts, added findings, general comment), shared with the chat.
+    @ObservedObject var chat: ChatCoordinator
+    private let initialEdits: ReviewEdits
 
-    @State private var selected: Set<String>
-    @State private var edited: [String: String] = [:]
-    @State private var general = ""
     @State private var publishing = false
     @State private var error: String?
     /// El último intento falló con un 422 por los comentarios inline: se ofrece publicar todo en el cuerpo.
@@ -28,27 +27,25 @@ struct ReviewWindow: View {
     static let size = NSSize(width: 720, height: 640)
 
     init(
-        model: AppModel, draft: ReviewDraft, published: PublishedReview?,
+        model: AppModel, draft: ReviewDraft, chat: ChatCoordinator, published: PublishedReview?,
         reportUnsaved: @escaping (Bool) -> Void = { _ in }, close: @escaping () -> Void,
         initialState: InitialState = InitialState()
     ) {
         self.model = model
         prStore = model.prStore
         self.draft = draft
+        self.chat = chat
         self.reportUnsaved = reportUnsaved
         self.close = close
-        initialSelection = Set(draft.items.filter(\.keep).map(\.id))
-        _selected = State(initialValue: initialSelection)
+        initialEdits = ReviewEdits.initial(for: draft)
         _result = State(initialValue: published)
-        _general = State(initialValue: initialState.generalComment)
         _showDiscarded = State(initialValue: initialState.showsDiscarded)
         initiallyExpanded = initialState.expandedFindings
     }
 
-    /// How the window opens. The app always uses the defaults; snapshot mode presets a general comment, an
-    /// expanded finding and the discarded section.
+    /// How the window opens. The app always uses the defaults; snapshot mode opens the discarded section and an
+    /// expanded finding (its general comment goes in the coordinator's `reviewEdits`).
     struct InitialState {
-        var generalComment = ""
         var showsDiscarded = false
         var expandedFindings: Set<String> = []
     }
@@ -65,17 +62,16 @@ struct ReviewWindow: View {
         return pr.pr.headOid != draft.headOid
     }
 
-    /// Hay algo que se perdería si se reemplaza la ventana: no se publicó y cambió la selección, algún texto
-    /// o el comentario general.
+    /// Something would be lost if the window is replaced: nothing was posted and the edits aren't the initial ones.
     private var hasUnsavedChanges: Bool {
-        guard result == nil else { return false }
-        let editedText = draft.items.contains { item in edited[item.id].map { $0 != item.finding.body } ?? false }
-        return editedText || selected != initialSelection
-            || !general.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        result == nil && chat.reviewEdits != initialEdits
     }
 
-    private var kept: [ReviewItem] { draft.items.filter(\.keep) }
-    private var discarded: [ReviewItem] { draft.items.filter { !$0.keep } }
+    private var items: [ReviewItem] { chat.reviewEdits.items(of: draft) }
+    private var kept: [ReviewItem] { items.filter(\.keep) }
+    private var discarded: [ReviewItem] { items.filter { !$0.keep } }
+    private var selected: Set<String> { chat.reviewEdits.selected }
+    private var general: String { chat.reviewEdits.generalComment }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -97,6 +93,9 @@ struct ReviewWindow: View {
         }
         .frame(minWidth: 600, maxWidth: .infinity, minHeight: 480, maxHeight: .infinity, alignment: .top)
         .onChange(of: hasUnsavedChanges, initial: true) { _, unsaved in reportUnsaved(unsaved) }
+        // Spec B.2: the chat waits while posting; after posting it stays read only and its worktree goes away.
+        .onChange(of: publishing, initial: true) { _, busy in chat.setLock(busy ? "Posting the review…" : nil) }
+        .onChange(of: result != nil, initial: true) { _, posted in if posted { chat.markReadOnly() } }
     }
 
     // MARK: Edición
@@ -115,8 +114,9 @@ struct ReviewWindow: View {
                 LazyVStack(spacing: 8) {
                     ForEach(kept) { item in
                         FindingCard(
-                            item: item, isSelected: selection(item.id), text: text(for: item),
-                            isEdited: edited[item.id].map { $0 != item.finding.body } ?? false, focus: $focus,
+                            item: item, number: chat.number(of: item.id) ?? 0, isSelected: selection(item.id),
+                            text: text(for: item), isEdited: chat.reviewEdits.isEdited(item),
+                            isHighlighted: chat.highlighted.contains(item.id), focus: $focus,
                             initiallyExpanded: initiallyExpanded.contains(item.id)
                         )
                     }
@@ -143,8 +143,8 @@ struct ReviewWindow: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
             Spacer()
-            Button("Select All") { selected.formUnion(kept.map(\.id)) }
-            Button("Select None") { selected.removeAll() }
+            Button("Select All") { chat.reviewEdits.selected.formUnion(kept.map(\.id)) }
+            Button("Select None") { chat.reviewEdits.selected.removeAll() }
         }
         .controlSize(.small)
         .disabled(publishing)
@@ -175,7 +175,8 @@ struct ReviewWindow: View {
             .padding(.top, 8)
             if showDiscarded {
                 ForEach(discarded) { item in
-                    DiscardedFindingCard(item: item, isSelected: selection(item.id))
+                    DiscardedFindingCard(item: item, number: chat.number(of: item.id) ?? 0, isSelected: selection(item.id),
+                                         isHighlighted: chat.highlighted.contains(item.id))
                 }
             }
         }
@@ -194,7 +195,7 @@ struct ReviewWindow: View {
                         .disabled(publishing)
                 }
             }
-            TextField("General comment (optional)", text: $general, axis: .vertical)
+            TextField("General comment (optional)", text: $chat.reviewEdits.generalComment, axis: .vertical)
                 .lineLimit(1...4)
                 .textFieldStyle(.roundedBorder)
                 .focused($focus, equals: .general)
@@ -267,15 +268,15 @@ struct ReviewWindow: View {
 
     private func selection(_ id: String) -> Binding<Bool> {
         Binding(
-            get: { selected.contains(id) },
+            get: { chat.reviewEdits.selected.contains(id) },
             set: { isOn in
-                if isOn { selected.insert(id) } else { selected.remove(id) }
+                if isOn { chat.reviewEdits.selected.insert(id) } else { chat.reviewEdits.selected.remove(id) }
             }
         )
     }
 
     private func text(for item: ReviewItem) -> Binding<String> {
-        Binding(get: { edited[item.id] ?? item.finding.body }, set: { edited[item.id] = $0 })
+        Binding(get: { chat.reviewEdits.body(of: item) }, set: { chat.reviewEdits.bodies[item.id] = $0 })
     }
 
     /// Si falla, el error se muestra y la selección y lo editado quedan como estaban (spec §8.7).
@@ -286,9 +287,7 @@ struct ReviewWindow: View {
         publishing = true
         error = nil
         inlineRejected = nil
-        let comments = !withComments ? [] : draft.items.filter { selected.contains($0.id) }.map {
-            SelectedComment(finding: $0.finding, body: edited[$0.id] ?? $0.finding.body)
-        }
+        let comments = withComments ? chat.reviewEdits.selectedComments(of: draft) : []
         let general = withComments ? self.general : ""
         Task { @MainActor in
             do {

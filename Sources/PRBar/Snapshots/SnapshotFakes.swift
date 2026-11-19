@@ -124,3 +124,19 @@ struct SnapshotRespondPipeline: RespondPipelineRunning {
 
     func logURL(for id: UUID) -> URL { logDirectory.appendingPathComponent("\(id.uuidString).log") }
 }
+
+/// Snapshot mode never runs a chat turn: every call fails and cleanup does nothing (no git, no claude).
+struct SnapshotChatBackend: ChatBackend {
+    private var unavailable: SnapshotError { SnapshotError(message: "There’s no chat in snapshot mode") }
+
+    func workspace(_ request: ChatWorkspaceRequest) async throws -> ChatWorkspace { throw unavailable }
+    func send(_ input: ChatTurnInput, subject: ChatSubject, logURL: URL,
+              onEvent: @escaping @Sendable (ClaudeStreamEvent) -> Void) async throws -> ChatTurnOutput { throw unavailable }
+    func sendEditing(_ input: ChatTurnInput, draft: RespondDraft, result: RespondResult, sessionID: UUID, logURL: URL,
+                     onEvent: @escaping @Sendable (ClaudeStreamEvent) -> Void) async throws -> (ChatTurnOutput, ChatFilesOutcome) {
+        throw unavailable
+    }
+    func undoFiles(draft: RespondDraft, snapshot: ChatFileSnapshot, logURL: URL) async throws -> RespondResult { throw unavailable }
+    func filesChangedSince(draft: RespondDraft, snapshot: ChatFileSnapshot) async -> Bool { false }
+    func cleanup(session: ChatSession, subject: ChatSubject, localPath: String?) async {}
+}

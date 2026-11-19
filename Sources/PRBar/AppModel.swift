@@ -34,6 +34,8 @@ struct AppModelServices {
     /// `nil`: el pipeline real (`LiveReviewPipeline` / `LiveRespondPipeline`).
     var reviewPipeline: (any ReviewPipelineRunning)?
     var respondPipeline: (any RespondPipelineRunning)?
+    /// `nil`: the real chat backend (`LiveChatBackend`).
+    var chatBackend: (any ChatBackend)? = nil
 
     static func live(runner: SystemProcessRunner) -> AppModelServices {
         let accounts = AccountProvider(runner: runner, ghPath: nil)
@@ -73,6 +75,19 @@ final class AppModel: ObservableObject {
     let claudeSkills: ClaudeSkills
     private let reviewPipeline: (any ReviewPipelineRunning)?
     private let respondPipeline: (any RespondPipelineRunning)?
+    private let chatBackendOverride: (any ChatBackend)?
+    /// Chat turns running at once across the app (spec B.4): at most 2, one per PR.
+    let chatScheduler = JobScheduler<String>(maxConcurrent: ChatCoordinator.maxConcurrentChats)
+    /// The chat backend. `lazy` like the queues, so it can capture `self` (weakly).
+    private(set) lazy var chatBackend: any ChatBackend = chatBackendOverride ?? LiveChatBackend(
+        runner: runner, tokens: accounts, api: api,
+        context: { [weak self] in
+            ReviewContext(tools: self?.tools ?? ResolvedTools(), orphanCleanup: self?.orphanCleanup,
+                          claude: self?.configStore.config.claude ?? ClaudeSettings())
+        }
+    )
+    /// One coordinator per draft (Review or Respond): reopening a window keeps the conversation and the edits.
+    private var chats: [UUID: ChatCoordinator] = [:]
     /// Repos, ramas y usuarios de GitHub para los selectores de Configuración, cacheados durante la sesión.
     private(set) lazy var catalog = GitHubCatalog(api: api, tokens: accounts)
     /// Cola de reviews. Es `lazy` para que el pipeline y `onFinished` puedan capturar `self` (débil).
@@ -143,6 +158,7 @@ final class AppModel: ObservableObject {
         self.claudeSkills = services.claudeSkills
         self.reviewPipeline = services.reviewPipeline
         self.respondPipeline = services.respondPipeline
+        self.chatBackendOverride = services.chatBackend
         self.prStore = PRStore(
             builder: SnapshotBuilder(api: services.api, tokens: services.accounts),
             configStore: configStore,
@@ -166,6 +182,8 @@ final class AppModel: ObservableObject {
             MainActor.assumeIsolated {
                 self?.reviews.cancelAll()
                 self?.respond.cancelAll()
+                // A turn that was running stays `pending` in its record and reopens as "Interrupted" (spec B.9).
+                self?.chatScheduler.cancelAll()
             }
         }
         Task { await bootstrap() }
@@ -368,6 +386,7 @@ final class AppModel: ObservableObject {
         // Un review anterior terminado (failed/ready/published) se reemplaza por el nuevo. Un `ready` sin publicar
         // queda `abandoned` en el historial: ya no se puede reabrir para publicar.
         if case .ready(let previous)? = reviews.phases[item.id] {
+            discardChat(draftID: previous.id)
             do {
                 try history.markAbandoned(id: previous.id)
             } catch {
@@ -389,12 +408,17 @@ final class AppModel: ObservableObject {
     }
 
     func dismissReview(prID: String) {
+        if case .ready(let draft)? = reviews.phases[prID] { discardChat(draftID: draft.id) }
         reviews.dismiss(prID: prID)
     }
 
     /// `localPath` del repo del item en la config de su cuenta (`nil` = review solo con el diff).
     private func localPath(for item: ClassifiedPR) -> String? {
-        guard let path = repoConfig(account: item.account, repo: item.pr.repo)?.localPath, !path.isEmpty else { return nil }
+        localPath(account: item.account, repo: item.pr.repo)
+    }
+
+    private func localPath(account: String, repo: RepoRef) -> String? {
+        guard let path = repoConfig(account: account, repo: repo)?.localPath, !path.isEmpty else { return nil }
         return path
     }
 
@@ -468,7 +492,7 @@ final class AppModel: ObservableObject {
             contentID: draft.id.uuidString,
             replaceConfirmation: "The previous review has unposted changes. Replace it?"
         ) {
-            ReviewWindow(model: self, draft: draft, published: published) { unsaved in
+            ReviewWindow(model: self, draft: draft, chat: self.reviewChat(for: draft), published: published) { unsaved in
                 WindowPresenter.shared.setUnsavedChanges(unsaved, for: windowID)
             } close: {
                 WindowPresenter.shared.close(id: windowID)
@@ -566,6 +590,57 @@ final class AppModel: ObservableObject {
     func reopenFromHistory(_ draft: ReviewDraft) {
         reviews.restore(draft)
         openReview(prID: draft.prID)
+    }
+
+    // MARK: Chat
+
+    var chatEnabled: Bool { configStore.config.claude.chatEnabled }
+
+    /// Why the chat can't run, with the same reasons as the Review button; nil = it can.
+    var chatUnavailableReason: String? {
+        guard toolsResolved else { return "Still looking for git and claude. Try again in a few seconds." }
+        if tools.git == nil { return PRBarError.toolNotFound("git").localizedDescription }
+        if tools.claude == nil { return PRBarError.toolNotFound("claude").localizedDescription }
+        return nil
+    }
+
+    private func currentPR(_ prID: String) -> PullRequest? {
+        prStore.snapshot?.items.first { $0.id == prID }?.pr
+    }
+
+    /// The Review window's coordinator. The conversation and the edits come from history (they're saved on each turn).
+    func reviewChat(for draft: ReviewDraft) -> ChatCoordinator {
+        if let chat = chats[draft.id] { return chat }
+        let stored = history.record(id: draft.id)?.draft ?? draft
+        let history = self.history
+        let chat = ChatCoordinator(
+            subject: .review(draft), session: stored.chat ?? ChatSession(prID: draft.prID, kind: .review),
+            reviewEdits: stored.edits, backend: chatBackend, scheduler: chatScheduler,
+            context: { [weak self] in
+                ChatContext(pr: self?.currentPR(draft.prID), localPath: self?.localPath(account: draft.account, repo: draft.repo),
+                            respondResult: nil, canEditFiles: false, logURL: history.logURL(for: draft.id))
+            },
+            hooks: ChatHooks(persist: { [weak self] chat in self?.saveReviewChat(draft, chat) })
+        )
+        chats[draft.id] = chat
+        return chat
+    }
+
+    private func saveReviewChat(_ draft: ReviewDraft, _ chat: ChatCoordinator) {
+        guard var record = history.record(id: draft.id) else { return }
+        record.draft.chat = chat.session
+        record.draft.edits = chat.reviewEdits
+        do {
+            try history.save(record)
+        } catch {
+            AppLog.write("History: couldn't save the chat of \(draft.repo.fullName)#\(draft.number): \(error)")
+        }
+        historyRevision += 1
+    }
+
+    /// The chat's worktree goes away with its review or respond (spec B.5).
+    private func discardChat(draftID: UUID) {
+        chats.removeValue(forKey: draftID)?.discardWorkspace()
     }
 
     // MARK: Responder
