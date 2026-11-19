@@ -87,6 +87,22 @@ enum ClaudeOptionsTests {
             try expectEqual(settings.effectiveImplementationSkill, nil)
             try expectEqual(settings.respondSkills, ["superpowers:receiving-code-review"])
         },
+        TestCase("claude options: en modo prompt sin un prompt usable corre el cuerpo por defecto, que usa el skill") {
+            var settings = ClaudeSettings()
+            settings.review.stage1.mode = .prompt
+            settings.review.stage1.prompt = nil
+            settings.review.filter.mode = .prompt
+            settings.review.filter.prompt = "No findings variable here."
+            try expect(settings.promptBody(for: .review).contains("{skill}"))
+            try expectEqual(settings.reviewSkills, ["pr-review-toolkit:review-pr", "superpowers:receiving-code-review"])
+            settings.respond.analysis.mode = .prompt
+            settings.respond.analysis.prompt = "Missing the required variable {skill}"
+            settings.respond.implementation = StageSettings(mode: .prompt, skill: "superpowers:test-driven-development", prompt: nil)
+            try expectEqual(settings.respondSkills, ["superpowers:receiving-code-review", "superpowers:test-driven-development"])
+            // A usable custom prompt without {skill} doesn't load it.
+            settings.respond.analysis.prompt = "Read {feedback_path}."
+            try expectEqual(settings.respondSkills, ["superpowers:test-driven-development"])
+        },
         TestCase("claude options: patrones normalizados y rutas ignoradas por repo") {
             try expectEqual(ReviewOptions.normalizePatterns([" dist/** ", "", "dist/**", "*.lock\n"]), ["dist/**", "*.lock"])
             var config = AppConfig()

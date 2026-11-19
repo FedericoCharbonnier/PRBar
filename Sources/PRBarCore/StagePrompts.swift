@@ -253,6 +253,14 @@ extension ClaudeSettings {
         return stage.defaultBody(skill: skill(for: stage))
     }
 
+    /// The stage needs its skill's plugin: decided from the body that really runs (`promptBody`). The default body
+    /// names the skill, so a stage in `prompt` mode whose prompt is missing or unusable still needs it.
+    public func usesSkill(_ stage: PromptStage) -> Bool {
+        guard stage.hasSkill else { return false }
+        guard usesCustomPrompt(stage), let prompt = customPrompt(for: stage) else { return true }
+        return PlaceholderTemplate.names(in: prompt).contains("skill")
+    }
+
     /// Saves the user's prompt. A stage with a skill switches to `prompt` mode (spec E.6).
     public mutating func setCustomPrompt(_ text: String, for stage: PromptStage) {
         switch stage {

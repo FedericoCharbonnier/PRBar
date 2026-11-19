@@ -403,16 +403,16 @@ public struct ClaudeSettings: Hashable, Codable, Sendable {
     /// The skills whose plugins a review loads: each stage that uses its skill (spec E.6), the filter only if it's on.
     public var reviewSkills: [String] {
         var skills: [String] = []
-        if review.stage1.usesSkill { skills.append(effectiveReviewSkill) }
-        if review.filter.enabled && review.filter.stage.usesSkill { skills.append(effectiveFilterSkill) }
+        if usesSkill(.review) { skills.append(effectiveReviewSkill) }
+        if review.filter.enabled && usesSkill(.filter) { skills.append(effectiveFilterSkill) }
         return skills
     }
 
     /// The skills a respond run loads (analysis and fixes).
     public var respondSkills: [String] {
         var skills: [String] = []
-        if respond.analysis.usesSkill { skills.append(effectiveRespondSkill) }
-        if respond.implementation.usesSkill, let skill = effectiveImplementationSkill, !skills.contains(skill) {
+        if usesSkill(.analysis) { skills.append(effectiveRespondSkill) }
+        if usesSkill(.implementation), let skill = effectiveImplementationSkill, !skills.contains(skill) {
             skills.append(skill)
         }
         return skills

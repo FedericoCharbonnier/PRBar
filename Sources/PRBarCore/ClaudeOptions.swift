@@ -41,11 +41,6 @@ public struct StageSettings: Hashable, Codable, Sendable {
         }
         return trimmed
     }
-
-    /// The stage needs its skill's plugin: it runs with the skill, or its custom prompt names it (`{skill}`).
-    public var usesSkill: Bool {
-        mode == .skill || (prompt?.contains("{skill}") ?? false)
-    }
 }
 
 /// The review's filter (stage 2): a stage that can be turned off.
