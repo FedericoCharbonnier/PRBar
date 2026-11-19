@@ -65,7 +65,8 @@ enum UpdateSourceTests {
             let runner = fakeGit()
             let source = UpdateSource(runner: runner, gitPath: "/usr/bin/git", directory: try temporaryDirectory().appendingPathComponent("s"),
                                       remoteURL: "https://github.com/a/b.git")
-            for tag in ["--upload-pack=touch /tmp/x", "main", "v1.3"] {
+            for tag in ["--upload-pack=touch /tmp/x", "main", "v1.3", "1.3.0", "V1.3.0", "v01.3.0", "v1.03.0", "v1.3.0+x",
+                        "v1.3.0-beta.1", " v1.3.0", "v1.3.0\n"] {
                 let error = try await expectThrows { _ = try await source.checkout(tag: tag) }
                 try expectEqual(error as? UpdateError, .invalidTag(tag))
             }

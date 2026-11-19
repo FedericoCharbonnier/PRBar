@@ -38,7 +38,7 @@ public struct ReleaseInfo: Codable, Equatable, Sendable {
 }
 
 /// Pregunta a GitHub cuál es el último release de PRBar: `GET /repos/{repo}/releases/latest`, sin token (el repo es
-/// público). Ignora drafts, prereleases y tags que no son `vX.Y.Z`.
+/// público). Ignora drafts, prereleases y tags que no son exactamente `vX.Y.Z` (`SemanticVersion(releaseTag:)`).
 public struct UpdateChecker: Sendable {
     public static let timeout: TimeInterval = 15
 
@@ -96,8 +96,7 @@ public struct UpdateChecker: Sendable {
         } catch {
             throw PRBarError.invalidResponse("latest release: \(error.localizedDescription)")
         }
-        guard !release.draft, !release.prerelease,
-              let version = SemanticVersion(release.tagName), !version.isPrerelease else { return nil }
+        guard !release.draft, !release.prerelease, let version = SemanticVersion(releaseTag: release.tagName) else { return nil }
         let name = release.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return ReleaseInfo(
             version: version, tag: release.tagName, title: name.isEmpty ? "PRBar \(version)" : name,

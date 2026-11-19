@@ -42,6 +42,21 @@ public struct SemanticVersion: Hashable, Comparable, Sendable, CustomStringConve
         self.init(numbers[0], numbers[1], numbers[2], prerelease: prerelease)
     }
 
+    /// Un tag de release: exactamente `^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$` (ASCII, sin espacios, ceros a la
+    /// izquierda, prerelease ni metadata). Es lo único que PRBar descarga y compila (spec D.1, D.3).
+    public init?(releaseTag tag: String) {
+        guard tag.first == "v" else { return nil }
+        let parts = tag.dropFirst().split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 3 else { return nil }
+        var numbers: [Int] = []
+        for part in parts {
+            guard (1...9).contains(part.count), part.utf8.allSatisfy({ (0x30...0x39).contains($0) }),
+                  part == "0" || part.first != "0", let number = Int(part) else { return nil }
+            numbers.append(number)
+        }
+        self.init(numbers[0], numbers[1], numbers[2])
+    }
+
     public var isPrerelease: Bool { prerelease != nil }
 
     public var description: String {

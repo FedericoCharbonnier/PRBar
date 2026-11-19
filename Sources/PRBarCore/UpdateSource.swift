@@ -29,7 +29,7 @@ public struct UpdateSource: Sendable {
     /// commit no es alcanzable desde `origin/main`.
     @discardableResult
     public func checkout(tag: String) async throws -> String {
-        guard !tag.hasPrefix("-"), SemanticVersion(tag) != nil else { throw UpdateError.invalidTag(tag) }
+        guard SemanticVersion(releaseTag: tag) != nil else { throw UpdateError.invalidTag(tag) }
         let fileManager = FileManager.default
         let path = directory.path
         if fileManager.fileExists(atPath: directory.appendingPathComponent(".git").path) {

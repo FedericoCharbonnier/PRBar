@@ -3,6 +3,14 @@ import PRBarCore
 
 enum SemanticVersionTests {
     static let cases: [TestCase] = [
+        TestCase("semver: releaseTag acepta solo vX.Y.Z exacto") {
+            try expectEqual(SemanticVersion(releaseTag: "v1.2.3"), SemanticVersion(1, 2, 3))
+            try expectEqual(SemanticVersion(releaseTag: "v0.10.0"), SemanticVersion(0, 10, 0))
+            for tag in ["1.2.3", "V1.2.3", "v01.2.3", "v1.02.3", "v1.2.03", "v1.2.3+b", "v1.2.3-beta.1", " v1.2.3",
+                        "v1.2.3 ", "v1.2.3\n", "v1.2", "v1.2.3.4", "v-1.2.3", "v1.2.3a", "v１.2.3", ""] {
+                try expectEqual(SemanticVersion(releaseTag: tag), nil)
+            }
+        },
         TestCase("semver: parsea X.Y.Z con y sin v, con espacios y metadata de build") {
             try expectEqual(SemanticVersion("1.2.3"), SemanticVersion(1, 2, 3))
             try expectEqual(SemanticVersion("v1.2.3"), SemanticVersion(1, 2, 3))

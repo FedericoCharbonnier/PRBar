@@ -58,7 +58,10 @@ enum UpdateCheckerTests {
         },
         TestCase("update checker: ignora drafts, prereleases y tags que no son versión") {
             let bodies = [releaseJSON(draft: true), releaseJSON(prerelease: true), releaseJSON(tag: "v2.0.0-beta.1"),
-                          releaseJSON(tag: "nightly")]
+                          releaseJSON(tag: "nightly"),
+                          // Solo `vX.Y.Z` exacto: sin la v, V mayúscula, ceros a la izquierda, metadata o espacios.
+                          releaseJSON(tag: "1.3.0"), releaseJSON(tag: "V1.3.0"), releaseJSON(tag: "v01.3.0"),
+                          releaseJSON(tag: "v1.3.0+build.5"), releaseJSON(tag: " v1.3.0")]
             for body in bodies {
                 let release = try await UpdateChecker(transport: FakeTransport([(200, [:], body)]), repo: "a/b").latestRelease()
                 try expectEqual(release, nil)
