@@ -15,11 +15,15 @@ public struct RepoConfig: Hashable, Codable, Sendable, Identifiable {
     public var worktreeDir: String?
     /// Comando de tests que corre PRBar después de cada fix; nil = no se corren tests.
     public var testCommand: String?
+    /// Globs of files whose findings are hidden in this repo's reviews (spec E.5), on top of
+    /// `ClaudeSettings.review.ignorePaths`.
+    public var ignorePaths: [String]
 
     public init(
         owner: String, name: String, localPath: String? = nil, baseBranches: [String] = [],
         slackChannelID: String? = nil, slackChannelName: String? = nil, slackEnabledAt: Date? = nil,
-        watchedUsers: [String] = [], worktreeDir: String? = nil, testCommand: String? = nil
+        watchedUsers: [String] = [], worktreeDir: String? = nil, testCommand: String? = nil,
+        ignorePaths: [String] = []
     ) {
         self.owner = owner
         self.name = name
@@ -31,6 +35,7 @@ public struct RepoConfig: Hashable, Codable, Sendable, Identifiable {
         self.watchedUsers = watchedUsers
         self.worktreeDir = worktreeDir
         self.testCommand = testCommand
+        self.ignorePaths = ignorePaths
     }
 
     public var repo: RepoRef { RepoRef(owner: owner, name: name) }
@@ -38,7 +43,7 @@ public struct RepoConfig: Hashable, Codable, Sendable, Identifiable {
 
     enum CodingKeys: String, CodingKey {
         case owner, name, localPath, baseBranches, slackChannelID, slackChannelName, slackEnabledAt, watchedUsers
-        case worktreeDir, testCommand
+        case worktreeDir, testCommand, ignorePaths
     }
 
     public init(from decoder: Decoder) throws {
@@ -53,6 +58,7 @@ public struct RepoConfig: Hashable, Codable, Sendable, Identifiable {
         watchedUsers = try c.decodeIfPresent([String].self, forKey: .watchedUsers) ?? []
         worktreeDir = try c.decodeIfPresent(String.self, forKey: .worktreeDir)
         testCommand = try c.decodeIfPresent(String.self, forKey: .testCommand)
+        ignorePaths = (try? c.decodeIfPresent([String].self, forKey: .ignorePaths)) ?? []
     }
 }
 
@@ -299,42 +305,89 @@ public enum ClaudeModel: String, Codable, CaseIterable, Sendable {
     }
 }
 
-/// The Claude Code skills (and model) that the review and respond flows use (Settings → Claude). The defaults are
-/// the skills PRBar always used. A skill is `plugin:skill` (its plugin is loaded with `--plugin-dir`) or a bare
-/// name (a built-in or user skill: no plugin).
+/// Claude's settings (Settings → Claude): what the review reports and how the fixes are made (spec E.5), the stages'
+/// skills or own prompts (E.6), the model and the chat. The defaults reproduce what PRBar always did. A skill is
+/// `plugin:skill` (its plugin is loaded with `--plugin-dir`) or a bare name (a built-in or user skill: no plugin).
 public struct ClaudeSettings: Hashable, Codable, Sendable {
     public static let defaultReviewSkill = "pr-review-toolkit:review-pr"
     public static let defaultFilterSkill = "superpowers:receiving-code-review"
     public static let defaultRespondSkill = "superpowers:receiving-code-review"
 
-    /// Review, stage 1: the review itself.
-    public var reviewSkill = Self.defaultReviewSkill
-    /// Review, stage 2: filter the findings with `filterSkill`. Off = every finding is kept.
-    public var filterEnabled = true
-    public var filterSkill = Self.defaultFilterSkill
-    /// Respond to feedback: the analysis of the review comments.
-    public var respondSkill = Self.defaultRespondSkill
+    /// The review: stage 1, the filter and what it reports.
+    public var review = ReviewOptions()
+    /// Respond to feedback: the analysis, the implementation and the fixes' options.
+    public var respond = RespondOptions()
     /// `nil` = the CLI's default model (no `--model`).
     public var model: ClaudeModel?
     /// Chat with Claude in the Review and Respond windows (spec B.8).
     public var chatEnabled = true
     /// The chat's model. `nil` = the same as reviews (`model`).
     public var chatModel: ClaudeModel?
+    /// The chats' own prompts (spec E.6).
+    public var chatPrompts = ChatPromptSettings()
 
     public init() {}
 
-    enum CodingKeys: String, CodingKey { case reviewSkill, filterEnabled, filterSkill, respondSkill, model, chatEnabled, chatModel }
+    // MARK: Nombres de antes del Plan 9 (el código y los tests de antes los siguen usando)
 
-    /// Lenient: a missing key, a wrong type or an unknown model falls back to the default.
+    /// Review, stage 1.
+    public var reviewSkill: String {
+        get { review.stage1.skill ?? Self.defaultReviewSkill }
+        set { review.stage1.skill = newValue }
+    }
+
+    /// Review, stage 2: off = every finding is kept.
+    public var filterEnabled: Bool {
+        get { review.filter.enabled }
+        set { review.filter.enabled = newValue }
+    }
+
+    public var filterSkill: String {
+        get { review.filter.skill ?? Self.defaultFilterSkill }
+        set { review.filter.skill = newValue }
+    }
+
+    /// Respond to feedback: the analysis of the review comments.
+    public var respondSkill: String {
+        get { respond.analysis.skill ?? Self.defaultRespondSkill }
+        set { respond.analysis.skill = newValue }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case review, respond, model, chatEnabled, chatModel, chatPrompts
+        // Before Plan 9: only read, to migrate them.
+        case reviewSkill, filterEnabled, filterSkill, respondSkill
+    }
+
+    /// Lenient: a missing key, a wrong type or an unknown model falls back to the default. The flat fields of
+    /// before Plan 9 are moved into the structure, unless the structure is already there.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        reviewSkill = (try? c.decodeIfPresent(String.self, forKey: .reviewSkill)) ?? Self.defaultReviewSkill
-        filterEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .filterEnabled)) ?? true
-        filterSkill = (try? c.decodeIfPresent(String.self, forKey: .filterSkill)) ?? Self.defaultFilterSkill
-        respondSkill = (try? c.decodeIfPresent(String.self, forKey: .respondSkill)) ?? Self.defaultRespondSkill
+        review = (try? c.decodeIfPresent(ReviewOptions.self, forKey: .review)) ?? ReviewOptions()
+        respond = (try? c.decodeIfPresent(RespondOptions.self, forKey: .respond)) ?? RespondOptions()
         model = (try? c.decodeIfPresent(ClaudeModel.self, forKey: .model)) ?? nil
         chatEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .chatEnabled)) ?? true
         chatModel = (try? c.decodeIfPresent(ClaudeModel.self, forKey: .chatModel)) ?? nil
+        chatPrompts = (try? c.decodeIfPresent(ChatPromptSettings.self, forKey: .chatPrompts)) ?? ChatPromptSettings()
+        if !c.contains(.review) {
+            if let skill = try? c.decodeIfPresent(String.self, forKey: .reviewSkill) { review.stage1.skill = skill }
+            if let on = try? c.decodeIfPresent(Bool.self, forKey: .filterEnabled) { review.filter.enabled = on }
+            if let skill = try? c.decodeIfPresent(String.self, forKey: .filterSkill) { review.filter.skill = skill }
+        }
+        if !c.contains(.respond), let skill = try? c.decodeIfPresent(String.self, forKey: .respondSkill) {
+            respond.analysis.skill = skill
+        }
+    }
+
+    /// Only the structure: the flat fields of before aren't written again.
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(review, forKey: .review)
+        try c.encode(respond, forKey: .respond)
+        try c.encodeIfPresent(model, forKey: .model)
+        try c.encode(chatEnabled, forKey: .chatEnabled)
+        try c.encodeIfPresent(chatModel, forKey: .chatModel)
+        try c.encode(chatPrompts, forKey: .chatPrompts)
     }
 
     /// `--model` of the chat's runs: `chatModel`, or the reviews' model.
@@ -344,11 +397,26 @@ public struct ClaudeSettings: Hashable, Codable, Sendable {
     public var effectiveReviewSkill: String { Self.effective(reviewSkill, default: Self.defaultReviewSkill) }
     public var effectiveFilterSkill: String { Self.effective(filterSkill, default: Self.defaultFilterSkill) }
     public var effectiveRespondSkill: String { Self.effective(respondSkill, default: Self.defaultRespondSkill) }
+    /// The implementation's skill, if there's a valid one (by default there's none).
+    public var effectiveImplementationSkill: String? { respond.implementation.validSkill }
 
-    /// The skills a review uses: stage 1, and stage 2 if the filter is on. Their plugins are the ones loaded.
-    public var reviewSkills: [String] { [effectiveReviewSkill] + (filterEnabled ? [effectiveFilterSkill] : []) }
-    /// The skills a respond run uses (analysis and fixes).
-    public var respondSkills: [String] { [effectiveRespondSkill] }
+    /// The skills whose plugins a review loads: each stage that uses its skill (spec E.6), the filter only if it's on.
+    public var reviewSkills: [String] {
+        var skills: [String] = []
+        if review.stage1.usesSkill { skills.append(effectiveReviewSkill) }
+        if review.filter.enabled && review.filter.stage.usesSkill { skills.append(effectiveFilterSkill) }
+        return skills
+    }
+
+    /// The skills a respond run loads (analysis and fixes).
+    public var respondSkills: [String] {
+        var skills: [String] = []
+        if respond.analysis.usesSkill { skills.append(effectiveRespondSkill) }
+        if respond.implementation.usesSkill, let skill = effectiveImplementationSkill, !skills.contains(skill) {
+            skills.append(skill)
+        }
+        return skills
+    }
 
     /// `plugin:skill` or `skill`: each part is `[A-Za-z0-9._-]`, not empty and not starting with `.` (the plugin is a
     /// folder name; the whole name goes in the prompt between backticks).
@@ -435,6 +503,11 @@ extension AppConfig {
     /// Vacío o solo espacios = nil (sin tests).
     public mutating func setTestCommand(_ command: String?, repoID: String, login: String) {
         withRepo(repoID, login: login) { $0.testCommand = Self.nonBlank(command) }
+    }
+
+    /// Normalized: trimmed, without empty patterns or repeats.
+    public mutating func setIgnorePaths(_ patterns: [String], repoID: String, login: String) {
+        withRepo(repoID, login: login) { $0.ignorePaths = ReviewOptions.normalizePatterns(patterns) }
     }
 
     private static func nonBlank(_ text: String?) -> String? {
