@@ -83,9 +83,14 @@ public struct WorktreeManager: Sendable {
     /// `rev-parse` de la ref del PR (el `headOid` del workspace) y `worktree add --detach
     /// <root>/<repo>-<N>-<epoch>-<id> refs/prbar/pr-<N>-<id>`.
     /// Sin `localPath`: crea `<root>/<repo>-<N>-<epoch>-<id>-diff` vacío.
-    public func prepare(repo: RepoRef, number: Int, baseRef: String, localPath: String?) async throws -> ReviewWorkspace {
+    /// For the chat (spec B.5):
+    /// - `name`: the folder's name instead of `<repo>-<N>-<epoch>-<id>` (the refs still use the run id);
+    /// - `pinnedHeadOid`: the commit to check out instead of the PR's current head, if the clone has it (`cat-file -e`).
+    ///   If it doesn't, the current head (the workspace's `headOid` says which one it is).
+    public func prepare(repo: RepoRef, number: Int, baseRef: String, localPath: String?,
+                        name customName: String? = nil, pinnedHeadOid: String? = nil) async throws -> ReviewWorkspace {
         let id = runID()
-        let name = "\(Self.sanitize(repo.name))-\(number)-\(Int(now().timeIntervalSince1970))-\(id)"
+        let name = customName ?? "\(Self.sanitize(repo.name))-\(number)-\(Int(now().timeIntervalSince1970))-\(id)"
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
 
         guard let localPath else {
@@ -102,8 +107,13 @@ public struct WorktreeManager: Sendable {
             try await git(localPath, ["fetch", "--no-write-fetch-head", "origin", "+pull/\(number)/head:\(prRef)", "+refs/heads/\(baseRef):\(baseRefName)"], timeout: Self.slowTimeout)
             // El commit que se trajo de verdad: el PR pudo recibir commits después del snapshot.
             let output = try await git(localPath, ["rev-parse", "--verify", "--quiet", "\(prRef)^{commit}"])
-            guard let sha = CommitSHA.parse(output) else {
+            guard var sha = CommitSHA.parse(output) else {
                 throw PRBarError.invalidResponse("git rev-parse \(prRef) returned \"\(output.prefix(80))\"")
+            }
+            if let pinned = pinnedHeadOid, pinned != sha,
+               (try? await git(localPath, ["cat-file", "-e", "\(pinned)^{commit}"])) != nil {
+                try await git(localPath, ["update-ref", prRef, pinned])
+                sha = pinned
             }
             headOid = sha
             try await git(localPath, ["worktree", "add", "--detach", directory.path, prRef], timeout: Self.slowTimeout)
@@ -302,9 +312,29 @@ public struct WorktreeManager: Sendable {
         return true
     }
 
+    /// The review chat's worktree (spec B.5): `chat-<repo>-<N>-<session UUID>`, fixed per session so `--resume`
+    /// runs in the same cwd. Without a clone, `prepare` adds `-diff`.
+    public static func chatWorkspaceName(repo: RepoRef, number: Int, sessionID: UUID) -> String {
+        "chat-\(sanitize(repo.name))-\(number)-\(sessionID.uuidString.lowercased())"
+    }
+
+    /// `chat-<repo>-<N>-<UUID>`, with `-diff` and/or `.context`.
+    static func isChatWorkspaceName(_ name: String) -> Bool {
+        var base = Substring(name)
+        guard base.hasPrefix("chat-") else { return false }
+        if base.hasSuffix(".context") { base = base.dropLast(8) }
+        if base.hasSuffix("-diff") { base = base.dropLast(5) }
+        guard base.count > 5 + 37, base.dropLast(36).last == "-", UUID(uuidString: String(base.suffix(36))) != nil else { return false }
+        let rest = base.dropFirst(5).dropLast(37)   // "<repo>-<N>"
+        guard let dash = rest.lastIndex(of: "-"), dash > rest.startIndex else { return false }
+        let number = rest[rest.index(after: dash)...]
+        return !number.isEmpty && number.allSatisfy { $0.isASCII && $0.isNumber }
+    }
+
     /// Nombres que crea `prepare`: `<repo>-<N>-<epoch>-<id>` o `<repo>-<N>-<epoch>-<id>-diff`, y sus carpetas
     /// de contexto (`<nombre>.context`). También acepta los de versiones anteriores, sin `-<id>`.
     public static func isWorkspaceName(_ name: String) -> Bool {
+        if isChatWorkspaceName(name) { return true }
         if name.hasSuffix(".respond-context") { return isRespondContextName(name) }
         var base = Substring(name)
         if base.hasSuffix(".context") { base = base.dropLast(8) }

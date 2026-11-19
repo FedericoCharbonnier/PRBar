@@ -419,5 +419,55 @@ enum WorktreeTests {
             defer { try? FileManager.default.removeItem(at: temp) }
             try expect(WorktreeManager.isSafeRoot(temp))
         },
+        TestCase("worktree: los nombres del chat se reconocen (y no rompen los de un repo llamado chat)") {
+            let session = UUID(uuidString: "6F9619FF-8B86-D011-B42D-00C04FC964FF")!
+            let name = WorktreeManager.chatWorkspaceName(repo: RepoRef(owner: "acme", name: "api"), number: 317, sessionID: session)
+            try expectEqual(name, "chat-api-317-6f9619ff-8b86-d011-b42d-00c04fc964ff")
+            for valid in [name, name + "-diff", name + ".context", name + "-diff.context",
+                          "chat-my-repo-4-6f9619ff-8b86-d011-b42d-00c04fc964ff", "chat-12-1700000000-0a1b2c3d"] {
+                try expect(WorktreeManager.isWorkspaceName(valid), valid)
+            }
+            for invalid in ["chat-api-317", "chat-api-x-6f9619ff-8b86-d011-b42d-00c04fc964ff", "chat--6f9619ff-8b86-d011-b42d-00c04fc964ff"] {
+                try expect(!WorktreeManager.isWorkspaceName(invalid), invalid)
+            }
+        },
+        TestCase("worktree (git real): el chat usa su nombre y el commit revisado aunque el PR haya avanzado") {
+            let repo = try TempGitRepo.make()
+            defer { repo.remove() }
+            // The PR gets a new commit after the review.
+            try TempGitRepo.run(repo.origin, ["checkout", "-q", "feature"])
+            try Data("más\n".utf8).write(to: repo.origin.appendingPathComponent("later.txt"))
+            try TempGitRepo.run(repo.origin, ["add", "-A"])
+            try TempGitRepo.run(repo.origin, ["commit", "-q", "-m", "later"])
+            try TempGitRepo.run(repo.origin, ["update-ref", "refs/pull/7/head", "HEAD"])
+            try TempGitRepo.run(repo.origin, ["checkout", "-q", "main"])
+
+            let m = WorktreeManager(runner: SystemProcessRunner(), gitPath: TempGitRepo.git, root: repo.root)
+            let name = WorktreeManager.chatWorkspaceName(repo: prRepoRef, number: 7, sessionID: UUID())
+            let ws = try await m.prepare(repo: prRepoRef, number: 7, baseRef: "main", localPath: repo.local.path,
+                                         name: name, pinnedHeadOid: repo.prSHA)
+            try expectEqual(ws.directory.lastPathComponent, name)
+            try expectEqual(ws.headOid, repo.prSHA)
+            try expectEqual(try TempGitRepo.run(ws.directory, ["rev-parse", "HEAD"]).trimmingCharacters(in: .whitespacesAndNewlines), repo.prSHA)
+            try expect(!exists(ws.directory.appendingPathComponent("later.txt")))
+            await m.cleanup(ws, localPath: repo.local.path)
+
+            // A commit the clone doesn't have: the PR's current head.
+            let other = try await m.prepare(repo: prRepoRef, number: 7, baseRef: "main", localPath: repo.local.path,
+                                            name: name, pinnedHeadOid: String(repeating: "e", count: 40))
+            try expect(other.headOid != repo.prSHA)
+            try expect(exists(other.directory.appendingPathComponent("later.txt")))
+            // The orphan cleanup at launch removes it (spec B.5: "al cerrar la app").
+            await m.cleanupOrphans(localPaths: [repo.local.path])
+            try expect(!exists(other.directory))
+            try expectEqual(try repo.prbarRefs(), [])
+        },
+        TestCase("worktree: el chat sin clone usa <nombre>-diff") {
+            let root = try temporaryDirectory()
+            let m = WorktreeManager(runner: FakeProcessRunner { _, _ in ok("") }, gitPath: "/usr/bin/git", root: root)
+            let ws = try await m.prepare(repo: repo, number: 7, baseRef: "main", localPath: nil, name: "chat-r-7-x")
+            try expectEqual(ws.directory.lastPathComponent, "chat-r-7-x-diff")
+            try expect(ws.isDiffOnly)
+        },
     ]
 }
