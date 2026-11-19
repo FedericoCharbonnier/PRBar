@@ -321,9 +321,3 @@ public enum ChatSchemas {
           "implement":{"type":"boolean"}}}}}}
     """
 }
-
-/// Constants of `ChatActions` that the models need (Task 4 adds the rest of the namespace).
-public enum ChatActions {
-    /// The filter's `reason` of a finding the chat added.
-    public static let addedReason = "Added in the chat"
-}
