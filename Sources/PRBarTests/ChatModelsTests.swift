@@ -35,6 +35,19 @@ enum ChatModelsTests {
             try expectEqual(comments.map(\.finding.id), ["f1", "c1"])
             try expectEqual(comments[0].body, "Edited body")
         },
+        TestCase("chat models: the collapsed sections that hold findings chosen to post open on their own") {
+            var draft = reviewDraft()
+            draft = ReviewDraft(prID: draft.prID, repo: draft.repo, number: draft.number, title: draft.title, url: draft.url,
+                                author: draft.author, headOid: draft.headOid, account: draft.account, summary: draft.summary,
+                                items: draft.items + [ReviewItem(finding: finding("f3"), keep: true, reason: nil, hiddenBy: "Style is off")])
+            var edits = ReviewEdits.initial(for: draft)
+            try expectEqual(edits.selected, ["f1"])
+            try expect(!edits.selectedInDiscarded(of: draft) && !edits.selectedInHidden(of: draft))
+            edits.selected.insert("f2")
+            try expect(edits.selectedInDiscarded(of: draft) && !edits.selectedInHidden(of: draft))
+            edits.selected = ["f3"]
+            try expect(!edits.selectedInDiscarded(of: draft) && edits.selectedInHidden(of: draft))
+        },
         TestCase("chat models: the undoable message is the last one with changes not undone") {
             var session = ChatSession(prID: "PR_1", kind: .review)
             try expectEqual(session.undoableMessageID, nil)

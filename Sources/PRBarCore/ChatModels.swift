@@ -318,6 +318,17 @@ public struct ReviewEdits: Codable, Equatable, Sendable {
     }
 
     /// The draft's findings and then the added ones, with edited titles. Position + 1 is the number (#N).
+    /// A finding discarded by the filter is chosen to post: the window opens that section (it starts collapsed, and
+    /// a reopened window mustn't hide what will be posted).
+    public func selectedInDiscarded(of draft: ReviewDraft) -> Bool {
+        items(of: draft).contains { !$0.keep && !$0.isHidden && selected.contains($0.id) }
+    }
+
+    /// The same for the findings hidden by the user's settings.
+    public func selectedInHidden(of draft: ReviewDraft) -> Bool {
+        items(of: draft).contains { $0.isHidden && selected.contains($0.id) }
+    }
+
     public func items(of draft: ReviewDraft) -> [ReviewItem] {
         (draft.items + added).map { item in
             guard let title = titles[item.id] else { return item }

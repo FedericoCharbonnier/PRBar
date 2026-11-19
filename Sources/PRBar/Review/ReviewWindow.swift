@@ -20,7 +20,7 @@ struct ReviewWindow: View {
     @State private var inlineRejected: ReviewEvent?
     @State private var result: PublishedReview?
     @State private var showDiscarded: Bool
-    @State private var showHidden = false
+    @State private var showHidden: Bool
     @State private var showsChat: Bool
     /// The panel's width, remembered between windows (320–480).
     @AppStorage("ChatPanelWidth") private var chatWidth = 360.0
@@ -43,7 +43,9 @@ struct ReviewWindow: View {
         self.close = close
         initialEdits = ReviewEdits.initial(for: draft)
         _result = State(initialValue: published)
-        _showDiscarded = State(initialValue: initialState.showsDiscarded)
+        // Reopened with discarded or hidden findings chosen to post: their section starts open.
+        _showDiscarded = State(initialValue: initialState.showsDiscarded || chat.reviewEdits.selectedInDiscarded(of: draft))
+        _showHidden = State(initialValue: chat.reviewEdits.selectedInHidden(of: draft))
         _showsChat = State(initialValue: initialState.showsChat)
         initiallyExpanded = initialState.expandedFindings
     }
