@@ -13,6 +13,15 @@ public struct RepoRef: Hashable, Codable, Sendable, Identifiable {
     public var id: String { fullName }
 }
 
+extension RepoRef {
+    /// `owner/name` → RepoRef; nil if it isn't that shape.
+    public init?(fullName: String) {
+        let parts = fullName.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty else { return nil }
+        self.init(owner: parts[0], name: parts[1])
+    }
+}
+
 public enum ReviewState: String, Codable, Sendable {
     case approved = "APPROVED"
     case changesRequested = "CHANGES_REQUESTED"

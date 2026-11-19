@@ -15,12 +15,13 @@ enum SettingsWindow {
     /// Pestañas en orden, con el tamaño de contenido de cada una: al cambiar de pestaña la ventana se anima a ese
     /// tamaño (el comportamiento estándar de `NSTabViewController` con estilo `.toolbar`).
     enum Tab: String, CaseIterable {
-        case general, claude, accounts, repos, slack
+        case general, claude, instructions, accounts, repos, slack
 
         var title: String {
             switch self {
             case .general: "General"
             case .claude: "Claude"
+            case .instructions: "Instructions"
             case .accounts: "Accounts"
             case .repos: "Repos"
             case .slack: "Slack"
@@ -31,6 +32,7 @@ enum SettingsWindow {
             switch self {
             case .general: "gearshape"
             case .claude: "sparkles"
+            case .instructions: "text.book.closed"
             case .accounts: "person.crop.circle"
             case .repos: "books.vertical"
             case .slack: "number"
@@ -41,6 +43,7 @@ enum SettingsWindow {
             switch self {
             case .general: NSSize(width: 700, height: 500)
             case .claude: NSSize(width: 700, height: 500)
+            case .instructions: NSSize(width: 700, height: 640)
             case .accounts: NSSize(width: 700, height: 300)
             case .repos: NSSize(width: 700, height: 580)
             case .slack: NSSize(width: 700, height: 620)
@@ -67,6 +70,10 @@ enum SettingsWindow {
                 tabs.addTab(tab, model: model) { GeneralTab(model: model, configStore: store) }
             case .claude:
                 tabs.addTab(tab, model: model) { ClaudeTab(model: model, configStore: store, skills: model.claudeSkills) }
+            case .instructions:
+                tabs.addTab(tab, model: model) {
+                    InstructionsTab(model: model, store: model.instructions, chat: model.instructionsChat, configStore: store)
+                }
             case .accounts:
                 tabs.addTab(tab, model: model) { AccountsTab(model: model, configStore: store) }
             case .repos:
