@@ -7,6 +7,8 @@ struct ReviewContext: Sendable {
     let orphanCleanup: Task<Void, Never>?
     /// Skills, filtro y modelo de Configuración → Claude, leídos al arrancar cada corrida.
     let claude: ClaudeSettings
+    /// The user's rules (spec E.1), read when each run starts.
+    var rules: [Rule] = []
 }
 
 /// Pipeline de la app. Las rutas de `git` y `claude` se resuelven de forma asíncrona (y pueden cambiar desde
@@ -29,7 +31,7 @@ struct LiveReviewPipeline: ReviewPipelineRunning {
         guard let claude = context.tools.claude else { throw ReviewFailure(underlying: PRBarError.toolNotFound("claude"), logURL: nil) }
         let pipeline = ReviewPipeline(
             processRunner: runner, streamingRunner: claudeRunner, tokens: tokens,
-            gitPath: git, ghPath: context.tools.gh, claudePath: claude, settings: context.claude,
+            gitPath: git, ghPath: context.tools.gh, claudePath: claude, settings: context.claude, rules: context.rules,
             logURLProvider: logURLProvider
         )
         return try await pipeline.run(request, onPhase: onPhase)

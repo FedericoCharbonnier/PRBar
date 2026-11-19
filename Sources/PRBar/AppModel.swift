@@ -88,7 +88,8 @@ final class AppModel: ObservableObject {
         runner: runner, tokens: accounts, api: api,
         context: { [weak self] in
             ReviewContext(tools: self?.tools ?? ResolvedTools(), orphanCleanup: self?.orphanCleanup,
-                          claude: self?.configStore.config.claude ?? ClaudeSettings())
+                          claude: self?.configStore.config.claude ?? ClaudeSettings(),
+                          rules: self?.instructions.rules ?? [])
         }
     )
     /// One coordinator per draft (Review or Respond): reopening a window keeps the conversation and the edits.
@@ -101,7 +102,8 @@ final class AppModel: ObservableObject {
             runner: runner, tokens: accounts, logURLProvider: { [history] in history.logURL(for: $0) },
             context: { [weak self] in
                 ReviewContext(tools: self?.tools ?? ResolvedTools(), orphanCleanup: self?.orphanCleanup,
-                              claude: self?.configStore.config.claude ?? ClaudeSettings())
+                              claude: self?.configStore.config.claude ?? ClaudeSettings(),
+                              rules: self?.instructions.rules ?? [])
             }
         ),
         onFinished: { [weak self] request, result in self?.reviewFinished(request, result) }
@@ -116,7 +118,8 @@ final class AppModel: ObservableObject {
             runner: runner, tokens: accounts, api: api, history: respondHistory,
             context: { [weak self] in
                 ReviewContext(tools: self?.tools ?? ResolvedTools(), orphanCleanup: self?.orphanCleanup,
-                              claude: self?.configStore.config.claude ?? ClaudeSettings())
+                              claude: self?.configStore.config.claude ?? ClaudeSettings(),
+                              rules: self?.instructions.rules ?? [])
             }
         ),
         history: respondHistory,
@@ -416,7 +419,9 @@ final class AppModel: ObservableObject {
         }
         reviews.dismiss(prID: item.id)
         reviewStarts[item.id] = Date()
-        reviews.enqueue(ReviewRequest(item: item, localPath: localPath(for: item), baseRef: item.pr.baseRef))
+        let ignorePaths = repoConfig(account: item.account, repo: item.pr.repo)?.ignorePaths ?? []
+        reviews.enqueue(ReviewRequest(item: item, localPath: localPath(for: item), baseRef: item.pr.baseRef,
+                                      ignorePaths: ignorePaths))
         // 👀 en el mensaje del PR en Slack (spec §17.2); no bloquea la review y sus errores van a los issues de Slack.
         let config = configStore.config
         Task { await slack.reviewStarted(item: item, config: config) }

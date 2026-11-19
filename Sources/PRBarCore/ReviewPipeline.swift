@@ -4,11 +4,14 @@ public struct ReviewRequest: Sendable {
     public let item: ClassifiedPR
     public let localPath: String?
     public let baseRef: String          // pr.baseRef
+    /// The repo's ignored paths (spec E.5).
+    public let ignorePaths: [String]
 
-    public init(item: ClassifiedPR, localPath: String?, baseRef: String) {
+    public init(item: ClassifiedPR, localPath: String?, baseRef: String, ignorePaths: [String] = []) {
         self.item = item
         self.localPath = localPath
         self.baseRef = baseRef
+        self.ignorePaths = ignorePaths
     }
 }
 
@@ -59,6 +62,7 @@ public struct ReviewPipeline: ReviewPipelineRunning {
     private let toolPaths: [String]
     private let pluginCacheDirectory: URL
     private let settings: ClaudeSettings
+    private let rules: [Rule]
     private let logURLProvider: @Sendable (UUID) -> URL
 
     /// `logURLProvider` recibe el `id` del draft. `ghPath` solo hace falta en modo solo diff. `api` trae la
@@ -68,7 +72,7 @@ public struct ReviewPipeline: ReviewPipelineRunning {
         processRunner: ProcessRunning, streamingRunner: StreamingProcessRunning, tokens: TokenProviding,
         api: GitHubAPI = GitHubClient(), gitPath: String, ghPath: String?, claudePath: String, worktreeRoot: URL = AppPaths.worktreesDir,
         pluginCacheDirectory: URL = ClaudePlugins.defaultCacheDirectory, settings: ClaudeSettings = ClaudeSettings(),
-        logURLProvider: @escaping @Sendable (UUID) -> URL
+        rules: [Rule] = [], logURLProvider: @escaping @Sendable (UUID) -> URL
     ) {
         self.streamingRunner = streamingRunner
         self.tokens = tokens
@@ -79,6 +83,7 @@ public struct ReviewPipeline: ReviewPipelineRunning {
         self.toolPaths = [gitPath, ghPath].compactMap { $0 }
         self.pluginCacheDirectory = pluginCacheDirectory
         self.settings = settings
+        self.rules = rules
         self.logURLProvider = logURLProvider
     }
 
@@ -103,9 +108,10 @@ public struct ReviewPipeline: ReviewPipelineRunning {
                 try Task.checkCancellation()
                 let reviewer = ClaudeReviewer(
                     runner: streamingRunner, claudePath: claudePath, pluginDirs: pluginDirs,
-                    toolPaths: toolPaths, redacting: [token], logURL: logURL, settings: settings
+                    toolPaths: toolPaths, redacting: [token], logURL: logURL, settings: settings, rules: rules
                 )
-                result = try await reviewer.review(pr: pr, workspace: workspace, language: language) { stage, agents in
+                result = try await reviewer.review(pr: pr, workspace: workspace, language: language,
+                                                   ignorePaths: request.ignorePaths) { stage, agents in
                     onPhase(stage == .reviewing ? .reviewing(agents: agents) : .filtering)
                 }
             } catch {
