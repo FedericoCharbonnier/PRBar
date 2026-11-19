@@ -143,7 +143,7 @@ public struct SlackClient: SlackAPI {
                 let user: String?
                 let thread_ts: String?
                 let attachments: [Attachment]?
-                let blocks: JSONValue?
+                let blocks: SlackBlockJSON?
             }
             struct Metadata: Decodable { let next_cursor: String? }
             let messages: [Message]
@@ -258,19 +258,19 @@ public struct SlackClient: SlackAPI {
 }
 
 /// JSON genérico para recorrer los `blocks` de Slack, cuyo esquema varía por tipo de bloque.
-indirect enum JSONValue: Decodable, Sendable {
+indirect enum SlackBlockJSON: Decodable, Sendable {
     case string(String)
-    case array([JSONValue])
-    case object([String: JSONValue])
+    case array([SlackBlockJSON])
+    case object([String: SlackBlockJSON])
     case other
 
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         if let string = try? container.decode(String.self) {
             self = .string(string)
-        } else if let array = try? container.decode([JSONValue].self) {
+        } else if let array = try? container.decode([SlackBlockJSON].self) {
             self = .array(array)
-        } else if let object = try? container.decode([String: JSONValue].self) {
+        } else if let object = try? container.decode([String: SlackBlockJSON].self) {
             self = .object(object)
         } else {
             self = .other
