@@ -149,6 +149,7 @@ public struct SnapshotBuilder: Sendable {
         var successes = 0
         var rateLimitedUntil: Date?
         var fetchedScopes: Set<String> = []
+        var mergeSettings: [String: RepoMergeSettings] = [:]
 
         func record(_ error: Error, account: String, repo: RepoRef?) {
             let prbarError: PRBarError = switch error {
@@ -163,12 +164,21 @@ public struct SnapshotBuilder: Sendable {
             }
         }
 
+        /// Lo de un scope que no se pudo consultar queda como estaba: sus PRs y sus ajustes de merge.
+        func carry(account: String, repo: RepoRef?) {
+            collected += carryOver(previous, account: account, repo: repo)
+            for (scope, settings) in previous?.repoMergeSettings ?? [:] where scope.hasPrefix("\(account)|") {
+                if let repo, scope != Snapshot.scope(account: account, repo: repo) { continue }
+                mergeSettings[scope] = settings
+            }
+        }
+
         // Cada repo es una consulta; una cuenta sin repos cuenta como una sola, que se resuelve con el token.
         // Solo es "falla total" si hubo consultas y ninguna salió bien.
         for account in config.accounts where account.enabled {
             // Con el rate limit encima, no se gastan más consultas en este ciclo: se conserva lo anterior.
             if rateLimitedUntil != nil {
-                collected += carryOver(previous, account: account.login, repo: nil)
+                carry(account: account.login, repo: nil)
                 continue
             }
             let token: String
@@ -177,7 +187,7 @@ public struct SnapshotBuilder: Sendable {
             } catch {
                 attempts += 1
                 record(error, account: account.login, repo: nil)
-                collected += carryOver(previous, account: account.login, repo: nil)
+                carry(account: account.login, repo: nil)
                 continue
             }
             if account.repos.isEmpty {
@@ -186,14 +196,16 @@ public struct SnapshotBuilder: Sendable {
             }
             for repoConfig in account.repos {
                 if rateLimitedUntil != nil {
-                    collected += carryOver(previous, account: account.login, repo: repoConfig.repo)
+                    carry(account: account.login, repo: repoConfig.repo)
                     continue
                 }
                 attempts += 1
                 do {
                     let result = try await api.openPullRequests(in: repoConfig.repo, token: token)
                     successes += 1
-                    fetchedScopes.insert(Snapshot.scope(account: account.login, repo: repoConfig.repo))
+                    let scope = Snapshot.scope(account: account.login, repo: repoConfig.repo)
+                    fetchedScopes.insert(scope)
+                    if let settings = result.mergeSettings { mergeSettings[scope] = settings }
                     let bases = Set(repoConfig.baseBranches.isEmpty ? [result.defaultBranch] : repoConfig.baseBranches)
                     for pr in result.pullRequests where bases.contains(pr.baseRef) {
                         if let category = ActionClassifier.classify(pr, me: account.login, watchedUsers: Set(repoConfig.watchedUsers)) {
@@ -202,7 +214,7 @@ public struct SnapshotBuilder: Sendable {
                     }
                 } catch {
                     record(error, account: account.login, repo: repoConfig.repo)
-                    collected += carryOver(previous, account: account.login, repo: repoConfig.repo)
+                    carry(account: account.login, repo: repoConfig.repo)
                 }
             }
         }
@@ -214,7 +226,8 @@ public struct SnapshotBuilder: Sendable {
             issues: issues,
             failedCompletely: failedCompletely,
             rateLimitedUntil: rateLimitedUntil,
-            fetchedScopes: fetchedScopes
+            fetchedScopes: fetchedScopes,
+            repoMergeSettings: mergeSettings
         )
     }
 

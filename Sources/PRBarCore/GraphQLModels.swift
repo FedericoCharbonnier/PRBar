@@ -5,16 +5,17 @@ enum Queries {
     query($owner: String!, $name: String!, $cursor: String) {
       repository(owner: $owner, name: $name) {
         defaultBranchRef { name }
+        squashMergeAllowed mergeCommitAllowed rebaseMergeAllowed viewerDefaultMergeMethod deleteBranchOnMerge viewerPermission
         pullRequests(states: OPEN, first: 50, after: $cursor, orderBy: {field: UPDATED_AT, direction: DESC}) {
           pageInfo { hasNextPage endCursor }
           nodes {
-            number title url isDraft createdAt updatedAt additions deletions
-            baseRefName headRefName headRefOid reviewDecision
+            id number title url isDraft createdAt updatedAt additions deletions
+            baseRefName headRefName headRefOid reviewDecision mergeable mergeStateStatus viewerCanUpdate
             author { login avatarUrl __typename }
             reviewRequests(first: 20) { nodes { requestedReviewer { ... on User { login } } } }
             reviews(last: 50) { nodes { author { login __typename } state submittedAt commit { oid } } }
             comments(last: 50) { nodes { author { login __typename } createdAt } }
-            commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state } } } }
+            commits(last: 1) { totalCount nodes { commit { committedDate statusCheckRollup { state } } } }
           }
         }
       }
@@ -99,6 +100,23 @@ struct PRQueryData: Decodable {
     struct Repository: Decodable {
         let defaultBranchRef: NameNode?
         let pullRequests: Connection
+        // Ajustes de merge (spec F.2). Opcionales: si faltan, no se sabe.
+        let squashMergeAllowed: Bool?
+        let mergeCommitAllowed: Bool?
+        let rebaseMergeAllowed: Bool?
+        let viewerDefaultMergeMethod: String?
+        let deleteBranchOnMerge: Bool?
+        let viewerPermission: String?
+
+        /// `nil` si la respuesta no trae ninguno de los métodos (una respuesta vieja o recortada).
+        var mergeSettings: RepoMergeSettings? {
+            guard squashMergeAllowed != nil || mergeCommitAllowed != nil || rebaseMergeAllowed != nil else { return nil }
+            return RepoMergeSettings(
+                squashAllowed: squashMergeAllowed ?? false, mergeCommitAllowed: mergeCommitAllowed ?? false,
+                rebaseAllowed: rebaseMergeAllowed ?? false, viewerDefault: MergeMethod(graphQL: viewerDefaultMergeMethod),
+                deleteBranchOnMerge: deleteBranchOnMerge ?? false, viewerPermission: viewerPermission
+            )
+        }
     }
     struct NameNode: Decodable { let name: String }
     struct Connection: Decodable {
@@ -132,7 +150,12 @@ struct PRNode: Decodable {
         }
         let commit: Commit
     }
+    struct CommitConnection: Decodable {
+        let totalCount: Int?
+        let nodes: [CommitWrapper?]
+    }
 
+    let id: String?
     let number: Int
     let title: String
     let url: URL
@@ -145,11 +168,14 @@ struct PRNode: Decodable {
     let headRefName: String
     let headRefOid: String
     let reviewDecision: String?
+    let mergeable: String?
+    let mergeStateStatus: String?
+    let viewerCanUpdate: Bool?
     let author: ActorNode?
     let reviewRequests: Nodes<ReviewRequest>
     let reviews: Nodes<Review>
     let comments: Nodes<Comment>
-    let commits: Nodes<CommitWrapper>
+    let commits: CommitConnection
 
     func toPullRequest(repo: RepoRef) -> PullRequest {
         let commit = commits.nodes.compactMap { $0 }.last?.commit
@@ -170,7 +196,11 @@ struct PRNode: Decodable {
                 guard let node else { return nil }
                 return PRComment(author: node.author?.login ?? "ghost", isBot: node.author?.isBot ?? false, createdAt: node.createdAt)
             },
-            requestedReviewers: reviewRequests.nodes.compactMap { $0?.requestedReviewer?.login }
+            requestedReviewers: reviewRequests.nodes.compactMap { $0?.requestedReviewer?.login },
+            merge: PRMergeState(
+                nodeID: id, mergeable: MergeableState(graphQL: mergeable), status: MergeStateStatus(graphQL: mergeStateStatus),
+                viewerCanUpdate: viewerCanUpdate, commitCount: commits.totalCount
+            )
         )
     }
 }

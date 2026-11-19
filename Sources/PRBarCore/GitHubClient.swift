@@ -15,10 +15,13 @@ public struct GitHubUser: Hashable, Codable, Sendable {
 public struct RepoPRs: Equatable, Sendable {
     public let defaultBranch: String
     public let pullRequests: [PullRequest]
+    /// Métodos permitidos y método por defecto de la cuenta (spec F.2); `nil` si la respuesta no los trajo.
+    public let mergeSettings: RepoMergeSettings?
 
-    public init(defaultBranch: String, pullRequests: [PullRequest]) {
+    public init(defaultBranch: String, pullRequests: [PullRequest], mergeSettings: RepoMergeSettings? = nil) {
         self.defaultBranch = defaultBranch
         self.pullRequests = pullRequests
+        self.mergeSettings = mergeSettings
     }
 }
 
@@ -121,6 +124,7 @@ public struct GitHubClient: GitHubAPI {
         var cursor: String?
         var pullRequests: [PullRequest] = []
         var defaultBranch = "main"
+        var mergeSettings: RepoMergeSettings?
         for _ in 0..<Self.maxPRPages {
             let data: PRQueryData = try await graphQL(
                 Queries.openPullRequests,
@@ -131,11 +135,12 @@ public struct GitHubClient: GitHubAPI {
                 throw PRBarError.graphQL("Couldn't find the repo \(repo.fullName)")
             }
             defaultBranch = repository.defaultBranchRef?.name ?? defaultBranch
+            mergeSettings = mergeSettings ?? repository.mergeSettings
             pullRequests += repository.pullRequests.nodes.compactMap { $0?.toPullRequest(repo: repo) }
             guard repository.pullRequests.pageInfo.hasNextPage, let next = repository.pullRequests.pageInfo.endCursor else { break }
             cursor = next
         }
-        return RepoPRs(defaultBranch: defaultBranch, pullRequests: pullRequests)
+        return RepoPRs(defaultBranch: defaultBranch, pullRequests: pullRequests, mergeSettings: mergeSettings)
     }
 
     public func viewerRepositories(token: String) async throws -> [RepoRef] {
