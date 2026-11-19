@@ -34,6 +34,11 @@ struct RespondHistoryDetailView: View {
                         RespondRepliesList(record: record)
                     }
                 }
+                if let chat = record.chat, !chat.messages.isEmpty {
+                    ChatTranscriptSection(session: chat, summary: { message in
+                        ChatActions.summary(message.changes) { id in draft.items.firstIndex { $0.id == id }.map { $0 + 1 } }
+                    }, logURL: logURL)
+                }
             }
             .padding(.horizontal, 22)
             .padding(.vertical, 16)

@@ -10,6 +10,8 @@ struct HistoryDetailView: View {
     let reopen: () -> Void
 
     private var draft: ReviewDraft { record.draft }
+    /// The findings as the chat left them (edited titles, added ones), or the draft's.
+    private var items: [ReviewItem] { draft.edits?.items(of: draft) ?? draft.items }
 
     var body: some View {
         ScrollView {
@@ -32,6 +34,11 @@ struct HistoryDetailView: View {
                     }
                 }
                 findingSections
+                if let chat = draft.chat, !chat.messages.isEmpty {
+                    ChatTranscriptSection(session: chat, summary: { message in
+                        ChatActions.summary(message.changes) { id in draft.edits?.number(of: id, in: draft) }
+                    }, logURL: logURL)
+                }
             }
             .padding(.horizontal, 22)
             .padding(.vertical, 16)
@@ -64,8 +71,8 @@ struct HistoryDetailView: View {
     @ViewBuilder
     private var findingSections: some View {
         let (main, rest): ([ReviewItem], [ReviewItem]) = record.status == .published
-            ? (draft.items.filter { record.published[$0.id] != nil }, draft.items.filter { record.published[$0.id] == nil })
-            : (draft.items.filter(\.keep), draft.items.filter { !$0.keep })
+            ? (items.filter { record.published[$0.id] != nil }, items.filter { record.published[$0.id] == nil })
+            : (items.filter(\.keep), items.filter { !$0.keep })
         if !main.isEmpty {
             section("\(record.status == .published ? "Posted" : "Findings") (\(main.count))") {
                 ForEach(Array(main.enumerated()), id: \.element.id) { index, item in
