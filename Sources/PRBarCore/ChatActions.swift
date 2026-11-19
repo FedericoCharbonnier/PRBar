@@ -138,11 +138,92 @@ public enum ChatActions {
     /// The paths of the new version in a unified diff (`+++ b/<path>`; deleted files have `/dev/null`).
     public static func files(inDiff diff: String) -> Set<String> {
         var files: Set<String> = []
-        for line in diff.split(separator: "\n", omittingEmptySubsequences: true) where line.hasPrefix("+++ b/") {
-            let path = line.dropFirst(6).trimmingCharacters(in: .whitespaces)
-            if !path.isEmpty { files.insert(path) }
+        // Per file: the header (`diff --git` up to the first `@@`) says the new path; hunk lines are content, even
+        // when they look like `+++ b/x`. `+++ /dev/null` (deleted) adds nothing.
+        var inHeader = false
+        var headerPath: String?
+        var newPath: String?
+        var deleted = false
+        func finish() {
+            if inHeader, !deleted, let path = newPath ?? headerPath, !path.isEmpty { files.insert(path) }
+            inHeader = false
         }
+        for raw in diff.split(separator: "\n", omittingEmptySubsequences: true) {
+            let line = Substring(raw.hasSuffix("\r") ? raw.dropLast() : raw)
+            if line.hasPrefix("diff --git ") {
+                finish()
+                inHeader = true
+                headerPath = newSide(ofHeader: line.dropFirst("diff --git ".count))
+                newPath = nil
+                deleted = false
+                continue
+            }
+            guard inHeader else { continue }
+            if line.hasPrefix("@@") {
+                finish()
+            } else if line.hasPrefix("+++ ") {
+                let value = gitPath(line.dropFirst(4))
+                if value == "/dev/null" { deleted = true } else if value.hasPrefix("b/") { newPath = String(value.dropFirst(2)) }
+            } else if line.hasPrefix("deleted file mode") {
+                deleted = true
+            } else if line.hasPrefix("rename to ") || line.hasPrefix("copy to ") {
+                newPath = gitPath(line.drop { $0 != " " }.dropFirst().drop { $0 != " " }.dropFirst())
+            }
+        }
+        finish()
         return files
+    }
+
+    /// The `b/` path of `a/X b/Y` (both quoted or not). Unquoted, only when X == Y (otherwise the split is ambiguous).
+    private static func newSide(ofHeader rest: Substring) -> String? {
+        if rest.hasPrefix("\"") {
+            // `"a/X" "b/Y"` or `"a/X" b/Y`: the second token starts after the first closing quote.
+            var escaped = false
+            var index = rest.index(after: rest.startIndex)
+            while index < rest.endIndex {
+                let character = rest[index]
+                if escaped { escaped = false } else if character == "\\" { escaped = true } else if character == "\"" { break }
+                index = rest.index(after: index)
+            }
+            guard index < rest.endIndex else { return nil }
+            let second = gitPath(rest[rest.index(after: index)...].drop { $0 == " " })
+            return second.hasPrefix("b/") ? String(second.dropFirst(2)) : nil
+        }
+        if let quote = rest.range(of: " \"b/") {
+            return String(gitPath(rest[rest.index(after: quote.lowerBound)...]).dropFirst(2))
+        }
+        let text = String(rest)
+        guard text.hasPrefix("a/"), (text.count - 5) % 2 == 0 else { return nil }
+        let length = (text.count - 5) / 2
+        let old = String(text.dropFirst(2).prefix(length))
+        return text == "a/\(old) b/\(old)" ? old : nil
+    }
+
+    /// A path as git writes it in a diff: C-quoted (`"sp\303\251cial"`) if it has special characters, otherwise
+    /// as is, without the tab git appends to paths with spaces.
+    private static func gitPath(_ raw: Substring) -> String {
+        guard raw.hasPrefix("\""), raw.count >= 2, let close = raw.lastIndex(of: "\""), close > raw.startIndex else {
+            return String(raw.hasSuffix("\t") ? raw.dropLast() : raw)
+        }
+        var bytes: [UInt8] = []
+        var iterator = Array(raw[raw.index(after: raw.startIndex)..<close].utf8).makeIterator()
+        while let byte = iterator.next() {
+            guard byte == UInt8(ascii: "\\"), let next = iterator.next() else { bytes.append(byte); continue }
+            switch next {
+            case UInt8(ascii: "n"): bytes.append(10)
+            case UInt8(ascii: "t"): bytes.append(9)
+            case UInt8(ascii: "r"): bytes.append(13)
+            case UInt8(ascii: "0")...UInt8(ascii: "7"):
+                var value = Int(next - UInt8(ascii: "0"))
+                for _ in 0..<2 {
+                    guard let digit = iterator.next() else { break }
+                    value = value * 8 + Int(digit - UInt8(ascii: "0"))
+                }
+                bytes.append(UInt8(truncatingIfNeeded: value))
+            default: bytes.append(next)
+            }
+        }
+        return String(decoding: bytes, as: UTF8.self)
     }
 
     /// "Edited #2, added #4, changed 2 files" (spec B.1). `number` gives `#N` of a finding (nil = show the id).

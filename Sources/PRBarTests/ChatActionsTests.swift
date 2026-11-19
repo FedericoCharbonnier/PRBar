@@ -124,6 +124,31 @@ enum ChatActionsTests {
             """
             try expectEqual(ChatActions.files(inDiff: diff), ["src/a.ts", "dir/new file.ts"])
         },
+        TestCase("chat actions: files in the diff ignore hunk lines and read quoted, binary and renamed paths") {
+            let diff = [
+                "diff --git a/src/a.ts b/src/a.ts",
+                "--- a/src/a.ts",
+                "+++ b/src/a.ts",
+                "@@ -1,2 +1,2 @@",
+                "-x",
+                "+++ b/evil.ts",
+                "--- a/also-evil.ts",
+                " context",
+                #"diff --git "a/sp\303\251cial \"q\".ts" "b/sp\303\251cial \"q\".ts""#,
+                #"--- "a/sp\303\251cial \"q\".ts""#,
+                #"+++ "b/sp\303\251cial \"q\".ts""#,
+                "@@ -1 +1 @@",
+                "-a",
+                "+b",
+                "diff --git a/img.png b/img.png",
+                "Binary files a/img.png and b/img.png differ",
+                "diff --git a/old name.ts b/new name.ts",
+                "similarity index 100%",
+                "rename from old name.ts",
+                "rename to new name.ts",
+            ].joined(separator: "\n")
+            try expectEqual(ChatActions.files(inDiff: diff), ["src/a.ts", "spécial \"q\".ts", "img.png", "new name.ts"])
+        },
         TestCase("chat actions: the summary groups changes and uses #N") {
             let numbers = ["f2": 2, "c1": 4, "f1": 1]
             let summary = ChatActions.summary([.findingEdited(id: "f2"), .findingEdited(id: "f2"), .findingAdded(id: "c1"),

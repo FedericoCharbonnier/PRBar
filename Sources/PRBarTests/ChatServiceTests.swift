@@ -89,7 +89,7 @@ enum ChatServiceTests {
             let context = root.appendingPathComponent(directory.lastPathComponent + ".context", isDirectory: true)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             try FileManager.default.createDirectory(at: context, withIntermediateDirectories: true)
-            try Data("+++ b/src/a.ts\n".utf8).write(to: context.appendingPathComponent("pr.diff"))
+            try Data("diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-x\n+y\n".utf8).write(to: context.appendingPathComponent("pr.diff"))
             var session = ChatSession(prID: "PR_1", kind: .review)
             session.worktreePath = directory.path
             session.worktreeRefs = ["refs/prbar/pr-7-0a1b2c3d", "refs/prbar/base-7-0a1b2c3d"]
