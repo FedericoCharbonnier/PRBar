@@ -151,6 +151,9 @@ final class AppModel: ObservableObject {
         activeJobs: { [weak self] in self?.activeJobCount ?? 0 },
         cancelJobs: { [weak self] in self?.cancelJobsForUpdate() }
     )
+    /// Publicaciones en GitHub (review) y Slack en curso: una actualización las espera (spec D.3). Las de Responder
+    /// ya cuentan por su fase (`pushing`).
+    let postings: InFlightCounter
     /// Limpieza de worktrees huérfanos del arranque; cada review la espera antes de crear el suyo.
     private var orphanCleanup: Task<Void, Never>?
     /// Cuándo se pidió cada review (por prID), para el `ReviewRecord`.
@@ -183,6 +186,8 @@ final class AppModel: ObservableObject {
         let notifications = services.notifications
         let configStore = services.configStore
         let slack = services.slack
+        let postings = InFlightCounter()
+        self.postings = postings
         self.runner = runner
         self.accounts = services.accounts
         self.api = services.api
@@ -207,7 +212,7 @@ final class AppModel: ObservableObject {
                 notifications?.deliver(
                     NotificationPlanner.plan(previous: previous, current: next, settings: configStore.config.notifications)
                 )
-                Task { await slack.process(snapshot: next, config: configStore.config) }
+                Task { await postings.track { await slack.process(snapshot: next, config: configStore.config) } }
             }
         )
         guard startsServices else { return }
@@ -355,7 +360,7 @@ final class AppModel: ObservableObject {
     func reprocessSlack() {
         let snapshot = prStore.snapshot
         let config = configStore.config
-        Task { await slack.reprocess(snapshot: snapshot, config: config) }
+        Task { await postings.track { await slack.reprocess(snapshot: snapshot, config: config) } }
     }
 
     func setLaunchAtLogin(_ enabled: Bool) {
@@ -445,7 +450,7 @@ final class AppModel: ObservableObject {
                                       ignorePaths: ignorePaths))
         // 👀 en el mensaje del PR en Slack (spec §17.2); no bloquea la review y sus errores van a los issues de Slack.
         let config = configStore.config
-        Task { await slack.reviewStarted(item: item, config: config) }
+        Task { await postings.track { await slack.reviewStarted(item: item, config: config) } }
     }
 
     func cancelReview(prID: String) {
@@ -558,6 +563,16 @@ final class AppModel: ObservableObject {
     func publish(
         draft: ReviewDraft, selected: [SelectedComment], general: String, event: ReviewEvent, allInBody: Bool = false,
         userDiscarded: [ReviewItem] = []
+    ) async throws -> PublishedReview {
+        try await postings.track {
+            try await publishNow(draft: draft, selected: selected, general: general, event: event, allInBody: allInBody,
+                                 userDiscarded: userDiscarded)
+        }
+    }
+
+    private func publishNow(
+        draft: ReviewDraft, selected: [SelectedComment], general: String, event: ReviewEvent, allInBody: Bool,
+        userDiscarded: [ReviewItem]
     ) async throws -> PublishedReview {
         let token = try await accounts.token(for: draft.account)
         let lineMap: DiffLineMap

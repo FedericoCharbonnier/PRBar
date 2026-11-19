@@ -39,14 +39,15 @@ extension AppModel {
         updates.skip(release)
     }
 
-    /// Reviews, análisis, implementaciones, tests y publicaciones de Responder en cola o corriendo, y los turnos de
-    /// chat.
+    /// Reviews, análisis, implementaciones, tests y publicaciones de Responder en cola o corriendo, los turnos de
+    /// chat y las publicaciones en GitHub (review) y Slack en curso.
     var activeJobCount: Int {
         reviews.phases.values.filter(\.isActive).count
             + respond.phases.values.filter(\.isActive).count
             + respond.runningTests.count
             + runningChats.count
             + (instructionsChat.isRunning ? 1 : 0)
+            + postings.count
     }
 
     /// "Cancel Jobs and Update": cancela todo salvo las publicaciones/pushes en curso (`RespondQueue.cancel` no las

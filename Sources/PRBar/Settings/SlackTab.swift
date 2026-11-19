@@ -185,7 +185,7 @@ struct SlackTab: View {
         selfTestSteps = []
         Task {
             defer { selfTestRunning = false }
-            selfTestSteps = await slack.sendSelfTest(logURL: AppPaths.slackConnectorLog)
+            selfTestSteps = await model.postings.track { await slack.sendSelfTest(logURL: AppPaths.slackConnectorLog) }
         }
     }
 

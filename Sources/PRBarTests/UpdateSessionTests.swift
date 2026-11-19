@@ -104,3 +104,33 @@ enum UpdateSessionTests {
         },
     ]
 }
+
+@MainActor
+enum InFlightCounterTests {
+    static let cases: [TestCase] = [
+        TestCase("in-flight counter: cuenta mientras corre y descuenta al terminar o fallar") { @MainActor in
+            let counter = InFlightCounter()
+            try expectEqual(counter.count, 0)
+            let inside = await counter.track { counter.count }
+            try expectEqual(inside, 1)
+            try expectEqual(counter.count, 0)
+            _ = try await expectThrows { try await counter.track { throw InstallBoom() } }
+            try expectEqual(counter.count, 0)
+        },
+        TestCase("in-flight counter: varias a la vez") { @MainActor in
+            let counter = InFlightCounter()
+            let release = Box(false)
+            let task = Task { @MainActor in
+                await counter.track {
+                    while !release.value { try? await Task.sleep(for: .milliseconds(2)) }
+                }
+            }
+            while counter.count == 0 { try await Task.sleep(for: .milliseconds(1)) }
+            let nested = await counter.track { counter.count }
+            try expectEqual(nested, 2)
+            release.value = true
+            await task.value
+            try expectEqual(counter.count, 0)
+        },
+    ]
+}
