@@ -155,6 +155,13 @@ final class AppModel: ObservableObject {
     /// Publicaciones en GitHub (review) y Slack en curso: una actualización las espera (spec D.3). Las de Responder
     /// ya cuentan por su fase (`pushing`).
     let postings: InFlightCounter
+    /// Merges de Ready to Merge (spec F.3). `lazy` por lo mismo que `reviews`. Mientras se instala una actualización
+    /// no empieza ninguno (`jobsBlockedReason`).
+    private(set) lazy var merges = MergeQueue(
+        api: api, tokens: accounts,
+        blockedReason: { [weak self] in self?.jobsBlockedReason },
+        onMerged: { [weak self] completion in self?.mergeFinished(completion) }
+    )
     /// Limpieza de worktrees huérfanos del arranque; cada review la espera antes de crear el suyo.
     private var orphanCleanup: Task<Void, Never>?
     /// Cuándo se pidió cada review (por prID), para el `ReviewRecord`.

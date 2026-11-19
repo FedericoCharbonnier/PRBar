@@ -36,15 +36,19 @@ public final class MergeQueue: ObservableObject {
     private let api: GitHubAPI
     private let tokens: TokenProviding
     private let now: () -> Date
+    /// Por qué no se puede empezar un merge ahora (spec D.3: mientras se instala una actualización); `nil` = se puede.
+    private let blockedReason: @MainActor () -> String?
     private let onMerged: @MainActor (MergeCompletion) -> Void
 
     public init(
         api: GitHubAPI, tokens: TokenProviding, now: @escaping () -> Date = { Date() },
+        blockedReason: @escaping @MainActor () -> String? = { nil },
         onMerged: @escaping @MainActor (MergeCompletion) -> Void = { _ in }
     ) {
         self.api = api
         self.tokens = tokens
         self.now = now
+        self.blockedReason = blockedReason
         self.onMerged = onMerged
     }
 
@@ -58,6 +62,7 @@ public final class MergeQueue: ObservableObject {
         case .merged?: return .failure(.alreadyMerged)
         default: break
         }
+        if let reason = blockedReason() { return fail(prID, method: method, .blocked(reason)) }
         guard let nodeID = item.pr.merge.nodeID else { return fail(prID, method: method, .missingMergeData) }
         phases[prID] = .merging(method)
         do {

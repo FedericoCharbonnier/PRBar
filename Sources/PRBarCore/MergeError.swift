@@ -10,6 +10,8 @@ public enum MergeError: Error, Equatable, Sendable, LocalizedError {
     case alreadyMerged
     /// El PR no tiene node ID (un `state.json` viejo): hay que refrescar.
     case missingMergeData
+    /// No se puede empezar ahora (p. ej. se está instalando una actualización); el texto es el motivo.
+    case blocked(String)
     case github(PRBarError)
     case other(String)
 
@@ -21,6 +23,7 @@ public enum MergeError: Error, Equatable, Sendable, LocalizedError {
         case .alreadyInProgress: "This PR is already being merged."
         case .alreadyMerged: "This PR was already merged."
         case .missingMergeData: "PRBar doesn’t have this PR’s merge data yet — refresh and try again."
+        case .blocked(let reason): reason
         case .github(let error): error.localizedDescription
         case .other(let message): "GitHub error: \(message)"
         }

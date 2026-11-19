@@ -96,5 +96,19 @@ enum MergeQueueTests {
             let pruned = await q.phases
             try expectEqual(pruned, [:])
         },
+        TestCase("merge queue: mientras se instala una actualización no llama a GitHub") {
+            let api = FakeAPI()
+            let reason = Box<String?>("Installing an update")
+            let q = await MergeQueue(api: api, tokens: FakeTokens(), now: { t0 }, blockedReason: { reason.value })
+            let result = await q.merge(ready(), method: .squash)
+            try expectEqual(result, .failure(.blocked("Installing an update")))
+            try expectEqual(api.mergeCalls.value.count, 0)
+            let phases = await q.phases
+            try expectEqual(phases["o/r#7"], .failed(method: .squash, message: "Installing an update"))
+            reason.value = nil
+            await q.dismiss(prID: "o/r#7")
+            _ = await q.merge(ready(), method: .squash)
+            try expectEqual(api.mergeCalls.value.count, 1)
+        },
     ]
 }
