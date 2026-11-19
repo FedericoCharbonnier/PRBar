@@ -286,7 +286,7 @@ private final class SnapshotSession {
         let sizes: [SettingsWindow.Tab: NSSize] = [
             .general: NSSize(width: 700, height: 880),
             .claude: NSSize(width: 700, height: 2100),
-            .instructions: NSSize(width: 700, height: 1140),
+            .instructions: NSSize(width: 700, height: 1330),
             .repos: NSSize(width: 700, height: 1080),
             .slack: NSSize(width: 700, height: 1180),
         ]

@@ -360,7 +360,8 @@ struct SnapshotFixtures {
 
     static let styleRuleID = UUID(uuidString: "0B1C2D3E-4F50-4617-8293-A4B5C6D7E8F9")!
 
-    /// Four rules (global and per repo, one off) and an instructions chat that added one.
+    /// Five rules (global, per repo with one off, and one of a repo that isn't configured) and an instructions chat that
+    /// added one.
     var instructions: InstructionsFile {
         let rules = [
             Rule(id: Self.styleRuleID, scope: .global, appliesTo: [.review],
@@ -374,6 +375,10 @@ struct SnapshotFixtures {
             Rule(id: UUID(uuidString: "3E4F5061-7283-494A-B5C6-D7E8F90A1B2C")!, scope: .repo("acme/api"), appliesTo: [.review],
                  text: "Errors go through AppError; flag raw throws in handlers.", source: .manual, createdAt: date(days: -8),
                  enabled: false),
+            // A repo that isn't configured: its rule shows under "Other Repos".
+            Rule(id: UUID(uuidString: "50617283-94A5-4B6C-D7E8-F90A1B2C3D4E")!,
+                 scope: .repo("acme/legacy-site"), appliesTo: [.review],
+                 text: "Only flag security issues: this site is frozen.", source: .manual, createdAt: date(days: -40)),
         ]
         var chat = InstructionsChat()
         chat.claudeSessionID = UUID(uuidString: "4F506172-8394-4A5B-C6D7-E8F90A1B2C3D")

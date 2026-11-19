@@ -221,6 +221,32 @@ public enum RuleText {
 }
 
 /// The user's rules in a prompt (spec E.1): a delimited section, apart from the PR's content.
+/// The sections of Settings › Instructions (spec E.2): the global rules, one section per configured repo (in
+/// `configuredRepos`' order, even if empty) and "Other repos": rules of a repo that isn't configured or whose account
+/// is off. Those still apply to that repo's PRs, so they're never hidden. Repos are compared without case, like
+/// `RuleScope.covers`.
+public struct RuleSections: Equatable, Sendable {
+    public struct RepoRules: Equatable, Sendable {
+        public let repo: String
+        public let rules: [Rule]
+    }
+
+    public let global: [Rule]
+    public let repos: [RepoRules]
+    public let other: [Rule]
+
+    public init(_ rules: [Rule], configuredRepos: [String]) {
+        global = rules.filter { $0.scope == .global }
+        repos = configuredRepos.map { repo in
+            RepoRules(repo: repo, rules: rules.filter { $0.scope.repo?.caseInsensitiveCompare(repo) == .orderedSame })
+        }
+        other = rules.filter { rule in
+            guard let name = rule.scope.repo else { return false }
+            return !configuredRepos.contains { $0.caseInsensitiveCompare(name) == .orderedSame }
+        }
+    }
+}
+
 public enum RulesPrompt {
     public static let heading = "User rules (from the PRBar user, follow them)"
     public static let maxCharacters = 8000

@@ -2,8 +2,9 @@ import AppKit
 import PRBarCore
 import SwiftUI
 
-/// Settings › Instructions (spec E.2): the rules PRBar adds to Claude's prompts, grouped (Global, then one section
-/// per configured repo), the suggestions from what you discard (E.4) and the instructions chat.
+/// Settings › Instructions (spec E.2): the rules PRBar adds to Claude's prompts, grouped (Global, one section per
+/// configured repo and "Other repos" for the rest: `RuleSections`), the suggestions from what you discard (E.4) and
+/// the instructions chat.
 struct InstructionsTab: View {
     @ObservedObject var model: AppModel
     @ObservedObject var store: InstructionsStore
@@ -20,8 +21,10 @@ struct InstructionsTab: View {
                         ForEach(suggestions) { RuleSuggestionCard(model: model, suggestion: $0) }
                     }
                 }
-                ruleSection(.global)
-                ForEach(model.configuredRepos, id: \.self) { ruleSection(.repo($0)) }
+                let sections = RuleSections(store.rules, configuredRepos: model.configuredRepos)
+                ruleSection(.global, rules: sections.global)
+                ForEach(sections.repos, id: \.repo) { ruleSection(.repo($0.repo), rules: $0.rules) }
+                if !sections.other.isEmpty { otherReposSection(sections.other) }
             }
             .formStyle(.grouped)
             .toggleStyle(.switch)
@@ -48,9 +51,8 @@ struct InstructionsTab: View {
         }
     }
 
-    private func ruleSection(_ scope: RuleScope) -> some View {
-        let rules = store.rules.filter { $0.scope == scope }
-        return Section {
+    private func ruleSection(_ scope: RuleScope, rules: [Rule]) -> some View {
+        Section {
             ForEach(rules) { rule in
                 RuleRow(rule: rule, isHighlighted: chat.highlighted.contains(rule.id.uuidString), model: model)
             }
@@ -65,6 +67,21 @@ struct InstructionsTab: View {
             }
         }
     }
+
+    /// Rules of repos that aren't configured (or whose account is off): they still apply to that repo's PRs.
+    private func otherReposSection(_ rules: [Rule]) -> some View {
+        Section {
+            ForEach(rules) { rule in
+                RuleRow(rule: rule, isHighlighted: chat.highlighted.contains(rule.id.uuidString), model: model, showsRepo: true)
+            }
+        } header: {
+            Text("Other Repos")
+        } footer: {
+            Text("These repos aren’t in your settings, or their account is off. Their rules still apply to those repos’ PRs.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
 }
 
 /// One rule: text editable inline, Review/Fixes chips, the switch, delete, its origin and date.
@@ -72,6 +89,8 @@ private struct RuleRow: View {
     let rule: Rule
     let isHighlighted: Bool
     let model: AppModel
+    /// "Other Repos": the rule's repo, which no section header says.
+    var showsRepo = false
 
     @State private var text = ""
     @State private var error: String?
@@ -111,6 +130,11 @@ private struct RuleRow: View {
                     StageChip(stage: stage, isOn: rule.appliesTo.contains(stage)) { toggle(stage) }
                 }
                 Spacer()
+                if showsRepo, let repo = rule.scope.repo {
+                    Text(repo)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Text(ReviewDates.ago(rule.updatedAt))
                     .font(.caption)
                     .foregroundStyle(.tertiary)
