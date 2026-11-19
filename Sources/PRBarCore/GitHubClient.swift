@@ -74,15 +74,23 @@ public struct PRFeedback: Equatable, Sendable {
 /// What `GET /repos/{o}/{r}/pulls/{n}` gives cheaply and the 2-minute refresh doesn't bring: the description.
 /// Fetched on demand when a review or a respond analysis starts.
 public struct PRDetails: Equatable, Sendable {
+    /// Open, closed without merging, or merged.
+    public enum State: Equatable, Sendable { case open, closed, merged }
+
     public let title: String
     /// The PR description (Markdown); empty if there is none.
     public let body: String
     public let headOid: String?
+    /// `nil` if GitHub didn't say.
+    public let state: State?
+    public let mergedAt: Date?
 
-    public init(title: String, body: String, headOid: String?) {
+    public init(title: String, body: String, headOid: String?, state: State? = nil, mergedAt: Date? = nil) {
         self.title = title
         self.body = body
         self.headOid = headOid
+        self.state = state
+        self.mergedAt = mergedAt
     }
 }
 
@@ -242,11 +250,20 @@ public struct GitHubClient: GitHubAPI {
             let title: String?
             let body: String?
             let head: Head?
+            let state: String?
+            let merged: Bool?
+            let merged_at: Date?
         }
         let data = try await restGET("/repos/\(repo.owner)/\(repo.name)/pulls/\(number)", token: token)
         do {
             let pull = try JSONCoding.decoder.decode(Pull.self, from: data)
-            return PRDetails(title: pull.title ?? "", body: pull.body ?? "", headOid: pull.head?.sha)
+            let state: PRDetails.State? = if pull.merged == true || pull.merged_at != nil {
+                .merged
+            } else {
+                switch pull.state { case "open": .open; case "closed": .closed; default: nil }
+            }
+            return PRDetails(title: pull.title ?? "", body: pull.body ?? "", headOid: pull.head?.sha, state: state,
+                             mergedAt: pull.merged_at)
         } catch {
             throw PRBarError.invalidResponse("PR details: \(error)")
         }

@@ -52,6 +52,29 @@ enum MergeMutationTests {
             let error = try await mergeError(errorBody("Something odd", type: "INTERNAL"))
             try expectEqual(error as? MergeError, .other("Something odd"))
         },
+        TestCase("merge mutation: repo con merge queue → mergeQueueRequired con un texto claro") {
+            let message = "Changes must be made through the merge queue"
+            let error = try await mergeError(errorBody(message, type: "UNPROCESSABLE"))
+            try expectEqual(error as? MergeError, .mergeQueueRequired(message))
+            try expectEqual(error.localizedDescription,
+                            "This repo uses a merge queue — add the PR to the queue on GitHub. (\(message))")
+        },
+        TestCase("merge mutation: precedencia de classify (head > merge queue > permiso > no mergeable > otro)") {
+            try expectEqual(MergeError.classify(messages: ["Head branch was modified", "merge queue"], types: ["FORBIDDEN"]), .headChanged)
+            try expectEqual(MergeError.classify(messages: ["Required by the merge queue"], types: ["FORBIDDEN"]),
+                            .mergeQueueRequired("Required by the merge queue"))
+            try expectEqual(MergeError.classify(messages: ["Not allowed"], types: ["FORBIDDEN"]), .forbidden("Not allowed"))
+            try expectEqual(MergeError.classify(messages: ["You need permission", "not mergeable"], types: ["UNPROCESSABLE"]),
+                            .forbidden("You need permission; not mergeable"))
+            try expectEqual(MergeError.classify(messages: ["Base branch was deleted"], types: ["UNPROCESSABLE"]),
+                            .notMergeable("Base branch was deleted"))
+            try expectEqual(MergeError.classify(messages: ["Expected head sha mismatch"], types: [nil]), .headChanged)
+            try expectEqual(MergeError.classify(messages: ["Boom"], types: [nil]), .other("Boom"))
+        },
+        TestCase("merge mutation: textos de los errores nuevos") {
+            try expectEqual(MergeError.unavailable("Branch is behind main").localizedDescription, "Branch is behind main")
+            try expectEqual(MergeError.noLongerOpen.localizedDescription, "This PR is no longer open.")
+        },
         TestCase("merge mutation: rate limit y token inválido siguen siendo PRBarError") {
             let limited = FakeTransport([(200, ["x-ratelimit-reset": "1800000900"], errorBody("API rate limit exceeded", type: "RATE_LIMITED"))])
             let rateError = try await expectThrows { _ = try await merge(limited) }

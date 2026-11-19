@@ -12,6 +12,13 @@ public enum MergeError: Error, Equatable, Sendable, LocalizedError {
     case missingMergeData
     /// No se puede empezar ahora (p. ej. se está instalando una actualización); el texto es el motivo.
     case blocked(String)
+    /// PRBar no lo manda: el PR no está en Ready to Merge, el botón estaría deshabilitado (el texto es el motivo) o el
+    /// repo no permite el método.
+    case unavailable(String)
+    /// El PR ya no está abierto (cerrado sin mergear, o PRBar no lo encuentra en la lista).
+    case noLongerOpen
+    /// El repo exige merge queue: la mutación directa no sirve.
+    case mergeQueueRequired(String)
     case github(PRBarError)
     case other(String)
 
@@ -24,6 +31,9 @@ public enum MergeError: Error, Equatable, Sendable, LocalizedError {
         case .alreadyMerged: "This PR was already merged."
         case .missingMergeData: "PRBar doesn’t have this PR’s merge data yet — refresh and try again."
         case .blocked(let reason): reason
+        case .unavailable(let reason): reason
+        case .noLongerOpen: "This PR is no longer open."
+        case .mergeQueueRequired(let message): "This repo uses a merge queue — add the PR to the queue on GitHub. (\(message))"
         case .github(let error): error.localizedDescription
         case .other(let message): "GitHub error: \(message)"
         }
@@ -40,13 +50,15 @@ public enum MergeError: Error, Equatable, Sendable, LocalizedError {
     }
 
     /// Los errores de GraphQL de `mergePullRequest`. GitHub no documenta los textos: se reconocen por frases conocidas
-    /// y por `type` (`FORBIDDEN`, `UNPROCESSABLE`). El QA confirma el texto real del head cambiado.
-    static func classify(messages: [String], types: [String?]) -> MergeError {
+    /// y por `type` (`FORBIDDEN`, `UNPROCESSABLE`). El QA confirma el texto real del head cambiado. Precedencia: head
+    /// cambiado, merge queue, permiso, no mergeable, otro.
+    public static func classify(messages: [String], types: [String?]) -> MergeError {
         let message = messages.joined(separator: "; ")
         let lower = message.lowercased()
         if ["head branch was modified", "expected head", "expectedheadoid", "head sha"].contains(where: { lower.contains($0) }) {
             return .headChanged
         }
+        if lower.contains("merge queue") { return .mergeQueueRequired(message) }
         if types.contains("FORBIDDEN") || lower.contains("permission") || lower.contains("not authorized") {
             return .forbidden(message)
         }

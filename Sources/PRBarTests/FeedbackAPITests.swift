@@ -132,6 +132,26 @@ enum FeedbackAPITests {
             try expectEqual(request.url?.absoluteString, "https://api.github.com/repos/o/r/pulls/7")
             try expectEqual(request.value(forHTTPHeaderField: "Authorization"), "bearer tok")
         },
+        TestCase("details api: reads whether the PR is open or merged") {
+            let merged = #"{"title":"T","body":null,"head":{"sha":"abc"},"state":"closed","merged":true,"merged_at":"2026-11-19T12:00:00Z"}"#
+            let transport = FakeTransport([(200, [:], merged), (200, [:], #"{"title":"T","state":"open","merged":false,"merged_at":null}"#)])
+            let client = GitHubClient(transport: transport)
+            let first = try await client.pullRequestDetails(repo: repo, number: 7, token: "tok")
+            try expectEqual(first.state, .merged)
+            try expectEqual(first.mergedAt, ISO8601DateFormatter().date(from: "2026-11-19T12:00:00Z"))
+            let second = try await client.pullRequestDetails(repo: repo, number: 7, token: "tok")
+            try expectEqual(second.state, .open)
+            try expectEqual(second.mergedAt, nil)
+            try expectEqual(PRDetails(title: "", body: "", headOid: nil).state, nil)
+        },
+        TestCase("details api: closed without merging, and an unknown state") {
+            let transport = FakeTransport([(200, [:], #"{"title":"T","state":"closed","merged":false}"#), (200, [:], #"{"title":"T"}"#)])
+            let client = GitHubClient(transport: transport)
+            let closed = try await client.pullRequestDetails(repo: repo, number: 7, token: "tok")
+            try expectEqual(closed.state, .closed)
+            let unknown = try await client.pullRequestDetails(repo: repo, number: 7, token: "tok")
+            try expectEqual(unknown.state, nil)
+        },
         TestCase("details api: a null description is empty") {
             let transport = FakeTransport([(200, [:], #"{"title":"T","body":null,"head":{"sha":"abc"}}"#)])
             let details = try await GitHubClient(transport: transport).pullRequestDetails(repo: repo, number: 7, token: "tok")
