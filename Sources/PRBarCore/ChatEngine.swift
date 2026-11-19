@@ -117,7 +117,7 @@ public struct ChatEngine: Sendable {
 
     static func invocation(_ input: ChatTurnInput, session: ClaudeSessionFlag, prompt: String) -> ClaudeInvocation {
         ClaudeInvocation(
-            prompt: prompt, schema: ChatSchemas.turn, tools: input.canEditFiles ? editTools : readTools,
+            prompt: prompt, schema: ChatSchemas.turn, tools: input.kind == .respond && input.canEditFiles ? editTools : readTools,
             workingDirectory: input.workingDirectory, additionalDirectories: input.additionalDirectories,
             timeout: timeout, logHeader: "=== chat \(input.turn) ===", session: session)
     }

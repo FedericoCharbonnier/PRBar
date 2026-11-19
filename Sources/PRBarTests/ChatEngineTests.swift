@@ -66,6 +66,12 @@ enum ChatEngineTests {
             try expectEqual(arg("--allowedTools", call), "Read(./**),Edit(./**),Skill,Agent")
             try expectEqual(arg("--disallowedTools", call), "Bash,NotebookEdit,WebFetch,WebSearch,mcp__*")
         },
+        TestCase("chat engine: Review nunca recibe Edit ni Write aunque pida canEditFiles") {
+            let runner = FakeStreamingRunner { _, _, _ in ([chatLine("Ok.")], ok("")) }
+            _ = try await engine(runner, log: try temporaryDirectory().appendingPathComponent("r.log"))
+                .send(input(edits: true, kind: .review)) { _ in }
+            try expectEqual(arg("--tools", runner.calls[0]), "Read,Grep,Glob,Skill,Agent")
+        },
         TestCase("chat engine: los turnos siguientes usan --resume con el mensaje y el estado si cambió") {
             let runner = FakeStreamingRunner { _, _, _ in ([chatLine("Sure.")], ok("")) }
             let output = try await engine(runner, log: try temporaryDirectory().appendingPathComponent("r.log"))
