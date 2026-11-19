@@ -70,8 +70,8 @@ enum UpdateInstallTests {
         TestCase("app replacer: mueve el actual a .previous y el nuevo a su lugar") {
             let dir = try temporaryDirectory()
             let installed = dir.appendingPathComponent("Applications/PRBar.app", isDirectory: true)
-            let staged = dir.appendingPathComponent("staging/PRBar.app", isDirectory: true)
             try makeFakeApp(at: installed, version: "1.2.0", marker: "old")
+            let staged = AppReplacer.candidateURL(for: installed)
             try makeFakeApp(at: staged, version: "1.3.0", marker: "new")
             // Un .previous de una actualización anterior se reemplaza.
             try makeFakeApp(at: AppReplacer.previousURL(for: installed), version: "1.1.0", marker: "older")
@@ -84,8 +84,8 @@ enum UpdateInstallTests {
         TestCase("app replacer: si falla mover el nuevo, vuelve a poner el anterior") {
             let dir = try temporaryDirectory()
             let installed = dir.appendingPathComponent("Applications/PRBar.app", isDirectory: true)
-            let staged = dir.appendingPathComponent("staging/PRBar.app", isDirectory: true)
             try makeFakeApp(at: installed, version: "1.2.0", marker: "old")
+            let staged = AppReplacer.candidateURL(for: installed)
             try makeFakeApp(at: staged, version: "1.3.0", marker: "new")
             let moves = Box(0)
             let replacer = AppReplacer(move: { from, to in
@@ -99,6 +99,38 @@ enum UpdateInstallTests {
             try expectEqual(marker(of: installed), "old")
             try expect(!FileManager.default.fileExists(atPath: AppReplacer.previousURL(for: installed).path))
             try expectEqual(moves.value, 3)
+        },
+        TestCase("app replacer: el candidato va oculto al lado del instalado, con nombre único") {
+            let installed = URL(fileURLWithPath: "/Users/me/Applications/PRBar.app", isDirectory: true)
+            let a = AppReplacer.candidateURL(for: installed)
+            let b = AppReplacer.candidateURL(for: installed)
+            try expectEqual(a.deletingLastPathComponent().path, "/Users/me/Applications")
+            try expect(a.lastPathComponent.hasPrefix(".PRBar.app.new-"), a.lastPathComponent)
+            try expect(a != b)
+        },
+        TestCase("app replacer: un nuevo que no está en la misma carpeta se rechaza sin tocar nada") {
+            let dir = try temporaryDirectory()
+            let installed = dir.appendingPathComponent("Applications/PRBar.app", isDirectory: true)
+            let staged = dir.appendingPathComponent("staging/PRBar.app", isDirectory: true)
+            try makeFakeApp(at: installed, version: "1.2.0", marker: "old")
+            try makeFakeApp(at: staged, version: "1.3.0", marker: "new")
+            let error = try await expectThrows { try AppReplacer().replace(installed: installed, with: staged) }
+            guard case .replaceFailed? = error as? UpdateError else { throw TestFailure(description: "\(error)") }
+            try expectEqual(marker(of: installed), "old")
+            try expectEqual(marker(of: staged), "new")
+        },
+        TestCase("app replacer: removePrevious también borra candidatos que quedaron de una instalación cortada") {
+            let dir = try temporaryDirectory()
+            let installed = dir.appendingPathComponent("PRBar.app", isDirectory: true)
+            try makeFakeApp(at: installed, version: "1.3.0", marker: "cur")
+            let leftover = AppReplacer.candidateURL(for: installed)
+            try makeFakeApp(at: leftover, version: "1.3.0", marker: "x")
+            let other = dir.appendingPathComponent(".Other.app.new-1", isDirectory: true)
+            try FileManager.default.createDirectory(at: other, withIntermediateDirectories: true)
+            AppReplacer.removePrevious(nextTo: installed)
+            try expect(!FileManager.default.fileExists(atPath: leftover.path))
+            try expect(FileManager.default.fileExists(atPath: other.path))
+            try expectEqual(marker(of: installed), "cur")
         },
         TestCase("app replacer: carpeta sin permiso de escritura → notWritable") {
             let dir = try temporaryDirectory().appendingPathComponent("ro", isDirectory: true)
@@ -123,12 +155,14 @@ enum UpdateInstallTests {
 
     /// git falso (sha en rev-parse, merge-base con `mergeBaseStatus`) y `--version` que dice `versionLine`.
     static func fakeRunner(mergeBaseStatus: Int32 = 0, versionLine: String = "PRBar 1.3.0") -> FakeProcessRunner {
-        FakeProcessRunner { _, arguments in
-            if arguments.contains("rev-parse") { return ProcessResult(status: 0, stdout: sha + "\n", stderr: "") }
-            if arguments.contains("merge-base") { return ProcessResult(status: mergeBaseStatus, stdout: "", stderr: "") }
-            if arguments == ["--version"] { return ProcessResult(status: 0, stdout: versionLine + "\n", stderr: "") }
-            return ProcessResult(status: 0, stdout: "", stderr: "")
-        }
+        FakeProcessRunner { _, arguments in fakeResult(arguments, mergeBaseStatus: mergeBaseStatus, versionLine: versionLine) }
+    }
+
+    static func fakeResult(_ arguments: [String], mergeBaseStatus: Int32 = 0, versionLine: String = "PRBar 1.3.0") -> ProcessResult {
+        if arguments.contains("rev-parse") { return ProcessResult(status: 0, stdout: sha + "\n", stderr: "") }
+        if arguments.contains("merge-base") { return ProcessResult(status: mergeBaseStatus, stdout: "", stderr: "") }
+        if arguments == ["--version"] { return ProcessResult(status: 0, stdout: versionLine + "\n", stderr: "") }
+        return ProcessResult(status: 0, stdout: "", stderr: "")
     }
 
     /// `bundle.sh` falso: arma `<--output>/PRBar.app` con `version` y sale con `status`.
@@ -189,6 +223,81 @@ enum UpdateInstallTests {
             try expectEqual(builder.calls[0].currentDirectory?.path, base.appendingPathComponent("source").path)
             let leftovers = try FileManager.default.contentsOfDirectory(atPath: base.appendingPathComponent("staging").path)
             try expectEqual(leftovers, [])
+        },
+        TestCase("update installer: verifica y reemplaza desde un candidato al lado del instalado") {
+            let (base, installed) = try setUp()
+            let verifiedPaths = Box<[String]>([])
+            let runner = FakeProcessRunner { executable, arguments in
+                if arguments == ["--version"] { verifiedPaths.value.append(executable) }
+                return fakeResult(arguments)
+            }
+            try await makeInstaller(base: base, runner: runner, builder: fakeBuilder()).install(
+                makeRelease("1.3.0"), replacing: installed, onEvent: { _ in }
+            )
+            try expectEqual(marker(of: installed), "new")
+            try expectEqual(verifiedPaths.value.count, 2)
+            let folder = installed.deletingLastPathComponent().path
+            for path in verifiedPaths.value {
+                try expect(path.hasPrefix(folder + "/.PRBar.app.new-"), path)
+            }
+            let siblings = try FileManager.default.contentsOfDirectory(atPath: folder).sorted()
+            try expectEqual(siblings, ["PRBar.app", "PRBar.app.previous"])
+        },
+        TestCase("update installer: vuelve a verificar después de beforeReplace") {
+            let (base, installed) = try setUp()
+            let error = try await expectThrows {
+                try await makeInstaller(base: base, runner: fakeRunner(), builder: fakeBuilder()).install(
+                    makeRelease("1.3.0"), replacing: installed,
+                    beforeReplace: {
+                        // Algo cambió el candidato mientras se esperaban los trabajos.
+                        let folder = installed.deletingLastPathComponent()
+                        for name in try FileManager.default.contentsOfDirectory(atPath: folder.path) where name.hasPrefix(".PRBar.app.new-") {
+                            try makeFakeApp(at: folder.appendingPathComponent(name), version: "6.6.6", marker: "evil")
+                        }
+                    },
+                    onEvent: { _ in }
+                )
+            }
+            try expectEqual(error as? UpdateError, .versionMismatch(expected: "1.3.0", found: "6.6.6"))
+            try expectEqual(marker(of: installed), "old")
+            let siblings = try FileManager.default.contentsOfDirectory(atPath: installed.deletingLastPathComponent().path)
+            try expectEqual(siblings, ["PRBar.app"])
+        },
+        TestCase("update installer: vacía la carpeta de staging al empezar") {
+            let (base, installed) = try setUp()
+            let stale = base.appendingPathComponent("staging/old-run/PRBar.app", isDirectory: true)
+            try makeFakeApp(at: stale, version: "1.0.0", marker: "stale")
+            _ = try await expectThrows {
+                try await makeInstaller(base: base, runner: fakeRunner(), builder: fakeBuilder(status: 1)).install(
+                    makeRelease("1.3.0"), replacing: installed, onEvent: { _ in }
+                )
+            }
+            let leftovers = try FileManager.default.contentsOfDirectory(atPath: base.appendingPathComponent("staging").path)
+            try expectEqual(leftovers, [])
+        },
+        TestCase("update installer: el build corre con un entorno mínimo (allowlist)") {
+            let (base, installed) = try setUp()
+            let builder = fakeBuilder()
+            try await makeInstaller(base: base, runner: fakeRunner(), builder: builder).install(
+                makeRelease("1.3.0"), replacing: installed, onEvent: { _ in }
+            )
+            try expectEqual(builder.isolated, [true])
+            let environment = builder.calls[0].environment ?? [:]
+            try expect(environment["PATH"]?.isEmpty == false)
+            try expect(environment["HOME"]?.isEmpty == false)
+            try expect(Set(environment.keys).isSubset(of: UpdateInstaller.buildEnvironmentKeys), "\(environment.keys)")
+            let built = UpdateInstaller.buildEnvironment(inherited: [
+                "PATH": "/opt/bin:/usr/bin", "HOME": "/Users/me", "TMPDIR": "/tmp/x", "LANG": "en_US.UTF-8",
+                "DEVELOPER_DIR": "/Applications/Xcode.app/Contents/Developer", "GITHUB_TOKEN": "secret",
+                "DYLD_INSERT_LIBRARIES": "/evil.dylib", "SWIFTPM_X": "y",
+            ])
+            try expectEqual(built["PATH"], "/opt/bin:/usr/bin")
+            try expectEqual(built["DEVELOPER_DIR"], "/Applications/Xcode.app/Contents/Developer")
+            try expectEqual(built["TMPDIR"], "/tmp/x")
+            try expectEqual(built["GITHUB_TOKEN"], nil)
+            try expectEqual(built["DYLD_INSERT_LIBRARIES"], nil)
+            try expectEqual(built["SWIFTPM_X"], nil)
+            try expectEqual(UpdateInstaller.buildEnvironment(inherited: [:])["PATH"], "/usr/bin:/bin:/usr/sbin:/sbin")
         },
         TestCase("update installer: build que falla → no toca el .app") {
             let (base, installed) = try setUp()
