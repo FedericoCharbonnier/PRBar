@@ -339,7 +339,9 @@ public struct FixImplementer: Sendable {
     /// The commit PRBar makes with a chat turn's changes (only the subject, like the fixes).
     public static let chatCommitMessage = "Address review feedback"
 
-    /// The ref of a chat turn's snapshot (spec B.6). It's under `refs/prbar/`, so the startup cleanup deletes it too.
+    /// The ref of a chat turn's snapshot (spec B.6). It's under `refs/prbar/`, so the startup cleanup deletes it too:
+    /// it only keeps the snapshot visible in git. Undo doesn't need it: the snapshot is taken on a clean tree, so its
+    /// tree is `headBefore`'s, which stays reachable from the turn's commit.
     public static func chatRef(sessionID: UUID, turn: Int) -> String {
         "refs/prbar/chat-\(sessionID.uuidString.lowercased())-\(turn)"
     }
@@ -382,7 +384,9 @@ public struct FixImplementer: Sendable {
             throw error
         } catch {
             // Timeout, invalid answer, Stop: the files Claude touched in this turn are reverted (spec B.9), outside
-            // this task so a cancellation doesn't cut the restore.
+            // this task so a cancellation doesn't cut the restore. The original error goes to the log first: if
+            // `inspect` throws, its error is the one the user sees.
+            claude.appendLog("--- chat turn failed: \((error as? LocalizedError)?.errorDescription ?? "\(error)") ---\n")
             let implementer = self
             try await Task.detached {
                 let review = try await implementer.inspect(worktree, guarded: guarded, before: before,

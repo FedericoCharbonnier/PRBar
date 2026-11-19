@@ -1249,6 +1249,21 @@ enum FixImplementerTests {
                 try expectEqual(try repo.subjects(), ["base"])
             }
         },
+        TestCase("fix implementer: si el turno falla y la inspección corta, el log guarda el error original de Claude") {
+            let repo = try FixRepo.make()
+            defer { repo.remove() }
+            let log = try logURL()
+            let error = try await expectThrows {
+                _ = try await implementer(fakeClaude([]), log: log)
+                    .chatTurn(draft: try draft(repo, items: []), current: RespondResult(items: [], diffStat: "", tests: nil),
+                              sessionID: UUID(), turn: 1) { () async throws -> String in
+                        try edit(".git/hooks/pre-commit", "#!/bin/sh\n")(repo.dir)
+                        throw ClaudeError.failed("rate limited ORIGINAL")
+                    }
+            }
+            try expect(try respondMessage(error).contains("Git configuration or hooks changed"), "\(error)")
+            try expect(try String(contentsOf: log, encoding: .utf8).contains("rate limited ORIGINAL"))
+        },
         TestCase("fix implementer: chatTurn revierte y borra la ref si Claude crea un archivo ignorado") {
             let repo = try FixRepo.make()
             defer { repo.remove() }
