@@ -322,3 +322,23 @@ struct PRFeedbackNode: Decodable {
             lastCommitAt: lastCommit ?? .distantPast, threads: threads, reviews: reviewBodies)
     }
 }
+
+enum Mutations {
+    /// Mergea solo si el head sigue siendo `expectedHeadOid` (spec F.3).
+    static let mergePullRequest = """
+    mutation($input: MergePullRequestInput!) {
+      mergePullRequest(input: $input) {
+        pullRequest { merged mergedAt }
+      }
+    }
+    """
+}
+
+struct MergeMutationData: Decodable {
+    struct Payload: Decodable { let pullRequest: MergedPR? }
+    struct MergedPR: Decodable {
+        let merged: Bool
+        let mergedAt: Date?
+    }
+    let mergePullRequest: Payload?
+}

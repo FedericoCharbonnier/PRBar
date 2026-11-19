@@ -174,6 +174,19 @@ struct FakeAPI: GitHubAPI {
     func addIssueComment(repo: RepoRef, number: Int, body: String, token: String) async throws -> URL {
         URL(string: "https://github.com/\(repo.fullName)/pull/\(number)#issuecomment-1")!
     }
+
+    /// Lo que devuelve (o lanza) `mergePullRequest`.
+    var mergeResult: Result<Date?, Error> = .success(nil)
+    /// Llamadas a `mergePullRequest`, en orden.
+    let mergeCalls = Box<[(id: String, method: MergeMethod, expectedHeadOid: String, token: String)]>([])
+    /// Se llama dentro de `mergePullRequest`, antes de devolver (para probar dos merges a la vez).
+    var onMerge: (@Sendable () async -> Void)?
+
+    func mergePullRequest(id: String, method: MergeMethod, expectedHeadOid: String, token: String) async throws -> Date? {
+        mergeCalls.value.append((id, method, expectedHeadOid, token))
+        if let onMerge { await onMerge() }
+        return try mergeResult.get()
+    }
 }
 
 struct FakeTokens: TokenProviding {
@@ -365,5 +378,8 @@ final class FakeFeedbackAPI: GitHubAPI, @unchecked Sendable {
     func addIssueComment(repo: RepoRef, number: Int, body: String, token: String) async throws -> URL {
         let n = try post(.issue(body: body), token: token)
         return URL(string: "https://github.com/\(repo.fullName)/pull/\(number)#issuecomment-\(n)")!
+    }
+    func mergePullRequest(id: String, method: MergeMethod, expectedHeadOid: String, token: String) async throws -> Date? {
+        throw PRBarError.http(status: 404, message: "no")
     }
 }

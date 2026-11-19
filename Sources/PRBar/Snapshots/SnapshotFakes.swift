@@ -52,6 +52,9 @@ struct SnapshotGitHubAPI: GitHubAPI {
     func addIssueComment(repo: RepoRef, number: Int, body: String, token: String) async throws -> URL {
         throw SnapshotFakes.refused
     }
+    func mergePullRequest(id: String, method: MergeMethod, expectedHeadOid: String, token: String) async throws -> Date? {
+        throw SnapshotFakes.refused
+    }
 }
 
 /// The channel list of the Repos tab; nothing is ever posted.

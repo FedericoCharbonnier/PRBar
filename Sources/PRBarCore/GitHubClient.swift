@@ -101,6 +101,9 @@ public protocol GitHubAPI: Sendable {
     func reviewFeedback(repo: RepoRef, number: Int, token: String) async throws -> PRFeedback
     func replyToReviewComment(repo: RepoRef, number: Int, commentID: Int, body: String, token: String) async throws -> URL
     func addIssueComment(repo: RepoRef, number: Int, body: String, token: String) async throws -> URL
+    /// Mergea el PR (`mergePullRequest`) solo si su head sigue siendo `expectedHeadOid`. Devuelve `mergedAt`.
+    /// Errores: `MergeError` (head cambiado, sin permiso, no mergeable) o `PRBarError` (red, token, rate limit).
+    func mergePullRequest(id: String, method: MergeMethod, expectedHeadOid: String, token: String) async throws -> Date?
 }
 
 public struct GitHubClient: GitHubAPI {
@@ -284,6 +287,21 @@ public struct GitHubClient: GitHubAPI {
             repo: repo, number: number, what: "the comment", token: token)
     }
 
+    public func mergePullRequest(id: String, method: MergeMethod, expectedHeadOid: String, token: String) async throws -> Date? {
+        let input: [String: Any] = ["pullRequestId": id, "mergeMethod": method.graphQLValue, "expectedHeadOid": expectedHeadOid]
+        let (envelope, response): (GraphQLEnvelope<MergeMutationData>, HTTPURLResponse) = try await graphQLEnvelope(
+            Mutations.mergePullRequest, jsonVariables: ["input": input], token: token)
+        if let errors = envelope.errors, !errors.isEmpty {
+            try throwIfRateLimited(errors, response: response)
+            throw MergeError.classify(messages: errors.map(\.message), types: errors.map(\.type))
+        }
+        guard let pr = envelope.data?.mergePullRequest?.pullRequest else {
+            throw MergeError.other("GitHub didn’t return the merged PR")
+        }
+        guard pr.merged else { throw MergeError.notMergeable("GitHub didn’t merge the PR") }
+        return pr.mergedAt
+    }
+
     /// POST de JSON que devuelve el `html_url` de lo creado. `perform` solo vuelve con un 2xx: lo publicado ya está
     /// en GitHub. Si la respuesta no trae `html_url` (o no se puede leer) igual cuenta como publicado, con la URL del
     /// PR: un error invitaría a publicarlo de nuevo y duplicarlo.
@@ -312,28 +330,37 @@ public struct GitHubClient: GitHubAPI {
     }
 
     private func graphQL<T: Decodable>(_ query: String, jsonVariables: [String: Any], token: String) async throws -> T {
-        var request = URLRequest(url: URL(string: "https://api.github.com/graphql")!)
-        request.httpMethod = "POST"
-        applyHeaders(&request, token: token)
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["query": query, "variables": jsonVariables])
-
-        let (data, response) = try await perform(request)
-        let envelope: GraphQLEnvelope<T>
-        do {
-            envelope = try JSONCoding.decoder.decode(GraphQLEnvelope<T>.self, from: data)
-        } catch {
-            throw PRBarError.invalidResponse("GraphQL: \(error)")
-        }
+        let (envelope, response): (GraphQLEnvelope<T>, HTTPURLResponse) = try await graphQLEnvelope(
+            query, jsonVariables: jsonVariables, token: token)
         if let errors = envelope.errors, !errors.isEmpty {
-            // GitHub puede responder 200 con el rate limit de GraphQL como error.
-            if errors.contains(where: { $0.type == "RATE_LIMITED" }) {
-                let reset = Self.header("x-ratelimit-reset", in: response).map { Date(timeIntervalSince1970: $0) }
-                throw PRBarError.rateLimited(resetAt: reset ?? now().addingTimeInterval(Self.defaultRateLimitWait))
-            }
+            try throwIfRateLimited(errors, response: response)
             throw PRBarError.graphQL(errors.map(\.message).joined(separator: "; "))
         }
         guard let payload = envelope.data else { throw PRBarError.invalidResponse("GraphQL without data") }
         return payload
+    }
+
+    /// El sobre de GraphQL tal cual (datos y errores), para quien necesita mirar los errores (el merge).
+    private func graphQLEnvelope<T: Decodable>(
+        _ query: String, jsonVariables: [String: Any], token: String
+    ) async throws -> (GraphQLEnvelope<T>, HTTPURLResponse) {
+        var request = URLRequest(url: URL(string: "https://api.github.com/graphql")!)
+        request.httpMethod = "POST"
+        applyHeaders(&request, token: token)
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["query": query, "variables": jsonVariables])
+        let (data, response) = try await perform(request)
+        do {
+            return (try JSONCoding.decoder.decode(GraphQLEnvelope<T>.self, from: data), response)
+        } catch {
+            throw PRBarError.invalidResponse("GraphQL: \(error)")
+        }
+    }
+
+    /// GitHub puede responder 200 con el rate limit de GraphQL como error.
+    private func throwIfRateLimited(_ errors: [GraphQLErrorItem], response: HTTPURLResponse) throws {
+        guard errors.contains(where: { $0.type == "RATE_LIMITED" }) else { return }
+        let reset = Self.header("x-ratelimit-reset", in: response).map { Date(timeIntervalSince1970: $0) }
+        throw PRBarError.rateLimited(resetAt: reset ?? now().addingTimeInterval(Self.defaultRateLimitWait))
     }
 
     private func restGET(_ path: String, token: String) async throws -> Data {
