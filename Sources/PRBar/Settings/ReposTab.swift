@@ -204,6 +204,19 @@ struct ReposTab: View {
                     }
                 }
 
+                Section {
+                    PatternListField(title: "Ignore paths", saved: repo.ignorePaths) { patterns in
+                        model.updateConfig(refresh: false) { $0.setIgnorePaths(patterns, repoID: repo.id, login: login) }
+                    }
+                    .id("\(login)|\(repo.id)|ignore")
+                } header: {
+                    Text("Review")
+                } footer: {
+                    Text("Findings in files matching these patterns are hidden from this repo’s reviews, on top of the ones in Settings › Claude.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
                 respondSection(repo)
 
                 slackSection(repo)

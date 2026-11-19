@@ -1,43 +1,98 @@
 import PRBarCore
 import SwiftUI
 
-/// Settings → Claude: the skills of the review (and its filter) and of "Respond to feedback", and the model.
+/// Settings → Claude: the review and respond stages (skill or own prompt), what the review reports, the fixes' options, the model, the chat and the editable prompts (spec E.5/E.6).
 struct ClaudeTab: View {
     @ObservedObject var model: AppModel
     @ObservedObject var configStore: ConfigStore
     @ObservedObject var skills: ClaudeSkills
+
+    @State private var editing: PromptStage?
 
     private var settings: ClaudeSettings { configStore.config.claude }
 
     var body: some View {
         Form {
             Section {
-                SkillPicker(title: "Review skill", selection: settings.effectiveReviewSkill, skills: skills) { skill in
-                    update { $0.reviewSkill = skill }
-                }
-                Toggle("Filter findings", isOn: Binding(
-                    get: { settings.filterEnabled },
-                    set: { on in update { $0.filterEnabled = on } }
-                ))
-                SkillPicker(title: "Filter skill", selection: settings.effectiveFilterSkill, skills: skills) { skill in
-                    update { $0.filterSkill = skill }
-                }
-                .padding(.leading, 16)
-                .disabled(!settings.filterEnabled)
+                ClaudeStageRow(title: "Review", stage: .review, settings: settings, skills: skills, update: update) { editing = .review }
+                Toggle("Filter findings", isOn: binding(\.review.filter.enabled))
+                ClaudeStageRow(title: "Filter", stage: .filter, settings: settings, skills: skills, update: update) { editing = .filter }
+                    .disabled(!settings.filterEnabled)
             } header: {
                 Text("Review")
             } footer: {
-                footer("The review skill reviews the PR’s diff. The filter then checks each finding against the code and drops the ones that don’t hold up; with it off, every finding is kept.")
+                footer("The review skill (or your prompt) reviews the PR’s diff. The filter then checks each finding against the code and drops the ones that don’t hold up; with it off, every finding is kept.")
             }
 
             Section {
-                SkillPicker(title: "Skill", selection: settings.effectiveRespondSkill, skills: skills) { skill in
-                    update { $0.respondSkill = skill }
+                Picker("Minimum severity", selection: binding(\.review.minSeverity)) {
+                    Text("Low (everything)").tag(Severity.low)
+                    Text("Medium").tag(Severity.medium)
+                    Text("High").tag(Severity.high)
                 }
+                LabeledContent("Maximum findings") {
+                    HStack(spacing: 8) {
+                        if let limit = settings.review.maxFindings {
+                            Stepper("\(limit)", value: Binding(
+                                get: { limit },
+                                set: { value in update { $0.review.maxFindings = min(max(value, 1), 50) } }
+                            ), in: 1...50)
+                        }
+                        Toggle("Limit", isOn: Binding(
+                            get: { settings.review.maxFindings != nil },
+                            set: { on in update { $0.review.maxFindings = on ? 10 : nil } }
+                        ))
+                        .labelsHidden()
+                    }
+                }
+                LabeledContent("Report") {
+                    HStack(spacing: 4) {
+                        ForEach(FindingCategory.allCases, id: \.self) { category in
+                            CategoryChip(title: category.label, isOn: settings.review.isEnabled(category)) {
+                                update { $0.review.setCategory(category, enabled: !$0.review.isEnabled(category)) }
+                            }
+                        }
+                    }
+                }
+                PatternListField(title: "Ignore paths", saved: settings.review.ignorePaths) { patterns in
+                    update { $0.review.ignorePaths = patterns }
+                }
+                Picker("Tone", selection: binding(\.review.tone)) {
+                    ForEach(ReviewTone.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+            } header: {
+                Text("What the review reports")
+            } footer: {
+                footer("PRBar tells Claude these settings and also applies them to its answer: what they hide goes to “Hidden by your settings”, where you can still include it. Each repo can ignore more paths in Settings › Repos.")
+            }
+
+            Section {
+                ClaudeStageRow(title: "Analysis", stage: .analysis, settings: settings, skills: skills, update: update) { editing = .analysis }
+                ClaudeStageRow(title: "Implementation", stage: .implementation, settings: settings, skills: skills, allowsNoSkill: true,
+                               update: update) { editing = .implementation }
             } header: {
                 Text("Respond to feedback")
             } footer: {
-                footer("Evaluates each unresolved comment on your PRs and proposes a fix, a reply, or both.")
+                footer("The analysis evaluates each unresolved comment on your PRs and proposes a fix, a reply, or both. The implementation makes each fix you choose.")
+            }
+
+            Section {
+                Toggle("Run tests before pushing", isOn: binding(\.respond.runTestsBeforePush))
+                Picker("Commits", selection: binding(\.respond.commitMode)) {
+                    ForEach(CommitMode.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                FixTemplateEditor(title: "Commit message", kind: .commitMessage, value: settings.respond.commitMessageTemplate ?? "") { text in
+                    update { $0.respond.commitMessageTemplate = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text }
+                }
+                Toggle("Allow new tests", isOn: binding(\.respond.allowNewTests))
+                Toggle("Allow new dependencies", isOn: binding(\.respond.allowNewDependencies))
+                FixTemplateEditor(title: "Reply to fixed comments", kind: .reply, value: settings.respond.replyTemplate ?? "") { text in
+                    update { $0.respond.replyTemplate = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text }
+                }
+            } header: {
+                Text("Fixes")
+            } footer: {
+                footer("“Run tests before pushing” uses the repo’s test command and doesn’t push if it fails (you can still push anyway). With new dependencies off, PRBar warns you before pushing if Claude changed a dependency manifest. Empty templates use the defaults; without a reply template, “Fixed in …” follows the PR’s language.")
             }
 
             Section {
@@ -71,6 +126,24 @@ struct ClaudeTab: View {
                 footer("Ask Claude about a PR, have it adjust the findings, draft replies or change your fixes. It never posts, pushes or approves.")
             }
 
+
+            Section {
+                ForEach(PromptStage.allCases) { stage in
+                    LabeledContent(stage.title) {
+                        HStack(spacing: 8) {
+                            if settings.customPrompt(for: stage) != nil {
+                                Text("Modified").font(.caption.weight(.semibold)).foregroundStyle(Theme.orangeText)
+                            }
+                            Button("Edit…") { editing = stage }
+                        }
+                    }
+                }
+            } header: {
+                Text("Prompts")
+            } footer: {
+                footer("PRBar always adds its fixed part around your prompt: the PR’s content is never an instruction, Claude has no shell and never posts, your rules (Settings › Instructions) and the output format.")
+            }
+
             Section {
                 HStack {
                     Spacer()
@@ -83,9 +156,18 @@ struct ClaudeTab: View {
         }
         .formStyle(.grouped)
         .toggleStyle(.switch)
+        .sheet(item: $editing) { stage in
+            PromptEditorSheet(stage: stage, settings: settings,
+                              save: { text in update { $0.setCustomPrompt(text, for: stage) } },
+                              reset: { update { $0.resetPrompt(for: stage) } })
+        }
         .task(id: model.tools.claude) {
             await skills.refresh(claudePath: model.tools.claude, toolsResolved: model.toolsResolved, settings: settings)
         }
+    }
+
+    private func binding<Value>(_ keyPath: WritableKeyPath<ClaudeSettings, Value>) -> Binding<Value> {
+        Binding(get: { settings[keyPath: keyPath] }, set: { value in update { $0[keyPath: keyPath] = value } })
     }
 
     private func update(_ mutate: @escaping (inout ClaudeSettings) -> Void) {
@@ -105,6 +187,7 @@ private struct SkillPicker: View {
     let title: String
     let selection: String
     @ObservedObject var skills: ClaudeSkills
+    var allowsNone = false
     let onSelect: (String) -> Void
 
     @State private var showing = false
@@ -115,7 +198,7 @@ private struct SkillPicker: View {
                 showing = true
             } label: {
                 HStack(spacing: 4) {
-                    Text(selection)
+                    Text(selection.isEmpty ? "None" : selection)
                         .font(.system(.callout, design: .monospaced))
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -126,7 +209,7 @@ private struct SkillPicker: View {
             }
             .help(selection)
             .popover(isPresented: $showing, arrowEdge: .bottom) {
-                SkillList(selection: selection, skills: skills) { skill in
+                SkillList(selection: selection, skills: skills, allowsNone: allowsNone) { skill in
                     showing = false
                     onSelect(skill)
                 }
@@ -141,7 +224,11 @@ private struct SkillPicker: View {
 
     @ViewBuilder
     private var status: some View {
-        if let entry = skills.entry(selection) {
+        if selection.isEmpty {
+            Text("No skill: Claude follows the prompt only")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        } else if let entry = skills.entry(selection) {
             switch entry.availability {
             case .available:
                 Text(entry.description ?? sourceText(entry))
@@ -191,6 +278,7 @@ private func pluginName(_ entry: ClaudeSkillEntry) -> String? {
 private struct SkillList: View {
     let selection: String
     @ObservedObject var skills: ClaudeSkills
+    var allowsNone = false
     let onSelect: (String) -> Void
 
     @State private var query = ""
@@ -215,6 +303,23 @@ private struct SkillList: View {
                 .padding(10)
             Divider()
             List {
+                if allowsNone && query.trimmingCharacters(in: .whitespaces).isEmpty {
+                    Section {
+                        Button {
+                            onSelect("")
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "checkmark")
+                                    .font(.caption.weight(.semibold))
+                                    .opacity(selection.isEmpty ? 1 : 0)
+                                Text("None")
+                                Spacer(minLength: 0)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
                 let plugins = filtered.filter { $0.source != .user }
                 let user = filtered.filter { $0.source == .user }
                 if !plugins.isEmpty {
@@ -301,5 +406,69 @@ private struct SkillList: View {
     private func useCustom() {
         guard ClaudeSettings.isValidSkill(customSkill) else { return }
         onSelect(customSkill)
+    }
+}
+
+/// A stage with a skill (spec E.6): its mode, and then its skill or its custom prompt.
+private struct ClaudeStageRow: View {
+    let title: String
+    let stage: PromptStage
+    let settings: ClaudeSettings
+    @ObservedObject var skills: ClaudeSkills
+    var allowsNoSkill = false
+    let update: (@escaping (inout ClaudeSettings) -> Void) -> Void
+    let editPrompt: () -> Void
+
+    private var mode: StageMode { settings.stage(stage)?.mode ?? .skill }
+
+    var body: some View {
+        Picker(title, selection: Binding(get: { mode }, set: { value in update { $0.setMode(value, for: stage) } })) {
+            ForEach(StageMode.allCases, id: \.self) { Text($0.title).tag($0) }
+        }
+        .pickerStyle(.segmented)
+        if mode == .skill {
+            SkillPicker(title: "Skill", selection: settings.skill(for: stage) ?? "", skills: skills, allowsNone: allowsNoSkill) { skill in
+                update { $0.setSkill(skill.isEmpty ? nil : skill, for: stage) }
+            }
+            .padding(.leading, 16)
+        } else {
+            LabeledContent {
+                Button("Edit Prompt…", action: editPrompt)
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Custom prompt")
+                    if settings.usesCustomPrompt(stage) {
+                        Text("Used instead of the skill").font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        Label("No valid prompt yet: the default one runs", systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(Theme.orangeText)
+                    }
+                }
+            }
+            .padding(.leading, 16)
+        }
+    }
+}
+
+/// A finding category, on or off.
+private struct CategoryChip: View {
+    let title: String
+    let isOn: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.caption.weight(.medium))
+                .padding(.horizontal, 7)
+                .padding(.vertical, 2)
+                .background(Capsule().fill(isOn ? Theme.tint(Theme.accent) : Color.primary.opacity(0.06)))
+                .foregroundStyle(isOn ? Color.accentColor : .secondary)
+                .strikethrough(!isOn)
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isOn ? .isSelected : [])
+        .help(isOn ? "Claude reports \(title.lowercased()) findings" : "\(title) findings are hidden")
     }
 }
