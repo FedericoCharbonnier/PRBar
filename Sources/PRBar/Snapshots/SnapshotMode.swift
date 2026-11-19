@@ -190,6 +190,14 @@ private final class SnapshotSession {
                 showsDiscarded: true, expandedFindings: ["open-redirect"]
             ))
         }
+        var chatDraft = fixtures.loginRedirectDraft
+        chatDraft.chat = fixtures.reviewChat
+        chatDraft.edits = fixtures.reviewChatEdits
+        let reviewChat = model.reviewChat(for: chatDraft)
+        try await window("review-chat", title: title, size: NSSize(width: 1180, height: 980)) {
+            ReviewWindow(model: model, draft: chatDraft, chat: reviewChat, published: nil, close: {},
+                         initialState: .init(showsChat: true))
+        }
         let published = PublishedReview(record: fixtures.publishedLoginRedirect)
         let publishedDraft = fixtures.loginRedirectDraft
         try await window("review-published", title: title, size: ReviewWindow.size) {
@@ -206,6 +214,7 @@ private final class SnapshotSession {
             return false
         }
         guard let draft = model.respond.records[prID]?.draft else { throw SnapshotError(message: "No respond draft") }
+        model.respond.setChat(prID: prID, draftID: draft.id, chat: fixtures.respondChat)
         let title = "Respond · \(draft.repo.name)#\(draft.number)"
         try await window("respond-choose", title: title, size: NSSize(width: 760, height: 1440)) {
             RespondWindow(model: model, prID: prID, draft: draft, chat: model.respondChat(for: draft), close: {})
@@ -224,6 +233,9 @@ private final class SnapshotSession {
         }
         try await window("respond-ready-to-push", title: title, size: NSSize(width: 760, height: 1140)) {
             RespondWindow(model: model, prID: prID, draft: draft, chat: model.respondChat(for: draft), close: {})
+        }
+        try await window("respond-chat", title: title, size: NSSize(width: 1180, height: 1140)) {
+            RespondWindow(model: model, prID: prID, draft: draft, chat: model.respondChat(for: draft), showsChat: true, close: {})
         }
     }
 

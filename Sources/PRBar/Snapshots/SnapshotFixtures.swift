@@ -302,6 +302,60 @@ struct SnapshotFixtures {
         """)
     }
 
+    // MARK: Chat
+
+    /// The chat of the api#317 review: a question that narrows #2 and a finding Claude added (#6).
+    var reviewChat: ChatSession {
+        var session = ChatSession(prID: loginRedirect.id, kind: .review)
+        session.claudeSessionID = UUID(uuidString: "0D5C4E61-7A1B-4C1E-9F1A-2B3C4D5E6F70")
+        session.messages = [
+            ChatMessage(role: .user, text: "Is #2 really a problem? Most of our API calls already send Accept: application/json.",
+                        createdAt: date(minutes: -9)),
+            ChatMessage(role: .assistant,
+                        text: "Mostly yes: `fetchJSON()` in `src/api/client.ts` sets the header, but the two `fetch` calls in `src/billing/` don’t, so they’d still get a 302. I narrowed #2 to say exactly that.",
+                        createdAt: date(minutes: -8), changes: [.findingEdited(id: "api-401")]),
+            ChatMessage(role: .user, text: "Agregá un finding porque POST /login no tiene rate limit", createdAt: date(minutes: -4)),
+            ChatMessage(role: .assistant,
+                        text: "Listo, agregué el #6: `POST /login` no limita los intentos. Lo marqué como medio y sugiero reusar el middleware `rateLimit`.",
+                        createdAt: date(minutes: -3), changes: [.findingAdded(id: "c1")]),
+        ]
+        return session
+    }
+
+    /// The Review window's state after `reviewChat`: #2 rewritten and #6 added and selected.
+    var reviewChatEdits: ReviewEdits {
+        var edits = ReviewEdits.initial(for: loginRedirectDraft)
+        edits.bodies["api-401"] = "Las llamadas `fetch` de `src/billing/` no mandan `Accept: application/json`, así que reciben un 302 a HTML en vez de un 401. Conviene responder 401 cuando el pedido no es de navegación."
+        edits.added = [ReviewItem(
+            finding: ReviewFinding(id: "c1", severity: .medium, file: "src/auth/login.ts", line: 23,
+                                   title: "POST /login no limita los intentos",
+                                   body: "Sin rate limit se pueden probar contraseñas sin freno. Sugiero reusar el middleware `rateLimit` de `src/api/limits.ts`."),
+            keep: true, reason: ChatActions.addedReason)]
+        edits.selected.insert("c1")
+        edits.generalComment = Self.generalComment
+        return edits
+    }
+
+    /// The chat of the web-app#475 respond: a reply drafted for Lucía and a change to the fixes.
+    var respondChat: ChatSession {
+        var session = ChatSession(prID: csvExport.id, kind: .respond)
+        session.claudeSessionID = UUID(uuidString: "5A4B3C2D-1E0F-4A1B-8C2D-3E4F5A6B7C8D")
+        session.messages = [
+            ChatMessage(role: .user, text: "Contestale a Lucía que podemos pasar a csv-stringify más adelante",
+                        createdAt: date(minutes: -12)),
+            ChatMessage(role: .assistant,
+                        text: "Actualicé la respuesta a @lucia-m: explica por qué el escape a mano alcanza hoy y propone pasar a csv-stringify en otro PR.",
+                        createdAt: date(minutes: -11), changes: [.replyDrafted(commentID: "thread:2")]),
+            ChatMessage(role: .user, text: "formatDate should fall back to UTC when the user has no timezone",
+                        createdAt: date(minutes: -6)),
+            ChatMessage(role: .assistant,
+                        text: "Done: `formatDate()` falls back to UTC and there’s a test for it. PRBar committed the change; check the diff before pushing.",
+                        createdAt: date(minutes: -5),
+                        changes: [.filesChanged(["src/reports/formatDate.ts", "src/reports/formatDate.test.ts"])]),
+        ]
+        return session
+    }
+
     // MARK: History
 
     /// ~6 records, the published review of api#317 the newest (it's the one selected).

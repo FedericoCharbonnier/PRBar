@@ -24,8 +24,10 @@ Every screen comes in `-light` and `-dark`, at 2x:
 | `popover-empty` | The "All Caught Up" state |
 | `review-window` | The Review window: Claude's summary, 3 kept findings (one expanded for editing), 2 discarded with reasons, a general comment, comments posted in Spanish |
 | `review-published` | The Review window after posting |
+| `review-chat` | The Review window with the chat open: a question that narrowed #2 and a finding Claude added (#6) |
 | `respond-choose` | Respond: choosing what to do with 3 comments (fix, reply, fix + reply) |
 | `respond-ready-to-push` | Respond: 2 commits, the diff, the `package.json` warning, tests passed, Push and Reply |
+| `respond-chat` | Respond, ready to push, with the chat open: a reply drafted for a reviewer and a change to the fixes’ code |
 | `history` | The History window with 6 reviews and responses, one selected |
 | `settings-general`, `settings-claude`, `settings-accounts`, `settings-repos`, `settings-slack` | Each Settings tab, configured |
 | `notification` | **An illustration** of the "Review Ready" notification, not a capture of the real macOS banner |
