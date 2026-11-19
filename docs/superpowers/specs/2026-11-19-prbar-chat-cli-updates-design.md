@@ -66,12 +66,15 @@ public struct ChatMessage: Codable, Equatable, Identifiable, Sendable {
     public var createdAt: Date
     public var changes: [ChatChange]   // vacío si no cambió nada
     public var undone: Bool
+    public var notes: [String]         // notas tenues: "Context rebuilt", acciones descartadas…
+    public var restore: ChatRestorePoint?  // estado antes/después del turno y snapshot de archivos (B.6)
 }
 
 public enum ChatChange: Codable, Equatable, Sendable {
     case findingEdited(id: String), findingAdded(id: String), findingIncluded(id: String, included: Bool)
     case generalCommentEdited
     case replyDrafted(commentID: String)
+    case implementSet(commentID: String, implement: Bool)
     case filesChanged([String])        // rutas relativas al worktree
 }
 
@@ -82,12 +85,15 @@ public struct ChatSession: Codable, Equatable, Sendable {
     public let kind: Kind
     public var claudeSessionID: UUID?  // sesión de Claude Code que se retoma con --resume
     public var worktreePath: String?   // donde corre (mismo cwd para que --resume funcione)
+    public var worktreeRefs: [String]  // Review: refs de PRBar del worktree del chat, se borran con él
     public var messages: [ChatMessage]
     public var readOnly: Bool          // true después de publicar/pushear
+    public var pending: Bool           // un turno corriendo; al reabrir pasa a "Interrupted" (B.9)
+    public var lastState: String?      // el estado de la ventana que Claude vio por última vez
 }
 ```
 
-`ChatSession` se guarda dentro del registro del draft (`ReviewDraft.chat`, `RespondRecord.chat`, opcional, decodificación tolerante) y por lo tanto en History.
+`ChatSession` se guarda dentro del registro del draft (`ReviewDraft.chat`, `RespondRecord.chat`, opcional, decodificación tolerante) y por lo tanto en History. El estado editable de la ventana de Review (`ReviewEdits`: selección, títulos y cuerpos editados, findings agregados y comentario general) se guarda en `ReviewDraft.edits`.
 
 ### B.4 Cómo corre Claude
 
@@ -118,11 +124,11 @@ Cada mensaje del usuario es un `claude -p` con **los mismos argumentos de aislam
 - **Respaldo**: si `--resume` falla (la sesión no existe o el CLI la rechaza), se relanza con `--session-id` nuevo y el prompt de arranque más la conversación previa (texto de usuario y `reply` de Claude) como transcript. El usuario no ve el fallo, solo una nota tenue "Context rebuilt".
 - **Timeout** 10 min por mensaje; **Stop** mata el grupo de procesos (como el resto).
 - Un mensaje a la vez por PR. Máximo de chats corriendo a la vez en toda la app: 2 (comparten el límite de `JobScheduler` con reviews/responds).
-- **Integridad**: después de cada mensaje corre el guardián de archivos de git (`WorktreeIntegrity`, allowlist) igual que en §14.6; si Claude tocó `.git`, el mensaje termina en error, se deshacen los cambios de archivos del turno y se muestra el motivo.
+- **Integridad**: después de cada mensaje corre el guardián de archivos de git (`WorktreeIntegrity`, allowlist) igual que en §14.6; si Claude cambió la config o los hooks de git (o apareció un `.git` anidado), **no se corre ningún git** (podría ejecutar lo que escribió Claude): el mensaje termina en error con el motivo, no se revierte nada y hay que descartar el Respond, lo que borra el worktree.
 
 ### B.5 Worktree
 
-- **Review**: el worktree del review se borra al terminar el análisis (spec base §8.5). El chat lo vuelve a crear **en el primer mensaje**, con `WorktreeManager.prepare` sobre el mismo `headRefOid` revisado, en una ruta fija por chat (`<worktreesDir>/chat-<pr>-<sessionID>`), y lo guarda en `ChatSession.worktreePath`. Se borra (junto con sus refs) al publicar, al descartar el review y al cerrar la app. Si no hay `localPath`, el chat corre en modo solo diff (cwd vacío, como §8.2).
+- **Review**: el worktree del review se borra al terminar el análisis (spec base §8.5). El chat lo vuelve a crear **en el primer mensaje**, con `WorktreeManager.prepare` sobre el mismo `headRefOid` revisado, en una ruta fija por chat (`<worktreesDir>/chat-<repo>-<N>-<sessionID>`, más `-diff` sin clone), y lo guarda en `ChatSession.worktreePath`. Se borra (junto con sus refs) al publicar, al descartar el review y al cerrar la app. Si no hay `localPath`, el chat corre en modo solo diff (cwd vacío, como §8.2).
 - **Respond**: usa el worktree del respond que ya existe. El chat no cambia su ciclo de vida.
 - Si el PR recibió commits nuevos desde el review, el chat sigue sobre el commit revisado y lo avisa ("This review is for an older commit").
 
@@ -159,6 +165,48 @@ Settings › Claude: sección **Chat** con switch "Chat with Claude in Review an
 - `ChatEngine` (Core) con `ProcessRunner` falso: argumentos exactos (aislamiento, herramientas por tipo, `--session-id` y luego `--resume`), respaldo cuando `--resume` falla, validación y aplicación de cada acción, descarte de acciones inválidas, undo de estado y de archivos (con un repo git temporal), guardián de integridad.
 - Decodificación tolerante de `ChatSession` y de `ClaudeSettings`.
 - Snapshot mode: capturas nuevas `review-chat-{light,dark}` y `respond-chat-{light,dark}` con conversación ficticia.
+
+### B.11 Decisiones de implementación (Plan 6)
+
+Donde el spec era ambiguo:
+
+1. **Fila del popover (A):** `itemRow` ya usa `.truncationMode(.middle)` en el título. A solo agrega `maxListHeight` como parámetro y el tamaño 440 × 480.
+2. **Estado editable de Review:** hoy vive en `@State` de `ReviewWindow` y solo hay cuerpos editados. Pasa a un `ReviewEdits` (Core, `Codable`) con:
+   - `selected`;
+   - `bodies` y `titles` editados;
+   - `added`, los findings agregados por el chat, con ids `c1`, `c2`…;
+   - `generalComment`.
+
+   Vive en el `ChatCoordinator`. Se guarda en `ReviewDraft.edits` junto con `ReviewDraft.chat`, para que la conversación y sus cambios lleguen juntos al historial.
+3. **Numeración:** `#N` es la posición en `draft.items + edits.added`, contando desde 1. Es la misma en la ventana, en el JSON de estado y en el resumen de cambios. Los findings descartados por el filtro también tienen número.
+4. **`commentID` de Respond:** es el `RespondItem.id` (`thread:<nodeID>` o `review:<id>`), no un `PRRC_…`.
+5. **Acción `setImplement`:** se agrega `ChatChange.implementSet(commentID:implement:)`. El spec lista la acción pero no el cambio.
+6. **Cuándo se edita código en Respond:** solo en `readyToPush`, antes del push, con `Edit`/`Write`. PRBar commitea los cambios del turno (`Address review feedback`, sin hooks) y recalcula diff, commits y `headOid`. Así lo que se pushea es lo que el usuario vio. Los tests anteriores se borran, porque cambió el código.
+
+   En `ready` (antes de implementar), el chat es de solo lectura y además ofrece `setImplement`. En cualquier otra fase está bloqueado (implementando, tests, push) o es de solo lectura (`done`).
+7. **Snapshot para deshacer (B.6):** se toma como dice el spec, con índice temporal, `write-tree` y `commit-tree` a la ref. El turno exige el árbol limpio al empezar (`ensureClean`, igual que un fix), así que el snapshot es igual a HEAD. Deshacer hace `update-ref --no-deref HEAD <headBefore>`, `read-tree -u --reset <tree>` con el índice real (también hay que resetearlo) y `clean -fd` (nunca `-x`).
+8. **Contexto del chat de Respond:** el worktree de Respond no tiene la base, así que no hay `pr.diff`. La carpeta de contexto `<owner>-<repo>-<N>-<sesión>.respond-context` lleva:
+   - `feedback.json`, como en el análisis;
+   - `pr.md`, si el PR sigue en el snapshot;
+   - `fixes.diff`, el `RespondResult.diff`.
+
+   El cwd es el worktree. Ese nombre ya lo borra la limpieza de huérfanos.
+9. **Worktree del chat de Review:** el nombre es `chat-<repo>-<N>-<sesión>`, más `-diff` en modo solo diff, con su carpeta `.context`. La ruta es fija por sesión, así que `--resume` funciona aun después de reiniciar la app. `isWorkspaceName` lo reconoce y la limpieza de huérfanos lo borra al arrancar. Para "al cerrar la app" se usa el mismo mecanismo que los reviews: cancelar al salir y borrar en el próximo arranque.
+10. **Commit revisado:** `WorktreeManager.prepare(…, pinnedHeadOid:)` usa el `headOid` del draft si el objeto existe en el clone (`cat-file -e`). Si no existe, usa el head actual y agrega la nota "Claude sees the PR’s latest commit, not the reviewed one."
+11. **Límite de concurrencia:** un `JobScheduler<String>(maxConcurrent: 2)` propio de los chats, en `AppModel`. Reviews y Responds ya tienen cada uno el suyo, y un turno de chat no debe esperar detrás de un review de 15 minutos.
+12. **Respaldo de `--resume`:** se activa solo con `PRBarError.commandFailed` (el CLI salió con error y sin resultado). Un timeout, una cancelación o JSON inválido no lo activan. El reintento por JSON inválido de `ClaudeRunner` continúa la misma sesión con `--resume` y un mensaje corto.
+13. **Restore point:** se agrega `ChatMessage.restore: ChatRestorePoint?` (opcional, decodificación tolerante). Guarda el estado de la ventana antes y después del turno, para detectar ediciones manuales, y el snapshot de archivos.
+14. **"Interrupted" (B.9):** se agrega `ChatSession.pending` (y `lastState`). Al reabrir, `ChatSession.recovered()` convierte un turno pendiente en el error "Interrupted".
+
+Puntos del spec que no se cumplen tal cual:
+
+- **B.4 (integridad):** el spec dice que si Claude tocó `.git` se deshacen los archivos del turno. Pero si cambió la config o los hooks de git, o apareció un `.git` anidado, correr **cualquier** git podría ejecutar lo que escribió Claude. `FixImplementer` ya corta sin correr git en ese caso, y el chat hace lo mismo:
+  - el mensaje queda en error, con el motivo;
+  - no se revierte nada;
+  - el usuario descarta el Respond, lo que borra el worktree.
+
+  En el resto de las fallas (JSON inválido, timeout, Stop o archivos ignorados nuevos) sí se revierte, igual que un fix.
+- **B.5 "se borra al cerrar la app":** no se borra sincrónicamente en `willTerminate`, porque git puede tardar. Se cancela el turno y la limpieza de huérfanos lo borra en el próximo arranque, igual que los worktrees de review.
 
 ---
 
