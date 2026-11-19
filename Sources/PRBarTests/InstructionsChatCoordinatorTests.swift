@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import PRBarCore
 
@@ -103,6 +104,51 @@ enum InstructionsChatCoordinatorTests {
                                                        repos: { [] })
             try expectEqual(reopened.chat.messages.last?.text, ChatSession.interruptedText)
             try expectEqual(store.file.chat.pending, false)
+        },
+        TestCase("instructions coordinator: cuando un turno deja de correr, el scheduler ya liberó su lugar") { @MainActor in
+            let dir = try temporaryDirectory()
+            let backend = FakeInstructionsBackend()
+            let scheduler = JobScheduler<String>(maxConcurrent: 2)
+            let store = InstructionsStore(fileURL: dir.appendingPathComponent("instructions.json"))
+            let chat = InstructionsChatCoordinator(store: store, backend: backend, scheduler: scheduler, repos: { [] })
+            // `@Published` publishes in willSet: this runs at the exact moment the chat stops counting as running,
+            // when a send would already be accepted.
+            var slotBusyWhenStopped: [Bool] = []
+            let observer = chat.$isRunning.dropFirst().filter { !$0 }.sink { _ in
+                slotBusyWhenStopped.append(scheduler.isActive(InstructionsChatCoordinator.key))
+            }
+            defer { observer.cancel() }
+            try expect(chat.send("a"))
+            try await waitUntil { !slotBusyWhenStopped.isEmpty }
+            try expectEqual(slotBusyWhenStopped, [false])
+            // And so a message sent right away isn't dropped.
+            try await waitUntil { !chat.isRunning }
+            try expect(chat.send("b"))
+            try await waitUntil { !chat.isRunning }
+            try expectEqual(backend.inputs.map(\.message), ["a", "b"])
+            try expect(!chat.chat.pending)
+        },
+        TestCase("instructions coordinator: si el scheduler no acepta el turno, el mensaje queda con un error (no pendiente)") { @MainActor in
+            let dir = try temporaryDirectory()
+            let backend = FakeInstructionsBackend()
+            backend.held = true
+            let scheduler = JobScheduler<String>(maxConcurrent: 2)
+            // Something else holds the chat's key (two coordinators never coexist in the app, but the rule holds).
+            let other = InstructionsChatCoordinator(store: InstructionsStore(fileURL: dir.appendingPathComponent("a.json")),
+                                                    backend: backend, scheduler: scheduler, repos: { [] })
+            let store = InstructionsStore(fileURL: dir.appendingPathComponent("b.json"))
+            let chat = InstructionsChatCoordinator(store: store, backend: backend, scheduler: scheduler, repos: { [] })
+            other.send("long")
+            try await waitUntil { backend.inputs.count == 1 }
+            try expect(chat.send("meanwhile"))
+            try expect(!chat.isRunning)
+            try expect(chat.canSend)
+            try expect(!chat.chat.pending)
+            try expectEqual(chat.chat.messages.map(\.role), [.user, .error])
+            try expectEqual(chat.chat.messages.last?.text, InstructionsChatCoordinator.busyText)
+            try expectEqual(store.file.chat.pending, false)
+            backend.held = false
+            try await waitUntil { !other.isRunning }
         },
         TestCase("instructions coordinator: los tokens del mensaje se tachan antes de mandarlo, guardarlo o loguearlo") { @MainActor in
             let dir = try temporaryDirectory()

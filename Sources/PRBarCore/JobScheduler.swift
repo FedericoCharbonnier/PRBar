@@ -108,3 +108,19 @@ public final class JobScheduler<Key: Hashable & Sendable> {
         startNext()
     }
 }
+
+/// Where a job's `work` leaves its outcome for `onComplete`/`onCancelledEnd` to read. It's written once, from the
+/// job's Task, and read on the main actor after `work` returned; the lock only covers the hand-off.
+final class JobOutcomeSlot<T>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _value: T?
+    var value: T? {
+        get { lock.withLock { _value } }
+        set { lock.withLock { _value = newValue } }
+    }
+}
+
+/// The scheduler didn't take a turn: another one with the same key holds the slot.
+struct ChatTurnNotStarted: LocalizedError {
+    let errorDescription: String?
+}

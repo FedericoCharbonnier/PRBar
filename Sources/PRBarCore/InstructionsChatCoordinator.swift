@@ -38,6 +38,8 @@ public struct InstructionsChatService: InstructionsChatBackend {
 @MainActor
 public final class InstructionsChatCoordinator: ObservableObject {
     public static let key = "instructions-chat"
+    /// The scheduler didn't take the turn (another one still holds its slot): the message isn't left waiting.
+    public static let busyText = "Another instructions turn is still running. Send the message again when it finishes."
 
     @Published public private(set) var chat: InstructionsChat
     @Published public private(set) var isRunning = false
@@ -94,18 +96,25 @@ public final class InstructionsChatCoordinator: ObservableObject {
             message: text, stateIfChanged: stateChanged ? state : nil, transcript: transcript, turn: turn)
         let backend = self.backend
         let relay = MainActorRelay<ClaudeStreamEvent> { [weak self] event in self?.handle(event, turn: id) }
-        scheduler.enqueue(Self.key, onStart: { [weak self] in
+        let outcome = JobOutcomeSlot<Result<InstructionsTurnOutput, Error>>()
+        // The turn ends only once the scheduler freed its slot (`onComplete`), or once a stopped turn's Claude really
+        // ended (`onCancelledEnd`): when `isRunning` goes false a new message is always accepted.
+        let ended: @MainActor (Result<Void, Error>) -> Void = { [weak self] _ in
+            self?.finishTurn(id, outcome.value ?? .failure(CancellationError()), repos: repos, state: state)
+        }
+        let accepted = scheduler.enqueue(Self.key, onStart: { [weak self] in
             if self?.turnID == id { self?.activity = "Claude is thinking…" }
-        }, work: { [weak self] in
-            let outcome: Result<InstructionsTurnOutput, Error>
+        }, work: {
             do {
-                outcome = .success(try await backend.send(input) { relay.send($0) })
+                outcome.value = .success(try await backend.send(input) { relay.send($0) })
             } catch {
-                outcome = .failure(error)
+                outcome.value = .failure(error)
             }
             await relay.finish()
-            await self?.finishTurn(id, outcome, repos: repos, state: state)
-        }, onComplete: { _ in })
+        }, onComplete: ended, onCancelledEnd: ended)
+        if !accepted {
+            finishTurn(id, .failure(ChatTurnNotStarted(errorDescription: Self.busyText)), repos: [], state: nil)
+        }
         return true
     }
 
