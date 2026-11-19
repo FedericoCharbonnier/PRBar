@@ -102,6 +102,9 @@ public enum AppPaths {
     public static var slackStateFile: URL { appSupport.appendingPathComponent("slack-state.json") }
     /// Registros y logs de las reviews.
     public static var historyDir: URL { appSupport.appendingPathComponent("history", isDirectory: true) }
+    /// Clon propio del repo de PRBar del que se compilan las actualizaciones (spec D.3). Nunca es el checkout de
+    /// desarrollo del usuario.
+    public static var updateSourceDir: URL { appSupport.appendingPathComponent("source", isDirectory: true) }
     /// Worktrees y carpetas temporales de las reviews (y las carpetas de contexto de "Responder"). Se vacía al
     /// arrancar. Está en la carpeta temporal del usuario y no en `~/Library`, porque Claude tiene `~/Library/**`
     /// negado (`ClaudeRunner.deniedPaths`) y ahí no podría leer el código.
