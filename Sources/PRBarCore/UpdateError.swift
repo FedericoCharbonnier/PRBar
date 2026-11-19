@@ -5,6 +5,8 @@ import Foundation
 public enum UpdateError: Error, Equatable, Sendable, LocalizedError {
     case notInstalledAsApp
     case alreadyInstalling
+    /// `UpdateInstallSession.run` sin `begin()` antes (un error de programación).
+    case notStarted
     case notWritable(String)
     case invalidTag(String)
     case tagMissing(String)
@@ -24,6 +26,8 @@ public enum UpdateError: Error, Equatable, Sendable, LocalizedError {
             "Updates need PRBar.app. Install it with Scripts/bundle.sh --install."
         case .alreadyInstalling:
             "An update is already being installed."
+        case .notStarted:
+            "The update wasn't started."
         case .notWritable(let folder):
             "PRBar can't replace itself in \(folder). Move PRBar.app to ~/Applications and try again."
         case .invalidTag(let tag):

@@ -1,16 +1,11 @@
 import AppKit
+import Combine
 import PRBarCore
 
 /// Chequeo e instalación de actualizaciones (spec D). Lo crea `AppModel`; la UI (popover, Settings, ventana
 /// "Update PRBar") y la CLI (Plan 7, por los métodos de `AppModel+Updates`) pasan por acá.
 @MainActor
 final class UpdateController: ObservableObject {
-    enum InstallState: Equatable {
-        case idle
-        case running(UpdatePhase)
-        case failed(String)
-    }
-
     /// Cada cuánto se fija si toca chequear (el intervalo real es `updates.checkIntervalHours`).
     private static let schedulerTick: Duration = .seconds(3600)
     private static let maxLogLines = 2000
@@ -20,10 +15,10 @@ final class UpdateController: ObservableObject {
     @Published private(set) var isChecking = false
     /// Resultado del último chequeo manual (Settings muestra "up to date" o el error).
     @Published private(set) var lastManualOutcome: UpdateCheckOutcome?
-    @Published private(set) var installState: InstallState = .idle
     @Published private(set) var log: [String] = []
-    /// Trabajos que se están esperando antes de reemplazar la app.
-    @Published private(set) var waitingJobs = 0
+    /// Estado de la instalación y espera de trabajos (lo comparten la ventana y la CLI).
+    let session: UpdateInstallSession
+    private var sessionObserver: AnyCancellable?
 
     let currentVersion = AppVersion.current()
 
@@ -33,7 +28,6 @@ final class UpdateController: ObservableObject {
     private let notifications: NotificationDelivery?
     private let gitPath: () -> String?
     private let activeJobs: () -> Int
-    private let cancelJobs: () -> Void
     private var scheduler: Task<Void, Never>?
     private var installTask: Task<Void, Never>?
     /// Id de la instalación en curso: los eventos de una instalación vieja (que llegan tarde al hilo principal) se ignoran.
@@ -51,8 +45,15 @@ final class UpdateController: ObservableObject {
         self.notifications = notifications
         self.gitPath = gitPath
         self.activeJobs = activeJobs
-        self.cancelJobs = cancelJobs
+        session = UpdateInstallSession(activeJobs: activeJobs, cancelJobs: cancelJobs)
+        sessionObserver = session.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
     }
+
+    var installState: UpdateInstallState { session.state }
+    /// Trabajos que se están esperando antes de seguir.
+    var waitingJobs: Int { session.waitingJobs }
+    /// Por qué no se puede empezar un trabajo nuevo mientras se instala; `nil` = se puede.
+    var jobsBlockedReason: String? { session.blockedReason }
 
     var installedVersion: SemanticVersion { SemanticVersion(currentVersion) ?? SemanticVersion(0, 0, 0) }
 
@@ -62,10 +63,7 @@ final class UpdateController: ObservableObject {
         return url.pathExtension == "app" ? url : nil
     }
 
-    var isInstalling: Bool {
-        if case .running = installState { return true }
-        return false
-    }
+    var isInstalling: Bool { session.isInstalling }
 
     var runningJobs: Int { activeJobs() }
 
@@ -118,20 +116,12 @@ final class UpdateController: ObservableObject {
 
     // MARK: Instalación
 
-    /// Desde la ventana: corre `install` en una tarea propia y deja el error en `installState`.
+    /// Desde la ventana: marca "instalando" en el acto (un doble click no arranca dos) y corre la instalación en una
+    /// tarea propia; el error queda en `installState`.
     func startInstall(_ release: ReleaseInfo, whenBusy: UpdateBusyPolicy) {
-        guard !isInstalling else { return }
+        guard (try? beginInstall(release)) != nil else { return }
         installTask = Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await self.install(release, whenBusy: whenBusy)
-            } catch is CancellationError {
-                self.installState = .idle
-                self.appendLog("Update canceled.")
-            } catch {
-                self.installState = .failed(error.localizedDescription)
-                self.appendLog("Update failed: \(error.localizedDescription)")
-            }
+            try? await self?.runInstall(release, whenBusy: whenBusy, onEvent: nil)
         }
     }
 
@@ -141,11 +131,21 @@ final class UpdateController: ObservableObject {
     }
 
     /// Todo el flujo: esperar trabajos, bajar, compilar, verificar, reemplazar y reiniciar. Si sale bien no vuelve:
-    /// la app termina y la versión nueva arranca sola.
+    /// la app termina y la versión nueva arranca sola. Si falla, `installState` queda `.failed` (o `.idle` si se
+    /// canceló) y se relanza el error (la CLI lo reporta).
     func install(_ release: ReleaseInfo, whenBusy: UpdateBusyPolicy, onEvent: ((UpdateEvent) -> Void)? = nil) async throws {
-        guard !isInstalling else { throw UpdateError.alreadyInstalling }
-        guard let installedApp else { throw UpdateError.notInstalledAsApp }
-        guard let git = gitPath() else { throw PRBarError.toolNotFound("git") }
+        try beginInstall(release)
+        try await runInstall(release, whenBusy: whenBusy, onEvent: onEvent)
+    }
+
+    private func beginInstall(_ release: ReleaseInfo) throws {
+        try session.begin()
+        log = []
+        UpdateLogFile.reset()
+        appendLog("Updating PRBar \(currentVersion) → \(release.version)")
+    }
+
+    private func runInstall(_ release: ReleaseInfo, whenBusy: UpdateBusyPolicy, onEvent: ((UpdateEvent) -> Void)?) async throws {
         let id = UUID()
         installID = id
         eventObserver = onEvent
@@ -153,13 +153,24 @@ final class UpdateController: ObservableObject {
             if installID == id { installID = nil }
             eventObserver = nil
         }
-        log = []
-        UpdateLogFile.reset()
-        appendLog("Updating PRBar \(currentVersion) → \(release.version)")
-        // En el acto (los eventos llegan un instante después): un segundo click en "Update" no arranca otra instalación.
-        installState = .running(.fetching)
+        do {
+            try await session.run(whenBusy, onEvent: { [weak self] event in self?.record(event, install: id) }) { beforeReplace in
+                try await self.performInstall(release, install: id, beforeReplace: beforeReplace)
+            }
+        } catch is CancellationError {
+            appendLog("Update canceled.")
+            throw CancellationError()
+        } catch {
+            appendLog("Update failed: \(error.localizedDescription)")
+            throw error
+        }
+    }
 
-        try await drainJobs(whenBusy)
+    private func performInstall(
+        _ release: ReleaseInfo, install id: UUID, beforeReplace: @escaping @Sendable () async throws -> Void
+    ) async throws {
+        guard let installedApp else { throw UpdateError.notInstalledAsApp }
+        guard let git = gitPath() else { throw PRBarError.toolNotFound("git") }
         let installer = UpdateInstaller(
             source: UpdateSource(
                 runner: runner, gitPath: git,
@@ -170,7 +181,7 @@ final class UpdateController: ObservableObject {
         )
         try await installer.install(
             release, replacing: installedApp,
-            beforeReplace: { [weak self] in try await self?.drainJobs(whenBusy) },
+            beforeReplace: beforeReplace,
             onEvent: { [weak self] event in
                 DispatchQueue.main.async { MainActor.assumeIsolated { self?.record(event, install: id) } }
             }
@@ -188,22 +199,6 @@ final class UpdateController: ObservableObject {
             throw UpdateError.relaunchFailed(release.version.description)
         }
         NSApp.terminate(nil)
-    }
-
-    /// Espera a que no quede ningún trabajo; con `.cancelJobs` primero los cancela (las publicaciones y pushes en
-    /// curso no se cancelan: se esperan).
-    private func drainJobs(_ policy: UpdateBusyPolicy) async throws {
-        guard activeJobs() > 0 else { return }
-        if policy == .cancelJobs {
-            appendLog("Canceling running jobs (posting and pushing finish first).")
-            cancelJobs()
-        }
-        record(.phase(.waitingForJobs))
-        while activeJobs() > 0 {
-            waitingJobs = activeJobs()
-            try await Task.sleep(for: .seconds(1))
-        }
-        waitingJobs = 0
     }
 
     // MARK: Arranque
@@ -229,7 +224,7 @@ final class UpdateController: ObservableObject {
     private func record(_ event: UpdateEvent) {
         switch event {
         case .phase(let phase):
-            installState = .running(phase)
+            session.enter(phase)
             appendLog("== \(phase.title)")
         case .log(let line):
             appendLog(line)
