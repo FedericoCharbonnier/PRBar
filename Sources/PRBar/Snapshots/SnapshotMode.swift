@@ -122,7 +122,8 @@ private final class SnapshotSession {
             respondPipeline: SnapshotRespondPipeline(draft: fixtures.csvDraft, result: fixtures.csvResult, tests: fixtures.csvTests,
                                                      logDirectory: respondHistory.directory.appendingPathComponent("logs")),
             chatBackend: SnapshotChatBackend(),
-            instructionsStore: InstructionsStore(fileURL: dir.appendingPathComponent("instructions.json"))
+            instructionsStore: InstructionsStore(fileURL: dir.appendingPathComponent("instructions.json")),
+            instructionsChatBackend: SnapshotInstructionsChatBackend()
         )
         let model = AppModel(services: services, startsServices: false)
         model.applySnapshotState(tools: SnapshotFixtures.tools, ghAccounts: SnapshotFixtures.ghAccounts, launchAtLogin: true)

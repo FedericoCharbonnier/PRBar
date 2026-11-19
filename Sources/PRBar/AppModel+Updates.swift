@@ -46,6 +46,7 @@ extension AppModel {
             + respond.phases.values.filter(\.isActive).count
             + respond.runningTests.count
             + runningChats.count
+            + (instructionsChat.isRunning ? 1 : 0)
     }
 
     /// "Cancel Jobs and Update": cancela todo salvo las publicaciones/pushes en curso (`RespondQueue.cancel` no las
@@ -57,5 +58,6 @@ extension AppModel {
         }
         // Lo mismo que el botón Stop de cada chat.
         for chat in runningChats { chat.stop() }
+        instructionsChat.stop()
     }
 }

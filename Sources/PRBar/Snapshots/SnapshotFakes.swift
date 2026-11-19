@@ -140,3 +140,11 @@ struct SnapshotChatBackend: ChatBackend {
     func filesChangedSince(draft: RespondDraft, snapshot: ChatFileSnapshot) async -> Bool { false }
     func cleanup(session: ChatSession, subject: ChatSubject, localPath: String?) async {}
 }
+
+/// Snapshot mode never runs the instructions chat.
+struct SnapshotInstructionsChatBackend: InstructionsChatBackend {
+    func send(_ input: InstructionsTurnInput,
+              onEvent: @escaping @Sendable (ClaudeStreamEvent) -> Void) async throws -> InstructionsTurnOutput {
+        throw SnapshotError(message: "There’s no chat in snapshot mode")
+    }
+}

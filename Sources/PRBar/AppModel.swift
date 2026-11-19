@@ -40,6 +40,8 @@ struct AppModelServices {
     var updateTransport: any HTTPTransport = URLSessionTransport()
     /// `nil`: `instructions.json` in Application Support.
     var instructionsStore: InstructionsStore? = nil
+    /// `nil`: the real instructions chat (`LiveInstructionsChatBackend`).
+    var instructionsChatBackend: (any InstructionsChatBackend)? = nil
 
     static func live(runner: SystemProcessRunner) -> AppModelServices {
         let accounts = AccountProvider(runner: runner, ghPath: nil)
@@ -80,6 +82,17 @@ final class AppModel: ObservableObject {
     private let reviewPipeline: (any ReviewPipelineRunning)?
     private let respondPipeline: (any RespondPipelineRunning)?
     private let chatBackendOverride: (any ChatBackend)?
+    private let instructionsChatBackendOverride: (any InstructionsChatBackend)?
+    /// Settings › Instructions' chat (spec E.2). `lazy` so it can capture `self` (weakly).
+    private(set) lazy var instructionsChat = InstructionsChatCoordinator(
+        store: instructions,
+        backend: instructionsChatBackendOverride ?? LiveInstructionsChatBackend(context: { [weak self] in
+            (self?.tools.claude, self?.configStore.config.claude.effectiveChatModel)
+        }),
+        scheduler: chatScheduler,
+        repos: { [weak self] in self?.configuredRepos ?? [] },
+        promptBody: { [weak self] in self?.configStore.config.claude.chatPromptBody(.instructionsChat) }
+    )
     private let updateTransport: any HTTPTransport
     /// Chat turns running at once across the app (spec B.4): at most 2, one per PR.
     let chatScheduler = JobScheduler<String>(maxConcurrent: ChatCoordinator.maxConcurrentChats)
@@ -177,6 +190,7 @@ final class AppModel: ObservableObject {
         self.reviewPipeline = services.reviewPipeline
         self.respondPipeline = services.respondPipeline
         self.chatBackendOverride = services.chatBackend
+        self.instructionsChatBackendOverride = services.instructionsChatBackend
         self.updateTransport = services.updateTransport
         self.prStore = PRStore(
             builder: SnapshotBuilder(api: services.api, tokens: services.accounts),
