@@ -25,10 +25,13 @@ struct RespondWindow: View {
     private let initialSelections: [String: RespondSelection]
 
     @FocusState private var focus: RespondFocus?
+    @State private var showsChat: Bool
+    /// The panel's width, remembered between windows (320–480).
+    @AppStorage("ChatPanelWidth") private var chatWidth = 360.0
 
     static let size = NSSize(width: 760, height: 680)
 
-    init(model: AppModel, prID: String, draft: RespondDraft, chat: ChatCoordinator,
+    init(model: AppModel, prID: String, draft: RespondDraft, chat: ChatCoordinator, showsChat: Bool = false,
          reportUnsaved: @escaping (Bool) -> Void = { _ in }, close: @escaping () -> Void) {
         self.model = model
         queue = model.respond
@@ -41,6 +44,7 @@ struct RespondWindow: View {
         // Claude: `AppModel.respondChat` arma las decisiones del coordinador.
         self.chat = chat
         initialSelections = chat.selections
+        _showsChat = State(initialValue: showsChat)
     }
 
     // MARK: Estado
@@ -135,6 +139,26 @@ struct RespondWindow: View {
         .onChange(of: hasUnsavedChanges, initial: true) { _, unsaved in reportUnsaved(unsaved) }
         .onChange(of: chatLock, initial: true) { _, reason in chat.setLock(reason) }
         .onChange(of: isFinished, initial: true) { _, finished in if finished { chat.markReadOnly() } }
+        .inspector(isPresented: Binding(get: { showsChat && model.chatEnabled }, set: { showsChat = $0 })) {
+            ChatPanel(chat: chat, unavailableReason: model.chatUnavailableReason,
+                      notice: nil,
+                      logURL: model.respondHistory.logURL(for: draft.id))
+                .inspectorColumnWidth(min: 320, ideal: chatWidth, max: 480)
+                .background(GeometryReader { geometry in
+                    Color.clear.onChange(of: geometry.size.width) { _, width in chatWidth = min(max(width, 320), 480) }
+                })
+        }
+        .toolbar {
+            if model.chatEnabled {
+                ToolbarItem(placement: .primaryAction) {
+                    Button { showsChat.toggle() } label: {
+                        Label("Chat", systemImage: "bubble.left.and.bubble.right")
+                    }
+                    .keyboardShortcut("c", modifiers: [.command, .shift])
+                    .help("Chat with Claude (⇧⌘C)")
+                }
+            }
+        }
     }
 
     @ViewBuilder

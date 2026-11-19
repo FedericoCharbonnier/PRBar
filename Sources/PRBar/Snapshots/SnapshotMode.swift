@@ -185,7 +185,7 @@ private final class SnapshotSession {
         let title = "Review · \(draft.repo.name)#\(draft.number)"
         let chat = model.reviewChat(for: draft)
         chat.reviewEdits.generalComment = SnapshotFixtures.generalComment
-        try await window("review-window", title: title, size: NSSize(width: 760, height: 940)) {
+        try await window("review-window", title: title, size: NSSize(width: 760, height: 980)) {
             ReviewWindow(model: model, draft: draft, chat: chat, published: nil, close: {}, initialState: .init(
                 showsDiscarded: true, expandedFindings: ["open-redirect"]
             ))
@@ -207,7 +207,7 @@ private final class SnapshotSession {
         }
         guard let draft = model.respond.records[prID]?.draft else { throw SnapshotError(message: "No respond draft") }
         let title = "Respond · \(draft.repo.name)#\(draft.number)"
-        try await window("respond-choose", title: title, size: NSSize(width: 760, height: 1400)) {
+        try await window("respond-choose", title: title, size: NSSize(width: 760, height: 1440)) {
             RespondWindow(model: model, prID: prID, draft: draft, chat: model.respondChat(for: draft), close: {})
         }
 
@@ -222,7 +222,7 @@ private final class SnapshotSession {
             if case .readyToPush(_, let result)? = model.respond.phases[prID] { return result.tests != nil }
             return false
         }
-        try await window("respond-ready-to-push", title: title, size: NSSize(width: 760, height: 1100)) {
+        try await window("respond-ready-to-push", title: title, size: NSSize(width: 760, height: 1140)) {
             RespondWindow(model: model, prID: prID, draft: draft, chat: model.respondChat(for: draft), close: {})
         }
     }
@@ -302,9 +302,11 @@ private final class SnapshotSession {
                                        content: @escaping () -> Content) async throws {
         for appearance in options.appearances {
             let controller = NSHostingController(rootView: content().environment(\.controlActiveState, .key))
+            controller.sceneBridgingOptions = [.toolbars, .title]
             let window = SnapshotRenderer.makeWindow(
-                controller: controller, size: size, style: [.titled, .closable, .miniaturizable, .resizable], title: title,
-                appearance: SnapshotRenderer.appearance(appearance)
+                controller: controller, size: size,
+                style: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], title: title,
+                toolbarStyle: .unified, appearance: SnapshotRenderer.appearance(appearance)
             )
             await SnapshotRenderer.settle(window)
             try write(SnapshotRenderer.capture(window, includeFrame: true, cornerRadius: 10), name, appearance)

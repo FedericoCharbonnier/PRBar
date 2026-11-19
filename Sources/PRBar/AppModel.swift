@@ -485,6 +485,7 @@ final class AppModel: ObservableObject {
             id: windowID, title: "Review · \(draft.repo.name)#\(draft.number)", size: ReviewWindow.size,
             options: WindowOptions(
                 sharedFrameKey: "ReviewWindowFrame",
+                bridgesToolbar: true, toolbarStyle: .unified,
                 closeConfirmation: CloseConfirmation(
                     message: "Close without posting?", info: "Your selected comments and edited text will be lost."
                 )
@@ -733,6 +734,7 @@ final class AppModel: ObservableObject {
             id: windowID, title: "Respond · \(draft.repo.name)#\(draft.number)", size: RespondWindow.size,
             options: WindowOptions(
                 sharedFrameKey: "RespondWindowFrame",
+                bridgesToolbar: true, toolbarStyle: .unified,
                 closeConfirmation: CloseConfirmation(
                     message: "Close without using the changes?", info: "Your decisions and edited text will be lost."
                 )

@@ -20,6 +20,9 @@ struct ReviewWindow: View {
     @State private var inlineRejected: ReviewEvent?
     @State private var result: PublishedReview?
     @State private var showDiscarded: Bool
+    @State private var showsChat: Bool
+    /// The panel's width, remembered between windows (320–480).
+    @AppStorage("ChatPanelWidth") private var chatWidth = 360.0
     /// Findings whose comment starts expanded (snapshot mode).
     private let initiallyExpanded: Set<String>
     @FocusState private var focus: ReviewFocus?
@@ -40,6 +43,7 @@ struct ReviewWindow: View {
         initialEdits = ReviewEdits.initial(for: draft)
         _result = State(initialValue: published)
         _showDiscarded = State(initialValue: initialState.showsDiscarded)
+        _showsChat = State(initialValue: initialState.showsChat)
         initiallyExpanded = initialState.expandedFindings
     }
 
@@ -48,6 +52,7 @@ struct ReviewWindow: View {
     struct InitialState {
         var showsDiscarded = false
         var expandedFindings: Set<String> = []
+        var showsChat = false
     }
 
     /// El PR tal como está en el último snapshot (`nil` si ya no aparece, p. ej. se mergeó).
@@ -96,6 +101,26 @@ struct ReviewWindow: View {
         // Spec B.2: the chat waits while posting; after posting it stays read only and its worktree goes away.
         .onChange(of: publishing, initial: true) { _, busy in chat.setLock(busy ? "Posting the review…" : nil) }
         .onChange(of: result != nil, initial: true) { _, posted in if posted { chat.markReadOnly() } }
+        .inspector(isPresented: Binding(get: { showsChat && model.chatEnabled }, set: { showsChat = $0 })) {
+            ChatPanel(chat: chat, unavailableReason: model.chatUnavailableReason,
+                      notice: isOutdated ? "This review is for an older commit." : nil,
+                      logURL: model.history.logURL(for: draft.id))
+                .inspectorColumnWidth(min: 320, ideal: chatWidth, max: 480)
+                .background(GeometryReader { geometry in
+                    Color.clear.onChange(of: geometry.size.width) { _, width in chatWidth = min(max(width, 320), 480) }
+                })
+        }
+        .toolbar {
+            if model.chatEnabled {
+                ToolbarItem(placement: .primaryAction) {
+                    Button { showsChat.toggle() } label: {
+                        Label("Chat", systemImage: "bubble.left.and.bubble.right")
+                    }
+                    .keyboardShortcut("c", modifiers: [.command, .shift])
+                    .help("Chat with Claude (⇧⌘C)")
+                }
+            }
+        }
     }
 
     // MARK: Edición
