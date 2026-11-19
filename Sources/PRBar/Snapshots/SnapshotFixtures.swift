@@ -123,7 +123,8 @@ struct SnapshotFixtures {
     }
 
     var snapshot: Snapshot {
-        Snapshot(items: [rateLimiting, loginRedirect, reactQuery, csvExport] + others, fetchedAt: now.addingTimeInterval(-50))
+        Snapshot(items: [rateLimiting, loginRedirect, reactQuery, csvExport, idempotencyKeys, reportsDarkMode] + others,
+                 fetchedAt: now.addingTimeInterval(-50), repoMergeSettings: Self.mergeSettings)
     }
 
     /// Nothing actionable: only "Other".
@@ -512,4 +513,57 @@ extension SnapshotFixtures {
         """,
         url: URL(string: "https://github.com/FedericoCharbonnier/PRBar/releases/tag/v1.3.0")!, publishedAt: nil
     )
+}
+
+// MARK: - Ready to Merge (spec F)
+
+extension SnapshotFixtures {
+    /// Ready to Merge: aprobado, checks pasando; Merge habilitado (squash por defecto) y la PR del diálogo.
+    var idempotencyKeys: ClassifiedPR {
+        readyToMerge(
+            item(Self.api, 322, "Add idempotency keys to payment retries", author: Self.personal, base: "main",
+                 head: "feat/idempotency-keys", ci: .success, adds: 96, dels: 14, updated: -30, category: .readyToMerge,
+                 account: Self.personal, lastCommit: -60 * 3,
+                 reviews: [PRReview(author: "tomas-r", isBot: false, state: .approved, submittedAt: date(minutes: -40))]),
+            status: .clean, commits: 3
+        )
+    }
+
+    /// Ready to Merge pero bloqueado: un check requerido todavía corre.
+    var reportsDarkMode: ClassifiedPR {
+        readyToMerge(
+            item(Self.webApp, 488, "Dark mode for the reports page", author: Self.personal, base: "develop",
+                 head: "feat/reports-dark-mode", ci: .pending, adds: 241, dels: 87, updated: -15, category: .readyToMerge,
+                 account: Self.personal, lastCommit: -60,
+                 reviews: [PRReview(author: "lucia-m", isBot: false, state: .approved, submittedAt: date(minutes: -20))]),
+            status: .blocked, commits: 7
+        )
+    }
+
+    /// Lo que GitHub dice de cada repo para la cuenta personal.
+    static var mergeSettings: [String: RepoMergeSettings] {
+        [
+            Snapshot.scope(account: personal, repo: api): RepoMergeSettings(
+                squashAllowed: true, mergeCommitAllowed: true, rebaseAllowed: false, viewerDefault: .squash,
+                deleteBranchOnMerge: true, viewerPermission: "WRITE"),
+            Snapshot.scope(account: personal, repo: webApp): RepoMergeSettings(
+                squashAllowed: true, mergeCommitAllowed: false, rebaseAllowed: true, viewerDefault: .squash,
+                deleteBranchOnMerge: false, viewerPermission: "ADMIN"),
+        ]
+    }
+
+    /// `base` aprobado y con datos de merge.
+    private func readyToMerge(_ base: ClassifiedPR, status: MergeStateStatus, commits: Int) -> ClassifiedPR {
+        let pr = base.pr
+        let approved = PullRequest(
+            repo: pr.repo, number: pr.number, title: pr.title, url: pr.url, isDraft: pr.isDraft, author: pr.author,
+            authorAvatarURL: pr.authorAvatarURL, baseRef: pr.baseRef, headRef: pr.headRef, headOid: pr.headOid,
+            additions: pr.additions, deletions: pr.deletions, createdAt: pr.createdAt, updatedAt: pr.updatedAt,
+            lastCommitAt: pr.lastCommitAt, ciState: pr.ciState, reviewDecision: .approved, reviews: pr.reviews,
+            comments: pr.comments, requestedReviewers: pr.requestedReviewers,
+            merge: PRMergeState(nodeID: "PR_\(pr.number)", mergeable: .mergeable, status: status, viewerCanUpdate: true,
+                                commitCount: commits)
+        )
+        return ClassifiedPR(pr: approved, category: .readyToMerge, account: base.account)
+    }
 }

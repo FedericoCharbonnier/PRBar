@@ -86,6 +86,7 @@ private final class SnapshotSession {
 
         try await reviewWindows(model: main)
         try await respondWindows(model: main)
+        try await mergeConfirmation(model: main)
         try await history()
         try await settings()
         try await notification()
@@ -263,6 +264,26 @@ private final class SnapshotSession {
         }
     }
 
+    /// The confirmation before merging (spec F.3), as `WindowPresenter` shows it: titled, fixed size.
+    private func mergeConfirmation(model: AppModel) async throws {
+        let item = fixtures.idempotencyKeys
+        let merge = model.mergeOptions(item)
+        for appearance in options.appearances {
+            let view = MergeConfirmView(
+                item: item, methods: merge.methods, initialMethod: merge.defaultMethod ?? .squash,
+                note: merge.availability.note, deletesBranch: true, onMerge: { _ in }, onCancel: {}
+            )
+            let controller = NSHostingController(rootView: view.environment(\.controlActiveState, .key))
+            let window = SnapshotRenderer.makeWindow(
+                controller: controller, size: MergeConfirmView.size, style: [.titled, .closable],
+                title: "Merge Pull Request", appearance: SnapshotRenderer.appearance(appearance)
+            )
+            window.setContentSize(MergeConfirmView.size)
+            await SnapshotRenderer.settle(window)
+            try write(SnapshotRenderer.capture(window, includeFrame: true, cornerRadius: 10), "merge-confirm", appearance)
+        }
+    }
+
     private func history() async throws {
         let model = try makeModel("history", snapshot: fixtures.snapshot)
         for record in fixtures.historyReviews { try model.history.save(record) }
@@ -284,11 +305,11 @@ private final class SnapshotSession {
         let model = try makeModel("settings", snapshot: fixtures.snapshot)
         model.updates.applySnapshotState(available: SnapshotFixtures.updateRelease)
         let sizes: [SettingsWindow.Tab: NSSize] = [
-            .general: NSSize(width: 700, height: 880),
+            .general: NSSize(width: 700, height: 1010),
             .claude: NSSize(width: 700, height: 2100),
             .instructions: NSSize(width: 700, height: 1330),
-            .repos: NSSize(width: 700, height: 1080),
-            .slack: NSSize(width: 700, height: 1180),
+            .repos: NSSize(width: 700, height: 1190),
+            .slack: NSSize(width: 700, height: 1260),
         ]
         for tab in SettingsWindow.Tab.allCases {
             for appearance in options.appearances {
