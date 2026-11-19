@@ -104,6 +104,16 @@ enum InstructionsChatCoordinatorTests {
             try expectEqual(reopened.chat.messages.last?.text, ChatSession.interruptedText)
             try expectEqual(store.file.chat.pending, false)
         },
+        TestCase("instructions coordinator: los tokens del mensaje se tachan antes de mandarlo, guardarlo o loguearlo") { @MainActor in
+            let dir = try temporaryDirectory()
+            let backend = FakeInstructionsBackend()
+            let (store, chat) = make(dir, backend: backend)
+            chat.send("never log ghp_abcdefghijklmnopqrstuvwxyz0123 please")
+            try await waitUntil { !chat.isRunning }
+            try expectEqual(backend.inputs[0].message, "never log *** please")
+            try expectEqual(chat.chat.messages[0].text, "never log *** please")
+            try expectEqual(store.file.chat.messages[0].text, "never log *** please")
+        },
         TestCase("instructions coordinator: un turno detenido o fallido no da el estado por visto") { @MainActor in
             let dir = try temporaryDirectory()
             let backend = FakeInstructionsBackend()

@@ -70,9 +70,10 @@ public final class InstructionsChatCoordinator: ObservableObject {
     public var canSend: Bool { !isRunning }
     public var canUndo: Bool { !isRunning }
 
+    /// The message's tokens are redacted by format (`RuleText.redacted`, spec E.9) before it's saved, logged or sent.
     @discardableResult
     public func send(_ text: String) -> Bool {
-        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = RuleText.redacted(text.trimmingCharacters(in: .whitespacesAndNewlines))
         guard canSend, !text.isEmpty else { return false }
         let repos = self.repos()
         let state = InstructionsPrompts.state(rules: store.rules, repos: repos)
