@@ -7,7 +7,8 @@
 #   5. commitea "Release vX.Y.Z", crea el tag anotado vX.Y.Z, pushea los dos y crea el GitHub Release.
 # Uso: Scripts/release.sh [--dry-run] <X.Y.Z>
 #   --dry-run  corre los chequeos (los que fallan solo avisan), el build y los tests, muestra las notas y lista los
-#              pasos que cambiarían algo (archivos, commit, tag, push, release) sin hacerlos.
+#              pasos que cambiarían algo (archivos, commit, tag, push, release) sin hacerlos. No hace `git fetch`:
+#              compara con origin con `git ls-remote` (las notas salen de los tags locales).
 set -euo pipefail
 
 usage() {
@@ -116,9 +117,16 @@ echo "Repo: ${REPO:-unknown}"
 step "Checking the working tree"
 [[ "$(git rev-parse --abbrev-ref HEAD)" == "$BRANCH" ]] || fail "you're not on $BRANCH."
 [[ -z "$(git status --porcelain)" ]] || fail "the working tree has uncommitted changes."
-git fetch --quiet --tags origin "$BRANCH" || fail "couldn't fetch origin."
-[[ "$(git rev-parse HEAD)" == "$(git rev-parse "origin/$BRANCH" 2>/dev/null)" ]] \
-    || fail "$BRANCH isn't the same as origin/$BRANCH (pull or push first)."
+if (( DRY_RUN )); then
+    # Sin fetch: ni origin/main ni los tags locales ni FETCH_HEAD cambian.
+    ORIGIN_HEAD="$(git ls-remote origin "refs/heads/$BRANCH" 2>/dev/null | cut -f1 || true)"
+    echo "[dry-run] compared with origin using git ls-remote (nothing was fetched)."
+    [[ -n "$ORIGIN_HEAD" ]] || fail "couldn't read $BRANCH from origin."
+else
+    git fetch --quiet --tags origin "$BRANCH" || fail "couldn't fetch origin."
+    ORIGIN_HEAD="$(git rev-parse "origin/$BRANCH" 2>/dev/null || true)"
+fi
+[[ "$(git rev-parse HEAD)" == "$ORIGIN_HEAD" ]] || fail "$BRANCH isn't the same as origin/$BRANCH (pull or push first)."
 if git rev-parse --verify --quiet "refs/tags/$TAG" >/dev/null; then fail "the tag $TAG already exists."; fi
 if [[ -n "$(git ls-remote --tags origin "refs/tags/$TAG" 2>/dev/null)" ]]; then fail "the tag $TAG already exists on origin."; fi
 
@@ -171,7 +179,16 @@ if ! run git push --atomic origin "$BRANCH" "$TAG"; then
 fi
 
 step "Creating the GitHub release"
-run gh release create "$TAG" --repo "$REPO" --title "PRBar $VERSION" --notes-file "$NOTES" --verify-tag
+if ! run gh release create "$TAG" --repo "$REPO" --title "PRBar $VERSION" --notes-file "$NOTES" --verify-tag; then
+    # El commit y el tag ya están en origin: falta solo el release. Las notas se guardan para reintentar.
+    KEPT_NOTES="${TMPDIR:-/tmp}"
+    KEPT_NOTES="${KEPT_NOTES%/}/prbar-release-notes-$TAG.md"
+    cp "$NOTES" "$KEPT_NOTES"
+    echo "release: $TAG was pushed, but creating the GitHub release failed. Create it with:" >&2
+    printf '  gh release create %q --repo %q --title %q --notes-file %q --verify-tag\n' \
+        "$TAG" "$REPO" "PRBar $VERSION" "$KEPT_NOTES" >&2
+    exit 1
+fi
 
 echo
 if (( DRY_RUN )); then
