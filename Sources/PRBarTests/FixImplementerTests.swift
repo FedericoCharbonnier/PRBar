@@ -1122,5 +1122,77 @@ enum FixImplementerTests {
             try expect(try respondMessage(error).contains("can’t be undone"))
             try expectEqual(try repo.subjects(), ["later", FixImplementer.chatCommitMessage, "base"])
         },
+        TestCase("fix implementer: chatTurn se niega si cambió un hook desde los fixes (no rebasa la huella del push)") {
+            let repo = try FixRepo.make()
+            defer { repo.remove() }
+            let impl = implementer(fakeClaude([]), log: try logURL())
+            let draft = try draft(repo, items: [])
+            let fixed = try await run(impl, draft, [:])
+            guard let integrity = fixed.gitIntegrity else { throw TestFailure(description: "sin gitIntegrity") }
+            // Un turno normal arrastra la huella de los fixes.
+            let (_, first) = try await impl.chatTurn(draft: draft, current: fixed, sessionID: UUID(), turn: 1) {
+                try edit("README.md", "chat\n")(repo.dir)
+                return "ok"
+            }
+            try expectEqual(first.result?.gitIntegrity, integrity)
+            // Un hook que aparece entre turnos (o entre los fixes y el chat) bloquea el turno sin correr Claude.
+            try edit(".git/hooks/pre-push", "#!/bin/sh\necho pwned\n")(repo.dir)
+            let ran = Box(false)
+            let error = try await expectThrows {
+                _ = try await impl.chatTurn(draft: draft, current: first.result!, sessionID: UUID(), turn: 2) {
+                    ran.value = true
+                    try edit("README.md", "otra\n")(repo.dir)
+                    return "ok"
+                }
+            }
+            try expect(try respondMessage(error).contains("Git configuration or hooks changed"), "\(error)")
+            try expect(!ran.value)
+            try expectEqual(try repo.subjects(), [FixImplementer.chatCommitMessage, "base"])
+        },
+        TestCase("fix implementer: después de un turno que tocó hooks, el siguiente turno también se bloquea") {
+            let repo = try FixRepo.make()
+            defer { repo.remove() }
+            let impl = implementer(fakeClaude([]), log: try logURL())
+            let draft = try draft(repo, items: [])
+            let fixed = try await run(impl, draft, [:])
+            _ = try await expectThrows {
+                _ = try await impl.chatTurn(draft: draft, current: fixed, sessionID: UUID(), turn: 1) {
+                    try edit(".git/hooks/pre-push", "#!/bin/sh\necho pwned\n")(repo.dir)
+                    return "ok"
+                }
+            }
+            let ran = Box(false)
+            let error = try await expectThrows {
+                _ = try await impl.chatTurn(draft: draft, current: fixed, sessionID: UUID(), turn: 2) {
+                    ran.value = true
+                    return "ok"
+                }
+            }
+            try expect(try respondMessage(error).contains("Git configuration or hooks changed"), "\(error)")
+            try expect(!ran.value)
+        },
+        TestCase("fix implementer: undoChatTurn y chatFilesChangedSince no corren git si cambió la huella") {
+            let repo = try FixRepo.make()
+            defer { repo.remove() }
+            let recorder = RecordingProcessRunner()
+            let impl = implementer(fakeClaude([]), log: try logURL(), runner: recorder)
+            let draft = try draft(repo, items: [])
+            let fixed = try await run(impl, draft, [:])
+            let (_, outcome) = try await impl.chatTurn(draft: draft, current: fixed, sessionID: UUID(), turn: 1) {
+                try edit("README.md", "chat\n")(repo.dir)
+                return "ok"
+            }
+            let snapshot = try outcome.snapshot ?? { throw TestFailure(description: "sin snapshot") }()
+            try put(repo.dir.appendingPathComponent(".git/config"), "[core]\n\tfsmonitor = /tmp/pwned\n", append: true)
+            let before = recorder.calls.count
+            let changed = await impl.chatFilesChangedSince(snapshot, draft: draft)
+            try expect(changed)
+            let error = try await expectThrows { _ = try await impl.undoChatTurn(draft: draft, snapshot: snapshot) }
+            try expect(try respondMessage(error).contains("Git configuration or hooks changed"), "\(error)")
+            // Solo el rev-parse que ubica las carpetas de git (no lee el índice ni corre hooks).
+            let verbs = recorder.calls.dropFirst(before).map { $0.arguments.dropFirst(2 + GitHardening.arguments.count).first ?? "" }
+            try expect(verbs.allSatisfy { $0 == "rev-parse" }, "\(verbs)")
+            try expectEqual(repo.read("README.md"), "chat\n")
+        },
     ]
 }

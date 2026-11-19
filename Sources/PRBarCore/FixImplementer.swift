@@ -83,12 +83,12 @@ public struct FixImplementer: Sendable {
             await onProgress(index + 1, work.count)
         }
 
-        return try await summarize(worktree, start: start, items: results, guarded: guarded)
+        return try await summarize(worktree, start: start, items: results, integrity: guarded.securityDigest())
     }
 
     /// The result of the fixes (`start..HEAD`): diff stat, sensitive files, the full diff (capped), the commits with
-    /// their messages, HEAD and git's digest. Never runs tests (`tests` is nil).
-    private func summarize(_ worktree: URL, start: String, items: [ItemResult], guarded: GitPaths) async throws -> RespondResult {
+    /// their messages, HEAD and `integrity` (git's digest, the push's baseline). Never runs tests (`tests` is nil).
+    private func summarize(_ worktree: URL, start: String, items: [ItemResult], integrity: String?) async throws -> RespondResult {
         let diffStat = try await git(worktree, ["diff", GitHardening.ignoreSubmodules, "--no-ext-diff", "--no-color", "--stat", "\(start)..HEAD"])
         let changed = try await git(worktree, ["diff", GitHardening.ignoreSubmodules, "--no-ext-diff", "--no-renames", "--name-only", "-z", "\(start)..HEAD"])
         let sensitive = changed.split(separator: "\0").map(String.init).filter(Self.isSensitive).sorted()
@@ -100,7 +100,7 @@ public struct FixImplementer: Sendable {
         let log = try await git(worktree, ["log", "--reverse", "--format=%H%x00%B%x1e", "\(start)..HEAD"])
         return RespondResult(items: items, diffStat: diffStat.trimmingCharacters(in: .newlines), tests: nil,
                              sensitiveChanges: sensitive, headOid: try await head(worktree),
-                             gitIntegrity: guarded.securityDigest(), diff: diff, diffTruncated: truncated,
+                             gitIntegrity: integrity, diff: diff, diffTruncated: truncated,
                              commits: Self.commits(fromLog: log))
     }
 
@@ -345,8 +345,9 @@ public struct FixImplementer: Sendable {
     }
 
     /// Runs `body` (one chat turn of Claude with Edit/Write in the worktree) under the same guard as a fix and
-    /// commits what it changed with `chatCommitMessage`, without hooks. Before Claude: no nested `.git`, HEAD contains
-    /// `startHeadOid`, a clean tree, no git config inside the worktree, and the snapshot ref (spec B.6). After it,
+    /// commits what it changed with `chatCommitMessage`, without hooks. Before Claude: no nested `.git`, git's digest
+    /// equal to `current.gitIntegrity` (the fixes' baseline, carried forward unchanged), HEAD contains `startHeadOid`,
+    /// no git config inside the worktree, a clean tree, and the snapshot ref (spec B.6). After it,
     /// `inspect` runs before any git: if git's config or hooks changed it throws without running git; if Claude
     /// failed, the turn's changes are reverted; new ignored files are reverted and it throws. The returned result is
     /// recomputed from `start..HEAD` with the previous items and no tests (the code changed).
@@ -354,10 +355,14 @@ public struct FixImplementer: Sendable {
                                       body: @Sendable () async throws -> T) async throws -> (T, ChatFilesOutcome) {
         let worktree = URL(fileURLWithPath: draft.worktree.path, isDirectory: true)
         try Self.checkNoNestedGit(worktree, allowed: [])
-        let start = try await verifyStart(draft.startHeadOid, worktree: worktree)
         let guarded = try await gitPaths(worktree)
-        try await ensureClean(worktree)
+        // The push's baseline is the fixes' digest: a change since then (between turns, or one a failed turn
+        // detected) blocks the chat instead of becoming the new baseline.
+        try checkIntegrity(guarded, expected: current.gitIntegrity, worktree: worktree)
+        let start = try await verifyStart(draft.startHeadOid, worktree: worktree)
+        // Before `status`: it can run filter drivers from the config.
         try await checkConfigOrigins(worktree)
+        try await ensureClean(worktree)
         let headBefore = try await head(worktree)
         let ref = Self.chatRef(sessionID: sessionID, turn: turn)
         let tree = try await snapshotTree(worktree)
@@ -417,7 +422,8 @@ public struct FixImplementer: Sendable {
         guard sha != headBefore, try await isAncestor(worktree, start, sha) else {
             throw PRBarError.respond("Commit \(sha) doesn't descend from \(start): stopping.")
         }
-        let result = try await summarize(worktree, start: start, items: current.items, guarded: guarded)
+        // The baseline is carried forward, never recomputed (`inspect` already checked nothing changed in the turn).
+        let result = try await summarize(worktree, start: start, items: current.items, integrity: current.gitIntegrity)
         return (value, ChatFilesOutcome(
             changedFiles: changed,
             snapshot: ChatFileSnapshot(ref: ref, tree: tree, headBefore: headBefore, headAfter: sha, resultBefore: current),
@@ -430,6 +436,7 @@ public struct FixImplementer: Sendable {
     public func undoChatTurn(draft: RespondDraft, snapshot: ChatFileSnapshot) async throws -> RespondResult {
         let worktree = URL(fileURLWithPath: draft.worktree.path, isDirectory: true)
         try Self.checkNoNestedGit(worktree, allowed: [])
+        try checkIntegrity(try await gitPaths(worktree), expected: snapshot.resultBefore.gitIntegrity, worktree: worktree)
         try await checkConfigOrigins(worktree)
         guard try await head(worktree) == snapshot.headAfter else {
             throw PRBarError.respond("The worktree’s HEAD moved after that message: it can’t be undone.")
@@ -447,6 +454,8 @@ public struct FixImplementer: Sendable {
     public func chatFilesChangedSince(_ snapshot: ChatFileSnapshot, draft: RespondDraft) async -> Bool {
         let worktree = URL(fileURLWithPath: draft.worktree.path, isDirectory: true)
         guard WorktreeIntegrity.nestedGitEntries(in: worktree).isEmpty,
+              let guarded = try? await gitPaths(worktree),
+              (try? checkIntegrity(guarded, expected: snapshot.resultBefore.gitIntegrity, worktree: worktree)) != nil,
               let head = try? await head(worktree), head == snapshot.headAfter,
               let status = try? await git(worktree, ["status", GitHardening.ignoreSubmodules, "--porcelain", "--untracked-files=all"])
         else { return true }
@@ -785,6 +794,16 @@ public struct FixImplementer: Sendable {
     private func gitPaths(_ worktree: URL) async throws -> GitPaths {
         let output = try await git(worktree, ["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"])
         return try GitPaths.parse(output, worktree: worktree)
+    }
+
+    /// Throws, without running git, if git's digest isn't `expected` (the fixes' `gitIntegrity`; nil = an older
+    /// result, which can't be pushed anyway).
+    private func checkIntegrity(_ paths: GitPaths, expected: String?, worktree: URL) throws {
+        guard let expected, paths.securityDigest() != expected else { return }
+        claude.appendLog("--- git configuration or hooks changed since the fixes were implemented ---\n")
+        throw PRBarError.respond(
+            "Git configuration or hooks changed since the fixes were implemented. PRBar stopped before running git. "
+            + "Review the worktree at \(worktree.path), then Dismiss to clean it up.")
     }
 
     private func checkGitUntouched(_ paths: GitPaths, before: [String: String], worktree: URL) throws {
