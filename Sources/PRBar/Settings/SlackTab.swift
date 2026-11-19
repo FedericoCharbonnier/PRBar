@@ -44,6 +44,10 @@ struct SlackTab: View {
                 templateEditor("Reply", kind: .update)
                     .padding(.leading, 16)
                     .disabled(!settings.postUpdated)
+                Toggle("Reply “Merged” in the thread when I merge from PRBar", isOn: toggle(.postMerged))
+                templateEditor("Reply", kind: .merged)
+                    .padding(.leading, 16)
+                    .disabled(!settings.postMerged)
             }
             .disabled(!settings.enabled)
 

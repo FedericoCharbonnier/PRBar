@@ -220,6 +220,8 @@ struct ReposTab: View {
                 respondSection(repo)
 
                 slackSection(repo)
+
+                mergeSection(repo)
             }
             .formStyle(.grouped)
             .task(id: "\(login)|\(repo.id)") {
@@ -332,6 +334,35 @@ struct ReposTab: View {
             }
         }
         .task(id: "\(slack.tokenRevision)-\(slack.isConnected)-\(configStore.config.slack.enabled)") { await loadSlackChannels() }
+    }
+
+    /// Método de merge del repo (spec F.5): solo los que el repo permite según el último refresco de esta cuenta.
+    private func mergeSection(_ repo: RepoConfig) -> some View {
+        let settings = model.prStore.snapshot?.repoMergeSettings[Snapshot.scope(account: login, repo: repo.repo)]
+        let allowed = MergePolicy.allowedMethods(settings)
+        return Section {
+            Picker("Merge method", selection: Binding(
+                get: { repo.mergeMethod },
+                set: { model.setMergeMethod($0, repoID: repo.id, login: login) }
+            )) {
+                Text(settings?.viewerDefault.map { "Repository default (\($0.title))" } ?? "Repository default")
+                    .tag(MergeMethod?.none)
+                ForEach(allowed) { method in
+                    Text(method.title).tag(MergeMethod?.some(method))
+                }
+                if let current = repo.mergeMethod, !allowed.contains(current) {
+                    Text("\(current.title) (not allowed)").tag(MergeMethod?.some(current))
+                }
+            }
+        } header: {
+            Text("Ready to Merge")
+        } footer: {
+            Text(settings == nil
+                 ? "PRBar learns which methods this repo allows on the next refresh."
+                 : "The Merge button uses this method; the menu next to it offers the others the repo allows.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 
     private func loadSlackChannels(reload: Bool = false) async {
