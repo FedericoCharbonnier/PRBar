@@ -100,11 +100,12 @@ public enum RuleSuggestions {
     }
 
     /// For each category (not `other`): distinct PRs with a discard in the last 30 days. 3 or more across 2 or more
-    /// repos → a global suggestion (and none per repo for that category); otherwise one per repo with 3 or more.
-    /// Hidden by "Never", by "Not Now" until it expires, and by a rule created from a suggestion of that category
-    /// (global, or of the same repo).
+    /// repos → a global suggestion (and none per repo for that category); otherwise, or if the global one is hidden
+    /// ("Never" or "Not Now"), one per repo with 3 or more. Hidden by "Never", by "Not Now" until it expires, and by a
+    /// rule created from a suggestion of that category (global, or of the same repo). Repos are compared without case.
+    /// `configuredRepos`: only these get a suggestion of their own, named as configured (nil = any repo).
     public static func compute(events: [DiscardEvent], rules: [Rule], decisions: [SuggestionDecision],
-                               now: Date = Date()) -> [RuleSuggestion] {
+                               configuredRepos: [String]? = nil, now: Date = Date()) -> [RuleSuggestion] {
         let recent = events.filter { $0.category != .other && now.timeIntervalSince($0.date) <= window }
         var result: [RuleSuggestion] = []
         for category in FindingCategory.allCases where category != .other {
@@ -117,15 +118,21 @@ public enum RuleSuggestions {
                 names[key] = names[key] ?? event.repo
             }
             let total = Set(ofCategory.map(\.prID)).count
-            if prsByRepo.count >= 2 && total >= minPRs {
-                if allowed(.global, category, rules: rules, decisions: decisions, now: now) {
-                    result.append(RuleSuggestion(id: key(.global, category), scope: .global, category: category,
-                                                 prCount: total, text: proposedText(category)))
-                }
+            if prsByRepo.count >= 2 && total >= minPRs,
+               allowed(.global, category, rules: rules, decisions: decisions, now: now) {
+                result.append(RuleSuggestion(id: key(.global, category), scope: .global, category: category,
+                                             prCount: total, text: proposedText(category)))
                 continue
             }
             for (repoKey, prs) in prsByRepo.sorted(by: { $0.key < $1.key }) where prs.count >= minPRs {
-                let scope = RuleScope.repo(names[repoKey] ?? repoKey)
+                let name: String
+                if let configuredRepos {
+                    guard let configured = configuredRepos.first(where: { $0.lowercased() == repoKey }) else { continue }
+                    name = configured
+                } else {
+                    name = names[repoKey] ?? repoKey
+                }
+                let scope = RuleScope.repo(name)
                 if allowed(scope, category, rules: rules, decisions: decisions, now: now) {
                     result.append(RuleSuggestion(id: key(scope, category), scope: scope, category: category,
                                                  prCount: prs.count, text: proposedText(category)))
@@ -137,10 +144,18 @@ public enum RuleSuggestions {
 
     static func allowed(_ scope: RuleScope, _ category: FindingCategory, rules: [Rule], decisions: [SuggestionDecision],
                         now: Date) -> Bool {
-        if let decision = decisions.first(where: { $0.key == key(scope, category) }),
-           decision.never || (decision.snoozedUntil.map { $0 > now } ?? false) {
+        let wanted = key(scope, category).lowercased()
+        if decisions.contains(where: { $0.key.lowercased() == wanted
+            && ($0.never || ($0.snoozedUntil.map { $0 > now } ?? false)) }) {
             return false
         }
-        return !rules.contains { $0.category == category && ($0.scope == .global || $0.scope == scope) }
+        return !rules.contains { rule in
+            guard rule.category == category else { return false }
+            switch (rule.scope, scope) {
+            case (.global, _): return true
+            case (.repo(let a), .repo(let b)): return a.caseInsensitiveCompare(b) == .orderedSame
+            case (.repo, .global): return false
+            }
+        }
     }
 }

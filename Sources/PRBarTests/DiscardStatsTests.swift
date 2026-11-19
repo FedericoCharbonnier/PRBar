@@ -64,5 +64,33 @@ enum DiscardStatsTests {
                                  category: .style)
             try expectEqual(RuleSuggestions.compute(events: events, rules: [otherRepo], decisions: [], now: now).count, 1)
         },
+        TestCase("rule suggestions: un global con Never o Not Now deja ver las de cada repo") {
+            let events = [event("acme/api", "PR_1"), event("acme/api", "PR_2"), event("acme/api", "PR_3"), event("acme/web-app", "PR_4")]
+            for decision in [SuggestionDecision(key: "global:style", never: true, snoozedUntil: nil),
+                             SuggestionDecision(key: "global:style", never: false, snoozedUntil: now.addingTimeInterval(day))] {
+                let suggestions = RuleSuggestions.compute(events: events, rules: [], decisions: [decision], now: now)
+                try expectEqual(suggestions.map(\.id), ["repo:acme/api:style"])
+            }
+            // A global rule from a suggestion still covers every repo.
+            let global = Rule(scope: .global, appliesTo: [.review], text: "x", source: .suggestion, createdAt: now, category: .style)
+            try expectEqual(RuleSuggestions.compute(events: events, rules: [global], decisions: [], now: now), [])
+        },
+        TestCase("rule suggestions: decisiones y reglas sin distinguir mayúsculas; solo repos configurados") {
+            let events = [event("Acme/API", "PR_1"), event("acme/api", "PR_2"), event("acme/api", "PR_3"),
+                          event("old/gone", "PR_4"), event("old/gone", "PR_5"), event("old/gone", "PR_6", .docs),
+                          event("old/gone", "PR_7", .docs), event("old/gone", "PR_8", .docs)]
+            let configured = ["acme/API"]
+            // old/gone isn't configured: no suggestion of its own.
+            let docs = RuleSuggestions.compute(events: events, rules: [], decisions: [], configuredRepos: configured, now: now)
+                .filter { $0.category == .docs }
+            try expectEqual(docs, [])
+            let never = SuggestionDecision(key: "repo:ACME/api:docs", never: true, snoozedUntil: nil)
+            let apiDocs = (0..<3).map { event("acme/api", "PR_d\($0)", .docs) }
+            try expectEqual(RuleSuggestions.compute(events: apiDocs, rules: [], decisions: [never], configuredRepos: configured, now: now), [])
+            let shown = RuleSuggestions.compute(events: apiDocs, rules: [], decisions: [], configuredRepos: configured, now: now)
+            try expectEqual(shown.map(\.scope), [.repo("acme/API")])
+            let rule = Rule(scope: .repo("ACME/Api"), appliesTo: [.review], text: "x", source: .suggestion, createdAt: now, category: .docs)
+            try expectEqual(RuleSuggestions.compute(events: apiDocs, rules: [rule], decisions: [], configuredRepos: configured, now: now), [])
+        },
     ]
 }

@@ -795,7 +795,7 @@ final class AppModel: ObservableObject {
     /// The suggestions to show (spec E.4); with `repo`, only those that apply to it (its own and the global ones).
     func ruleSuggestions(for repo: RepoRef? = nil) -> [RuleSuggestion] {
         let all = RuleSuggestions.compute(events: discardStats.all(), rules: instructions.rules,
-                                          decisions: instructions.file.suggestionDecisions)
+                                          decisions: instructions.file.suggestionDecisions, configuredRepos: configuredRepos)
         guard let repo else { return all }
         return all.filter { $0.scope.covers(repo) }
     }
