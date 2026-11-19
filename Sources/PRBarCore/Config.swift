@@ -18,12 +18,14 @@ public struct RepoConfig: Hashable, Codable, Sendable, Identifiable {
     /// Globs of files whose findings are hidden in this repo's reviews (spec E.5), on top of
     /// `ClaudeSettings.review.ignorePaths`.
     public var ignorePaths: [String]
+    /// Método de merge fijado para el repo (spec F.5); `nil` = el de GitHub (`viewerDefaultMergeMethod`).
+    public var mergeMethod: MergeMethod?
 
     public init(
         owner: String, name: String, localPath: String? = nil, baseBranches: [String] = [],
         slackChannelID: String? = nil, slackChannelName: String? = nil, slackEnabledAt: Date? = nil,
         watchedUsers: [String] = [], worktreeDir: String? = nil, testCommand: String? = nil,
-        ignorePaths: [String] = []
+        ignorePaths: [String] = [], mergeMethod: MergeMethod? = nil
     ) {
         self.owner = owner
         self.name = name
@@ -36,6 +38,7 @@ public struct RepoConfig: Hashable, Codable, Sendable, Identifiable {
         self.worktreeDir = worktreeDir
         self.testCommand = testCommand
         self.ignorePaths = ignorePaths
+        self.mergeMethod = mergeMethod
     }
 
     public var repo: RepoRef { RepoRef(owner: owner, name: name) }
@@ -44,6 +47,7 @@ public struct RepoConfig: Hashable, Codable, Sendable, Identifiable {
     enum CodingKeys: String, CodingKey {
         case owner, name, localPath, baseBranches, slackChannelID, slackChannelName, slackEnabledAt, watchedUsers
         case worktreeDir, testCommand, ignorePaths
+        case mergeMethod
     }
 
     public init(from decoder: Decoder) throws {
@@ -59,6 +63,8 @@ public struct RepoConfig: Hashable, Codable, Sendable, Identifiable {
         worktreeDir = try c.decodeIfPresent(String.self, forKey: .worktreeDir)
         testCommand = try c.decodeIfPresent(String.self, forKey: .testCommand)
         ignorePaths = (try? c.decodeIfPresent([String].self, forKey: .ignorePaths)) ?? []
+        // Un valor desconocido (p. ej. de una versión más nueva) cuenta como "el de GitHub".
+        mergeMethod = try? c.decodeIfPresent(MergeMethod.self, forKey: .mergeMethod)
     }
 }
 
@@ -454,11 +460,13 @@ public struct AppConfig: Hashable, Codable, Sendable {
     public var slack = SlackSettings()
     public var claude = ClaudeSettings()
     public var updates = UpdateSettings()
+    public var merge = MergeSettings()
 
     public init() {}
 
     enum CodingKeys: String, CodingKey {
         case accounts, refreshIntervalMinutes, launchAtLogin, notifications, toolPaths, slack, claude, updates
+        case merge
     }
 
     public init(from decoder: Decoder) throws {
@@ -471,6 +479,7 @@ public struct AppConfig: Hashable, Codable, Sendable {
         slack = try c.decodeIfPresent(SlackSettings.self, forKey: .slack) ?? SlackSettings()
         claude = (try? c.decodeIfPresent(ClaudeSettings.self, forKey: .claude)) ?? ClaudeSettings()
         updates = (try? c.decodeIfPresent(UpdateSettings.self, forKey: .updates)) ?? UpdateSettings()
+        merge = (try? c.decodeIfPresent(MergeSettings.self, forKey: .merge)) ?? MergeSettings()
     }
 }
 
@@ -610,6 +619,11 @@ extension AppConfig {
 
     public mutating func removeWatchedUser(_ user: String, repoID: String, login: String) {
         withRepo(repoID, login: login) { $0.watchedUsers.removeAll { $0.lowercased() == user.lowercased() } }
+    }
+
+    /// `nil` = el método por defecto de GitHub para el repo.
+    public mutating func setMergeMethod(_ method: MergeMethod?, repoID: String, login: String) {
+        withRepo(repoID, login: login) { $0.mergeMethod = method }
     }
 
     private mutating func withAccount(_ login: String, _ body: (inout AccountConfig) -> Void) {
