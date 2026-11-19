@@ -1,6 +1,21 @@
 import Foundation
 import os
 
+/// Which Claude Code conversation a run belongs to (the chat, spec B.4). Sessions are stored per cwd: a `resume`
+/// has to run in the same directory as the run that started it.
+public enum ClaudeSessionFlag: Equatable, Sendable {
+    /// `--session-id <uuid>`: a new conversation with this id.
+    case start(UUID)
+    /// `--resume <uuid>`: continue that conversation.
+    case resume(UUID)
+
+    public var id: UUID {
+        switch self {
+        case .start(let id), .resume(let id): id
+        }
+    }
+}
+
 /// Una corrida de `claude -p` aislada: qué pedirle, con qué herramientas y dónde.
 public struct ClaudeInvocation: Sendable {
     public var prompt: String
@@ -16,9 +31,12 @@ public struct ClaudeInvocation: Sendable {
     public var timeout: TimeInterval
     /// Encabezado de la corrida en el log, p. ej. `"=== etapa 1 ==="`.
     public var logHeader: String
+    /// The conversation (only the chat uses one). `nil` = a one-off run, as in the review and the fixes.
+    public var session: ClaudeSessionFlag?
 
     public init(prompt: String, schema: String, tools: [String], workingDirectory: URL,
-                additionalDirectories: [URL] = [], timeout: TimeInterval, logHeader: String) {
+                additionalDirectories: [URL] = [], timeout: TimeInterval, logHeader: String,
+                session: ClaudeSessionFlag? = nil) {
         self.prompt = prompt
         self.schema = schema
         self.tools = tools
@@ -26,6 +44,7 @@ public struct ClaudeInvocation: Sendable {
         self.additionalDirectories = additionalDirectories
         self.timeout = timeout
         self.logHeader = logHeader
+        self.session = session
     }
 }
 
@@ -128,6 +147,11 @@ public struct ClaudeRunner: Sendable {
         let disallowed = disallowedTools(for: invocation.tools)
         var arguments = ["-p", invocation.prompt]
         if let model { arguments += ["--model", model.rawValue] }
+        switch invocation.session {
+        case .start(let id)?: arguments += ["--session-id", id.uuidString.lowercased()]
+        case .resume(let id)?: arguments += ["--resume", id.uuidString.lowercased()]
+        case nil: break
+        }
         arguments += [
             "--output-format", "stream-json",
             "--verbose",
@@ -210,15 +234,23 @@ public struct ClaudeRunner: Sendable {
 
     // MARK: - Corrida
 
-    /// Una corrida con un reintento si la salida es inválida o falta. Devuelve el JSON decodificado (ya tachado).
-    /// `onAgent` se llama, en orden y desde cualquier hilo, con 0 al empezar cada intento y con el total de
-    /// subagentes cada vez que arranca uno.
+    /// One run with one retry if the output is invalid or missing. Returns the decoded JSON (already redacted).
+    /// `onAgent` is called, in order and from any thread, with 0 when each attempt starts and with the subagent
+    /// total each time one starts.
     public func run<T: Decodable>(_ invocation: ClaudeInvocation, as type: T.Type,
                                   onAgent: @escaping @Sendable (Int) -> Void) async throws -> T {
+        try await run(invocation, as: type, onEvent: { event in
+            if case .agentStarted(let total) = event { onAgent(total) }
+        })
+    }
+
+    /// Like `run(_:as:onAgent:)`, with every stream event: `agentStarted(0)` when each attempt starts, then the
+    /// text, the tool calls and the subagents as they come (`ClaudeStreamParser.consumeAll`).
+    public func run<T: Decodable>(_ invocation: ClaudeInvocation, as type: T.Type,
+                                  onEvent: @escaping @Sendable (ClaudeStreamEvent) -> Void) async throws -> T {
         try validate(invocation)
         do {
-            return try await attempt(invocation, header: invocation.logHeader, prompt: invocation.prompt,
-                                     as: type, onAgent: onAgent)
+            return try await attempt(invocation, as: type, onEvent: onEvent)
         } catch let error as ClaudeError {
             let detail: String
             switch error {
@@ -227,10 +259,23 @@ public struct ClaudeRunner: Sendable {
             case .failed: throw error
             }
             log.append("--- invalid result: \(detail); retrying ---\n")
-            return try await attempt(invocation, header: Self.retryHeader(invocation.logHeader),
-                                     prompt: Self.retryPrompt(invocation.prompt, detail: detail),
-                                     as: type, onAgent: onAgent)
+            return try await attempt(Self.retryInvocation(invocation, detail: detail), as: type, onEvent: onEvent)
         }
+    }
+
+    /// The retry of an invalid output. Without a session it repeats the prompt with a note (as always). With one,
+    /// the first attempt already started (or continued) the conversation: the retry continues it (`--resume`)
+    /// with just the correction, so the conversation doesn't get the prompt twice.
+    static func retryInvocation(_ invocation: ClaudeInvocation, detail: String) -> ClaudeInvocation {
+        var retry = invocation
+        retry.logHeader = retryHeader(invocation.logHeader)
+        if let session = invocation.session {
+            retry.session = .resume(session.id)
+            retry.prompt = "Your previous answer was invalid (\(detail)). Reply only with the requested structured output."
+        } else {
+            retry.prompt = retryPrompt(invocation.prompt, detail: detail)
+        }
+        return retry
     }
 
     /// Las garantías de aislamiento que no dependen de los flags: se chequean antes de lanzar nada.
@@ -262,29 +307,25 @@ public struct ClaudeRunner: Sendable {
         log.append(text)
     }
 
-    private func attempt<T: Decodable>(_ invocation: ClaudeInvocation, header: String, prompt: String,
-                                       as type: T.Type, onAgent: @escaping @Sendable (Int) -> Void) async throws -> T {
-        log.append(header + "\n")
-        onAgent(0)
+    private func attempt<T: Decodable>(_ invocation: ClaudeInvocation, as type: T.Type,
+                                       onEvent: @escaping @Sendable (ClaudeStreamEvent) -> Void) async throws -> T {
+        log.append(invocation.logHeader + "\n")
+        onEvent(.agentStarted(total: 0))
 
-        var arguments = invocation
-        arguments.prompt = prompt
         let parser = OSAllocatedUnfairLock(initialState: ClaudeStreamParser())
         let log = self.log
         let secrets = self.secrets
         let result: ProcessResult
         do {
-            // Entorno exacto: Claude no hereda el de la app (que puede traer tokens, `SSH_AUTH_SOCK`, `DYLD_*`, …).
+            // Exact environment: Claude doesn't inherit the app's (it can have tokens, `SSH_AUTH_SOCK`, `DYLD_*`, …).
             result = try await runner.runStreamingIsolated(
-                claudePath, Self.arguments(for: arguments, pluginDirs: pluginDirs, model: model),
+                claudePath, Self.arguments(for: invocation, pluginDirs: pluginDirs, model: model),
                 environment: environment, currentDirectory: invocation.workingDirectory, timeout: invocation.timeout
             ) { line in
-                // Se tacha antes de parsear: así la salida decodificada y los errores tampoco traen el token.
+                // Redacted before parsing: the decoded output and the errors don't carry the token either.
                 let line = Redactor.redact(line, secrets: secrets)
                 log.append(line + "\n")
-                if case .agentStarted(let total)? = parser.withLock({ $0.consume(line) }) {
-                    onAgent(total)
-                }
+                for event in parser.withLock({ $0.consumeAll(line) }) { onEvent(event) }
             }
         } catch {
             log.append("--- \(error) ---\n")

@@ -127,7 +127,7 @@ enum ClaudeRunnerTests {
                 let bad = ClaudeInvocation(prompt: "x", schema: schema, tools: readOnly, workingDirectory: cwd,
                                            additionalDirectories: extra, timeout: 1, logHeader: "x")
                 let error = try await expectThrows {
-                    _ = try await claude(runner, log: try logFile()).run(bad, as: Answer.self) { _ in }
+                    _ = try await claude(runner, log: try logFile()).run(bad, as: Answer.self, onAgent: { _ in })
                 }
                 guard case .deniedDirectory? = error as? ClaudeRunnerError else {
                     throw TestFailure(description: "\(cwd.path): error inesperado \(error)")
@@ -140,7 +140,7 @@ enum ClaudeRunnerTests {
                 let runner = FakeStreamingRunner { _, _, _ in ([validLine], ok("")) }
                 let log = try logFile()
                 let error = try await expectThrows {
-                    _ = try await claude(runner, log: log).run(invocation(tools: tools), as: Answer.self) { _ in }
+                    _ = try await claude(runner, log: log).run(invocation(tools: tools), as: Answer.self, onAgent: { _ in })
                 }
                 guard case .forbiddenTool? = error as? ClaudeRunnerError else {
                     throw TestFailure(description: "\(tools): error inesperado \(error)")
@@ -150,7 +150,7 @@ enum ClaudeRunnerTests {
             }
             let runner = FakeStreamingRunner { _, _, _ in ([validLine], ok("")) }
             let error = try await expectThrows {
-                _ = try await claude(runner, log: try logFile()).run(invocation(tools: ["Read", "Bash"]), as: Answer.self) { _ in }
+                _ = try await claude(runner, log: try logFile()).run(invocation(tools: ["Read", "Bash"]), as: Answer.self, onAgent: { _ in })
             }
             try expectEqual(error as? ClaudeRunnerError, .forbiddenTool("Bash"))
         },
@@ -159,7 +159,7 @@ enum ClaudeRunnerTests {
             let error = try await expectThrows {
                 _ = try await claude(runner, log: try logFile(), secrets: ["gho_SECRETO"],
                                      environment: ["PATH": "/usr/bin", "LANG": "Bearer gho_SECRETO"])
-                    .run(invocation(), as: Answer.self) { _ in }
+                    .run(invocation(), as: Answer.self, onAgent: { _ in })
             }
             try expectEqual(error as? ClaudeRunnerError, .secretInEnvironment(variable: "LANG"))
             try expectEqual(runner.calls.count, 0)
@@ -168,7 +168,7 @@ enum ClaudeRunnerTests {
             let runner = FakeStreamingRunner { _, _, _ in ([validLine], ok("")) }
             let env = ["PATH": "/usr/bin", "HOME": "/Users/me", "GH_TOKEN": "ghp_x", "AWS_SECRET_ACCESS_KEY": "a",
                        "SSH_AUTH_SOCK": "/tmp/s", "ANTHROPIC_API_KEY": "k", "SHELL": "/bin/zsh"]
-            _ = try await claude(runner, log: try logFile(), environment: env).run(invocation(), as: Answer.self) { _ in }
+            _ = try await claude(runner, log: try logFile(), environment: env).run(invocation(), as: Answer.self, onAgent: { _ in })
             try expectEqual(runner.calls[0].environment, ["PATH": "/usr/bin", "HOME": "/Users/me", "SHELL": "/bin/zsh"])
             // El proceso recibe exactamente ese entorno: sin heredar el de la app.
             try expectEqual(runner.isolated, [true])
@@ -196,7 +196,7 @@ enum ClaudeRunnerTests {
         },
         TestCase("claude runner: pasa ejecutable, entorno, cwd y timeout, y decodifica la salida") {
             let runner = FakeStreamingRunner { _, _, _ in ([validLine], ok("")) }
-            let answer = try await claude(runner, log: try logFile()).run(invocation(), as: Answer.self) { _ in }
+            let answer = try await claude(runner, log: try logFile()).run(invocation(), as: Answer.self, onAgent: { _ in })
             try expectEqual(answer, Answer(summary: "Listo."))
             let call = runner.calls[0]
             try expectEqual(call.executable, "/usr/local/bin/claude")
@@ -240,7 +240,7 @@ enum ClaudeRunnerTests {
         TestCase("claude runner: dos salidas inválidas propagan invalidOutput") {
             let runner = FakeStreamingRunner { _, _, _ in ([invalidLine], ok("")) }
             let error = try await expectThrows {
-                _ = try await claude(runner, log: try logFile()).run(invocation(), as: Answer.self) { _ in }
+                _ = try await claude(runner, log: try logFile()).run(invocation(), as: Answer.self, onAgent: { _ in })
             }
             guard case .invalidOutput? = error as? ClaudeError else { throw TestFailure(description: "error inesperado: \(error)") }
             try expectEqual(runner.calls.count, 2)
@@ -248,7 +248,7 @@ enum ClaudeRunnerTests {
         TestCase("claude runner: sin resultado se reintenta; un resultado de error no") {
             let empty = FakeStreamingRunner { _, _, _ in ([], ok("")) }
             let noResult = try await expectThrows {
-                _ = try await claude(empty, log: try logFile()).run(invocation(), as: Answer.self) { _ in }
+                _ = try await claude(empty, log: try logFile()).run(invocation(), as: Answer.self, onAgent: { _ in })
             }
             try expectEqual(noResult as? ClaudeError, .noResult)
             try expectEqual(empty.calls.count, 2)
@@ -256,7 +256,7 @@ enum ClaudeRunnerTests {
             let errorLine = #"{"type":"result","subtype":"error","is_error":true,"result":"se rompió"}"#
             let failing = FakeStreamingRunner { _, _, _ in ([errorLine], ok("")) }
             let failed = try await expectThrows {
-                _ = try await claude(failing, log: try logFile()).run(invocation(), as: Answer.self) { _ in }
+                _ = try await claude(failing, log: try logFile()).run(invocation(), as: Answer.self, onAgent: { _ in })
             }
             try expectEqual(failed as? ClaudeError, .failed("se rompió"))
             try expectEqual(failing.calls.count, 1)
@@ -264,7 +264,7 @@ enum ClaudeRunnerTests {
         TestCase("claude runner: salida ≠ 0 sin result lanza commandFailed sin reintentar") {
             let runner = FakeStreamingRunner { _, _, _ in ([], fail("boom\n", status: 2)) }
             let error = try await expectThrows {
-                _ = try await claude(runner, log: try logFile()).run(invocation(), as: Answer.self) { _ in }
+                _ = try await claude(runner, log: try logFile()).run(invocation(), as: Answer.self, onAgent: { _ in })
             }
             try expectEqual(error as? PRBarError, .commandFailed(command: "claude", status: 2, stderr: "boom"))
             try expectEqual(runner.calls.count, 1)
@@ -273,7 +273,7 @@ enum ClaudeRunnerTests {
             let runner = FakeStreamingRunner { _, _, _ in throw PRBarError.timedOut(command: "claude") }
             let log = try logFile()
             let error = try await expectThrows {
-                _ = try await claude(runner, log: log).run(invocation(), as: Answer.self) { _ in }
+                _ = try await claude(runner, log: log).run(invocation(), as: Answer.self, onAgent: { _ in })
             }
             try expectEqual(error as? PRBarError, .timedOut(command: "claude"))
             try expectEqual(runner.calls.count, 1)
@@ -287,7 +287,7 @@ enum ClaudeRunnerTests {
                 ([leaky], ProcessResult(status: 0, stdout: "", stderr: "stderr con gho_SECRETO123"))
             }
             let log = try logFile()
-            let answer = try await claude(runner, log: log, secrets: [secret, ""]).run(invocation(), as: Answer.self) { _ in }
+            let answer = try await claude(runner, log: log, secrets: [secret, ""]).run(invocation(), as: Answer.self, onAgent: { _ in })
             try expectEqual(answer.summary, "Vi ***.")
             let text = try String(contentsOf: log, encoding: .utf8)
             try expect(!text.contains(secret), text)
@@ -295,14 +295,14 @@ enum ClaudeRunnerTests {
 
             let failing = FakeStreamingRunner { _, _, _ in ([], fail("auth gho_SECRETO123 inválido", status: 1)) }
             let error = try await expectThrows {
-                _ = try await claude(failing, log: try logFile(), secrets: [secret]).run(invocation(), as: Answer.self) { _ in }
+                _ = try await claude(failing, log: try logFile(), secrets: [secret]).run(invocation(), as: Answer.self, onAgent: { _ in })
             }
             try expectEqual(error as? PRBarError, .commandFailed(command: "claude", status: 1, stderr: "auth *** inválido"))
 
             let errorLine = #"{"type":"result","subtype":"error","is_error":true,"result":"falló con gho_SECRETO123"}"#
             let erroring = FakeStreamingRunner { _, _, _ in ([errorLine], ok("")) }
             let claudeError = try await expectThrows {
-                _ = try await claude(erroring, log: try logFile(), secrets: [secret]).run(invocation(), as: Answer.self) { _ in }
+                _ = try await claude(erroring, log: try logFile(), secrets: [secret]).run(invocation(), as: Answer.self, onAgent: { _ in })
             }
             try expectEqual(claudeError as? ClaudeError, .failed("falló con ***"))
         },
@@ -335,6 +335,44 @@ enum ClaudeRunnerTests {
             await relay.finish()
             try expectEqual(seen.value, Array(0..<100))
             try expect(onMain.value)
+        },
+        TestCase("claude runner: --session-id o --resume van después de -p y --model, en minúscula") {
+            let id = UUID(uuidString: "6F9619FF-8B86-D011-B42D-00C04FC964FF")!
+            var start = invocation()
+            start.session = .start(id)
+            let args = ClaudeRunner.arguments(for: start, pluginDirs: plugins, model: .haiku)
+            try expectEqual(Array(args.prefix(6)), ["-p", "Hacé algo.", "--model", "haiku",
+                                                    "--session-id", "6f9619ff-8b86-d011-b42d-00c04fc964ff"])
+            var resume = invocation()
+            resume.session = .resume(id)
+            let resumed = ClaudeRunner.arguments(for: resume, pluginDirs: plugins)
+            try expectEqual(Array(resumed.prefix(4)), ["-p", "Hacé algo.", "--resume", "6f9619ff-8b86-d011-b42d-00c04fc964ff"])
+            // The rest is the same as without a session.
+            try expectEqual(Array(resumed.dropFirst(4)), Array(ClaudeRunner.arguments(for: invocation(), pluginDirs: plugins).dropFirst(2)))
+        },
+        TestCase("claude runner: el reintento de una sesión la continúa con --resume y un prompt corto") {
+            let id = UUID()
+            let calls = Box(0)
+            let runner = FakeStreamingRunner { _, _, _ in
+                calls.value += 1
+                return ([calls.value == 1 ? invalidLine : validLine], ok(""))
+            }
+            var call = invocation(header: "=== chat 1 ===")
+            call.session = .start(id)
+            let answer = try await claude(runner, log: try logFile()).run(call, as: Answer.self, onAgent: { _ in })
+            try expectEqual(answer, Answer(summary: "Listo."))
+            try expectEqual(value(of: "--session-id", in: runner.calls[0].arguments), id.uuidString.lowercased())
+            try expectEqual(value(of: "--resume", in: runner.calls[1].arguments), id.uuidString.lowercased())
+            try expect(!runner.calls[1].arguments.contains("--session-id"))
+            try expect(prompt(of: runner.calls[1]).hasPrefix("Your previous answer was invalid"), prompt(of: runner.calls[1]))
+            try expect(!prompt(of: runner.calls[1]).contains("Hacé algo."))
+        },
+        TestCase("claude runner: onEvent recibe 0 al empezar, texto y herramientas") {
+            let line = #"{"type":"assistant","message":{"content":[{"type":"text","text":"Mirando."},{"type":"tool_use","name":"Read","input":{"file_path":"/tmp/wt/r-7-1/a.ts"}}]}}"#
+            let runner = FakeStreamingRunner { _, _, _ in ([line, validLine], ok("")) }
+            let events = Box<[ClaudeStreamEvent]>([])
+            _ = try await claude(runner, log: try logFile()).run(invocation(), as: Answer.self, onEvent: { events.value.append($0) })
+            try expectEqual(events.value, [.agentStarted(total: 0), .text("Mirando."), .toolUse(name: "Read", detail: "/tmp/wt/r-7-1/a.ts")])
         },
     ]
 }
