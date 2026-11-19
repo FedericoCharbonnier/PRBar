@@ -44,7 +44,9 @@ struct RuleSuggestionCard: View {
             } icon: {
                 Image(systemName: "lightbulb.fill").foregroundStyle(Theme.orange)
             }
-            TextField("Rule", text: $text, axis: .vertical)
+            TextField("Rule", text: $text, prompt: Text("Rule"), axis: .vertical)
+                .labelsHidden()
+                .multilineTextAlignment(.leading)
                 .textFieldStyle(.roundedBorder)
                 .lineLimit(1...3)
             HStack(spacing: 8) {

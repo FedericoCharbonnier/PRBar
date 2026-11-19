@@ -104,6 +104,8 @@ private final class SnapshotSession {
         try JSONCoding.encoder.encode(fixtures.config).write(to: configURL)
         let historyDir = dir.appendingPathComponent("history", isDirectory: true)
         let respondHistory = RespondHistory(historyDir: historyDir)
+        try JSONCoding.encoder.encode(fixtures.instructions).write(to: dir.appendingPathComponent("instructions.json"))
+        try DiscardStatsStore(fileURL: dir.appendingPathComponent("discard-stats.json")).record(fixtures.discards, now: fixtures.date())
         let services = AppModelServices(
             configStore: ConfigStore(fileURL: configURL),
             stateStore: SnapshotStore(url: stateURL),
@@ -210,6 +212,16 @@ private final class SnapshotSession {
             ReviewWindow(model: model, draft: chatDraft, chat: reviewChat, published: nil, close: {},
                          initialState: .init(showsChat: true))
         }
+        var ruleDraft = fixtures.loginRedirectDraft
+        // Its own id: `reviewChat(for:)` keeps one coordinator per draft id.
+        ruleDraft.id = UUID()
+        ruleDraft.chat = fixtures.reviewChatWithRule
+        ruleDraft.edits = fixtures.reviewChatEdits
+        let ruleChat = model.reviewChat(for: ruleDraft)
+        try await window("review-chat-rule", title: title, size: NSSize(width: 1180, height: 980)) {
+            ReviewWindow(model: model, draft: ruleDraft, chat: ruleChat, published: nil, close: {},
+                         initialState: .init(showsChat: true))
+        }
         let published = PublishedReview(record: fixtures.publishedLoginRedirect)
         let publishedDraft = fixtures.loginRedirectDraft
         try await window("review-published", title: title, size: ReviewWindow.size) {
@@ -274,6 +286,7 @@ private final class SnapshotSession {
         let sizes: [SettingsWindow.Tab: NSSize] = [
             .general: NSSize(width: 700, height: 880),
             .claude: NSSize(width: 700, height: 2100),
+            .instructions: NSSize(width: 700, height: 1140),
             .repos: NSSize(width: 700, height: 1080),
             .slack: NSSize(width: 700, height: 1180),
         ]

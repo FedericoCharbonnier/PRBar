@@ -356,6 +356,58 @@ struct SnapshotFixtures {
         return session
     }
 
+    // MARK: Instructions
+
+    static let styleRuleID = UUID(uuidString: "0B1C2D3E-4F50-4617-8293-A4B5C6D7E8F9")!
+
+    /// Four rules (global and per repo, one off) and an instructions chat that added one.
+    var instructions: InstructionsFile {
+        let rules = [
+            Rule(id: Self.styleRuleID, scope: .global, appliesTo: [.review],
+                 text: "Don’t comment on code style or formatting: the linter handles it.", source: .settingsChat,
+                 createdAt: date(minutes: -30)),
+            Rule(id: UUID(uuidString: "1C2D3E4F-5061-4728-93A4-B5C6D7E8F90A")!, scope: .global, appliesTo: [.review, .respond],
+                 text: "Keep GitHub comments short and friendly; suggest code when it helps.", source: .manual,
+                 createdAt: date(days: -30)),
+            Rule(id: UUID(uuidString: "2D3E4F50-6172-4839-A4B5-C6D7E8F90A1B")!, scope: .repo("acme/web-app"), appliesTo: [.respond],
+                 text: "Usamos React Query: no agregues fetch directo.", source: .prChat, createdAt: date(days: -3)),
+            Rule(id: UUID(uuidString: "3E4F5061-7283-494A-B5C6-D7E8F90A1B2C")!, scope: .repo("acme/api"), appliesTo: [.review],
+                 text: "Errors go through AppError; flag raw throws in handlers.", source: .manual, createdAt: date(days: -8),
+                 enabled: false),
+        ]
+        var chat = InstructionsChat()
+        chat.claudeSessionID = UUID(uuidString: "4F506172-8394-4A5B-C6D7-E8F90A1B2C3D")
+        chat.messages = [
+            ChatMessage(role: .user, text: "No comentes estilo, eso lo resuelve el linter", createdAt: date(minutes: -31)),
+            ChatMessage(role: .assistant,
+                        text: "Listo: agregué una regla global para Review. Si querés que también valga para los fixes, decime.",
+                        createdAt: date(minutes: -30), changes: [.ruleAdded(id: Self.styleRuleID.uuidString)],
+                        restore: ChatRestorePoint(rules: Array(rules.dropFirst()), rulesAfter: rules)),
+        ]
+        return InstructionsFile(rules: rules, chat: chat)
+    }
+
+    /// Docs findings discarded in 3 PRs of acme/api: Settings › Instructions and the posted review suggest a rule.
+    var discards: [DiscardEvent] {
+        [("PR_api_301", -2), ("PR_api_305", -6), ("PR_api_309", -11)].map { pr, days in
+            DiscardEvent(repo: "acme/api", prID: pr, category: .docs, title: "Document the new parameter", date: date(days: days))
+        }
+    }
+
+    /// `reviewChat` plus a request to remember something and Claude's rule proposal, pending.
+    var reviewChatWithRule: ChatSession {
+        var session = reviewChat
+        session.messages += [
+            ChatMessage(role: .user, text: "De ahora en más, en api no marques los TODO", createdAt: date(minutes: -2)),
+            ChatMessage(role: .assistant,
+                        text: "Puedo recordarlo como regla para las reviews de acme/api. Revisala y guardala si te sirve.",
+                        createdAt: date(minutes: -1),
+                        proposals: [RuleProposal(scope: .repo("acme/api"), appliesTo: [.review],
+                                                 text: "No marques los comentarios TODO como findings.")]),
+        ]
+        return session
+    }
+
     // MARK: History
 
     /// ~6 records, the published review of api#317 the newest (it's the one selected).
