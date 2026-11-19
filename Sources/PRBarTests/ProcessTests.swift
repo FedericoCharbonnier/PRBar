@@ -24,10 +24,15 @@ private func isAlive(_ pid: pid_t) -> Bool {
     return info.pbi_status != UInt32(SZOMB)
 }
 
-/// Espera (hasta `timeout`) a que se cumpla `condition`, chequeando cada 50 ms.
-func waitUntil(timeout: TimeInterval = 5, _ condition: () -> Bool) async throws {
+/// Espera (hasta `timeout`) a que se cumpla `condition`, chequeando cada 50 ms. Si no se cumple a tiempo, el test
+/// falla acá (y no más adelante, con un índice fuera de rango que tira abajo toda la corrida).
+func waitUntil(timeout: TimeInterval = 5, file: StaticString = #fileID, line: UInt = #line,
+               _ condition: () -> Bool) async throws {
     let deadline = Date().addingTimeInterval(timeout)
-    while !condition(), Date() < deadline {
+    while !condition() {
+        guard Date() < deadline else {
+            throw TestFailure(description: "\(file):\(line) waitUntil timed out after \(timeout) s")
+        }
         try await Task.sleep(nanoseconds: 50_000_000)
     }
 }
