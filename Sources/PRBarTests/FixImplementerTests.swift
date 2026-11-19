@@ -206,6 +206,21 @@ private final class RecordingProcessRunner: ProcessRunning, @unchecked Sendable 
     }
 }
 
+/// Runner real salvo los git cuyos argumentos cumplen `fails`, que salen con error sin correr.
+private final class FailingGitRunner: ProcessRunning, @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [[String]] = []
+    var calls: [[String]] { lock.withLock { recorded } }
+    let fails: @Sendable ([String]) -> Bool
+    init(fails: @escaping @Sendable ([String]) -> Bool) { self.fails = fails }
+
+    func run(_ executable: String, _ arguments: [String], environment: [String: String]?, currentDirectory: URL?, timeout: TimeInterval?) async throws -> ProcessResult {
+        lock.withLock { recorded.append(arguments) }
+        if fails(arguments) { return ProcessResult(status: 1, stdout: "", stderr: "simulated failure") }
+        return try await SystemProcessRunner().run(executable, arguments, environment: environment, currentDirectory: currentDirectory, timeout: timeout)
+    }
+}
+
 /// Runner que siempre lanza `error`.
 private struct ThrowingRunner: ProcessRunning {
     let error: Error
@@ -1121,6 +1136,77 @@ enum FixImplementerTests {
             }
             try expect(try respondMessage(error).contains("can’t be undone"))
             try expectEqual(try repo.subjects(), ["later", FixImplementer.chatCommitMessage, "base"])
+        },
+        TestCase("fix implementer: undoChatTurn es atómico: si falla el read-tree, HEAD no se mueve") {
+            let repo = try FixRepo.make()
+            defer { repo.remove() }
+            let failing = FailingGitRunner { $0.contains("read-tree") }
+            let impl = implementer(fakeClaude([]), log: try logURL())
+            let draft = try draft(repo, items: [])
+            let (_, outcome) = try await impl.chatTurn(draft: draft, current: RespondResult(items: [], diffStat: "", tests: nil),
+                                                       sessionID: UUID(), turn: 1) {
+                try edit("README.md", "chat\n")(repo.dir)
+                return "ok"
+            }
+            let snapshot = try outcome.snapshot ?? { throw TestFailure(description: "sin snapshot") }()
+            _ = try await expectThrows {
+                _ = try await implementer(fakeClaude([]), log: try logURL(), runner: failing).undoChatTurn(draft: draft, snapshot: snapshot)
+            }
+            try expectEqual(try repo.head(), snapshot.headAfter)
+            try expectEqual(repo.read("README.md"), "chat\n")
+            try expectEqual(try repo.status(), "")
+        },
+        TestCase("fix implementer: undoChatTurn mueve HEAD con compare-and-swap y, si falla, vuelve el árbol") {
+            let repo = try FixRepo.make()
+            defer { repo.remove() }
+            let impl = implementer(fakeClaude([]), log: try logURL())
+            let draft = try draft(repo, items: [])
+            let (_, outcome) = try await impl.chatTurn(draft: draft, current: RespondResult(items: [], diffStat: "", tests: nil),
+                                                       sessionID: UUID(), turn: 1) {
+                try edit("README.md", "chat\n")(repo.dir)
+                try edit("added.ts", "x\n")(repo.dir)
+                return "ok"
+            }
+            let snapshot = try outcome.snapshot ?? { throw TestFailure(description: "sin snapshot") }()
+            let failing = FailingGitRunner { $0.contains("update-ref") && $0.contains("HEAD") }
+            _ = try await expectThrows {
+                _ = try await implementer(fakeClaude([]), log: try logURL(), runner: failing).undoChatTurn(draft: draft, snapshot: snapshot)
+            }
+            let cas = failing.calls.first { $0.contains("update-ref") && $0.contains("HEAD") } ?? []
+            try expectEqual(Array(cas.suffix(4)), ["--no-deref", "HEAD", snapshot.headBefore, snapshot.headAfter])
+            try expectEqual(try repo.head(), snapshot.headAfter)
+            try expectEqual(repo.read("README.md"), "chat\n")
+            try expectEqual(repo.read("added.ts"), "x\n")
+            try expectEqual(try repo.status(), "")
+        },
+        TestCase("fix implementer: undo de un archivo trackeado borrado, y deshacer T2 y después T1") {
+            let repo = try FixRepo.make()
+            defer { repo.remove() }
+            let start = try repo.head()
+            let impl = implementer(fakeClaude([]), log: try logURL())
+            let draft = try draft(repo, items: [])
+            let r0 = RespondResult(items: [], diffStat: "r0", tests: nil)
+            let (_, t1) = try await impl.chatTurn(draft: draft, current: r0, sessionID: UUID(), turn: 1) {
+                try FileManager.default.removeItem(at: repo.dir.appendingPathComponent("README.md"))
+                return "ok"
+            }
+            let s1 = try t1.snapshot ?? { throw TestFailure(description: "sin snapshot 1") }()
+            let (_, t2) = try await impl.chatTurn(draft: draft, current: t1.result!, sessionID: UUID(), turn: 2) {
+                try edit("new.ts", "n\n")(repo.dir)
+                return "ok"
+            }
+            let s2 = try t2.snapshot ?? { throw TestFailure(description: "sin snapshot 2") }()
+            let undone2 = try await impl.undoChatTurn(draft: draft, snapshot: s2)
+            try expectEqual(undone2, t1.result!)
+            try expectEqual(repo.read("new.ts"), nil)
+            try expectEqual(repo.read("README.md"), nil)
+            let undone1 = try await impl.undoChatTurn(draft: draft, snapshot: s1)
+            try expectEqual(undone1, r0)
+            try expectEqual(repo.read("README.md"), "hola\n")
+            try expectEqual(try repo.head(), start)
+            try expectEqual(try repo.status(), "")
+            try expectEqual(repo.read("ignored.txt"), "secreto del usuario\n")
+            try expectEqual(try repo.git(["for-each-ref", "refs/prbar/"]), "")
         },
         TestCase("fix implementer: chatTurn se niega si cambió un hook desde los fixes (no rebasa la huella del push)") {
             let repo = try FixRepo.make()

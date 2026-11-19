@@ -430,8 +430,8 @@ public struct FixImplementer: Sendable {
             result: result))
     }
 
-    /// Undoes a chat turn (spec B.6): HEAD back to `headBefore`, the index and the tree to the snapshot
-    /// (`read-tree -u --reset`) and the untracked files created after it deleted (`clean -fd`, never the ignored
+    /// Undoes a chat turn (spec B.6): the index and the tree to the snapshot (`read-tree -u --reset`), HEAD back to
+    /// `headBefore` only if it's still `headAfter` (`update-ref` compare-and-swap) and the untracked files created after it deleted (`clean -fd`, never the ignored
     /// ones). The snapshot was taken on a clean tree, so the tree ends clean. Returns the result before the turn.
     public func undoChatTurn(draft: RespondDraft, snapshot: ChatFileSnapshot) async throws -> RespondResult {
         let worktree = URL(fileURLWithPath: draft.worktree.path, isDirectory: true)
@@ -441,8 +441,15 @@ public struct FixImplementer: Sendable {
         guard try await head(worktree) == snapshot.headAfter else {
             throw PRBarError.respond("The worktree’s HEAD moved after that message: it can’t be undone.")
         }
-        try await git(worktree, ["update-ref", "--no-deref", "HEAD", snapshot.headBefore])
+        // The tree first, then HEAD with compare-and-swap: if moving HEAD fails, the tree goes back to the turn's
+        // commit, so the worktree never ends with HEAD and the files out of step.
         try await git(worktree, ["read-tree", "-u", "--reset", snapshot.tree])
+        do {
+            try await git(worktree, ["update-ref", "--no-deref", "HEAD", snapshot.headBefore, snapshot.headAfter])
+        } catch {
+            _ = try? await git(worktree, ["read-tree", "-u", "--reset", snapshot.headAfter])
+            throw error
+        }
         try await git(worktree, ["clean", "-fd"])
         try await ensureClean(worktree)
         try await git(worktree, ["update-ref", "-d", snapshot.ref])
