@@ -533,20 +533,24 @@ public struct FixImplementer: Sendable {
         return Self.commitMessage(rendered, reviewer: item.feedback.reviewer)
     }
 
-    /// Single commit (spec E.5): the fixes' commits become one (`reset --soft` to the start + a commit without hooks),
-    /// with the template (or `Address review feedback ({n} comments)`). Every committed item points to it.
+    /// Single commit (spec E.5): the fixes' commits become one, with the template (or `Address review feedback ({n}
+    /// comments)`). Every committed item points to it. Atomic: the commit is made apart (`commit-tree` of HEAD's tree
+    /// on `start`, no hooks run) and HEAD moves to it with compare-and-swap (`update-ref`), so a failure leaves HEAD on
+    /// the last fix and the tree clean.
     private func squash(_ results: [ItemResult], draft: RespondDraft, worktree: URL, start: String) async throws -> [ItemResult] {
         let committed = results.filter { $0.status == .committed }.count
         guard committed > 0 else { return results }
         let template = settings.respond.effectiveCommitTemplate ?? RespondOptions.defaultCommitMessageTemplate
         let rendered = PlaceholderTemplate.render(template, values: FixTemplates.values(draft: draft, item: nil, count: committed))
         let message = Self.commitMessage(rendered, reviewer: "\(committed) comments")
-        try await git(worktree, ["reset", "--soft", start])
-        try await git(worktree, ["commit", "--no-verify", "-m", message], timeout: Self.fixTimeout)
-        let sha = try await head(worktree)
-        guard sha != start, try await isAncestor(worktree, start, sha) else {
+        let last = try await head(worktree)
+        let tree = try await git(worktree, ["rev-parse", "--verify", "HEAD^{tree}"]).trimmingCharacters(in: .whitespacesAndNewlines)
+        let sha = try await git(worktree, ["commit-tree", tree, "-p", start, "-m", message], timeout: Self.fixTimeout)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard Self.isFullSHA(sha), sha != start, try await isAncestor(worktree, start, sha) else {
             throw PRBarError.respond("The single commit \(sha) doesn't descend from \(start): stopping.")
         }
+        try await git(worktree, ["update-ref", "--no-deref", "HEAD", sha, last])
         return results.map { $0.status == .committed ? ItemResult(id: $0.id, status: .committed, commit: sha, summary: $0.summary) : $0 }
     }
 

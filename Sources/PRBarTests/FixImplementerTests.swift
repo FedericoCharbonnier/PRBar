@@ -1396,6 +1396,35 @@ enum FixImplementerTests {
             try expectEqual(try repo.git(["rev-parse", "HEAD~1"]).trimmingCharacters(in: .whitespacesAndNewlines), start)
             try expectEqual(try repo.status(), "")
         },
+        TestCase("fix implementer: el commit único es atómico: si falla, HEAD queda en el último fix y el árbol limpio") {
+            for failsAt in ["commit-tree", "update-ref"] {
+                let repo = try FixRepo.make()
+                defer { repo.remove() }
+                let items = [item("thread:A", marker: "MARK-A"), item("thread:B", marker: "MARK-B")]
+                let claude = fakeClaude([
+                    Script(marker: "MARK-A", action: edit("README.md", "hola\nchau\n"), line: fixLine("done", message: "Add farewell")),
+                    Script(marker: "MARK-B", action: edit("b.txt", "b\n"), line: fixLine("done", message: "Add b")),
+                ])
+                var settings = ClaudeSettings()
+                settings.respond.commitMode = .single
+                // The squash's commit (any command with its message) or the move of HEAD fails.
+                let failing = FailingGitRunner { args in
+                    failsAt == "commit-tree" ? args.contains("Address review feedback (2 comments)")
+                        : args.contains("update-ref") && args.contains("HEAD")
+                }
+                _ = try await expectThrows {
+                    _ = try await run(implementer(claude, log: try logURL(), runner: failing, settings: settings),
+                                      try draft(repo, items: items), selections(items))
+                }
+                try expectEqual(try repo.subjects(), ["Add b", "Add farewell", "base"])
+                try expectEqual(try repo.status(), "")
+                try expect(!failing.calls.contains { $0.contains("reset") }, failsAt)
+                if failsAt == "update-ref" {
+                    let cas = failing.calls.first { $0.contains("update-ref") && $0.contains("HEAD") } ?? []
+                    try expectEqual(cas.last, try repo.head())
+                }
+            }
+        },
         TestCase("fix implementer: un commit por comentario con plantilla y {comment}") {
             let repo = try FixRepo.make()
             defer { repo.remove() }
