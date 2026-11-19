@@ -65,6 +65,7 @@ final class FakeRespondPipeline: RespondPipelineRunning, @unchecked Sendable {
     private var _tests: [String] = []
     private var _cleanups: [UUID] = []
     var pushError: Error?
+    var testsPass = false
     /// Commits que "quedan" si se cancela la implementación.
     var commitsLeftOnCancel = 0
     /// Si es true, la cancelación de una implementación espera a `finishCancel` (simula la restauración).
@@ -123,8 +124,11 @@ final class FakeRespondPipeline: RespondPipelineRunning, @unchecked Sendable {
     }
 
     func runTests(draft: RespondDraft, testCommand: String) async -> TestRun {
-        lock.withLock { _tests.append(testCommand) }
-        return TestRun(command: testCommand, passed: false, outputTail: "1 failure")
+        let passed = lock.withLock { () -> Bool in
+            _tests.append(testCommand)
+            return testsPass
+        }
+        return TestRun(command: testCommand, passed: passed, outputTail: passed ? "ok" : "1 failure")
     }
 
     func push(draft: RespondDraft, result: RespondResult) async throws {
@@ -799,6 +803,32 @@ enum RespondPipelineTests {
             try expectEqual(e.history.record(id: draft.id)?.errorMessage, message)
             // Después de un fallo el worktree queda para revisarlo.
             try expect(FileManager.default.fileExists(atPath: path))
+        },
+        TestCase("respond queue: pushAfterTests corre los tests y, si pasan, pushea y responde") { @MainActor in
+            let h = try Harness()
+            h.pipeline.testsPass = true
+            try await h.toReadyToPush(1)
+            h.queue.pushAfterTests(prID: prID(1), testCommand: "make test")
+            try expect(h.queue.runningTests.contains(prID(1)))
+            try await h.events.wait(for: reached(1, "done"))
+            try expectEqual(h.pipeline.tests, ["make test"])
+            try expectEqual(h.pipeline.pushes.count, 1)
+            try expectEqual(try h.saved(1).result?.tests?.passed, true)
+            try expect(!h.queue.pushBlockedByTests.contains(prID(1)))
+        },
+        TestCase("respond queue: si los tests fallan no pushea; Push Anyway pushea y limpia el bloqueo") { @MainActor in
+            let h = try Harness()
+            try await h.toReadyToPush(1)
+            h.queue.pushAfterTests(prID: prID(1), testCommand: "make test")
+            try await waitUntil { h.queue.pushBlockedByTests.contains(prID(1)) }
+            try expect(h.queue.pushBlockedByTests.contains(prID(1)))
+            try expectEqual(h.pipeline.pushes, [])
+            try expectEqual(h.queue.phases[prID(1)]?.name, "readyToPush")
+            try expectEqual(h.queue.records[prID(1)]?.result?.tests?.passed, false)
+            h.queue.publish(prID: prID(1))
+            try expect(!h.queue.pushBlockedByTests.contains(prID(1)))
+            try await h.events.wait(for: reached(1, "done"))
+            try expectEqual(h.pipeline.pushes.count, 1)
         },
     ]
 }

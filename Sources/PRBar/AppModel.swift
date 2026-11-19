@@ -793,6 +793,31 @@ final class AppModel: ObservableObject {
         respond.runTests(prID: prID, testCommand: command)
     }
 
+    /// What "Push and Reply" would do now (spec E.5).
+    func respondPushGate(prID: String) -> RespondPushGate {
+        guard let record = respond.records[prID], let result = record.result else { return .ready }
+        return RespondPushGate.evaluate(result: result, testCommand: testCommand(for: record.draft),
+                                        runTestsBeforePush: configStore.config.claude.respond.runTestsBeforePush,
+                                        pushed: record.pushed)
+    }
+
+    /// Push and reply, running the tests first if the settings ask for it. Returns what it did: `.testsFailed` means it
+    /// didn't push (the window offers "Push Anyway", which calls this with `ignoringFailedTests`).
+    @discardableResult
+    func pushRespond(prID: String, ignoringFailedTests: Bool = false) -> RespondPushGate {
+        let gate = respondPushGate(prID: prID)
+        switch gate {
+        case .ready:
+            respond.publish(prID: prID)
+        case .runTests:
+            guard let draft = respond.records[prID]?.draft, let command = testCommand(for: draft) else { return gate }
+            respond.pushAfterTests(prID: prID, testCommand: command)
+        case .testsFailed:
+            if ignoringFailedTests { respond.publish(prID: prID) }
+        }
+        return gate
+    }
+
     /// Abre la ventana de Responder del PR (una por PR). Con otro draft (se volvió a analizar) se reemplaza el
     /// contenido, pidiendo confirmación si había elecciones o textos sin usar.
     func openRespond(prID: String) {

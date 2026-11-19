@@ -350,6 +350,9 @@ struct RespondWindow: View {
                     if let error {
                         ErrorBanner(messages: [error]).padding(.horizontal, -10)
                     }
+                    if queue.pushBlockedByTests.contains(prID), let run = result.tests, !run.passed {
+                        TestsBlockedPushBanner(command: run.command) { confirmPushAnyway(run) }
+                    }
                     if !result.sensitiveChanges.isEmpty {
                         SensitiveChangesBanner(paths: result.sensitiveChanges)
                     }
@@ -496,17 +499,44 @@ struct RespondWindow: View {
         .overlay(alignment: .top) { Divider() }
     }
 
-    /// M1: Return cancela; pushear o publicar necesita un clic.
+    /// M1: Return cancela; pushear o publicar necesita un clic. Con "Run tests before pushing" el mensaje avisa que
+    /// primero corren los tests; si ya fallaron, ofrece "Push Anyway".
     private func confirmPublish(commits: Int, pending: Int, pushed: Bool, result: RespondResult) {
         let onlyReplies = pushed || commits == 0
+        if !onlyReplies, case .testsFailed(let run) = model.respondPushGate(prID: prID) {
+            confirmPushAnyway(run)
+            return
+        }
+        var message = onlyReplies
+            ? "They’ll be posted as @\(draft.account)."
+            : RespondCopy.pushConfirmation(account: draft.account, worktree: draft.worktree.path, headRef: draft.headRef,
+                                           sha: result.headOid ?? "")
+        if !onlyReplies, model.respondPushGate(prID: prID) == .runTests, let testCommand {
+            message += "\n\nPRBar runs “\(testCommand)” first and pushes only if it passes."
+        }
+        if !onlyReplies, !model.configStore.config.claude.respond.allowNewDependencies,
+           let dependencies = result.dependencyChanges, !dependencies.isEmpty {
+            message += "\n\nClaude changed dependency manifests: \(dependencies.joined(separator: ", "))."
+        }
         ConfirmAlert.present(
             title: pushQuestion(commits: commits, pending: pending, pushed: pushed),
-            message: onlyReplies
-                ? "They’ll be posted as @\(draft.account)."
-                : RespondCopy.pushConfirmation(account: draft.account, worktree: draft.worktree.path, headRef: draft.headRef,
-                                               sha: result.headOid ?? ""),
+            message: message,
             action: onlyReplies ? "Post" : "Push and Reply"
-        ) { queue.publish(prID: prID) }
+        ) { push(ignoringFailedTests: false) }
+    }
+
+    private func push(ignoringFailedTests: Bool) {
+        if case .testsFailed(let run) = model.pushRespond(prID: prID, ignoringFailedTests: ignoringFailedTests) {
+            confirmPushAnyway(run)
+        }
+    }
+
+    private func confirmPushAnyway(_ run: TestRun) {
+        ConfirmAlert.present(
+            title: "The tests failed",
+            message: "“\(run.command)” failed in PRBar’s worktree, so PRBar didn’t push. Push the fixes and post the replies anyway?",
+            action: "Push Anyway"
+        ) { push(ignoringFailedTests: true) }
     }
 
     private func pushQuestion(commits: Int, pending: Int, pushed: Bool) -> String {
@@ -693,6 +723,28 @@ struct DependencyChangesBanner: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: Theme.Radius.card).fill(Theme.tint(Theme.orange)))
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// Spec E.5: the push stopped because the tests failed.
+struct TestsBlockedPushBanner: View {
+    let command: String
+    let pushAnyway: () -> Void
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: "xmark.octagon.fill")
+            Text("“\(command)” failed, so PRBar didn’t push. Fix it with the chat or push anyway.")
+                .font(.callout.weight(.semibold))
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            Button("Push Anyway…", action: pushAnyway)
+                .controlSize(.small)
+        }
+        .foregroundStyle(Theme.redText)
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: Theme.Radius.card).fill(Theme.tint(Theme.red)))
     }
 }
 

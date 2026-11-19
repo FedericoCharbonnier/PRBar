@@ -20,6 +20,8 @@ public final class RespondQueue: ObservableObject {
     @Published public private(set) var phases: [String: RespondPhase] = [:]   // por prID
     /// PRs con el `testCommand` corriendo (la fase sigue en `readyToPush`).
     @Published public private(set) var runningTests: Set<String> = []
+    /// PRs whose push PRBar stopped because the tests failed (spec E.5): the window offers "Push Anyway".
+    @Published public private(set) var pushBlockedByTests: Set<String> = []
     /// El registro vigente de cada PR, desde que terminó el análisis hasta `dismiss`.
     @Published public private(set) var records: [String: RespondRecord] = [:]
     /// PRs with a chat turn running (spec B.2): no job starts on them until it ends.
@@ -160,8 +162,26 @@ public final class RespondQueue: ObservableObject {
     /// En `readyToPush`: corre el `testCommand` y guarda el `TestRun` en el resultado y en el registro. Lo que
     /// ejecuta lo escribió Claude: la UI lo llama solo cuando el usuario lo pide, después de ver el diff.
     public func runTests(prID: String, testCommand: String) {
+        startTests(prID: prID, testCommand: testCommand, afterwards: nil)
+    }
+
+    /// "Run tests before pushing" (spec E.5): runs the tests and, if they pass, pushes and replies (like `publish`).
+    /// If they fail it stays in `readyToPush` with the failed run and the PR in `pushBlockedByTests`.
+    public func pushAfterTests(prID: String, testCommand: String) {
+        startTests(prID: prID, testCommand: testCommand) { [weak self] run in
+            guard let self else { return }
+            if run.passed {
+                self.publish(prID: prID)
+            } else {
+                self.pushBlockedByTests.insert(prID)
+            }
+        }
+    }
+
+    private func startTests(prID: String, testCommand: String, afterwards: (@MainActor (TestRun) -> Void)?) {
         guard case .readyToPush(let draft, _)? = phases[prID], canStart(prID),
               !testCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        pushBlockedByTests.remove(prID)
         runningTests.insert(prID)
         let pipeline = self.pipeline
         start(prID, kind: .tests, phase: nil, work: { _ in
@@ -175,12 +195,14 @@ public final class RespondQueue: ObservableObject {
             self.records[prID]?.result = stored
             if let record = self.records[prID] { self.save(record) }
             self.finish(prID, .readyToPush(current, stored))
+            afterwards?(run)
         })
     }
 
     /// readyToPush → pushing → done | failed. Desde `failed`, con fixes ya implementados, reintenta: no vuelve a
     /// pushear si ya se pusheó y solo publica las respuestas que faltan.
     public func publish(prID: String) {
+        pushBlockedByTests.remove(prID)
         guard let record = records[prID], record.result != nil, canStart(prID) else { return }
         switch phases[prID] {
         case .readyToPush?, .failed?: break
@@ -256,6 +278,7 @@ public final class RespondQueue: ObservableObject {
     /// Vuelve a idle, olvida el registro (queda en el historial) y borra el worktree de PRBar. No toca un PR con
     /// un job.
     public func dismiss(prID: String) {
+        pushBlockedByTests.remove(prID)
         guard jobs[prID] == nil, cancelling[prID] == nil else { return }
         phases[prID] = nil
         if let record = records[prID] { cleanupWorktree(record.draft) }
