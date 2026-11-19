@@ -185,6 +185,33 @@ enum ChatCoordinatorTests {
             try expectEqual(chat.session.messages.last?.text, ChatCoordinator.unreadableText)
             try expectEqual(chat.reviewEdits, before)
         },
+        TestCase("chat coordinator: un id de finding agregado no se reusa después de deshacerlo") { @MainActor in
+            let h = Harness()
+            let chat = h.review()
+            let add = ChatAction(type: "addFinding", title: "t", body: "b", severity: "low", file: "src/a.ts")
+            h.backend.reply(.success(output("Added.", [add])), .success(output("Added again.", [add])))
+            chat.send("add one")
+            try await h.finish(chat)
+            try expectEqual(chat.reviewEdits.added.map(\.id), ["c1"])
+            chat.undo(chat.session.messages[1].id)
+            try expectEqual(chat.reviewEdits.added.map(\.id), [])
+            chat.send("add it again")
+            try await h.finish(chat)
+            try expectEqual(chat.reviewEdits.added.map(\.id), ["c2"])
+        },
+        TestCase("chat coordinator: deshacer un agregado no hace que el turno anterior parezca editado a mano") { @MainActor in
+            let h = Harness()
+            let chat = h.review()
+            let add = ChatAction(type: "addFinding", title: "t", body: "b", severity: "low", file: "src/a.ts")
+            h.backend.reply(.success(output("Set.", [ChatAction(type: "setGeneralComment", text: "Hi")])), .success(output("Added.", [add])))
+            chat.send("say hi")
+            try await h.finish(chat)
+            chat.send("add one")
+            try await h.finish(chat)
+            chat.undo(chat.session.messages[3].id)
+            let dirty = await chat.undoDiscardsLaterEdits(chat.session.messages[1].id)
+            try expect(!dirty)
+        },
         TestCase("chat coordinator: Undo de Review va en orden inverso y avisa si hubo ediciones a mano") { @MainActor in
             let h = Harness()
             let chat = h.review()

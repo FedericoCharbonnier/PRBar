@@ -285,7 +285,12 @@ public final class ChatCoordinator: ObservableObject {
         guard let restore = session.messages.first(where: { $0.id == id })?.restore else { return false }
         switch subject {
         case .review:
-            return restore.reviewEditsAfter.map { $0 != reviewEdits } ?? false
+            // The id counter only grows (undo keeps it): it isn't an edit.
+            return restore.reviewEditsAfter.map { after in
+                var current = reviewEdits
+                current.addedCount = after.addedCount
+                return after != current
+            } ?? false
         case .respond(let draft):
             if let after = restore.selectionsAfter, after != selections { return true }
             guard let files = restore.files else { return false }
@@ -300,7 +305,10 @@ public final class ChatCoordinator: ObservableObject {
               let restore = session.messages[index].restore else { return }
         switch subject {
         case .review:
-            if let before = restore.reviewEdits { reviewEdits = before }
+            if var before = restore.reviewEdits {
+                before.addedCount = max(before.addedCount, reviewEdits.addedCount)
+                reviewEdits = before
+            }
             finishUndo(index)
         case .respond(let draft):
             guard let files = restore.files else {

@@ -86,6 +86,21 @@ enum ChatActionsTests {
             let applied = ChatActions.applyReview([add, add], to: start, draft: draft, diffFiles: diffFiles)
             try expectEqual(applied.state.added.map(\.id), ["c1", "c2", "c3"])
         },
+        TestCase("chat actions: added ids follow ReviewEdits.addedCount, so they're never reused") {
+            let draft = draft()
+            var start = ReviewEdits.initial(for: draft)
+            start.addedCount = 2   // c1 and c2 were added and undone
+            let add = ChatAction(type: "addFinding", title: "t", body: "b", severity: "low", file: "src/a.ts")
+            let applied = ChatActions.applyReview([add], to: start, draft: draft, diffFiles: diffFiles)
+            try expectEqual(applied.state.added.map(\.id), ["c3"])
+            try expectEqual(applied.state.addedCount, 3)
+            // Older saved state without the counter: it comes from the added ids.
+            var object = try JSONSerialization.jsonObject(with: try JSONCoding.encoder.encode(applied.state)) as! [String: Any]
+            object["addedCount"] = nil
+            let old = try JSONCoding.decoder.decode(ReviewEdits.self, from: try JSONSerialization.data(withJSONObject: object))
+            try expectEqual(old.addedCount, 3)
+            try expectEqual(old.added, applied.state.added)
+        },
         TestCase("chat actions: respond drafts replies and sets implement only before implementing") {
             let draft = respondDraft()
             let start = Dictionary(uniqueKeysWithValues: draft.items.map { ($0.id, RespondSelection.defaults(for: $0)) })

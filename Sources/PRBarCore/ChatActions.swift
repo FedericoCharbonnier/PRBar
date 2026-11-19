@@ -57,7 +57,7 @@ public enum ChatActions {
                     notes.append("Ignored a new finding: invalid line \(line).")
                     continue
                 }
-                let id = nextAddedID(in: ids)
+                let id = nextAddedID(in: ids, after: &edits.addedCount)
                 edits.added.append(ReviewItem(
                     finding: ReviewFinding(id: id, severity: severity, file: file, line: action.line,
                                            title: singleLine(title), body: body),
@@ -271,10 +271,11 @@ public enum ChatActions {
             .filter { !$0.isEmpty }.joined(separator: " ")
     }
 
-    /// `c1`, `c2`…: the first one not in use.
-    private static func nextAddedID(in ids: Set<String>) -> String {
-        var n = 1
+    /// `c1`, `c2`…: the one after the last handed out (`ReviewEdits.addedCount`, which it advances), never one in use.
+    private static func nextAddedID(in ids: Set<String>, after count: inout Int) -> String {
+        var n = count + 1
         while ids.contains("c\(n)") { n += 1 }
+        count = n
         return "c\(n)"
     }
 

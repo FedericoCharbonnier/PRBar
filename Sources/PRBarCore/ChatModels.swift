@@ -239,14 +239,39 @@ public struct ReviewEdits: Codable, Equatable, Sendable {
     /// Findings the chat added (ids `c1`, `c2`…), after the draft's.
     public var added: [ReviewItem]
     public var generalComment: String
+    /// How many `cN` ids the chat has handed out: the next one is `c<addedCount + 1>`, so an id is never reused
+    /// after an undo (older messages still refer to it). Undo keeps the highest value.
+    public var addedCount: Int
 
     public init(selected: Set<String>, bodies: [String: String] = [:], titles: [String: String] = [:],
-                added: [ReviewItem] = [], generalComment: String = "") {
+                added: [ReviewItem] = [], generalComment: String = "", addedCount: Int? = nil) {
         self.selected = selected
         self.bodies = bodies
         self.titles = titles
         self.added = added
         self.generalComment = generalComment
+        self.addedCount = addedCount ?? Self.highestAddedNumber(in: added)
+    }
+
+    private enum CodingKeys: String, CodingKey { case selected, bodies, titles, added, generalComment, addedCount }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        selected = try c.decode(Set<String>.self, forKey: .selected)
+        bodies = try c.decode([String: String].self, forKey: .bodies)
+        titles = try c.decode([String: String].self, forKey: .titles)
+        added = try c.decode([ReviewItem].self, forKey: .added)
+        generalComment = try c.decode(String.self, forKey: .generalComment)
+        // Saved before the counter existed: the highest added id.
+        addedCount = max((try? c.decodeIfPresent(Int.self, forKey: .addedCount)) ?? 0, Self.highestAddedNumber(in: added))
+    }
+
+    /// N of the highest `cN` id in `added` (0 if none).
+    static func highestAddedNumber(in added: [ReviewItem]) -> Int {
+        added.compactMap { item -> Int? in
+            guard item.id.hasPrefix("c") else { return nil }
+            return Int(item.id.dropFirst())
+        }.max() ?? 0
     }
 
     /// What the window shows when a review opens: the findings the filter kept, selected.
