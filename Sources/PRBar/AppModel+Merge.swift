@@ -38,7 +38,7 @@ extension AppModel {
         guard case .failed(let method, _)? = merges.phases[prID] else { return }
         merges.dismiss(prID: prID)
         Task {
-            await prStore.refresh()
+            await prStore.refreshNow()
             guard let item = prStore.snapshot?.items.first(where: { $0.id == prID && $0.category == .readyToMerge }) else { return }
             requestMerge(item, method: method)
         }
@@ -72,8 +72,9 @@ extension AppModel {
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(2))
             guard let self else { return }
-            await self.prStore.refresh()
-            self.merges.prune(keeping: Set(self.prStore.snapshot?.items.map(\.id) ?? []))
+            // Espera un refresco en curso (pudo empezar antes del merge) y refresca de nuevo; el snapshot nuevo
+            // descarta la fase "Merged" (`mergePruneObserver`).
+            await self.prStore.refreshNow()
         }
     }
 

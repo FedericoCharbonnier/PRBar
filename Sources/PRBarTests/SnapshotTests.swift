@@ -199,6 +199,41 @@ enum SnapshotTests {
             try expectEqual(publishedBadge, 1)
             try expectEqual(stateStore.load()?.items.count, 1)
         },
+        TestCase("prstore: refreshNow espera el refresco en curso y después refresca de nuevo") {
+            let url = try temporaryDirectory().appendingPathComponent("config.json")
+            let configStore = await ConfigStore(fileURL: url)
+            try await configStore.update { $0 = config(account("me")) }
+            let stateStore = SnapshotStore(url: url.deletingLastPathComponent().appendingPathComponent("state.json"))
+            let released = Box(false)
+            var api = FakeAPI(prs: ["o/r": repoPRs(makePR())])
+            api.onOpenPullRequests = { while !released.value { try? await Task.sleep(nanoseconds: 5_000_000) } }
+            let changes = Box(0)
+            let store = await PRStore(builder: builder(api), configStore: configStore, stateStore: stateStore, now: { t0 },
+                                      onChange: { _, _ in changes.value += 1 })
+            let first = Task { await store.refresh() }
+            try await waitUntil { api.calls.value.count == 1 }
+            // Un refresh común no espera: el que está en curso alcanza.
+            await store.refresh()
+            try expectEqual(changes.value, 0)
+            let fresh = Task { await store.refreshNow() }
+            try await Task.sleep(nanoseconds: 50_000_000)
+            try expectEqual(api.calls.value.count, 1)
+            released.value = true
+            await fresh.value
+            await first.value
+            try expectEqual(api.calls.value.count, 2)
+            try expectEqual(changes.value, 2)
+        },
+        TestCase("prstore: refreshNow sin refresco en curso refresca una vez") {
+            let url = try temporaryDirectory().appendingPathComponent("config.json")
+            let configStore = await ConfigStore(fileURL: url)
+            try await configStore.update { $0 = config(account("me")) }
+            let stateStore = SnapshotStore(url: url.deletingLastPathComponent().appendingPathComponent("state.json"))
+            let api = FakeAPI(prs: ["o/r": repoPRs(makePR())])
+            let store = await PRStore(builder: builder(api), configStore: configStore, stateStore: stateStore, now: { t0 }, onChange: { _, _ in })
+            await store.refreshNow()
+            try expectEqual(api.calls.value.count, 1)
+        },
         TestCase("prstore: no refresca mientras dura el rate limit") {
             let url = try temporaryDirectory().appendingPathComponent("config.json")
             let configStore = await ConfigStore(fileURL: url)

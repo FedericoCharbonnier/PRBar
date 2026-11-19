@@ -169,6 +169,9 @@ final class AppModel: ObservableObject {
     private var terminationObserver: NSObjectProtocol?
     /// Re-renders the views that use `jobsBlockedReason` when an update starts or ends.
     private var installStateObserver: AnyCancellable?
+    /// Descarta las fases de merge de los PRs que ya no están en cada snapshot nuevo (spec F.8.10), aunque el refresco
+    /// de después del merge no haya podido correr.
+    private var mergePruneObserver: AnyCancellable?
 
     @Published private(set) var tools = ResolvedTools()
     @Published private(set) var toolsResolved = false
@@ -226,6 +229,9 @@ final class AppModel: ObservableObject {
             }
         )
         installStateObserver = updates.session.$state.removeDuplicates().sink { [weak self] _ in self?.objectWillChange.send() }
+        mergePruneObserver = prStore.$snapshot.dropFirst().compactMap { $0 }.sink { [weak self] snapshot in
+            self?.merges.prune(keeping: Set(snapshot.items.map(\.id)))
+        }
         guard startsServices else { return }
         WindowPresenter.shared.openSettings = { [weak self] in self?.openSettings() }
         notifications?.onOpenReview = { [weak self] prID, recordID in self?.openFromNotification(prID: prID, recordID: recordID) }

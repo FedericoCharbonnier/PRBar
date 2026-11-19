@@ -139,8 +139,12 @@ struct FakeAPI: GitHubAPI {
     /// Repos pedidos a `openPullRequests`, en orden.
     let calls = Box<[String]>([])
 
+    /// Se llama dentro de `openPullRequests`, antes de devolver (para dejar un refresco en curso).
+    var onOpenPullRequests: (@Sendable () async -> Void)?
+
     func openPullRequests(in repo: RepoRef, token: String) async throws -> RepoPRs {
         calls.value.append(repo.fullName)
+        if let onOpenPullRequests { await onOpenPullRequests() }
         if let error = rawErrors[repo.fullName] { throw error }
         guard let result = prs[repo.fullName] else { throw PRBarError.http(status: 404, message: "not found") }
         return try result.get()

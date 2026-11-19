@@ -27,17 +27,42 @@ public final class PRStore: ObservableObject {
         self.snapshot = stateStore.load()
     }
 
+    /// Quienes esperan que termine el refresco en curso (`refreshNow`).
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    /// Refresca, salvo que ya haya un refresco en curso (entonces vuelve enseguida) o dure un rate limit.
     public func refresh() async {
         guard !isRefreshing else { return }
         if let until = snapshot?.rateLimitedUntil, until > now() { return }
         isRefreshing = true
-        defer { isRefreshing = false }
+        defer {
+            isRefreshing = false
+            let waiting = waiters
+            waiters = []
+            for waiter in waiting { waiter.resume() }
+        }
 
         let previous = snapshot
         let next = await builder.build(config: configStore.config, previous: previous)
         snapshot = next
         stateStore.save(next)
         onChange(previous, next)
+    }
+
+    /// Un refresco que empieza después de este pedido (p. ej. tras un merge): si hay uno en curso (que pudo empezar
+    /// antes), lo espera y refresca de nuevo; si mientras tanto empezó otro, alcanza con esperarlo. Durante un rate
+    /// limit no refresca.
+    public func refreshNow() async {
+        if isRefreshing { await waitForCurrentRefresh() }
+        if isRefreshing {
+            await waitForCurrentRefresh()
+            return
+        }
+        await refresh()
+    }
+
+    private func waitForCurrentRefresh() async {
+        await withCheckedContinuation { waiters.append($0) }
     }
 
     public func start() {
