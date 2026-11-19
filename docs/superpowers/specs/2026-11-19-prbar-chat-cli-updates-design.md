@@ -176,7 +176,8 @@ Donde el spec era ambiguo:
    - `selected`;
    - `bodies` y `titles` editados;
    - `added`, los findings agregados por el chat, con ids `c1`, `c2`…;
-   - `generalComment`.
+   - `generalComment`;
+   - `addedCount`, un contador que solo crece: el próximo id es `c<addedCount + 1>`. Así un id nunca se reusa después de un Undo (los mensajes viejos lo siguen nombrando). Undo conserva el valor más alto y no cuenta como edición manual.
 
    Vive en el `ChatCoordinator`. Se guarda en `ReviewDraft.edits` junto con `ReviewDraft.chat`, para que la conversación y sus cambios lleguen juntos al historial.
 3. **Numeración:** `#N` es la posición en `draft.items + edits.added`, contando desde 1. Es la misma en la ventana, en el JSON de estado y en el resumen de cambios. Los findings descartados por el filtro también tienen número.
@@ -185,7 +186,7 @@ Donde el spec era ambiguo:
 6. **Cuándo se edita código en Respond:** solo en `readyToPush`, antes del push, con `Edit`/`Write`. PRBar commitea los cambios del turno (`Address review feedback`, sin hooks) y recalcula diff, commits y `headOid`. Así lo que se pushea es lo que el usuario vio. Los tests anteriores se borran, porque cambió el código.
 
    En `ready` (antes de implementar), el chat es de solo lectura y además ofrece `setImplement`. En cualquier otra fase está bloqueado (implementando, tests, push) o es de solo lectura (`done`).
-7. **Snapshot para deshacer (B.6):** se toma como dice el spec, con índice temporal, `write-tree` y `commit-tree` a la ref. El turno exige el árbol limpio al empezar (`ensureClean`, igual que un fix), así que el snapshot es igual a HEAD. Deshacer hace `update-ref --no-deref HEAD <headBefore>`, `read-tree -u --reset <tree>` con el índice real (también hay que resetearlo) y `clean -fd` (nunca `-x`).
+7. **Snapshot para deshacer (B.6):** se toma como dice el spec, con índice temporal, `write-tree` y `commit-tree` a la ref. El turno exige el árbol limpio al empezar (`ensureClean`, igual que un fix), así que el snapshot es igual a HEAD. Deshacer hace, en este orden: `read-tree -u --reset <tree>` con el índice real (también hay que resetearlo); `update-ref --no-deref HEAD <headBefore> <headAfter>` (compare-and-swap; si falla, el árbol vuelve a `headAfter`); y `clean -fd` (nunca `-x`). Deshacer no depende de la ref: el árbol del snapshot es el de `headBefore`, que sigue alcanzable. La limpieza al arrancar puede borrar la ref sin romper nada.
 8. **Contexto del chat de Respond:** el worktree de Respond no tiene la base, así que no hay `pr.diff`. La carpeta de contexto `<owner>-<repo>-<N>-<sesión>.respond-context` lleva:
    - `feedback.json`, como en el análisis;
    - `pr.md`, si el PR sigue en el snapshot;
@@ -195,9 +196,26 @@ Donde el spec era ambiguo:
 9. **Worktree del chat de Review:** el nombre es `chat-<repo>-<N>-<sesión>`, más `-diff` en modo solo diff, con su carpeta `.context`. La ruta es fija por sesión, así que `--resume` funciona aun después de reiniciar la app. `isWorkspaceName` lo reconoce y la limpieza de huérfanos lo borra al arrancar. Para "al cerrar la app" se usa el mismo mecanismo que los reviews: cancelar al salir y borrar en el próximo arranque.
 10. **Commit revisado:** `WorktreeManager.prepare(…, pinnedHeadOid:)` usa el `headOid` del draft si el objeto existe en el clone (`cat-file -e`). Si no existe, usa el head actual y agrega la nota "Claude sees the PR’s latest commit, not the reviewed one."
 11. **Límite de concurrencia:** un `JobScheduler<String>(maxConcurrent: 2)` propio de los chats, en `AppModel`. Reviews y Responds ya tienen cada uno el suyo, y un turno de chat no debe esperar detrás de un review de 15 minutos.
-12. **Respaldo de `--resume`:** se activa solo con `PRBarError.commandFailed` (el CLI salió con error y sin resultado). Un timeout, una cancelación o JSON inválido no lo activan. El reintento por JSON inválido de `ClaudeRunner` continúa la misma sesión con `--resume` y un mensaje corto.
+12. **Respaldo de `--resume`:** se activa solo cuando el CLI dice que la sesión no existe: `No conversation found with session ID` (`ChatEngine.isMissingSession`). Cualquier otro error (API key, rate limit, red, crash, timeout, cancelación) se muestra después de una sola corrida, sin pagar otra ni perder la conversación. En un turno con edición, además, no se reconstruye si el árbol cambió. El reintento por JSON inválido de `ClaudeRunner` continúa la misma sesión con `--resume` y un mensaje corto. Todas las corridas de un mismo mensaje (resume, reintento, reconstrucción) comparten un presupuesto de 10 minutos (`ClaudeInvocation.deadline`).
 13. **Restore point:** se agrega `ChatMessage.restore: ChatRestorePoint?` (opcional, decodificación tolerante). Guarda el estado de la ventana antes y después del turno, para detectar ediciones manuales, y el snapshot de archivos.
 14. **"Interrupted" (B.9):** se agrega `ChatSession.pending` (y `lastState`). Al reabrir, `ChatSession.recovered()` convierte un turno pendiente en el error "Interrupted".
+15. **Capacidades de la sesión:** `ChatSession.canEditFiles` guarda si a Claude se le dijo que puede editar. Un chat de Respond que empezó en `ready` (solo lectura) y sigue después de implementar recibe, en el próximo `--resume`, una nota con las herramientas nuevas y las reglas de edición (`ChatPrompts.capabilityNote`). Se eligió la nota antes que una sesión nueva porque conserva la conversación, y `--resume` ya recibe las herramientas nuevas en `--tools`. Las herramientas de edición solo se dan a Respond con resultado, es decir, a turnos que pasan por `FixImplementer.chatTurn`.
+16. **Huella de git en el chat:** `chatTurn`, `undoChatTurn` y `chatFilesChangedSince` comparan la huella (`securityDigest`) con la `gitIntegrity` de los fixes antes de cualquier git (salvo el `rev-parse` que ubica las carpetas). La huella se arrastra sin recalcularla, así que un cambio de hooks o config entre turnos nunca pasa a ser la base del push. `checkConfigOrigins` corre antes del `status` de `ensureClean`, porque `status` puede correr filtros de la config.
+17. **Escrituras negadas:** `--settings` niega `Edit` (y por lo tanto `Write`) en `//**/.git`, `//**/.git/**`, `//**/.gitattributes` y `//**/.lfsconfig`.
+18. **Decodificación:** los mensajes y los cambios se decodifican elemento por elemento. Un elemento roto o de una versión más nueva se saltea sin perder el resto.
+
+**Verificado con el CLI real** (2.1.318, `--model haiku`, con los argumentos exactos de `ClaudeRunner.arguments`, en un repo de prueba en una carpeta temporal; 7 corridas):
+
+- `--session-id <uuid>` y después `--resume <uuid>` funcionan con `--setting-sources ""`: la segunda recordó la palabra de la primera.
+- `--resume <uuid inexistente>` sale con código 1. En stderr imprime `No conversation found with session ID: <uuid>`. En stdout manda una línea `result` con `subtype: error_during_execution`, `is_error: true`, `num_turns: 0`, sin `result` y con `errors: ["No conversation found with session ID: <uuid>"]`. Antes, el parser dejaba esa línea como resultado sin texto (`ClaudeError.failed`), así que el respaldo, que esperaba `commandFailed`, nunca se activaba. Ahora el parser usa `errors` como texto.
+- Una API key inválida da una línea `result` con `is_error: true`, `api_error_status: 401` y `result: "Invalid API key · Fix external API key"`, y sale con código 1. No reconstruye.
+- Con `--json-schema`, la herramienta de la salida estructurada se llama `StructuredOutput`, como supone `ClaudeStreamParser.hiddenTools`.
+- Escrituras, con las herramientas de edición:
+  - sin las reglas nuevas, `Write`/`Edit` sobre `.gitattributes`, `.lfsconfig` y `sub/.gitattributes` funcionaron;
+  - `.git/hooks/pre-push`, `sub/.git/config` y el archivo `.git` de un worktree ya estaban bloqueados por el CLI;
+  - con las reglas, en un worktree enlazado, quedaron negados el archivo `.git`, `.gitattributes`, `.lfsconfig`, `sub/.git/config` y `sub/.gitattributes`, y `Edit a.txt` y `Write notes/new.txt` siguieron funcionando.
+
+  La sintaxis `//**/<nombre>` sirve para archivos sueltos y `//**/<carpeta>/**` para el contenido de una carpeta.
 
 Puntos del spec que no se cumplen tal cual:
 
