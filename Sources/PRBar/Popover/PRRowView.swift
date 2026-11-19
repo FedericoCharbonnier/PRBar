@@ -9,6 +9,8 @@ struct PRRowView: View {
     let model: AppModel
     @ObservedObject var reviews: ReviewQueue
     @ObservedObject var respond: RespondQueue
+    /// While an update installs, Review and Respond are disabled (`AppModel.jobsBlockedReason`).
+    @ObservedObject var updateSession: UpdateInstallSession
     @State private var hovering = false
 
     private var pr: PullRequest { item.pr }
@@ -110,7 +112,7 @@ struct PRRowView: View {
                 actions: respondActions
             )
         case .toReview, .updatedSinceMyReview:
-            ReviewButton(phase: reviews.phases[item.id], actions: reviewActions)
+            ReviewButton(phase: reviews.phases[item.id], unavailableReason: model.jobsBlockedReason, actions: reviewActions)
         default:
             EmptyView()
         }

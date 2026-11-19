@@ -131,7 +131,7 @@ struct ReviewWindow: View {
     private var editor: some View {
         VStack(spacing: 0) {
             if let pr = currentPR, isOutdated {
-                OutdatedReviewBanner(disabled: publishing) {
+                OutdatedReviewBanner(disabled: publishing || model.jobsBlockedReason != nil) {
                     model.startReview(pr)
                     close()
                 }

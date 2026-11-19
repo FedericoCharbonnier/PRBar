@@ -235,18 +235,20 @@ struct RespondWindow: View {
                 if fixCount > 0 {
                     if canAct {
                         Button(fixCount == 1 ? "Implement 1 Fix" : "Implement \(fixCount) Fixes") {
-                            queue.implement(prID: prID, selections: chat.selections)
+                            model.implementRespond(prID: prID, selections: chat.selections)
                         }
                         .buttonStyle(.borderedProminent)
                         .keyboardShortcut(.return, modifiers: .command)
-                        .disabled(chat.isRunning)
-                        .help("Claude implements each fix and PRBar makes one commit per fix. Nothing is pushed yet.")
+                        .disabled(chat.isRunning || model.jobsBlockedReason != nil)
+                        .help(model.jobsBlockedReason
+                            ?? "Claude implements each fix and PRBar makes one commit per fix. Nothing is pushed yet.")
                     } else {
                         // After an error, fixes aren't re-implemented on top of whatever was left: the PR is analyzed again.
                         Button("Analyze Again", action: reanalyze)
                             .buttonStyle(.borderedProminent)
                             .keyboardShortcut(.return, modifiers: .command)
-                            .disabled(currentItem == nil)
+                            .disabled(currentItem == nil || model.jobsBlockedReason != nil)
+                            .help(model.jobsBlockedReason ?? "")
                     }
                 } else {
                     Button(alreadyPosted > 0 ? "Retry Pending Replies" : replyCount == 1 ? "Post 1 Reply" : "Post \(replyCount) Replies") {
@@ -367,7 +369,8 @@ struct RespondWindow: View {
                     fullDiffSection(result)
                     if let testCommand {
                         TestsSection(command: testCommand, run: result.tests, running: runningTests,
-                                     disabled: queue.phases[prID] != .readyToPush(draft, result) || chat.isRunning,
+                                     disabled: queue.phases[prID] != .readyToPush(draft, result) || chat.isRunning
+                                         || model.jobsBlockedReason != nil,
                                      start: { model.runRespondTests(prID: prID) },
                                      cancel: { queue.cancel(prID: prID) })
                     }

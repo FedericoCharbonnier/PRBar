@@ -15,6 +15,8 @@ struct ReviewButtonActions {
 /// Es siempre un `Button` real, hermano (no hijo) del botón de la fila.
 struct ReviewButton: View {
     let phase: ReviewPhase?
+    /// Why a review can't start (an update is being installed); `nil` = it can.
+    var unavailableReason: String? = nil
     let actions: ReviewButtonActions
     @State private var hovering = false
 
@@ -31,7 +33,8 @@ struct ReviewButton: View {
             Button("Review", action: actions.start)
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                .help("Review this PR with Claude")
+                .disabled(unavailableReason != nil)
+                .help(unavailableReason ?? "Review this PR with Claude")
         case .queued?:
             cancellable(label: "Queued", tooltip: "Queued · click to cancel", fg: .secondary, bg: Color.primary.opacity(0.06)) {
                 Image(systemName: "pause.fill").font(.system(size: 9))

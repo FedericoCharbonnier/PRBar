@@ -39,6 +39,16 @@ extension AppModel {
         updates.skip(release)
     }
 
+    /// Why new reviews, responds, fixes, test runs and chat turns can't start: an update is being installed (spec D.3).
+    /// `nil` = they can.
+    var jobsBlockedReason: String? { updates.jobsBlockedReason }
+
+    /// Implement the selected fixes, unless an update is being installed.
+    func implementRespond(prID: String, selections: [String: RespondSelection]) {
+        guard jobsBlockedReason == nil else { return }
+        respond.implement(prID: prID, selections: selections)
+    }
+
     /// Reviews, análisis, implementaciones, tests y publicaciones de Responder en cola o corriendo, los turnos de
     /// chat y las publicaciones en GitHub (review) y Slack en curso.
     var activeJobCount: Int {

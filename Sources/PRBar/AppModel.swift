@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import PRBarCore
 import SwiftUI
 
@@ -159,6 +160,8 @@ final class AppModel: ObservableObject {
     /// Cuándo se pidió cada review (por prID), para el `ReviewRecord`.
     private var reviewStarts: [String: Date] = [:]
     private var terminationObserver: NSObjectProtocol?
+    /// Re-renders the views that use `jobsBlockedReason` when an update starts or ends.
+    private var installStateObserver: AnyCancellable?
 
     @Published private(set) var tools = ResolvedTools()
     @Published private(set) var toolsResolved = false
@@ -215,6 +218,7 @@ final class AppModel: ObservableObject {
                 Task { await postings.track { await slack.process(snapshot: next, config: configStore.config) } }
             }
         )
+        installStateObserver = updates.session.$state.removeDuplicates().sink { [weak self] _ in self?.objectWillChange.send() }
         guard startsServices else { return }
         WindowPresenter.shared.openSettings = { [weak self] in self?.openSettings() }
         notifications?.onOpenReview = { [weak self] prID, recordID in self?.openFromNotification(prID: prID, recordID: recordID) }
@@ -424,6 +428,8 @@ final class AppModel: ObservableObject {
     }
 
     func startReview(_ item: ClassifiedPR) {
+        // The button is disabled while an update installs (`jobsBlockedReason`); nothing new starts.
+        guard jobsBlockedReason == nil else { return }
         guard toolsResolved else {
             reviews.markFailed(prID: item.id, message: "Still looking for git and claude. Try again in a few seconds.")
             return
@@ -670,6 +676,7 @@ final class AppModel: ObservableObject {
 
     /// Why the chat can't run, with the same reasons as the Review button; nil = it can.
     var chatUnavailableReason: String? {
+        if let jobsBlockedReason { return jobsBlockedReason }
         guard toolsResolved else { return "Still looking for git and claude. Try again in a few seconds." }
         if tools.git == nil { return PRBarError.toolNotFound("git").localizedDescription }
         if tools.claude == nil { return PRBarError.toolNotFound("claude").localizedDescription }
@@ -847,7 +854,8 @@ final class AppModel: ObservableObject {
 
     /// Por qué no se puede responder el feedback de este PR (`nil` = se puede).
     func respondUnavailableReason(_ item: ClassifiedPR) -> String? {
-        localPath(for: item) == nil
+        if let jobsBlockedReason { return jobsBlockedReason }
+        return localPath(for: item) == nil
             ? "Choose the local folder for \(item.pr.repo.name) in Settings → Repos to respond with Claude."
             : nil
     }
@@ -855,7 +863,7 @@ final class AppModel: ObservableObject {
     /// Analiza el feedback sin resolver del PR (spec §14). Un registro anterior terminado (listo, publicado o
     /// fallido) se reemplaza; uno con fixes sin pushear no (la cola lo ignora).
     func startRespond(_ item: ClassifiedPR) {
-        guard let localPath = localPath(for: item) else { return }
+        guard jobsBlockedReason == nil, let localPath = localPath(for: item) else { return }
         let worktreeDir = repoConfig(account: item.account, repo: item.pr.repo)?.worktreeDir
         respond.analyze(item, localPath: localPath, worktreeDir: worktreeDir)
     }
@@ -877,7 +885,7 @@ final class AppModel: ObservableObject {
 
     /// Corre los tests del repo en el worktree. Solo desde la ventana, cuando el usuario lo pide después del diff.
     func runRespondTests(prID: String) {
-        guard let draft = respond.records[prID]?.draft, let command = testCommand(for: draft) else { return }
+        guard jobsBlockedReason == nil, let draft = respond.records[prID]?.draft, let command = testCommand(for: draft) else { return }
         respond.runTests(prID: prID, testCommand: command)
     }
 
