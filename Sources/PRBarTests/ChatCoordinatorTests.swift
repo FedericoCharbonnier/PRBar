@@ -96,10 +96,15 @@ private final class Harness {
     var running: [Bool] = []
     var results: [RespondResult] = []
     var savedRules: [RuleProposal] = []
+    /// Runs inside `runningChanged`, right when the chat says it's running or not: like a user who sends at once.
+    var onRunningChanged: ((Bool) -> Void)?
 
     private var hooks: ChatHooks {
         ChatHooks(persist: { [unowned self] _ in self.persisted += 1 },
-                  runningChanged: { [unowned self] in self.running.append($0) },
+                  runningChanged: { [unowned self] in
+                      self.running.append($0)
+                      self.onRunningChanged?($0)
+                  },
                   resultChanged: { [unowned self] in self.results.append($0) },
                   saveRule: { [unowned self] proposal in
                       self.savedRules.append(proposal)
@@ -274,6 +279,99 @@ enum ChatCoordinatorTests {
             try expectEqual(h.results, [r1, r0])
             try expectEqual(chat.selections["thread:A"]?.replyText, "Old")
             try expect(chat.session.messages[1].undone)
+        },
+        TestCase("chat coordinator: un mensaje mandado apenas termina un turno no se pierde") { @MainActor in
+            let h = Harness()
+            let chat = h.review()
+            var sent: Bool?
+            var slotFree = false
+            h.onRunningChanged = { [unowned chat] running in
+                guard !running, sent == nil else { return }
+                // The turn just ended (canSend is true): the scheduler must have freed the chat's slot already.
+                slotFree = !h.scheduler.isActive("chat-PR_1")
+                sent = chat.send("right after")
+            }
+            try expect(chat.send("first"))
+            try await waitUntil { sent != nil }
+            try expectEqual(sent, true)
+            try expect(slotFree, "the scheduler still held the first turn: the second message would be dropped")
+            try await waitUntil { h.backend.inputs.count == 2 }
+            try await h.finish(chat)
+            try expectEqual(h.backend.inputs.map(\.message), ["first", "right after"])
+            try expectEqual(chat.session.messages.map(\.role), [.user, .assistant, .user, .assistant])
+            try expect(!chat.session.pending)
+        },
+        TestCase("chat coordinator: un mensaje mandado apenas termina un Undo de archivos no se pierde") { @MainActor in
+            let h = Harness()
+            let r0 = RespondResult(items: [], diffStat: "r0", tests: nil)
+            h.context.canEditFiles = true
+            h.context.respondResult = r0
+            h.backend.files = ChatFilesOutcome(
+                changedFiles: ["a.ts"],
+                snapshot: ChatFileSnapshot(ref: "refs/prbar/chat-x-1", tree: "t", headBefore: "h0", headAfter: "h1", resultBefore: r0),
+                result: r0)
+            let chat = h.respond()
+            chat.send("change the code")
+            try await h.finish(chat)
+            var sent: Bool?
+            var slotFree = false
+            h.onRunningChanged = { [unowned chat] running in
+                guard !running, sent == nil else { return }
+                slotFree = !h.scheduler.isActive("chat-PR_9")
+                sent = chat.send("right after the undo")
+            }
+            chat.undo(chat.session.messages[1].id)
+            try await waitUntil { sent != nil }
+            try expectEqual(sent, true)
+            try expect(slotFree, "the scheduler still held the undo: the message would be dropped")
+            try await waitUntil { h.backend.inputs.count == 2 }
+            try await h.finish(chat)
+            try expect(!chat.session.pending)
+        },
+        TestCase("chat coordinator: si el scheduler no acepta un Undo de archivos, queda un error y nada se deshace") { @MainActor in
+            let h = Harness()
+            let r0 = RespondResult(items: [], diffStat: "r0", tests: nil)
+            h.context.canEditFiles = true
+            h.context.respondResult = r0
+            h.backend.files = ChatFilesOutcome(
+                changedFiles: ["a.ts"],
+                snapshot: ChatFileSnapshot(ref: "refs/prbar/chat-x-1", tree: "t", headBefore: "h0", headAfter: "h1", resultBefore: r0),
+                result: r0)
+            let respond = h.respond()
+            respond.send("change the code")
+            try await h.finish(respond)
+            h.backend.held = true
+            let review = h.review(reviewDraft("PR_9"))
+            review.send("long")
+            try await waitUntil { h.backend.inputs.count == 2 }
+            respond.undo(respond.session.messages[1].id)
+            try expect(!respond.isRunning)
+            try expect(!respond.session.messages[1].undone)
+            try expectEqual(respond.session.messages.last?.text, ChatCoordinator.busyText)
+            try expectEqual(h.backend.undos, [])
+            h.backend.held = false
+            try await h.finish(review)
+        },
+        TestCase("chat coordinator: si el scheduler no acepta el turno, el mensaje queda con un error (no pendiente)") { @MainActor in
+            let h = Harness()
+            h.backend.held = true
+            // Review and Respond of the same PR share the scheduler key: one turn per PR.
+            let respond = h.respond()
+            let review = h.review(reviewDraft("PR_9"))
+            respond.send("long")
+            try await waitUntil { h.backend.inputs.count == 1 }
+            try expect(review.send("meanwhile"))
+            try expect(!review.isRunning)
+            try expect(review.canSend)
+            try expect(!review.session.pending)
+            try expectEqual(review.session.messages.map(\.role), [.user, .error])
+            try expectEqual(review.session.messages.last?.text, ChatCoordinator.busyText)
+            try expectEqual(h.running.suffix(2), [true, false])
+            h.backend.held = false
+            try await h.finish(respond)
+            try expect(review.send("now"))
+            try await h.finish(review)
+            try expectEqual(h.backend.inputs.map(\.message), ["long", "now"])
         },
         TestCase("chat coordinator: Respond que empezó de solo lectura avisa a Claude cuando ya puede editar") { @MainActor in
             let h = Harness()

@@ -72,6 +72,8 @@ public final class ChatCoordinator: ObservableObject {
     public static let stoppedText = "Stopped."
     public static let unreadableText = "Claude’s answer couldn’t be read."
     public static let rebuiltNote = "Context rebuilt"
+    /// The scheduler didn't take the turn: another chat of the same PR (Review or Respond) holds its slot.
+    public static let busyText = "Another chat on this PR is running. Send the message again when it finishes."
     public static var highlightDuration: Duration = .seconds(3)
 
     public let subject: ChatSubject
@@ -176,10 +178,16 @@ public final class ChatCoordinator: ObservableObject {
         let canEdit = editingResult != nil
         let capabilitiesChanged = claudeSessionID != nil && session.canEditFiles != canEdit
         let relay = MainActorRelay<ClaudeStreamEvent> { [weak self] event in self?.handle(event, turn: id) }
-        scheduler.enqueue(key, onStart: { [weak self] in
+        let outcome = JobOutcomeSlot<Result<TurnResult, Error>>()
+        // The turn ends only once the scheduler freed its slot (`onComplete`), or once a stopped turn's work really
+        // ended (`onCancelledEnd`, in Respond after the files were restored): when `isRunning` goes false a new
+        // message is always accepted.
+        let ended: @MainActor (Result<Void, Error>) -> Void = { [weak self] _ in
+            self?.finishTurn(id, outcome.value ?? .failure(CancellationError()))
+        }
+        let accepted = scheduler.enqueue(key, onStart: { [weak self] in
             if self?.turnID == id { self?.activity = "Preparing the code…" }
         }, work: { [weak self] in
-            let outcome: Result<TurnResult, Error>
             do {
                 let workspace = try await backend.workspace(request)
                 await self?.workspaceReady(workspace, turn: id)
@@ -195,20 +203,20 @@ public final class ChatCoordinator: ObservableObject {
                 if case .respond(let draft) = subject, let result = editingResult {
                     let (output, files) = try await backend.sendEditing(input, draft: draft, result: result,
                                                                         sessionID: request.session.id, logURL: context.logURL) { relay.send($0) }
-                    outcome = .success(TurnResult(output: output, files: files, workspace: workspace, canSetImplement: false,
-                                                  canEditFiles: true, state: state, rulesText: rulesText))
+                    outcome.value = .success(TurnResult(output: output, files: files, workspace: workspace, canSetImplement: false,
+                                                        canEditFiles: true, state: state, rulesText: rulesText))
                 } else {
                     let output = try await backend.send(input, subject: subject, logURL: context.logURL) { relay.send($0) }
-                    outcome = .success(TurnResult(output: output, files: nil, workspace: workspace,
-                                                  canSetImplement: context.respondResult == nil, canEditFiles: false,
-                                                  state: state, rulesText: rulesText))
+                    outcome.value = .success(TurnResult(output: output, files: nil, workspace: workspace,
+                                                        canSetImplement: context.respondResult == nil, canEditFiles: false,
+                                                        state: state, rulesText: rulesText))
                 }
             } catch {
-                outcome = .failure(error)
+                outcome.value = .failure(error)
             }
             await relay.finish()
-            await self?.finishTurn(id, outcome)
-        }, onComplete: { _ in })
+        }, onComplete: ended, onCancelledEnd: ended)
+        if !accepted { finishTurn(id, .failure(ChatTurnNotStarted(errorDescription: Self.busyText))) }
         return true
     }
 
@@ -355,15 +363,22 @@ public final class ChatCoordinator: ObservableObject {
             setRunning(true, activity: "Undoing…")
             let backend = self.backend
             let before = restore.selections
-            scheduler.enqueue(key, onStart: {}, work: { [weak self] in
-                let outcome: Result<RespondResult, Error>
+            let outcome = JobOutcomeSlot<Result<RespondResult, Error>>()
+            // Like a turn: it ends once the scheduler freed its slot (an undo is only cancelled by `cancelAll`).
+            let ended: @MainActor (Result<Void, Error>) -> Void = { [weak self] _ in
+                self?.finishUndoFiles(undoID, index: index, selections: before, outcome.value ?? .failure(CancellationError()))
+            }
+            let accepted = scheduler.enqueue(key, onStart: {}, work: {
                 do {
-                    outcome = .success(try await backend.undoFiles(draft: draft, snapshot: files, logURL: context.logURL))
+                    outcome.value = .success(try await backend.undoFiles(draft: draft, snapshot: files, logURL: context.logURL))
                 } catch {
-                    outcome = .failure(error)
+                    outcome.value = .failure(error)
                 }
-                await self?.finishUndoFiles(undoID, index: index, selections: before, outcome)
-            }, onComplete: { _ in })
+            }, onComplete: ended, onCancelledEnd: ended)
+            if !accepted {
+                finishUndoFiles(undoID, index: index, selections: before,
+                                .failure(ChatTurnNotStarted(errorDescription: Self.busyText)))
+            }
         }
     }
 
