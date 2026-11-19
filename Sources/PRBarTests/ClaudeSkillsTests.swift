@@ -39,6 +39,31 @@ private let resultLine = #"{"type":"result","subtype":"success","is_error":false
 enum ClaudeSkillsTests {
     static let cases: [TestCase] = [
         // MARK: Config
+        TestCase("claude settings: chat on by default, same model as the review") {
+            let settings = ClaudeSettings()
+            try expectEqual(settings.chatEnabled, true)
+            try expectEqual(settings.chatModel, nil)
+            try expectEqual(settings.effectiveChatModel, nil)
+            var sonnet = settings
+            sonnet.model = .sonnet
+            try expectEqual(sonnet.effectiveChatModel, .sonnet)
+            sonnet.chatModel = .haiku
+            try expectEqual(sonnet.effectiveChatModel, .haiku)
+        },
+        TestCase("claude settings: chat keys decode leniently and round-trip") {
+            try expectEqual(try decodeConfig(#"{"claude":{"model":"opus"}}"#).claude.chatEnabled, true)
+            let off = try decodeConfig(#"{"claude":{"chatEnabled":false,"chatModel":"haiku"}}"#).claude
+            try expectEqual(off.chatEnabled, false)
+            try expectEqual(off.chatModel, .haiku)
+            let bad = try decodeConfig(#"{"claude":{"chatEnabled":"no","chatModel":"gpt-9"}}"#).claude
+            try expectEqual(bad.chatEnabled, true)
+            try expectEqual(bad.chatModel, nil)
+            var config = AppConfig()
+            config.claude.chatEnabled = false
+            config.claude.chatModel = .sonnet
+            let data = try JSONCoding.encoder.encode(config)
+            try expectEqual(try JSONCoding.decoder.decode(AppConfig.self, from: data), config)
+        },
 
         TestCase("claude settings: the defaults reproduce the hard-coded skills") {
             let settings = ClaudeSettings()

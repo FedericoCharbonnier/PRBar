@@ -316,10 +316,14 @@ public struct ClaudeSettings: Hashable, Codable, Sendable {
     public var respondSkill = Self.defaultRespondSkill
     /// `nil` = the CLI's default model (no `--model`).
     public var model: ClaudeModel?
+    /// Chat with Claude in the Review and Respond windows (spec B.8).
+    public var chatEnabled = true
+    /// The chat's model. `nil` = the same as reviews (`model`).
+    public var chatModel: ClaudeModel?
 
     public init() {}
 
-    enum CodingKeys: String, CodingKey { case reviewSkill, filterEnabled, filterSkill, respondSkill, model }
+    enum CodingKeys: String, CodingKey { case reviewSkill, filterEnabled, filterSkill, respondSkill, model, chatEnabled, chatModel }
 
     /// Lenient: a missing key, a wrong type or an unknown model falls back to the default.
     public init(from decoder: Decoder) throws {
@@ -329,7 +333,12 @@ public struct ClaudeSettings: Hashable, Codable, Sendable {
         filterSkill = (try? c.decodeIfPresent(String.self, forKey: .filterSkill)) ?? Self.defaultFilterSkill
         respondSkill = (try? c.decodeIfPresent(String.self, forKey: .respondSkill)) ?? Self.defaultRespondSkill
         model = (try? c.decodeIfPresent(ClaudeModel.self, forKey: .model)) ?? nil
+        chatEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .chatEnabled)) ?? true
+        chatModel = (try? c.decodeIfPresent(ClaudeModel.self, forKey: .chatModel)) ?? nil
     }
+
+    /// `--model` of the chat's runs: `chatModel`, or the reviews' model.
+    public var effectiveChatModel: ClaudeModel? { chatModel ?? model }
 
     /// The skills to use: trimmed; a blank or invalid one falls back to the default.
     public var effectiveReviewSkill: String { Self.effective(reviewSkill, default: Self.defaultReviewSkill) }
