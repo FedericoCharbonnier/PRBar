@@ -380,11 +380,12 @@ public struct AppConfig: Hashable, Codable, Sendable {
     public var toolPaths = ToolPaths()
     public var slack = SlackSettings()
     public var claude = ClaudeSettings()
+    public var updates = UpdateSettings()
 
     public init() {}
 
     enum CodingKeys: String, CodingKey {
-        case accounts, refreshIntervalMinutes, launchAtLogin, notifications, toolPaths, slack, claude
+        case accounts, refreshIntervalMinutes, launchAtLogin, notifications, toolPaths, slack, claude, updates
     }
 
     public init(from decoder: Decoder) throws {
@@ -396,6 +397,7 @@ public struct AppConfig: Hashable, Codable, Sendable {
         toolPaths = try c.decodeIfPresent(ToolPaths.self, forKey: .toolPaths) ?? ToolPaths()
         slack = try c.decodeIfPresent(SlackSettings.self, forKey: .slack) ?? SlackSettings()
         claude = (try? c.decodeIfPresent(ClaudeSettings.self, forKey: .claude)) ?? ClaudeSettings()
+        updates = (try? c.decodeIfPresent(UpdateSettings.self, forKey: .updates)) ?? UpdateSettings()
     }
 }
 
