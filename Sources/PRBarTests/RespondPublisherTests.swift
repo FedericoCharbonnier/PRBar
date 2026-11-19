@@ -437,5 +437,26 @@ enum RespondPublisherTests {
             try expect(error == nil)
             try expectEqual(api.posts, [expectedB, .issue(body: "@beto\n\n> Faltan tests.\n\nAgregados.")])
         },
+        TestCase("respond publisher: la plantilla reemplaza a 'Fixed in…' y el texto del usuario va después") {
+            let commitLink = "https://github.com/o/r/commit/\(sha1)"
+            try expectEqual(RespondPublisher.replyText(selection: selection(text: "Gracias."), commit: sha1, repo: repoRef,
+                                                       language: PRLanguage(code: "es"), template: "Done in {commit} — {summary}",
+                                                       values: ["summary": "Validated input"]),
+                            "Done in \(commitLink) — Validated input Gracias.")
+            try expectEqual(RespondPublisher.replyText(selection: selection(), commit: sha1, repo: repoRef,
+                                                       language: PRLanguage(code: "es"), template: "   "),
+                            "Arreglado en \(commitLink).")
+            try expectEqual(RespondPublisher.replyText(selection: selection(text: "Solo texto"), commit: nil, repo: repoRef,
+                                                       language: .english, template: "Done in {commit}"),
+                            "Solo texto")
+        },
+        TestCase("respond publisher: postReplies usa la plantilla con el resumen del fix y el comentario") {
+            let api = FakeFeedbackAPI()
+            let (_, error) = await publisher(api).postReplies(
+                draft: draft(items: [threadA]), selections: ["thread:A": selection()], result: result, alreadyPosted: [:],
+                token: "tok", replyTemplate: "{summary} ({comment}): {commit}")
+            try expect(error == nil, "\(String(describing: error))")
+            try expectEqual(api.posts, [.reply(commentID: 101, body: "ok (Cambiá esto.): https://github.com/o/r/commit/\(sha1)")])
+        },
     ]
 }

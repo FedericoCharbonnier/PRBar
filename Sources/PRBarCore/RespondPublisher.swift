@@ -126,14 +126,16 @@ public struct RespondPublisher: Sendable {
     /// llama (y se espera) después de cada publicación exitosa, antes de la siguiente.
     /// `result` es nil cuando no se implementó nada (solo respuestas).
     public func postReplies(draft: RespondDraft, selections: [String: RespondSelection], result: RespondResult?,
-                            alreadyPosted: [String: PostedReply], token: String,
+                            alreadyPosted: [String: PostedReply], token: String, replyTemplate: String? = nil,
                             onPosted: @escaping @Sendable (String, PostedReply) async -> Void = { _, _ in })
         async -> (posted: [String: PostedReply], error: Error?) {
         var posted = alreadyPosted
         for item in draft.items {
             guard let selection = selections[item.id], selection.reply, posted[item.id] == nil else { continue }
-            let commit = result?.items.first { $0.id == item.id && $0.status == .committed }?.commit
-            guard let text = Self.replyText(selection: selection, commit: commit, repo: draft.repo, language: draft.language) else {
+            let fix = result?.items.first { $0.id == item.id && $0.status == .committed }
+            let values = FixTemplates.values(draft: draft, item: item, count: 1, summary: fix?.summary)
+            guard let text = Self.replyText(selection: selection, commit: fix?.commit, repo: draft.repo, language: draft.language,
+                                            template: replyTemplate, values: values) else {
                 continue
             }
             do {
@@ -160,14 +162,21 @@ public struct RespondPublisher: Sendable {
     }
 
     /// With a commit: "Fixed in https://github.com/<o>/<r>/commit/<sha>." in the PR's language
-    /// (`PublishedPhrases.fixedIn`) and, if there is text, a space and the text. Without a commit: the text, or
-    /// nil if it is empty (nothing is published).
-    public static func replyText(selection: RespondSelection, commit: String?, repo: RepoRef,
-                                 language: PRLanguage) -> String? {
+    /// (`PublishedPhrases.fixedIn`) or, with `template` (spec E.5), the template with `{commit}` (the link) and
+    /// `values`; then, if there is text, a space and the text. Without a commit: the text, or nil if it's empty.
+    public static func replyText(selection: RespondSelection, commit: String?, repo: RepoRef, language: PRLanguage,
+                                 template: String? = nil, values: [String: String] = [:]) -> String? {
         let text = selection.replyText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let commit, !commit.isEmpty else { return text.isEmpty ? nil : text }
-        let fixed = PublishedPhrases.fixedIn("https://github.com/\(repo.owner)/\(repo.name)/commit/\(commit)", language: language)
-        return text.isEmpty ? fixed : "\(fixed) \(text)"
+        let link = "https://github.com/\(repo.owner)/\(repo.name)/commit/\(commit)"
+        var prefix = PublishedPhrases.fixedIn(link, language: language)
+        if let template, !template.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            var all = values
+            all["commit"] = link
+            let rendered = PlaceholderTemplate.render(template, values: all).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !rendered.isEmpty { prefix = rendered }
+        }
+        return text.isEmpty ? prefix : "\(prefix) \(text)"
     }
 
     /// `@reviewer`, la cita de la primera línea no vacía de su comentario (hasta 200 caracteres) y el texto.

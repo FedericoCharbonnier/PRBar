@@ -311,7 +311,8 @@ public struct RespondPipeline: RespondPipelineRunning {
             return (alreadyPosted, error)
         }
         return await publisher.postReplies(draft: draft, selections: selections, result: result,
-                                           alreadyPosted: alreadyPosted, token: token, onPosted: onPosted)
+                                           alreadyPosted: alreadyPosted, token: token,
+                                           replyTemplate: settings.respond.effectiveReplyTemplate, onPosted: onPosted)
     }
 
     // MARK: - Privado
