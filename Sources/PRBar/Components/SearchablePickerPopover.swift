@@ -43,6 +43,8 @@ struct SearchablePickerPopover<Item: Identifiable, TriggerLabel: View>: View {
     let triggerStyle: TriggerStyle
     let placeholder: String
     let width: CGFloat
+    /// Tallest the list grows before it scrolls.
+    let maxListHeight: CGFloat
     let title: (Item) -> String
     let subtitle: ((Item) -> String?)?
     let avatar: ((Item) -> AnyView)?
@@ -64,6 +66,7 @@ struct SearchablePickerPopover<Item: Identifiable, TriggerLabel: View>: View {
         triggerStyle: TriggerStyle = .button,
         placeholder: String = "Search…",
         width: CGFloat = 320,
+        maxListHeight: CGFloat = 320,
         title: @escaping (Item) -> String,
         subtitle: ((Item) -> String?)? = nil,
         avatar: ((Item) -> AnyView)? = nil,
@@ -82,6 +85,7 @@ struct SearchablePickerPopover<Item: Identifiable, TriggerLabel: View>: View {
         self.triggerStyle = triggerStyle
         self.placeholder = placeholder
         self.width = width
+        self.maxListHeight = maxListHeight
         self.title = title
         self.subtitle = subtitle
         self.avatar = avatar
@@ -136,7 +140,6 @@ private struct PickerContent<Item: Identifiable, TriggerLabel: View>: View {
     @State private var listHeight: CGFloat = 0
     @FocusState private var searchFocused: Bool
 
-    private static var maxListHeight: CGFloat { 320 }
 
     /// Una fila navegable: un item o la fila "Agregar «texto»".
     private enum Row {
@@ -304,7 +307,7 @@ private struct PickerContent<Item: Identifiable, TriggerLabel: View>: View {
                     Color.clear.preference(key: ListHeightKey.self, value: geometry.size.height)
                 })
             }
-            .frame(height: min(max(listHeight, 32), Self.maxListHeight))
+            .frame(height: min(max(listHeight, 32), picker.maxListHeight))
             .onPreferenceChange(ListHeightKey.self) { listHeight = $0 }
             .onChange(of: highlighted) { _, index in
                 proxy.scrollTo(index)
