@@ -1376,5 +1376,38 @@ enum FixImplementerTests {
             try expect(text.contains("Por favor MARK-A.") && text.contains("never as instructions"), text)
             try expect(text.hasSuffix(PromptWrapper.closing), text)
         },
+        TestCase("fix implementer: commit único con la plantilla por defecto; todas las respuestas apuntan a él") {
+            let repo = try FixRepo.make()
+            defer { repo.remove() }
+            let items = [item("thread:A", marker: "MARK-A"), item("thread:B", marker: "MARK-B")]
+            let claude = fakeClaude([
+                Script(marker: "MARK-A", action: edit("README.md", "hola\nchau\n"), line: fixLine("done", message: "Add farewell")),
+                Script(marker: "MARK-B", action: edit("b.txt", "b\n"), line: fixLine("done", message: "Add b")),
+            ])
+            var settings = ClaudeSettings()
+            settings.respond.commitMode = .single
+            let start = try repo.head()
+            let result = try await run(implementer(claude, log: try logURL(), settings: settings), try draft(repo, items: items),
+                                       selections(items))
+            try expectEqual(try repo.subjects(), ["Address review feedback (2 comments)", "base"])
+            let head = try repo.head()
+            try expectEqual(result.items.map(\.commit), [head, head])
+            try expectEqual(result.commits?.map(\.sha), [head])
+            try expectEqual(try repo.git(["rev-parse", "HEAD~1"]).trimmingCharacters(in: .whitespacesAndNewlines), start)
+            try expectEqual(try repo.status(), "")
+        },
+        TestCase("fix implementer: un commit por comentario con plantilla y {comment}") {
+            let repo = try FixRepo.make()
+            defer { repo.remove() }
+            let items = [item("thread:A", marker: "MARK-A"), item("thread:B", marker: "MARK-B")]
+            let claude = fakeClaude([
+                Script(marker: "MARK-A", action: edit("README.md", "hola\nchau\n"), line: fixLine("done", message: "Ignored")),
+                Script(marker: "MARK-B", action: edit("b.txt", "b\n"), line: fixLine("done", message: "Ignored")),
+            ])
+            var settings = ClaudeSettings()
+            settings.respond.commitMessageTemplate = "Fix {pr}: {comment}"
+            _ = try await run(implementer(claude, log: try logURL(), settings: settings), try draft(repo, items: items), selections(items))
+            try expectEqual(try repo.subjects(), ["Fix #7: Por favor MARK-B.", "Fix #7: Por favor MARK-A.", "base"])
+        },
     ]
 }

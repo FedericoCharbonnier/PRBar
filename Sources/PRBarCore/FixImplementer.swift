@@ -90,6 +90,9 @@ public struct FixImplementer: Sendable {
                                                   guarded: guarded))
             await onProgress(index + 1, work.count)
         }
+        if settings.respond.commitMode == .single {
+            results = try await squash(results, draft: draft, worktree: worktree, start: start)
+        }
 
         return try await summarize(worktree, start: start, items: results, integrity: guarded.securityDigest())
     }
@@ -201,7 +204,7 @@ public struct FixImplementer: Sendable {
             guard review.hasChanges else {
                 return ItemResult(id: item.id, status: .noChanges, commit: nil, summary: summary)
             }
-            let message = Self.commitMessage(output.commitMessage, reviewer: item.feedback.reviewer)
+            let message = perCommentMessage(item: item, draft: draft, claudeMessage: output.commitMessage)
             try await git(worktree, ["add", "-A"])
             let staged = try await git(worktree, ["diff", GitHardening.ignoreSubmodules, "--cached", "--raw", "-z", "--no-renames", "--no-abbrev"])
             let special = WorktreeIntegrity.specialStagedPaths(fromRawZ: staged)
@@ -495,6 +498,33 @@ public struct FixImplementer: Sendable {
     }
 
     // MARK: - Commits
+
+    /// One per comment with a template (spec E.5): the template with `{comment}`, `{n} = 1`. Otherwise (no template, or
+    /// a single commit, which is squashed afterwards) Claude's message, as always.
+    private func perCommentMessage(item: RespondItem, draft: RespondDraft, claudeMessage: String) -> String {
+        guard settings.respond.commitMode == .perComment, let template = settings.respond.effectiveCommitTemplate else {
+            return Self.commitMessage(claudeMessage, reviewer: item.feedback.reviewer)
+        }
+        let rendered = PlaceholderTemplate.render(template, values: FixTemplates.values(draft: draft, item: item, count: 1))
+        return Self.commitMessage(rendered, reviewer: item.feedback.reviewer)
+    }
+
+    /// Single commit (spec E.5): the fixes' commits become one (`reset --soft` to the start + a commit without hooks),
+    /// with the template (or `Address review feedback ({n} comments)`). Every committed item points to it.
+    private func squash(_ results: [ItemResult], draft: RespondDraft, worktree: URL, start: String) async throws -> [ItemResult] {
+        let committed = results.filter { $0.status == .committed }.count
+        guard committed > 0 else { return results }
+        let template = settings.respond.effectiveCommitTemplate ?? RespondOptions.defaultCommitMessageTemplate
+        let rendered = PlaceholderTemplate.render(template, values: FixTemplates.values(draft: draft, item: nil, count: committed))
+        let message = Self.commitMessage(rendered, reviewer: "\(committed) comments")
+        try await git(worktree, ["reset", "--soft", start])
+        try await git(worktree, ["commit", "--no-verify", "-m", message], timeout: Self.fixTimeout)
+        let sha = try await head(worktree)
+        guard sha != start, try await isAncestor(worktree, start, sha) else {
+            throw PRBarError.respond("The single commit \(sha) doesn't descend from \(start): stopping.")
+        }
+        return results.map { $0.status == .committed ? ItemResult(id: $0.id, status: .committed, commit: sha, summary: $0.summary) : $0 }
+    }
 
     /// Valida `startHeadOid` (un sha completo) y que HEAD lo contenga. Devuelve el sha.
     private func verifyStart(_ oid: String, worktree: URL) async throws -> String {
