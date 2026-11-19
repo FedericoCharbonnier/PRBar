@@ -493,6 +493,65 @@ prbar repo set <repo> --ignore 'dist/**'
 - Fixes: tests antes del push bloquean, commits por comentario, advertencia de dependencias, plantilla de respuesta.
 - Prompts: validación de variables obligatorias, la parte fija siempre presente aunque el prompt propio esté vacío o intente "anular" las reglas.
 
+### E.9 Decisiones de implementación (Plan 9)
+
+Donde el spec era ambiguo:
+
+1. **Valores por defecto que reproducen lo actual (E.5):** `commitMode = perComment` (hoy hay un commit por comentario con el mensaje de Claude) y `commitMessageTemplate = nil`. Con `nil`, un commit por comentario usa el mensaje de Claude como hoy, y el commit único usa `Address review feedback ({n} comments)` (el valor del JSON del spec). Con una plantilla, se usa en los dos modos.
+2. **`allowNewDependencies` por defecto en `false`**, como dice el JSON del spec, aunque agrega una línea al prompt y una advertencia que antes no había. No bloquea nada. `allowNewTests = true` reproduce el "Update or add tests if appropriate" de hoy y `tone = direct` no agrega nada.
+3. **Parte fija (E.6):** el orden es `reglas de PRBar (seguridad) → contexto fijo (archivos, comentario recibido) → cuerpo editable → reglas del usuario → ajustes del usuario → formato de salida → recordatorio final`. Las reglas del usuario se agregan **siempre**. `{rules}` en un prompt propio también las pone en ese lugar: aparecen dos veces, y es inofensivo.
+4. **Variables:** además de las del spec (`{diff_path}`, `{pr_md_path}`, `{language}`, `{rules}`, `{findings_json}`) hacen falta otras: `{pr}`, `{repo}`, `{title}`, `{author}`, `{head_ref}`, `{base_ref}`, `{code_location}`, `{skill}`, `{feedback_path}`, `{location}`, `{assessment}`, `{fix_plan}` y `{repos}`. Las obligatorias son `{diff_path}` (review), `{findings_json}` (filtro), `{feedback_path}` (análisis) y `{fix_plan}` (implementación); los chats no tienen. El texto del comentario recibido **no** es una variable: va siempre en el contexto fijo, delimitado y marcado como no confiable.
+5. **Prompt propio y modo:** guardar un prompt editado de una etapa con skill la pasa a `mode = prompt`. "Reset to Default" borra el prompt y vuelve a `skill`. El selector de modo de cada etapa permite volver a `skill` sin perder el texto. En modo `prompt` el plugin del skill se carga solo si el prompt usa `{skill}`.
+6. **Prompt propio inválido:** si le falta una variable obligatoria, el editor no deja guardarlo. Si igual llega uno así (editado a mano en `config.json`), corre el prompt por defecto y Settings lo avisa. Una variable desconocida solo avisa: se manda tal cual.
+7. **Ocultos por los ajustes (E.5):** una ruta ignorada, una categoría apagada o una severidad menor a la mínima ocultan el finding (`ReviewItem.hiddenBy`). `maxFindings` cuenta solo los que el filtro mantuvo y siguen visibles, y deja los de mayor severidad (a igual severidad, el orden de Claude). Si un finding está oculto y además descartado por el filtro, va a "Hidden by your settings". Los ocultos no arrancan elegidos y no cuentan en `keptCount`.
+8. **Globs:** un patrón sin `/` se compara con el nombre del archivo (`*.lock`) y uno con `/` con la ruta completa (`generated/**`, `src/legacy/*`). `*` también cruza carpetas, y un patrón que termina en `/` vale como `<patrón>**`.
+9. **Sugerencias (E.4):** se cuentan PRs distintos (`prID`) con un finding descartado por el usuario de esa categoría en los últimos 30 días. Hay sugerencia global si son 3 o más PRs **en 2 o más repos**, y en ese caso reemplaza a las del repo para esa categoría. Si no, hay una por cada repo con 3 o más PRs. "Not Now" la esconde 30 días y "Never" para siempre, por categoría y alcance.
+   Una regla "cubre" la sugerencia solo si se creó desde una sugerencia de esa categoría (`Rule.category`), con el mismo alcance o global, esté o no habilitada. Las reglas escritas a mano no se pueden relacionar con una categoría: para esas está "Never".
+10. **Qué es un descarte del usuario:** un finding del draft que el filtro mantuvo, que no estaba oculto y que no se publicó. Solo se registra al publicar **con** comentarios: "Approve Without Comments" no cuenta como opinión sobre los findings. Tampoco cuentan los ocultos, los del filtro ni los que agregó el chat.
+11. **Redacción del texto de las reglas (E.1):** los tokens de GitHub se piden a `gh` de forma asíncrona y no están en memoria, así que se tachan por **formato**: `ghp_`/`gho_`/`ghu_`/`ghs_`/`ghr_`, `github_pat_`, `xox?-` de Slack y `sk-ant-`, igual que `Redactor` con la máscara `***`. Se aplica a todo lo que se guarda como regla, incluidas las propuestas de Claude y las del chat de instrucciones.
+12. **Tope de 8 000 caracteres (E.1):** se cuenta la suma de los textos de las reglas efectivas de cada prompt. Si se pasa, se dejan afuera las de `updatedAt` más viejo hasta que entren, y Settings › Instructions avisa cuántas quedan afuera.
+13. **Reglas en los chats:** van en el prompt de arranque. En los turnos con `--resume` se vuelven a mandar solo si cambiaron desde el último turno (`ChatSession.lastRules`), igual que el estado de la ventana.
+14. **`proposeRule`:** `scope: "repo"` es el repo del PR del chat. Sin `appliesTo` (o vacío), vale la etapa del chat (Review o Fixes). Como mucho 3 propuestas por respuesta. Las propuestas se guardan en el mensaje (`ChatMessage.proposals`, con estado `pending`/`saved`/`dismissed`), así que quedan en el historial. Se pueden guardar aunque la conversación ya sea de solo lectura.
+15. **Chat de instrucciones:**
+    - `cwd` fijo: `AppPaths.instructionsChatDir`, una carpeta vacía dentro de la carpeta temporal. Es fija para que `--resume` funcione entre turnos y reinicios.
+    - Log: `~/Library/Logs/PRBar/instructions-chat.log`.
+    - Timeout: 5 min.
+    - Comparte el límite de 2 chats a la vez (`AppModel.chatScheduler`) con clave `instructions-chat`.
+    - Modelo: `effectiveChatModel`.
+    - Sin plugins.
+    - Como la lista de herramientas es vacía, sale `--tools ""` y también `--allowedTools ""`. El QA lo verifica con el CLI real.
+    - `addRule` sin `appliesTo` vale para las dos etapas. Un repo se puede nombrar por su nombre corto si no hay ambigüedad.
+16. **Tests antes del push:** valen solo si hay commits para pushear y el repo tiene comando de tests.
+    - Un `TestRun` sirve si es del mismo comando. Un turno del chat que cambió código ya borra `tests` (Plan 6).
+    - Si no hay corrida válida, "Push and Reply" primero corre los tests y pushea solo si pasan.
+    - Si fallan, el PR queda en `readyToPush`, la ventana avisa y ofrece **Push Anyway** con confirmación.
+17. **Dependencias:** en `package.json` cuenta solo si cambió alguna sección de dependencias (`dependencies`, `devDependencies`, `peerDependencies`, `optionalDependencies`, `bundledDependencies`). En el resto de los manifiestos y lockfiles (`Package.swift`, `Package.resolved`, `Gemfile*`, `requirements*.txt`, `go.mod`, `go.sum`, `Cargo.*`, `Podfile*`, `pyproject.toml`, `*.gradle*`, `composer.*`, etc.) cuenta cualquier cambio. Se calcula siempre (`RespondResult.dependencyChanges`, también después de un turno del chat), y la ventana avisa solo con `allowNewDependencies = false`.
+18. **Commit único:** se hace un commit por fix como siempre (con los mismos chequeos) y al final PRBar los junta con `git reset --soft <start>` + `git commit --no-verify`. Todas las respuestas apuntan a ese commit.
+19. **`replyTemplate`:** reemplaza solo el prefijo "Fixed in …". Si el usuario escribió una respuesta, se agrega después, como hoy.
+    - `{commit}` es el link al commit.
+    - `{summary}` es el resumen de una línea del fix. Lo escribe Claude y está en inglés.
+    - `{comment}` es la primera línea del comentario, hasta 100 caracteres.
+    - Sin plantilla, la frase por defecto sigue en el idioma del PR (§16).
+20. **Prompts de los chats:**
+    - Editable: el rol y el estilo de la respuesta.
+    - Fijo: los archivos, la seguridad, el idioma de lo que se publica, las acciones y el estado de la ventana. Sin eso el chat no puede funcionar.
+21. **Errores de lectura de `instructions.json`:** si el JSON está roto, se copia a `instructions.json.bak` y se arranca vacío, con un aviso en la pestaña. Una regla rota sola (por ejemplo, sin `scope` válido) se descarta y el resto queda. Nunca se convierte una regla de repo en global.
+22. **Reintentos del chat de instrucciones:** como el chat del PR (B.11, 12), se reconstruye con el transcript solo si `--resume` dice que la sesión no existe (`ChatEngine.isMissingSession`); cualquier otro error se muestra después de una sola corrida. Todas las corridas de un mensaje comparten el presupuesto de 5 minutos (`ClaudeInvocation.deadline`).
+23. **Mensajes y propuestas guardados:** `InstructionsChat.messages` y `ChatMessage.proposals` se decodifican elemento por elemento (`LossyArray`), como el resto del chat (B.11, 18).
+
+Además:
+
+- **E.1:** el JSON de cada regla suma `category` (opcional; solo en las reglas creadas desde una sugerencia).
+- **E.2:** `instructions.json` guarda también `suggestionDecisions` y `chat`.
+- **E.5:** `commitMessageTemplate` es `null` por defecto (ver decisión 1). El JSON de `ClaudeSettings` suma `chatPrompts` (los prompts propios de los tres chats).
+
+**Verificado con el CLI real** (2.1.318, `--model haiku`, con los argumentos exactos de `ClaudeRunner.arguments` para `InstructionsChatEngine.invocation`, cwd = una carpeta temporal vacía, 1 corrida): `--tools ""` junto con `--allowedTools ""` (y `--disallowedTools Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch,mcp__*`) se aceptan, sale con código 0. La línea `system/init` lista solo `StructuredOutput` como herramienta. Se le pidió leer un archivo fuera del cwd: no corrió ninguna herramienta (el único `tool_use` fue `StructuredOutput`), respondió que no tiene herramientas de archivos y el contenido del archivo no apareció en la salida. La salida estructurada (`InstructionsSchemas.turn`) llegó bien, con una acción `addRule` válida. No hizo falta cambiar los argumentos.
+
+Puntos del spec que no se cumplen tal cual:
+
+- **E.6 "Prompts" en Settings › Claude:** el editor es una hoja con `TextEditor` monoespaciado, "Insert Variable", los problemas de validación, "Reset to Default" y "Modified". La lista de etapas vive en una sección **Prompts** de la misma pestaña, no en una sub-pestaña.
+- **E.2 "chips Review/Fixes":** en el modelo y en el JSON la etapa se llama `respond`; en la UI se muestra "Fixes".
+
 ---
 
 ## F. Ready to Merge
