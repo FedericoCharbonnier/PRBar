@@ -25,5 +25,19 @@ enum DependencyManifestsTests {
             try expect(DependencyManifests.packageJSONDependenciesChanged(before: nil, after: base))
             try expect(DependencyManifests.packageJSONDependenciesChanged(before: base, after: json("{ broken")))
         },
+        TestCase("dependency manifests: Gradle (settings, catálogos de versiones, lockfile) y overrides/resolutions de package.json") {
+            for path in ["settings.gradle", "settings.gradle.kts", "gradle/libs.versions.toml", "app/dependencies.gradle",
+                         "gradle.lockfile", "buildSrc/deps.gradle.kts"] {
+                try expect(DependencyManifests.isManifest(path), path)
+            }
+            try expect(!DependencyManifests.isManifest("gradle.properties.md"))
+            let base = json(#"{"dependencies":{"a":"1.0.0"}}"#)
+            try expect(DependencyManifests.packageJSONDependenciesChanged(
+                before: base, after: json(#"{"dependencies":{"a":"1.0.0"},"overrides":{"b":"2.0.0"}}"#)))
+            try expect(DependencyManifests.packageJSONDependenciesChanged(
+                before: base, after: json(#"{"dependencies":{"a":"1.0.0"},"resolutions":{"b":"2.0.0"}}"#)))
+            try expect(DependencyManifests.packageJSONDependenciesChanged(
+                before: base, after: json(#"{"dependencies":{"a":"1.0.0"},"pnpm":{"overrides":{"b":"2.0.0"}}}"#)))
+        },
     ]
 }

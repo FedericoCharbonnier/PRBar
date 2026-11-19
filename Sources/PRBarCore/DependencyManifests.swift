@@ -8,12 +8,13 @@ public enum DependencyManifests {
         "Package.swift", "Package.resolved", "Gemfile", "Gemfile.lock", "*.gemspec",
         "requirements*.txt", "Pipfile", "Pipfile.lock", "pyproject.toml", "poetry.lock", "setup.py", "setup.cfg",
         "go.mod", "go.sum", "Cargo.toml", "Cargo.lock", "Podfile", "Podfile.lock", "Cartfile", "Cartfile.resolved",
-        "build.gradle", "build.gradle.kts", "*.csproj", "packages.config", "composer.json", "composer.lock",
+        "*.gradle", "*.gradle.kts", "*.versions.toml", "gradle.lockfile", "*.csproj", "packages.config", "composer.json", "composer.lock",
         "mix.exs", "mix.lock", "pubspec.yaml", "pubspec.lock",
     ]
-    /// The sections of `package.json` that are dependencies.
+    /// The sections of `package.json` that are dependencies, or change which versions are installed (npm
+    /// `overrides`, Yarn `resolutions`, pnpm's settings with its `overrides`).
     public static let packageSections = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies",
-                                         "bundledDependencies", "bundleDependencies"]
+                                         "bundledDependencies", "bundleDependencies", "overrides", "resolutions", "pnpm"]
 
     public static func isManifest(_ path: String) -> Bool {
         let name = (path as NSString).lastPathComponent
