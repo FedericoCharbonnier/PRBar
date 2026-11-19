@@ -53,3 +53,18 @@ func temporaryDirectory() throws -> URL {
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     return url
 }
+
+/// Raíz del repo: este archivo está en `Sources/PRBarTests/`.
+let repoRoot = URL(fileURLWithPath: #filePath)
+    .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+
+/// `Resources/Info.plist` del repo.
+enum InfoPlist {
+    static func read() throws -> [String: Any] {
+        let data = try Data(contentsOf: repoRoot.appendingPathComponent("Resources/Info.plist"))
+        guard let plist = try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else {
+            throw TestFailure(description: "Info.plist isn't a dictionary")
+        }
+        return plist
+    }
+}
