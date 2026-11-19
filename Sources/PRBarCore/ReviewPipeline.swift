@@ -124,7 +124,9 @@ public struct ReviewPipeline: ReviewPipelineRunning {
             var draft = ReviewDraft(
                 prID: request.item.id, repo: pr.repo, number: pr.number, title: pr.title, url: pr.url,
                 author: pr.author, headOid: headOid, account: request.item.account,
-                summary: result.summary, items: result.items, language: language
+                summary: result.summary,
+                items: ReviewOptionsFilter.apply(result.items, options: settings.review, repoIgnorePaths: request.ignorePaths),
+                language: language
             )
             draft.id = draftID
             return draft
