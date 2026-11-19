@@ -30,7 +30,7 @@ enum ClaudeOptionsTests {
             try expectEqual(settings.respond.implementation, StageSettings(mode: .skill, skill: nil))
             try expectEqual(settings.respondSkills, ["superpowers:receiving-code-review"])
         },
-        TestCase("claude options: migra los campos de antes y guarda solo la estructura nueva") {
+        TestCase("claude options: migra los campos de antes y, para volver a una versión anterior, también los guarda") {
             let old = try decodeClaude(#"{"reviewSkill":"a:b","filterEnabled":false,"filterSkill":"c:d","respondSkill":"e:f","model":"opus"}"#)
             try expectEqual(old.review.stage1.skill, "a:b")
             try expectEqual(old.review.filter.enabled, false)
@@ -38,9 +38,11 @@ enum ClaudeOptionsTests {
             try expectEqual(old.respond.analysis.skill, "e:f")
             try expectEqual(old.model, .opus)
             let encoded = try object(old)
-            for legacy in ["reviewSkill", "filterEnabled", "filterSkill", "respondSkill"] {
-                try expect(encoded[legacy] == nil, legacy)
-            }
+            // Plan 9's structure, plus the flat fields for one release (a downgrade reads them).
+            try expectEqual(encoded["reviewSkill"] as? String, "a:b")
+            try expectEqual(encoded["filterEnabled"] as? Bool, false)
+            try expectEqual(encoded["filterSkill"] as? String, "c:d")
+            try expectEqual(encoded["respondSkill"] as? String, "e:f")
             try expect(encoded["review"] != nil && encoded["respond"] != nil)
             try expectEqual(try JSONCoding.decoder.decode(ClaudeSettings.self, from: JSONCoding.encoder.encode(old)), old)
         },

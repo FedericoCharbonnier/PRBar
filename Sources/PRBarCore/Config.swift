@@ -355,7 +355,7 @@ public struct ClaudeSettings: Hashable, Codable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case review, respond, model, chatEnabled, chatModel, chatPrompts
-        // Before Plan 9: only read, to migrate them.
+        // Before Plan 9: read to migrate them, and written for one release (downgrade).
         case reviewSkill, filterEnabled, filterSkill, respondSkill
     }
 
@@ -379,11 +379,16 @@ public struct ClaudeSettings: Hashable, Codable, Sendable {
         }
     }
 
-    /// Only the structure: the flat fields of before aren't written again.
+    /// The structure and, for one release, the flat fields of before Plan 9 too: a downgrade still finds its skills
+    /// and filter. Reading ignores them when the structure is there.
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(review, forKey: .review)
         try c.encode(respond, forKey: .respond)
+        try c.encode(reviewSkill, forKey: .reviewSkill)
+        try c.encode(filterEnabled, forKey: .filterEnabled)
+        try c.encode(filterSkill, forKey: .filterSkill)
+        try c.encode(respondSkill, forKey: .respondSkill)
         try c.encodeIfPresent(model, forKey: .model)
         try c.encode(chatEnabled, forKey: .chatEnabled)
         try c.encodeIfPresent(chatModel, forKey: .chatModel)
