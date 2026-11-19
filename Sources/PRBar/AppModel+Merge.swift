@@ -64,7 +64,11 @@ extension AppModel {
         let config = configStore.config
         let slack = self.slack
         let postings = self.postings
-        Task { await postings.track { await slack.prMerged(completion.item.pr, method: completion.method, config: config) } }
+        // Se guarda ahora, dentro del `postings.track` del merge: una actualización o un cierre justo después no lo
+        // pierden. Publicarlo puede esperar al Task (o al próximo ciclo).
+        if slack.queueMergedReply(completion.item.pr, method: completion.method, config: config) {
+            Task { await postings.track { await slack.postQueued(config: config) } }
+        }
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(2))
             guard let self else { return }

@@ -116,6 +116,65 @@ enum SlackMergedReplyTests {
             try expectEqual(SlackPlanner.plan(snapshot: slackSnap(), config: slackConfig(), state: state, now: at(60)).actions, [])
             try expectEqual(SlackState.uncertainKey(for: action), "merged:o/r#1")
         },
+        TestCase("slack merged reply: queueMergedReply lo deja guardado enseguida, sin esperar a Slack") {
+            let api = FakeSlackAPI()
+            let store = try announcedStore()
+            let slack = await announcer(api, clock: Box(at(0)), store: store)
+            let queued = await slack.queueMergedReply(myPR(), method: .merge, config: slackConfig())
+            try expect(queued)
+            try expectEqual(store.load().mergedReplies["o/r#1"]?.text, "Merged :white_check_mark:")
+            try expectEqual(api.posts.count, 0)
+            let again = await slack.queueMergedReply(myPR(), method: .merge, config: slackConfig())
+            try expect(!again)
+            await slack.postQueued(config: slackConfig())
+            try expectEqual(api.posts.map(\.threadTS), ["111.1"])
+        },
+        TestCase("slack merged reply: con el conector de Claude sale sin token y un error dudoso se verifica antes de reintentar") {
+            let api = FakeSlackAPI()
+            api.results = [.failure(.slack("connector_timeout"))]
+            let store = try announcedStore()
+            let clock = Box(at(0))
+            let slack = await announcer(api, clock: clock, store: store)
+            await slack.use(api, provider: .claudeConnector)
+            var config = slackConfig()
+            config.slack.provider = .claudeConnector
+            await slack.prMerged(myPR(), method: .squash, config: config)
+            try expectEqual(api.posts.map(\.threadTS), ["111.1"])
+            try expectEqual(api.tokens, [""])
+            try expectEqual(store.load().uncertain["merged:o/r#1"], at(0))
+            try expect(store.load().backoff["o/r#1"] != nil)
+            // Había salido: pasado el backoff se encuentra en el hilo y no se publica de nuevo.
+            api.threads["C1/111.1"] = [
+                SlackMessage(ts: "111.1", text: "root", user: "U1"),
+                SlackMessage(ts: "\(Int(at(0).timeIntervalSince1970)).000200", text: "Merged :white_check_mark:", user: "U1"),
+            ]
+            clock.value = at(60)
+            await slack.process(snapshot: slackSnap(), config: config)
+            try expectEqual(api.posts.count, 1)
+            try expectEqual(store.load().mergedReplies["o/r#1"]?.postedAt, at(60))
+            try expectEqual(store.load().uncertain, [:])
+        },
+        TestCase("slack merged reply: los pedidos viejos se borran pasado el reintento y un margen") {
+            var state = SlackState(baselineAt: .distantPast)
+            state.mergedReplies["o/r#1"] = MergedReply(repo: repo, channelID: "C1", threadTS: "1", text: "Merged", requestedAt: at(0))
+            state.mergedReplies["o/r#2"] = MergedReply(repo: repo, channelID: "C1", threadTS: "2", text: "Merged", requestedAt: at(60 * 30),
+                                                       postedAt: at(60 * 30))
+            let retention = SlackState.mergedReplyRetention
+            try expect(retention > SlackPlanner.mergedReplyWindow)
+            try expect(!state.pruneMergedReplies(now: at(0).addingTimeInterval(retention)))
+            try expect(state.pruneMergedReplies(now: at(1).addingTimeInterval(retention)))
+            try expectEqual(state.mergedReplies.keys.sorted(), ["o/r#2"])
+        },
+        TestCase("slack merged reply: el ciclo borra y guarda los pedidos viejos") {
+            let api = FakeSlackAPI()
+            let store = try announcedStore()
+            var state = store.load()
+            state.mergedReplies["o/r#9"] = MergedReply(repo: repo, channelID: "C1", threadTS: "9", text: "Merged", requestedAt: at(0), postedAt: at(0))
+            try store.save(state)
+            let slack = await announcer(api, clock: Box(at(1).addingTimeInterval(SlackState.mergedReplyRetention)), store: store)
+            await slack.process(snapshot: slackSnap(), config: slackConfig())
+            try expectEqual(store.load().mergedReplies, [:])
+        },
         TestCase("slack merged reply: el estado viejo sin mergedReplies se lee vacío") {
             let state = try JSONCoding.decoder.decode(SlackState.self, from: Data(#"{"baselineAt":"2027-01-15T08:00:00Z"}"#.utf8))
             try expectEqual(state.mergedReplies, [:])

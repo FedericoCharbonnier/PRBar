@@ -97,6 +97,7 @@ public final class SlackAnnouncer: ObservableObject {
 
     private func run(snapshot: Snapshot, config: AppConfig) async {
         lastSnapshot = snapshot
+        if state.pruneMergedReplies(now: now()) { saveState() }
         var newIssues: [RefreshIssue] = []
         var saveError: PRBarError?
         func persist() {
@@ -405,13 +406,21 @@ public final class SlackAnnouncer: ObservableObject {
         await process(snapshot: snapshot, config: config)
     }
 
-    /// Lo llama `AppModel` después de mergear un PR mío desde PRBar (spec F.4). Si PRBar lo había anunciado, deja
-    /// "Merged" pendiente (persistido) y corre un ciclo para publicarlo ya. Pedirlo de nuevo para el mismo PR no hace
-    /// nada. Los errores van a `issues` y al log: el merge ya está hecho.
+    /// Lo llama `AppModel` después de mergear un PR mío desde PRBar (spec F.4): `queueMergedReply` y, si quedó
+    /// pendiente, `postQueued`. Los errores van a `issues` y al log: el merge ya está hecho.
     public func prMerged(_ pr: PullRequest, method: MergeMethod, config: AppConfig) async {
+        guard queueMergedReply(pr, method: method, config: config) else { return }
+        await postQueued(config: config)
+    }
+
+    /// Si PRBar había anunciado el PR, deja "Merged" pendiente y lo guarda en el acto (sin esperar a nada): una
+    /// actualización o un cierre justo después del merge no lo pierden, y el próximo ciclo lo publica. Devuelve
+    /// `false` si no corresponde (sin anuncio, Slack o el interruptor apagados) o si ya estaba pedido.
+    @discardableResult
+    public func queueMergedReply(_ pr: PullRequest, method: MergeMethod, config: AppConfig) -> Bool {
         let settings = config.slack
         guard settings.enabled, settings.postMerged, let announcement = state.announcements[pr.id],
-              state.mergedReplies[pr.id] == nil else { return }
+              state.mergedReplies[pr.id] == nil else { return false }
         state.mergedReplies[pr.id] = MergedReply(
             repo: pr.repo, channelID: announcement.channelID, threadTS: announcement.ts,
             text: SlackTemplate.render(settings.effectiveMergedTemplate, pr: pr, method: method.rawValue),
@@ -419,6 +428,11 @@ public final class SlackAnnouncer: ObservableObject {
         )
         saveState()
         AppLog.write("Slack: “Merged” queued for \(pr.id)")
+        return true
+    }
+
+    /// Corre un ciclo con el último snapshot para publicar ya lo pendiente (p. ej. un "Merged" recién pedido).
+    public func postQueued(config: AppConfig) async {
         await process(snapshot: pending?.snapshot ?? lastSnapshot ?? Snapshot(items: [], fetchedAt: now()), config: config)
     }
 

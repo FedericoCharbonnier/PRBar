@@ -167,6 +167,17 @@ public struct SlackState: Codable, Equatable, Sendable {
         self.baselineAt = baselineAt
     }
 
+    /// Cuánto se guarda un "Merged" pedido: el día de reintentos (`SlackPlanner.mergedReplyWindow`) y un día más, que
+    /// sigue evitando pedirlo dos veces para el mismo PR.
+    public static let mergedReplyRetention: TimeInterval = SlackPlanner.mergedReplyWindow + 24 * 60 * 60
+
+    /// Borra los "Merged" pedidos hace más de `mergedReplyRetention`. Devuelve `true` si borró alguno.
+    public mutating func pruneMergedReplies(now: Date) -> Bool {
+        let before = mergedReplies.count
+        mergedReplies = mergedReplies.filter { now.timeIntervalSince($0.value.requestedAt) <= Self.mergedReplyRetention }
+        return mergedReplies.count != before
+    }
+
     /// Clave de una escritura no idempotente (anuncio, "Updated", "commented xN"); las reacciones no la necesitan:
     /// repetirlas no duplica nada.
     public static func uncertainKey(for action: SlackAction) -> String? {
