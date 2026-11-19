@@ -985,5 +985,142 @@ enum FixImplementerTests {
             try expectEqual(FixImplementer.tail("a\nb", lines: 5), "a\nb")
             try expectEqual(FixImplementer.tail("", lines: 5), "")
         },
+        TestCase("fix implementer: chatTurn commitea los cambios del chat sin hooks y recalcula el resultado") {
+            let repo = try FixRepo.make()
+            defer { repo.remove() }
+            let start = try repo.head()
+            let draft = try draft(repo, items: [])
+            let current = RespondResult(items: [ItemResult(id: "thread:A", status: .committed, commit: start, summary: "x")],
+                                        diffStat: "", tests: TestRun(command: "t", passed: true, outputTail: ""))
+            let session = UUID()
+            let (value, outcome) = try await implementer(fakeClaude([]), log: try logURL())
+                .chatTurn(draft: draft, current: current, sessionID: session, turn: 2) {
+                    try edit("README.md", "hola\nchat\n")(repo.dir)
+                    try edit("src/new.ts", "export {}\n")(repo.dir)
+                    return "reply"
+                }
+            try expectEqual(value, "reply")
+            try expectEqual(outcome.changedFiles, ["README.md", "src/new.ts"])
+            try expectEqual(try repo.subjects(), [FixImplementer.chatCommitMessage, "base"])
+            try expectEqual(try repo.status(), "")
+            guard let result = outcome.result else { throw TestFailure(description: "no result") }
+            try expectEqual(result.items, current.items)
+            try expectEqual(result.tests, nil)
+            try expectEqual(result.headOid, try repo.head())
+            try expect(result.diff?.contains("+chat") == true, result.diff ?? "")
+            try expectEqual(result.commits?.map(\.message), [FixImplementer.chatCommitMessage])
+            guard let snapshot = outcome.snapshot else { throw TestFailure(description: "no snapshot") }
+            try expectEqual(snapshot.ref, FixImplementer.chatRef(sessionID: session, turn: 2))
+            try expectEqual(snapshot.headBefore, start)
+            try expectEqual(snapshot.headAfter, try repo.head())
+            try expectEqual(snapshot.resultBefore, current)
+            try expectEqual(try repo.git(["rev-parse", "\(snapshot.ref)^{tree}"]).trimmingCharacters(in: .whitespacesAndNewlines),
+                            snapshot.tree)
+            try expectEqual(try repo.git(["rev-parse", "\(start)^{tree}"]).trimmingCharacters(in: .whitespacesAndNewlines), snapshot.tree)
+        },
+        TestCase("fix implementer: chatTurn sin cambios no commitea ni deja la ref") {
+            let repo = try FixRepo.make()
+            defer { repo.remove() }
+            let current = RespondResult(items: [], diffStat: "", tests: nil)
+            let (_, outcome) = try await implementer(fakeClaude([]), log: try logURL())
+                .chatTurn(draft: try draft(repo, items: []), current: current, sessionID: UUID(), turn: 1) { "just talk" }
+            try expectEqual(outcome, ChatFilesOutcome(changedFiles: [], snapshot: nil, result: nil))
+            try expectEqual(try repo.subjects(), ["base"])
+            try expectEqual(try repo.git(["for-each-ref", "refs/prbar/"]), "")
+        },
+        TestCase("fix implementer: si el turno falla, chatTurn revierte lo que tocó Claude y relanza") {
+            let repo = try FixRepo.make()
+            defer { repo.remove() }
+            let error = try await expectThrows {
+                _ = try await implementer(fakeClaude([]), log: try logURL())
+                    .chatTurn(draft: try draft(repo, items: []), current: RespondResult(items: [], diffStat: "", tests: nil),
+                              sessionID: UUID(), turn: 1) { () async throws -> String in
+                        try edit("README.md", "a medias\n")(repo.dir)
+                        try edit("tmp.txt", "x")(repo.dir)
+                        throw ClaudeError.invalidOutput("no json")
+                    }
+            }
+            try expectEqual(error as? ClaudeError, .invalidOutput("no json"))
+            try expectEqual(repo.read("README.md"), "hola\n")
+            try expectEqual(repo.read("tmp.txt"), nil)
+            try expectEqual(try repo.status(), "")
+            try expectEqual(repo.read("ignored.txt"), "secreto del usuario\n")
+            try expectEqual(try repo.git(["for-each-ref", "refs/prbar/"]), "")
+        },
+        TestCase("fix implementer: chatTurn corta sin correr git si Claude tocó los hooks") {
+            let repo = try FixRepo.make()
+            defer { repo.remove() }
+            let error = try await expectThrows {
+                _ = try await implementer(fakeClaude([]), log: try logURL())
+                    .chatTurn(draft: try draft(repo, items: []), current: RespondResult(items: [], diffStat: "", tests: nil),
+                              sessionID: UUID(), turn: 1) {
+                        try edit("README.md", "cambio\n")(repo.dir)
+                        try edit(".git/hooks/pre-commit", "#!/bin/sh\necho pwned\n")(repo.dir)
+                        return "ok"
+                    }
+            }
+            try expect(try respondMessage(error).contains("Git configuration or hooks changed"))
+            try expectEqual(try repo.subjects(), ["base"])
+        },
+        TestCase("fix implementer: chatTurn exige el árbol limpio al empezar") {
+            let repo = try FixRepo.make()
+            defer { repo.remove() }
+            try repo.write("README.md", "editado a mano\n")
+            let ran = Box(false)
+            let error = try await expectThrows {
+                _ = try await implementer(fakeClaude([]), log: try logURL())
+                    .chatTurn(draft: try draft(repo, items: []), current: RespondResult(items: [], diffStat: "", tests: nil),
+                              sessionID: UUID(), turn: 1) { ran.value = true; return "x" }
+            }
+            try expect(try respondMessage(error).contains("uncommitted changes"))
+            try expect(!ran.value)
+        },
+        TestCase("fix implementer: undoChatTurn vuelve HEAD, el árbol y el resultado; detecta ediciones posteriores") {
+            let repo = try FixRepo.make()
+            defer { repo.remove() }
+            let start = try repo.head()
+            let current = RespondResult(items: [], diffStat: "", tests: nil)
+            let impl = implementer(fakeClaude([]), log: try logURL())
+            let draft = try draft(repo, items: [])
+            let (_, outcome) = try await impl.chatTurn(draft: draft, current: current, sessionID: UUID(), turn: 1) {
+                try edit("README.md", "chat\n")(repo.dir)
+                try edit("added.ts", "x\n")(repo.dir)
+                return "ok"
+            }
+            guard let snapshot = outcome.snapshot else { throw TestFailure(description: "no snapshot") }
+            let clean = await impl.chatFilesChangedSince(snapshot, draft: draft)
+            try expect(!clean)
+            try repo.write("README.md", "a mano\n")
+            let dirty = await impl.chatFilesChangedSince(snapshot, draft: draft)
+            try expect(dirty)
+
+            let restored = try await impl.undoChatTurn(draft: draft, snapshot: snapshot)
+            try expectEqual(restored, current)
+            try expectEqual(try repo.head(), start)
+            try expectEqual(repo.read("README.md"), "hola\n")
+            try expectEqual(repo.read("added.ts"), nil)
+            try expectEqual(try repo.status(), "")
+            try expectEqual(repo.read("ignored.txt"), "secreto del usuario\n")
+            try expectEqual(try repo.git(["for-each-ref", "refs/prbar/"]), "")
+        },
+        TestCase("fix implementer: undoChatTurn se niega si HEAD se movió después del turno") {
+            let repo = try FixRepo.make()
+            defer { repo.remove() }
+            let impl = implementer(fakeClaude([]), log: try logURL())
+            let draft = try draft(repo, items: [])
+            let (_, outcome) = try await impl.chatTurn(draft: draft, current: RespondResult(items: [], diffStat: "", tests: nil),
+                                                       sessionID: UUID(), turn: 1) {
+                try edit("README.md", "chat\n")(repo.dir)
+                return "ok"
+            }
+            try repo.write("other.txt", "y\n")
+            try repo.git(["add", "-A"])
+            try repo.git(["commit", "-q", "-m", "later"])
+            let error = try await expectThrows {
+                _ = try await impl.undoChatTurn(draft: draft, snapshot: outcome.snapshot!)
+            }
+            try expect(try respondMessage(error).contains("can’t be undone"))
+            try expectEqual(try repo.subjects(), ["later", FixImplementer.chatCommitMessage, "base"])
+        },
     ]
 }

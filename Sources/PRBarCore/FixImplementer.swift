@@ -83,6 +83,12 @@ public struct FixImplementer: Sendable {
             await onProgress(index + 1, work.count)
         }
 
+        return try await summarize(worktree, start: start, items: results, guarded: guarded)
+    }
+
+    /// The result of the fixes (`start..HEAD`): diff stat, sensitive files, the full diff (capped), the commits with
+    /// their messages, HEAD and git's digest. Never runs tests (`tests` is nil).
+    private func summarize(_ worktree: URL, start: String, items: [ItemResult], guarded: GitPaths) async throws -> RespondResult {
         let diffStat = try await git(worktree, ["diff", GitHardening.ignoreSubmodules, "--no-ext-diff", "--no-color", "--stat", "\(start)..HEAD"])
         let changed = try await git(worktree, ["diff", GitHardening.ignoreSubmodules, "--no-ext-diff", "--no-renames", "--name-only", "-z", "\(start)..HEAD"])
         let sensitive = changed.split(separator: "\0").map(String.init).filter(Self.isSensitive).sorted()
@@ -92,7 +98,7 @@ public struct FixImplementer: Sendable {
                                                 "--no-color", "\(start)..HEAD"])
         let (diff, truncated) = Self.capDiff(fullDiff)
         let log = try await git(worktree, ["log", "--reverse", "--format=%H%x00%B%x1e", "\(start)..HEAD"])
-        return RespondResult(items: results, diffStat: diffStat.trimmingCharacters(in: .newlines), tests: nil,
+        return RespondResult(items: items, diffStat: diffStat.trimmingCharacters(in: .newlines), tests: nil,
                              sensitiveChanges: sensitive, headOid: try await head(worktree),
                              gitIntegrity: guarded.securityDigest(), diff: diff, diffTruncated: truncated,
                              commits: Self.commits(fromLog: log))
@@ -326,6 +332,136 @@ public struct FixImplementer: Sendable {
         guard status.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw PRBarError.respond("There are uncommitted changes in \(worktree.path): they won't be mixed with Claude's fixes.")
         }
+    }
+
+    // MARK: - Chat (spec B.4, B.6)
+
+    /// The commit PRBar makes with a chat turn's changes (only the subject, like the fixes).
+    public static let chatCommitMessage = "Address review feedback"
+
+    /// The ref of a chat turn's snapshot (spec B.6). It's under `refs/prbar/`, so the startup cleanup deletes it too.
+    public static func chatRef(sessionID: UUID, turn: Int) -> String {
+        "refs/prbar/chat-\(sessionID.uuidString.lowercased())-\(turn)"
+    }
+
+    /// Runs `body` (one chat turn of Claude with Edit/Write in the worktree) under the same guard as a fix and
+    /// commits what it changed with `chatCommitMessage`, without hooks. Before Claude: no nested `.git`, HEAD contains
+    /// `startHeadOid`, a clean tree, no git config inside the worktree, and the snapshot ref (spec B.6). After it,
+    /// `inspect` runs before any git: if git's config or hooks changed it throws without running git; if Claude
+    /// failed, the turn's changes are reverted; new ignored files are reverted and it throws. The returned result is
+    /// recomputed from `start..HEAD` with the previous items and no tests (the code changed).
+    public func chatTurn<T: Sendable>(draft: RespondDraft, current: RespondResult, sessionID: UUID, turn: Int,
+                                      body: @Sendable () async throws -> T) async throws -> (T, ChatFilesOutcome) {
+        let worktree = URL(fileURLWithPath: draft.worktree.path, isDirectory: true)
+        try Self.checkNoNestedGit(worktree, allowed: [])
+        let start = try await verifyStart(draft.startHeadOid, worktree: worktree)
+        let guarded = try await gitPaths(worktree)
+        try await ensureClean(worktree)
+        try await checkConfigOrigins(worktree)
+        let headBefore = try await head(worktree)
+        let ref = Self.chatRef(sessionID: sessionID, turn: turn)
+        let tree = try await snapshotTree(worktree)
+        let snapshotCommit = try await git(worktree, ["commit-tree", tree, "-p", headBefore, "-m", "PRBar chat snapshot"])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        try await git(worktree, ["update-ref", ref, snapshotCommit])
+        // The last thing before Claude: after it, no git runs until all of this is checked.
+        let before = guarded.fingerprint()
+        let nestedBefore = Set(WorktreeIntegrity.nestedGitEntries(in: worktree))
+        let snapshot = WorktreeIntegrity.Snapshot.take(worktree)
+
+        let value: T
+        do {
+            value = try await body()
+        } catch let error as ClaudeRunnerError {
+            _ = try? await git(worktree, ["update-ref", "-d", ref])   // Nothing was launched: git is safe.
+            throw error
+        } catch {
+            // Timeout, invalid answer, Stop: the files Claude touched in this turn are reverted (spec B.9), outside
+            // this task so a cancellation doesn't cut the restore.
+            let implementer = self
+            try await Task.detached {
+                let review = try await implementer.inspect(worktree, guarded: guarded, before: before,
+                                                           nestedBefore: nestedBefore, snapshot: snapshot)
+                try await implementer.restore(worktree, removing: review.invisibleAdded)
+                // Reverted: nothing to undo, so the snapshot ref goes too.
+                _ = try? await implementer.git(worktree, ["update-ref", "-d", ref])
+            }.value
+            throw error
+        }
+
+        let review = try await inspect(worktree, guarded: guarded, before: before, nestedBefore: nestedBefore, snapshot: snapshot)
+        if !review.invisibleAdded.isEmpty {
+            try await restore(worktree, removing: review.invisibleAdded)
+            _ = try? await git(worktree, ["update-ref", "-d", ref])
+            let list = review.invisibleAdded.prefix(3).joined(separator: ", ")
+            throw PRBarError.respond("Claude created files ignored by git (\(list)): the chat’s changes were discarded.")
+        }
+        guard review.hasChanges else {
+            try await git(worktree, ["update-ref", "-d", ref])
+            return (value, ChatFilesOutcome(changedFiles: [], snapshot: nil, result: nil))
+        }
+        let status = try await git(worktree, ["status", GitHardening.ignoreSubmodules, "--porcelain", "-z", "--no-renames",
+                                              "--untracked-files=all"])
+        let changed = WorktreeIntegrity.visibleChanges(fromStatusZ: status).sorted()
+        try await git(worktree, ["add", "-A"])
+        let staged = try await git(worktree, ["diff", GitHardening.ignoreSubmodules, "--cached", "--raw", "-z", "--no-renames", "--no-abbrev"])
+        let special = WorktreeIntegrity.specialStagedPaths(fromRawZ: staged)
+        guard special.isEmpty else {
+            claude.appendLog("--- symlink or gitlink in the index: \(special.joined(separator: ", ")) ---\n")
+            throw PRBarError.respond(
+                "Claude left a symlink or a nested repo (\(special.prefix(3).joined(separator: ", "))). "
+                + "Stopped before committing. Check the worktree \(worktree.path).")
+        }
+        try await git(worktree, ["commit", "--no-verify", "-m", Self.chatCommitMessage], timeout: Self.fixTimeout)
+        let sha = try await head(worktree)
+        guard sha != headBefore, try await isAncestor(worktree, start, sha) else {
+            throw PRBarError.respond("Commit \(sha) doesn't descend from \(start): stopping.")
+        }
+        let result = try await summarize(worktree, start: start, items: current.items, guarded: guarded)
+        return (value, ChatFilesOutcome(
+            changedFiles: changed,
+            snapshot: ChatFileSnapshot(ref: ref, tree: tree, headBefore: headBefore, headAfter: sha, resultBefore: current),
+            result: result))
+    }
+
+    /// Undoes a chat turn (spec B.6): HEAD back to `headBefore`, the index and the tree to the snapshot
+    /// (`read-tree -u --reset`) and the untracked files created after it deleted (`clean -fd`, never the ignored
+    /// ones). The snapshot was taken on a clean tree, so the tree ends clean. Returns the result before the turn.
+    public func undoChatTurn(draft: RespondDraft, snapshot: ChatFileSnapshot) async throws -> RespondResult {
+        let worktree = URL(fileURLWithPath: draft.worktree.path, isDirectory: true)
+        try Self.checkNoNestedGit(worktree, allowed: [])
+        try await checkConfigOrigins(worktree)
+        guard try await head(worktree) == snapshot.headAfter else {
+            throw PRBarError.respond("The worktree’s HEAD moved after that message: it can’t be undone.")
+        }
+        try await git(worktree, ["update-ref", "--no-deref", "HEAD", snapshot.headBefore])
+        try await git(worktree, ["read-tree", "-u", "--reset", snapshot.tree])
+        try await git(worktree, ["clean", "-fd"])
+        try await ensureClean(worktree)
+        try await git(worktree, ["update-ref", "-d", snapshot.ref])
+        return snapshot.resultBefore
+    }
+
+    /// Undoing would also discard later edits: HEAD isn't the turn's commit or the tree has changes. If it can't be
+    /// checked (a nested `.git`, a git error), it says yes.
+    public func chatFilesChangedSince(_ snapshot: ChatFileSnapshot, draft: RespondDraft) async -> Bool {
+        let worktree = URL(fileURLWithPath: draft.worktree.path, isDirectory: true)
+        guard WorktreeIntegrity.nestedGitEntries(in: worktree).isEmpty,
+              let head = try? await head(worktree), head == snapshot.headAfter,
+              let status = try? await git(worktree, ["status", GitHardening.ignoreSubmodules, "--porcelain", "--untracked-files=all"])
+        else { return true }
+        return !status.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Spec B.6: the worktree (tracked and untracked, not ignored) as a tree, through a temporary index so the real
+    /// one isn't touched.
+    private func snapshotTree(_ worktree: URL) async throws -> String {
+        let index = FileManager.default.temporaryDirectory.appendingPathComponent("prbar-chat-index-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: index) }
+        let env = ["GIT_INDEX_FILE": index.path]
+        try await git(worktree, ["read-tree", "HEAD"], extraEnvironment: env)
+        try await git(worktree, ["add", "-A"], extraEnvironment: env)
+        return try await git(worktree, ["write-tree"], extraEnvironment: env).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - Commits
@@ -668,9 +804,11 @@ public struct FixImplementer: Sendable {
     /// Todos los git de esta etapa van endurecidos (`GitHardening`): sin hooks (p. ej. `post-checkout` en la
     /// restauración, o los del commit), sin fsmonitor ni submódulos.
     @discardableResult
-    private func git(_ worktree: URL, _ arguments: [String], timeout: TimeInterval = 120) async throws -> String {
+    private func git(_ worktree: URL, _ arguments: [String], timeout: TimeInterval = 120,
+                     extraEnvironment: [String: String] = [:]) async throws -> String {
         let args = ["-C", worktree.path] + GitHardening.arguments + arguments
-        let result = try await runner.run(gitPath, args, environment: environment, currentDirectory: nil, timeout: timeout)
+        let result = try await runner.run(gitPath, args, environment: environment.merging(extraEnvironment) { _, extra in extra },
+                                          currentDirectory: nil, timeout: timeout)
         guard result.status == 0 else {
             throw PRBarError.commandFailed(
                 command: (["git"] + arguments.prefix(2)).joined(separator: " "), status: result.status,
@@ -748,4 +886,20 @@ struct FixOutput: Decodable {
     let status: Status
     let summary: String
     let commitMessage: String
+}
+
+/// What a Respond chat turn did to the worktree (`FixImplementer.chatTurn`).
+public struct ChatFilesOutcome: Equatable, Sendable {
+    /// Paths relative to the worktree; empty = nothing changed.
+    public let changedFiles: [String]
+    /// How to undo it; nil if nothing changed.
+    public let snapshot: ChatFileSnapshot?
+    /// The fixes' result with the chat's commit; nil if nothing changed.
+    public let result: RespondResult?
+
+    public init(changedFiles: [String], snapshot: ChatFileSnapshot?, result: RespondResult?) {
+        self.changedFiles = changedFiles
+        self.snapshot = snapshot
+        self.result = result
+    }
 }
