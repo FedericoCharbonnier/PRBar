@@ -6,6 +6,7 @@ que puedas mergear y una segunda cuenta (o un colaborador) que los apruebe. Nada
 ## A. Datos y clasificación
 - [ ] Un PR tuyo aprobado, sin comentarios nuevos: aparece en **Ready to Merge (1)**, después de My PRs with Feedback; el badge lo cuenta.
 - [ ] Alguien comenta después de tu último push: el PR pasa a My PRs with Feedback. Pusheás: vuelve a Ready to Merge.
+- [ ] Le respondés con un comentario tuyo en el PR: vuelve a Ready to Merge. Un reviewer comenta "LGTM" y después aprueba: queda en Ready to Merge.
 - [ ] Repo sin reviews requeridas: con una aprobación vigente entra; si la misma persona después pide cambios, sale.
 - [ ] Un PR con conflictos con la base no aparece en Ready to Merge.
 - [ ] Un PR draft aprobado no aparece.
@@ -28,7 +29,11 @@ que puedas mergear y una segunda cuenta (o un colaborador) que los apruebe. Nada
 - [ ] Merge → la fila dice "Merging…", después "Merged" y a los 2 s desaparece (refresco). En GitHub, el PR quedó mergeado con el método elegido.
 - [ ] Con "Confirm before merging" apagado, Merge mergea sin diálogo.
 - [ ] Con el diálogo abierto, pushear un commit nuevo al PR desde la terminal y confirmar: la fila muestra Error; el menú dice "The PR changed since you looked at it — refresh and try again." **Anotar el texto exacto que devolvió GitHub** (en `~/Library/Logs/PRBar/prbar.log`, "Couldn't merge …") y, si no es "Head branch was modified…", agregar la frase a `MergeError.classify`.
-- [ ] Retry refresca y vuelve a abrir el diálogo con el head nuevo; Dismiss borra el error.
+- [ ] Después de ese error, Retry refresca y solo borra el error (con o sin "Confirm before merging"): la fila muestra el PR con el head nuevo y no se mergea nada hasta volver a apretar Merge. Dismiss borra el error.
+- [ ] Error que no es de head (p. ej. cortar el Wi-Fi justo al mergear): Retry refresca y, si el head es el mismo, vuelve a pedir el merge (con el diálogo si "Confirm before merging" está encendido).
+- [ ] Si el merge salió en GitHub pero la respuesta se perdió (red cortada): Retry encuentra el PR mergeado, la fila dice "Merged" y Slack responde "Merged".
+- [ ] Con el diálogo abierto, alguien comenta en el PR y el refresco lo pasa a My PRs with Feedback: el diálogo se cierra solo.
+- [ ] Repo con merge queue (si hay uno de prueba): el error dice "This repo uses a merge queue — add the PR to the queue on GitHub." **Anotar el texto exacto de GitHub** en el log.
 - [ ] Con una cuenta sin permiso de escritura (repo ajeno con un PR tuyo desde un fork, si aplica): el botón dice "You don’t have permission to merge in …" o el error de GitHub aparece en la fila.
 - [ ] La rama no la borra PRBar: solo se borra si el repo tiene "Automatically delete head branches" (el diálogo lo avisa).
 
@@ -43,6 +48,8 @@ que puedas mergear y una segunda cuenta (o un colaborador) que los apruebe. Nada
 ## E. Notificaciones
 - [ ] Cuando un PR tuyo entra a Ready to Merge llega "<owner>/<repo>#N is ready to merge" con el título del PR; no llega además "Your PR Was Approved".
 - [ ] Apagando "My PR is ready to merge" llega la de aprobado como antes.
+- [ ] Recién aprobado con GitHub todavía calculando la mergeabilidad: llega "Your PR Was Approved" y, cuando GitHub termina (sin conflictos), "is ready to merge".
+- [ ] Primer arranque después de actualizar desde una versión sin Ready to Merge: los PRs ya aprobados no notifican.
 - [ ] Click en la notificación abre el PR en GitHub.
 
 ## F. Settings y capturas
