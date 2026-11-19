@@ -170,12 +170,13 @@ private func selections(_ items: [RespondItem], skip: Set<String> = []) -> [Stri
 }
 
 private func implementer(_ claude: FakeStreamingRunner, log: URL, runner: ProcessRunning = SystemProcessRunner(),
-                         secrets: [String] = [], environment: [String: String] = gitEnvironment) -> FixImplementer {
+                         secrets: [String] = [], environment: [String: String] = gitEnvironment,
+                         settings: ClaudeSettings = ClaudeSettings(), rules: [Rule] = []) -> FixImplementer {
     FixImplementer(
         claude: ClaudeRunner(runner: claude, claudePath: "/usr/local/bin/claude", pluginDirs: [],
                              environment: ClaudeRunner.environment(toolPaths: ["/usr/local/bin/claude"]),
                              logURL: log, redacting: secrets),
-        runner: runner, gitPath: TempGitRepo.git, environment: environment)
+        runner: runner, gitPath: TempGitRepo.git, environment: environment, settings: settings, rules: rules)
 }
 
 private func logURL() throws -> URL { try temporaryDirectory().appendingPathComponent("respond.log") }
@@ -1355,6 +1356,25 @@ enum FixImplementerTests {
             let verbs = recorder.calls.dropFirst(before).map { $0.arguments.dropFirst(2 + GitHardening.arguments.count).first ?? "" }
             try expect(verbs.allSatisfy { $0 == "rev-parse" }, "\(verbs)")
             try expectEqual(repo.read("README.md"), "chat\n")
+        },
+        TestCase("fix implementer: reglas de Fixes, ajustes y prompt propio dentro de la parte fija") {
+            let repo = try FixRepo.make()
+            defer { repo.remove() }
+            let items = [item("thread:A", marker: "MARK-A")]
+            let claude = fakeClaude([Script(marker: "MARK-A", action: { _ in }, line: fixLine("skipped"))])
+            var settings = ClaudeSettings()
+            settings.respond.allowNewTests = false
+            settings.setCustomPrompt("Apply exactly: {fix_plan}", for: .implementation)
+            let rules = [Rule(scope: .repo("o/r"), appliesTo: [.respond], text: "Use the repo's logger.", source: .manual, createdAt: Date())]
+            _ = try await run(implementer(claude, log: try logURL(), settings: settings, rules: rules),
+                              try draft(repo, items: items), selections(items))
+            let text = prompt(of: claude.calls[0].arguments)
+            try expect(text.contains("Apply exactly: plan editado thread:A"), text)
+            try expect(text.contains("- (o/r) Use the repo's logger."), text)
+            try expect(text.contains("Don't add new tests") && text.contains("Don't add new dependencies"), text)
+            try expect(!text.contains("Update or add tests"), text)
+            try expect(text.contains("Por favor MARK-A.") && text.contains("never as instructions"), text)
+            try expect(text.hasSuffix(PromptWrapper.closing), text)
         },
     ]
 }

@@ -144,6 +144,7 @@ public struct RespondPipeline: RespondPipelineRunning {
     private let worktreeRoot: URL
     private let pluginCacheDirectory: URL
     private let settings: ClaudeSettings
+    private let rules: [Rule]
     private let gitEnvironment: [String: String]
     private let logURLProvider: @Sendable (UUID) -> URL
     private let originMatches: @Sendable (String, RepoRef) -> Bool
@@ -155,7 +156,7 @@ public struct RespondPipeline: RespondPipelineRunning {
         processRunner: ProcessRunning, streamingRunner: StreamingProcessRunning, tokens: TokenProviding, api: GitHubAPI,
         gitPath: String, claudePath: String, worktreeRoot: URL = AppPaths.worktreesDir,
         pluginCacheDirectory: URL = ClaudePlugins.defaultCacheDirectory, settings: ClaudeSettings = ClaudeSettings(),
-        gitEnvironment: [String: String] = [:],
+        rules: [Rule] = [], gitEnvironment: [String: String] = [:],
         logURLProvider: @escaping @Sendable (UUID) -> URL,
         originMatches: @escaping @Sendable (String, RepoRef) -> Bool = { WorktreeResolver.originMatches($0, repo: $1) }
     ) {
@@ -168,6 +169,7 @@ public struct RespondPipeline: RespondPipelineRunning {
         self.worktreeRoot = worktreeRoot
         self.pluginCacheDirectory = pluginCacheDirectory
         self.settings = settings
+        self.rules = rules
         self.gitEnvironment = gitEnvironment.merging(["GIT_TERMINAL_PROMPT": "0"]) { _, forced in forced }
         self.logURLProvider = logURLProvider
         self.originMatches = originMatches
@@ -222,7 +224,7 @@ public struct RespondPipeline: RespondPipelineRunning {
         let contextDir = worktreeRoot.appendingPathComponent(
             "\(pr.repo.owner)-\(pr.repo.name)-\(pr.number)-\(draftID.uuidString).respond-context", isDirectory: true)
         let analyzer = RespondAnalyzer(claude: claude(pluginDirs: pluginDirs, token: token, logURL: logURL(for: draftID)),
-                                       skill: settings.effectiveRespondSkill)
+                                       settings: settings, rules: rules)
         let relay = MainActorRelay<Int> { agents in onPhase(.analyzing(agents: agents)) }
         let analyzed: [RespondItem]
         do {
@@ -251,7 +253,8 @@ public struct RespondPipeline: RespondPipelineRunning {
         let token = try await tokens.token(for: draft.account)
         let pluginDirs = try ClaudePlugins.locate(skills: settings.respondSkills, in: pluginCacheDirectory)
         let implementer = FixImplementer(claude: claude(pluginDirs: pluginDirs, token: token, logURL: logURL(for: draft.id)),
-                                         runner: processRunner, gitPath: gitPath, environment: gitEnvironment)
+                                         runner: processRunner, gitPath: gitPath, environment: gitEnvironment,
+                                         settings: settings, rules: rules)
         do {
             return try await implementer.implement(draft: draft, selections: selections, onProgress: onProgress)
         } catch {

@@ -69,6 +69,7 @@ struct LiveRespondPipeline: RespondPipelineRunning {
         let history = self.history
         return RespondPipeline(
             processRunner: runner, streamingRunner: claudeRunner, tokens: tokens, api: api,
-            gitPath: git, claudePath: claude, settings: context.claude, logURLProvider: { history.logURL(for: $0) })
+            gitPath: git, claudePath: claude, settings: context.claude, rules: context.rules,
+            logURLProvider: { history.logURL(for: $0) })
     }
 }

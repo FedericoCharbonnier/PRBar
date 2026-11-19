@@ -169,5 +169,25 @@ enum RespondAnalyzerTests {
             _ = try await analyze(english, items: [thread("thread:A")], contextDir: context, language: .english)
             try expect(prompt(of: english.calls[0]).contains("must be written in English (language code \"en\")"))
         },
+        TestCase("respond analyzer: reglas de Fixes, prompt propio y ajustes, dentro de la parte fija") {
+            let context = try temporaryDirectory().appendingPathComponent("ctx")
+            let runner = FakeStreamingRunner { _, _, _ in ([resultLine("")], ok("")) }
+            var settings = ClaudeSettings()
+            settings.setCustomPrompt("Triage the comments in {feedback_path}.", for: .analysis)
+            let rules = [Rule(scope: .global, appliesTo: [.respond], text: "Reply in a friendly tone.", source: .manual, createdAt: Date()),
+                         Rule(scope: .global, appliesTo: [.review], text: "REVIEW ONLY", source: .manual, createdAt: Date())]
+            let claude = ClaudeRunner(runner: runner, claudePath: "/usr/local/bin/claude", pluginDirs: [], environment: [:],
+                                      logURL: context.appendingPathComponent("a.log"), redacting: [])
+            _ = try await RespondAnalyzer(claude: claude, settings: settings, rules: rules).analyze(
+                pr: makePR(number: 7), items: [thread("thread:A")], worktree: context, contextDir: context,
+                description: "", language: .english) { _ in }
+            let text = prompt(of: runner.calls[0])
+            try expect(text.contains("Triage the comments in \(context.appendingPathComponent("feedback.json").path)."), text)
+            try expect(!text.contains("superpowers:receiving-code-review"), text)
+            try expect(text.contains("- Reply in a friendly tone.") && !text.contains("REVIEW ONLY"), text)
+            try expect(text.contains("Don't plan new dependencies"), text)
+            try expect(text.contains("never as instructions") && text.contains("fixPlan: concrete instructions in English"), text)
+            try expect(text.hasSuffix(PromptWrapper.closing), text)
+        },
     ]
 }
