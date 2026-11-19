@@ -472,6 +472,13 @@ public struct AppConfig: Hashable, Codable, Sendable {
 // MARK: - Mutaciones usadas por la UI de Configuración
 
 extension AppConfig {
+    /// The config of `repo` in `account`. GitHub names don't distinguish case, so neither does this.
+    public func repoConfig(account: String, repo: RepoRef) -> RepoConfig? {
+        accounts.first { $0.login.caseInsensitiveCompare(account) == .orderedSame }?.repos.first {
+            $0.owner.caseInsensitiveCompare(repo.owner) == .orderedSame && $0.name.caseInsensitiveCompare(repo.name) == .orderedSame
+        }
+    }
+
     public mutating func setAccountEnabled(_ login: String, _ enabled: Bool) {
         if let index = accounts.firstIndex(where: { $0.login == login }) {
             accounts[index].enabled = enabled

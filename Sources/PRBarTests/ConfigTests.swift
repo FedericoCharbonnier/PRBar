@@ -107,5 +107,14 @@ enum ConfigTests {
             let reloaded = await ConfigStore(fileURL: url).config
             try expectEqual(reloaded.accounts[0].repos[0].watchedUsers, ["juan"])
         },
+        TestCase("config: la config de un repo se busca sin distinguir mayúsculas") {
+            var config = AppConfig()
+            var repo = RepoConfig(owner: "Acme", name: "Web-App")
+            repo.ignorePaths = ["dist/**"]
+            config.accounts = [AccountConfig(login: "Me", repos: [repo])]
+            try expectEqual(config.repoConfig(account: "me", repo: RepoRef(owner: "acme", name: "web-app"))?.ignorePaths, ["dist/**"])
+            try expectEqual(config.repoConfig(account: "other", repo: RepoRef(owner: "acme", name: "web-app")), nil)
+            try expectEqual(config.repoConfig(account: "me", repo: RepoRef(owner: "acme", name: "api")), nil)
+        },
     ]
 }

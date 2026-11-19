@@ -480,8 +480,7 @@ final class AppModel: ObservableObject {
     }
 
     private func repoConfig(account: String, repo: RepoRef) -> RepoConfig? {
-        configStore.config.accounts.first { $0.login == account }?
-            .repos.first { $0.owner == repo.owner && $0.name == repo.name }
+        configStore.config.repoConfig(account: account, repo: repo)
     }
 
     private func reviewFinished(_ request: ReviewRequest, _ result: Result<ReviewDraft, Error>) {
