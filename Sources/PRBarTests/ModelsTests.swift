@@ -4,7 +4,7 @@ import PRBarCore
 enum ModelsTests {
     static let cases: [TestCase] = [
         TestCase("models: categorías ordenadas por prioridad") {
-            try expectEqual(PRCategory.allCases.shuffled().sorted(), [.toReview, .updatedSinceMyReview, .myFeedback, .other])
+            try expectEqual(PRCategory.allCases.shuffled().sorted(), [.toReview, .updatedSinceMyReview, .myFeedback, .readyToMerge, .other])
             try expect(PRCategory.toReview.countsForBadge)
             try expect(PRCategory.myFeedback.countsForBadge)
             try expect(!PRCategory.other.countsForBadge)

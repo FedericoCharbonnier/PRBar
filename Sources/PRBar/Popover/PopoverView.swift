@@ -9,7 +9,7 @@ struct PopoverView: View {
     @ObservedObject var slack: SlackAnnouncer
     @State private var collapsed: Set<PRCategory> = [.other]
 
-    private let actionable: [PRCategory] = [.toReview, .updatedSinceMyReview, .myFeedback]
+    private let actionable: [PRCategory] = [.toReview, .updatedSinceMyReview, .myFeedback, .readyToMerge]
 
     var body: some View {
         VStack(spacing: 0) {

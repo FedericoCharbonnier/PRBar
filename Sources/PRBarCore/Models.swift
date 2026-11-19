@@ -168,7 +168,7 @@ public struct PullRequest: Hashable, Codable, Sendable, Identifiable {
 }
 
 public enum PRCategory: String, Codable, Sendable, CaseIterable, Comparable, Identifiable {
-    case toReview, updatedSinceMyReview, myFeedback, other
+    case toReview, updatedSinceMyReview, myFeedback, readyToMerge, other
 
     public var id: String { rawValue }
     public var countsForBadge: Bool { self != .other }
@@ -178,6 +178,7 @@ public enum PRCategory: String, Codable, Sendable, CaseIterable, Comparable, Ide
         case .toReview: "To Review"
         case .updatedSinceMyReview: "Updated Since My Review"
         case .myFeedback: "My PRs with Feedback"
+        case .readyToMerge: "Ready to Merge"
         case .other: "Other"
         }
     }

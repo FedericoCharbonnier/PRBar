@@ -106,6 +106,7 @@ public enum NotificationPlanner {
         case .updatedSinceMyReview: .reviewedPRUpdated
         case .myFeedback: .myPRFeedback
         case .other: nil
+        case .readyToMerge: nil
         }
     }
 

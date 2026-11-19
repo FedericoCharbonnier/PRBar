@@ -74,7 +74,9 @@ enum ClassifierTests {
             try expectEqual(classify(makePR(author: "me", lastCommit: 0, comments: [comment("codecov", at: 5, bot: true)])), .other)
         },
         TestCase("classifier: una aprobación no es feedback") {
-            try expectEqual(classify(makePR(author: "me", lastCommit: 0, reviews: [review("ana", .approved, at: 5)])), .other)
+            let pr = makePR(author: "me", lastCommit: 0, reviews: [review("ana", .approved, at: 5)])
+            try expect(ActionClassifier.newFeedback(pr, me: "me").isEmpty)
+            try expectEqual(classify(pr), .readyToMerge)
         },
     ]
 }

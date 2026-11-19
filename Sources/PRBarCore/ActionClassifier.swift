@@ -19,7 +19,9 @@ public enum ActionClassifier {
         let author = pr.author.lowercased()
 
         if author == me {
-            return newFeedback(pr, me: me).isEmpty ? .other : .myFeedback
+            // Ready to Merge es lo que queda cuando ya no hay nada que responder (spec F.1).
+            if !newFeedback(pr, me: me).isEmpty { return .myFeedback }
+            return isReadyToMerge(pr, me: me) ? .readyToMerge : .other
         }
 
         let watched = Set(watchedUsers.map { $0.lowercased() })
@@ -56,5 +58,30 @@ public enum ActionClassifier {
             changesRequested: reviews.contains { $0.state == .changesRequested },
             count: reviews.count + comments.count
         )
+    }
+
+    /// Mi PR está aprobado, no es draft y no tiene conflictos (spec F.1). El CI no cuenta: se ve en la fila.
+    /// Una mergeabilidad todavía desconocida (`UNKNOWN`) no lo saca: el botón dice "Checking…".
+    public static func isReadyToMerge(_ pr: PullRequest, me: String) -> Bool {
+        guard !pr.isDraft, pr.merge.mergeable != .conflicting, pr.merge.status != .dirty else { return false }
+        switch pr.reviewDecision {
+        case .approved: return true
+        case .none: return hasCurrentApproval(pr, me: me.lowercased())
+        case .changesRequested, .reviewRequired: return false
+        }
+    }
+
+    /// Sin `reviewDecision` (el repo no exige reviews): la última review de cada persona entre aprobar, pedir cambios
+    /// y descartada. Hace falta al menos una aprobación vigente y ningún pedido de cambios vigente.
+    static func hasCurrentApproval(_ pr: PullRequest, me: String) -> Bool {
+        var latest: [String: PRReview] = [:]
+        for review in pr.reviews where review.author.lowercased() != me
+            && [.approved, .changesRequested, .dismissed].contains(review.state) {
+            let key = review.author.lowercased()
+            if let current = latest[key], current.submittedAt >= review.submittedAt { continue }
+            latest[key] = review
+        }
+        let states = latest.values.map(\.state)
+        return states.contains(.approved) && !states.contains(.changesRequested)
     }
 }
