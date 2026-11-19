@@ -42,6 +42,20 @@ private func value(of flag: String, in arguments: [String]) -> String? {
 
 enum ClaudeRunnerTests {
     static let cases: [TestCase] = [
+        TestCase("claude runner: con deadline, cada intento (también el reintento) usa solo lo que queda; vencido no lanza nada") {
+            let runner = FakeStreamingRunner { _, _, _ in ([invalidLine], ok("")) }
+            var budget = invocation()
+            budget.timeout = 600
+            budget.deadline = Date().addingTimeInterval(30)
+            _ = try await expectThrows { _ = try await claude(runner, log: try logFile()).run(budget, as: Answer.self, onAgent: { _ in }) }
+            try expectEqual(runner.calls.count, 2)
+            try expect(runner.calls.allSatisfy { ($0.timeout ?? 999) <= 30 && ($0.timeout ?? 0) > 20 }, "\(runner.calls.map(\.timeout))")
+            let late = FakeStreamingRunner { _, _, _ in ([validLine], ok("")) }
+            budget.deadline = Date().addingTimeInterval(-1)
+            let error = try await expectThrows { _ = try await claude(late, log: try logFile()).run(budget, as: Answer.self, onAgent: { _ in }) }
+            guard case .timedOut? = error as? PRBarError else { throw TestFailure(description: "\(error)") }
+            try expectEqual(late.calls.count, 0)
+        },
         TestCase("claude runner: argumentos aislados con herramientas de solo lectura acotadas al cwd") {
             let args = ClaudeRunner.arguments(for: invocation(), pluginDirs: plugins)
             try expectEqual(args, [

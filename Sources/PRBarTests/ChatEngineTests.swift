@@ -22,11 +22,11 @@ private func input(session: UUID? = nil, edits: Bool = false, state: String? = n
         canEditFiles: edits, workingDirectory: workdir, additionalDirectories: [context], turn: 3)
 }
 
-private func engine(_ runner: FakeStreamingRunner, log: URL) -> ChatEngine {
+private func engine(_ runner: FakeStreamingRunner, log: URL, startedAt: @escaping @Sendable () -> Date = { Date() }) -> ChatEngine {
     ChatEngine(claude: ClaudeRunner(runner: runner, claudePath: "/usr/local/bin/claude", pluginDirs: ["/plugins/x"],
                                     environment: ClaudeRunner.environment(toolPaths: ["/usr/local/bin/claude"]),
                                     logURL: log, redacting: ["ghp_secret"]),
-               newSessionID: { newID })
+               newSessionID: { newID }, now: startedAt)
 }
 
 private func arg(_ flag: String, _ call: FakeStreamingRunner.Call) -> String? {
@@ -53,7 +53,14 @@ enum ChatEngineTests {
             try expectEqual(arg("--setting-sources", call), "")
             try expectEqual(arg("--add-dir", call), context.path)
             try expectEqual(call.currentDirectory, workdir)
-            try expectEqual(call.timeout, ChatEngine.timeout)
+            try expect((call.timeout ?? 0) <= ChatEngine.timeout && (call.timeout ?? 0) > ChatEngine.timeout - 5, "\(String(describing: call.timeout))")
+            // The exact isolation of every Claude run (settings, dontAsk, strict MCP…).
+            let expected = ClaudeRunner.arguments(
+                for: ClaudeInvocation(prompt: "BOOTSTRAP\n\n" + ChatPrompts.message("Is #2 right?"), schema: ChatSchemas.turn,
+                                      tools: ChatEngine.readTools, workingDirectory: workdir, additionalDirectories: [context],
+                                      timeout: ChatEngine.timeout, logHeader: "=== chat 3 ===", session: .start(newID)),
+                pluginDirs: ["/plugins/x"])
+            try expectEqual(call.arguments, expected)
             try expectEqual(arg("-p", call), "BOOTSTRAP\n\n" + ChatPrompts.message("Is #2 right?"))
             try expect(try String(contentsOf: log, encoding: .utf8).contains("=== chat 3 ==="))
         },
@@ -144,6 +151,29 @@ enum ChatEngineTests {
             try expectEqual(error as? ClaudeError, .failed("No conversation found with session ID: aaaaaaaa"))
             try expectEqual(runner.calls.count, 1)
         },
+        TestCase("chat engine: 10 minutos en total por mensaje entre --resume, reintento y reconstrucción") {
+            let runner = FakeStreamingRunner { _, arguments, _ in
+                if arguments.contains("--resume") { return ([missingSessionLine], fail("")) }
+                return ([chatLine("Rebuilt.")], ok(""))
+            }
+            // The message was sent 9.5 minutes ago: every run gets at most the 30 seconds left.
+            let sent = Date().addingTimeInterval(-ChatEngine.timeout + 30)
+            _ = try await engine(runner, log: try temporaryDirectory().appendingPathComponent("r.log"), startedAt: { sent })
+                .send(input(session: oldID, edits: true, kind: .respond)) { _ in }
+            try expectEqual(runner.calls.count, 2)
+            try expect(runner.calls.allSatisfy { ($0.timeout ?? 999) <= 30 }, "\(runner.calls.map(\.timeout))")
+            // Retries and rebuilds keep the same tools.
+            try expect(runner.calls.allSatisfy { arg("--tools", $0) == "Read,Grep,Glob,Edit,Write,Skill,Agent" })
+            try expect(runner.calls.allSatisfy { arg("--settings", $0) == ClaudeRunner.settings(additionalDirectories: [context]) })
+            let late = FakeStreamingRunner { _, _, _ in ([chatLine("x")], ok("")) }
+            let error = try await expectThrows {
+                _ = try await engine(late, log: try temporaryDirectory().appendingPathComponent("r.log"),
+                                     startedAt: { Date().addingTimeInterval(-ChatEngine.timeout - 1) })
+                    .send(input(session: oldID)) { _ in }
+            }
+            guard case .timedOut? = error as? PRBarError else { throw TestFailure(description: "\(error)") }
+            try expectEqual(late.calls.count, 0)
+        },
         TestCase("chat engine: JSON inválido no activa el respaldo; reintenta dentro de la misma sesión") {
             let runner = FakeStreamingRunner { _, _, _ in
                 ([#"{"type":"result","subtype":"success","is_error":false,"result":"no json"}"#], ok(""))
@@ -155,6 +185,7 @@ enum ChatEngineTests {
             guard case .invalidOutput? = error as? ClaudeError else { throw TestFailure(description: "\(error)") }
             try expectEqual(runner.calls.count, 2)
             try expect(runner.calls.allSatisfy { arg("--resume", $0) == oldID.uuidString.lowercased() })
+            try expect(runner.calls.allSatisfy { arg("--tools", $0) == "Read,Grep,Glob,Skill,Agent" })
         },
     ]
 }

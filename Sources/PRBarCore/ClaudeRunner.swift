@@ -33,10 +33,13 @@ public struct ClaudeInvocation: Sendable {
     public var logHeader: String
     /// The conversation (only the chat uses one). `nil` = a one-off run, as in the review and the fixes.
     public var session: ClaudeSessionFlag?
+    /// A budget shared by several runs (the chat: one user message, spec B.4): each attempt, retries included, gets
+    /// at most what's left until then, and none starts once it's passed. `nil` = only `timeout`.
+    public var deadline: Date?
 
     public init(prompt: String, schema: String, tools: [String], workingDirectory: URL,
                 additionalDirectories: [URL] = [], timeout: TimeInterval, logHeader: String,
-                session: ClaudeSessionFlag? = nil) {
+                session: ClaudeSessionFlag? = nil, deadline: Date? = nil) {
         self.prompt = prompt
         self.schema = schema
         self.tools = tools
@@ -45,6 +48,7 @@ public struct ClaudeInvocation: Sendable {
         self.timeout = timeout
         self.logHeader = logHeader
         self.session = session
+        self.deadline = deadline
     }
 }
 
@@ -313,6 +317,14 @@ public struct ClaudeRunner: Sendable {
 
     private func attempt<T: Decodable>(_ invocation: ClaudeInvocation, as type: T.Type,
                                        onEvent: @escaping @Sendable (ClaudeStreamEvent) -> Void) async throws -> T {
+        var timeout = invocation.timeout
+        if let deadline = invocation.deadline {
+            timeout = min(timeout, deadline.timeIntervalSinceNow)
+            guard timeout > 0 else {
+                log.append(invocation.logHeader + "\n--- out of time: not starting ---\n")
+                throw PRBarError.timedOut(command: "claude")
+            }
+        }
         log.append(invocation.logHeader + "\n")
         onEvent(.agentStarted(total: 0))
 
@@ -324,7 +336,7 @@ public struct ClaudeRunner: Sendable {
             // Exact environment: Claude doesn't inherit the app's (it can have tokens, `SSH_AUTH_SOCK`, `DYLD_*`, …).
             result = try await runner.runStreamingIsolated(
                 claudePath, Self.arguments(for: invocation, pluginDirs: pluginDirs, model: model),
-                environment: environment, currentDirectory: invocation.workingDirectory, timeout: invocation.timeout
+                environment: environment, currentDirectory: invocation.workingDirectory, timeout: timeout
             ) { line in
                 // Redacted before parsing: the decoded output and the errors don't carry the token either.
                 let line = Redactor.redact(line, secrets: secrets)
