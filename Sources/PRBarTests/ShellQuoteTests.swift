@@ -71,7 +71,8 @@ enum ShellQuoteTests {
                 let pwned = FileManager.default.fileExists(atPath: directory.appendingPathComponent("PWNED").path)
                 try expect(!pwned, "\(shell) ejecutó algo")
                 try expectEqual(back.count, values.count)
-                for (index, value) in values.enumerated() where back[index] != value {
+                // Byte a byte (`!=` de `String` compara por equivalencia canónica: NFC = NFD).
+                for (index, value) in values.enumerated() where !Array(back[index].utf8).elementsEqual(value.utf8) {
                     throw TestFailure(description: "\(shell) cambió el valor #\(index): \(value.prefix(80).debugDescription) → \(back[index].prefix(80).debugDescription)")
                 }
             }
@@ -86,14 +87,18 @@ enum ShellQuoteTests {
                 let pwned = FileManager.default.fileExists(atPath: directory.appendingPathComponent("PWNED").path)
                 try expect(!pwned, "\(shell) ejecutó algo")
                 try expectEqual(back.count, values.count)
-                for (index, value) in values.enumerated() where back[index] != value {
+                // Byte a byte (`!=` de `String` compara por equivalencia canónica: NFC = NFD).
+                for (index, value) in values.enumerated() where !Array(back[index].utf8).elementsEqual(value.utf8) {
                     throw TestFailure(description: "\(shell) cambió el valor #\(index): \(value.prefix(80).debugDescription) → \(back[index].prefix(80).debugDescription)")
                 }
             }
         },
-        TestCase("shell quote: una comilla con una marca combinante se escapa byte a byte") {
-            try expectEqual(try ShellQuote.posix("a'\u{0301}b"), "'a'\\''\u{0301}b'")
-            try expectEqual(try ShellQuote.posix("'\u{200D}"), "''\\''\u{200D}'")
+        TestCase("shell quote: la salida es solo ASCII (Process pasa los argumentos a NFD); lo demás va con printf en octal") {
+            try expectEqual(try ShellQuote.posix("a'\u{0301}b"), #"'a'\'''"$(printf '\314\201')"'b'"#)
+            try expectEqual(try ShellQuote.posix("\u{e9}"), #"''"$(printf '\303\251')"''"#)
+            for value in hostile + randomStrings(count: 200, seed: 3) {
+                try expect(try ShellQuote.posix(value).utf8.allSatisfy { $0 < 0x80 }, value.debugDescription)
+            }
         },
     ]
 }
