@@ -1137,7 +1137,7 @@ struct CIChecksSection: View {
                 }
                 if let omitted = draft.ci?.omitted, !omitted.isEmpty {
                     Divider()
-                    Text("Also failing (no output passed to Claude): \(omitted.joined(separator: ", "))")
+                    Text("Also failing (no output passed to Claude): \(CILogs.nameList(omitted))")
                         .font(.subheadline).foregroundStyle(.secondary).padding(10)
                 }
                 if let summary, !summary.isEmpty {
@@ -1161,9 +1161,10 @@ struct CIChecksSection: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Image(systemName: "xmark.octagon.fill").foregroundStyle(Theme.redText).accessibilityHidden(true)
-                Text(check.name).font(.callout.weight(.semibold))
-                Text(check.conclusion.replacingOccurrences(of: "_", with: " ")).font(.subheadline).foregroundStyle(.secondary)
-                if let app = check.appName { Text("· \(app)").font(.subheadline).foregroundStyle(.secondary) }
+                // Names come from the CI (untrusted): one line, without bidi or format characters that could spoof the list.
+                Text(CILogs.displayName(check.name)).font(.callout.weight(.semibold))
+                Text(CILogs.displayName(check.conclusion.replacingOccurrences(of: "_", with: " "))).font(.subheadline).foregroundStyle(.secondary)
+                if let app = check.appName { Text("· \(CILogs.displayName(app))").font(.subheadline).foregroundStyle(.secondary) }
                 Spacer(minLength: 0)
                 Text(check.hasLog ? "job log" : "summary only").font(.caption).foregroundStyle(.secondary)
                 if let url = check.detailsURL, url.scheme == "https" {

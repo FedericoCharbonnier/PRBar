@@ -276,6 +276,49 @@ enum CIFixTests {
             try expectEqual(CIFixPrompt.commitMessage(""), "Fix CI")
             try expectEqual(CIFixPrompt.commitMessage("Fix the flaky date test\n\nbody"), "Fix the flaky date test")
         },
+        TestCase("ci fix: muchos checks fallidos: la lista se acota y va dentro del bloque de CI; los nombres se sanean") {
+            let failing = (1...40).map { (n: Int) in ciRun("job\(n)\u{202E}", id: n) }
+            let (item, context) = CIFixItem.make(headOid: ciHead, failing: failing, logs: [:], secrets: [], prURL: prURL)
+            // All of them are kept for the push check; only the first ones are listed.
+            try expectEqual(context.omitted.count, 34)
+            try expect(item.assessment.contains("and \(40 - CILogs.maxListedNames) more"), item.assessment)
+            try expect(!item.assessment.contains("job40"))
+            try expect(!item.assessment.contains("\u{202E}"))
+            let draft = RespondDraft(prID: "acme/api#12", repo: RepoRef(owner: "acme", name: "api"), number: 12, title: "t",
+                                     url: prURL, headRef: "f", account: "me",
+                                     worktree: ResolvedWorktree(path: "/wt", origin: .dedicated), startHeadOid: ciHead,
+                                     items: [item], mode: .ciFix, ci: context)
+            let fence = PromptFence(nonce: "0123456789abcdef")
+            let text = CIFixPrompt.prompt(item: item, draft: draft, fence: fence)
+            let open = text.range(of: "<<<CI_LOG_0123456789abcdef\n")!
+            let close = text.range(of: "\nCI_LOG_0123456789abcdef>>>", range: open.upperBound..<text.endIndex)!
+            let also = text.range(of: "Also failing, without output here:")!
+            try expect(also.lowerBound > open.upperBound && also.upperBound < close.lowerBound, "outside the CI block")
+            try expect(!text.contains("job40"))
+            try expect(text.contains("check names"))
+            try expectEqual(CILogs.nameList(["a\u{202E}b", "c"]), "ab, c")
+            try expectEqual(CILogs.nameList((1...25).map { "n\($0)" }, limit: 2), "n1, n2 and 23 more")
+            try expectEqual(CILogs.displayName("x\u{2066}y\nz"), "xy z")
+        },
+        TestCase("ci logs: sin selectores de variación (texto escondido) y con más formatos de secretos tachados") {
+            let hidden = "ok\u{FE0F}\u{FE01}\u{E0100}\u{E01EF} done"
+            try expectEqual(CILogs.clean(hidden), "ok done")
+            try expectEqual(UntrustedText.singleLine("a\u{E0100}\u{E0101}b ❤\u{FE0F}\u{FE0F}\u{FE01}"), "ab ❤\u{FE0F}")
+            let aws = "key AKIAABCDEFGHIJKLMNOP end"
+            try expectEqual(CILogs.clean(aws), "key *** end")
+            let npm = "npm_" + String(repeating: "a", count: 36)
+            try expectEqual(CILogs.clean("t=\(npm)."), "t=***.")
+            let jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
+            try expectEqual(CILogs.clean("Bearer \(jwt)"), "Bearer ***")
+            let pem = "before\n-----BEGIN RSA PRIVATE KEY-----\nMIIEabc\nxyz==\n-----END RSA PRIVATE KEY-----\nafter"
+            try expectEqual(CILogs.clean(pem), "before\n***\nafter")
+            let cut = "before\n-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAA"
+            try expectEqual(CILogs.clean(cut), "before\n***")
+            let tailOnly = "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVphYmNkZWZnaGlqa2xtbm9w\n-----END PRIVATE KEY-----\nafter"
+            try expectEqual(CILogs.clean(tailOnly), "***\nafter")
+            let body = CILogs.body(for: ciRun("x", id: 1, conclusion: "fail\nure\u{202E}"), log: nil, secrets: [], budget: 1000)
+            try expect(body.contains("Conclusion: fail ure\n") || body.hasSuffix("Conclusion: fail ure"), body)
+        },
         TestCase("ci fix: notificaciones (listo, pusheado, falló) con el interruptor de Claude") {
             var settings = NotificationSettings()
             let ready = NotificationPlanner.respondFinished(prID: "acme/api#12", repo: RepoRef(owner: "acme", name: "api"), number: 12,

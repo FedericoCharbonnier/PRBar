@@ -71,7 +71,16 @@ public enum UntrustedText {
     /// neutralized and at most `limit` characters.
     public static func singleLine(_ text: String, limit: Int = 300) -> String {
         var scalars = String.UnicodeScalarView()
+        var previousWasSelector = true
         for scalar in text.unicodeScalars {
+            // Variation selectors can carry invisible "smuggled" text: VS17+ never stays, VS1–16 only right after a
+            // visible character (e.g. the emoji presentation of ❤️), never in runs.
+            if let supplementary = isVariationSelector(scalar) {
+                if !supplementary && !previousWasSelector { scalars.append(scalar) }
+                previousWasSelector = true
+                continue
+            }
+            previousWasSelector = false
             switch scalar.properties.generalCategory {
             case .lineSeparator, .paragraphSeparator: scalars.append(" ")
             case .control where scalar == "\n" || scalar == "\r" || scalar == "\t": scalars.append(" ")
@@ -81,6 +90,15 @@ public enum UntrustedText {
         }
         let collapsed = String(scalars).split(whereSeparator: { $0 == " " }).joined(separator: " ")
         return String(neutralize(collapsed).prefix(limit))
+    }
+
+    /// nil: not a variation selector; false: VS1–16 (U+FE00–FE0F); true: VS17–256 (U+E0100–E01EF).
+    static func isVariationSelector(_ scalar: Unicode.Scalar) -> Bool? {
+        switch scalar.value {
+        case 0xFE00...0xFE0F: false
+        case 0xE0100...0xE01EF: true
+        default: nil
+        }
     }
 
     private static func replace(_ regex: NSRegularExpression, in text: String, with template: String) -> String {

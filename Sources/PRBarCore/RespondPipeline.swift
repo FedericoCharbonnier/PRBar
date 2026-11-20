@@ -130,7 +130,7 @@ public struct CIPassingNow: Error, Equatable, LocalizedError {
     }
 
     public var errorDescription: String? {
-        "The checks that failed (\(checks.joined(separator: ", "))) pass now on \(headOid.prefix(7)), so PRBar didn’t push. "
+        "The checks that failed (\(CILogs.nameList(checks))) pass now on \(headOid.prefix(7)), so PRBar didn’t push. "
             + "Push anyway, or dismiss the fix."
     }
 }

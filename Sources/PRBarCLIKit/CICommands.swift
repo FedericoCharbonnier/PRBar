@@ -39,7 +39,7 @@ enum CIRender {
         Render.pairs(pairs, output)
         if let checks = info.ciChecks, !checks.isEmpty {
             output.line()
-            output.table(["Failing check", "Conclusion", "Log"], checks.map { [$0.name, $0.conclusion, $0.hasLog ? "job log" : "summary only"] })
+            output.table(["Failing check", "Conclusion", "Log"], checks.map { [CILogs.displayName($0.name), CILogs.displayName($0.conclusion), $0.hasLog ? "job log" : "summary only"] })
             if full {
                 for item in info.items { item.thread.forEach { output.line(Render.indent($0)) } }
             }
