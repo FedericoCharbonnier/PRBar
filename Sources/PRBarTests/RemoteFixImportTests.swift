@@ -4,8 +4,10 @@ import PRBarCore
 private let localGitEnvironment = ["GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"]
 
 /// Un worktree de Respond en el host con un commit de "fix", y el import listo para usar.
-private func remoteFix() async throws -> (TempGitRepo, FakeSSH, RemoteWorkspaces, ResolvedWorktree, String, RemoteFixImport) {
+private func remoteFix(beforeRemote: (TempGitRepo) throws -> Void = { _ in }) async throws
+    -> (TempGitRepo, FakeSSH, RemoteWorkspaces, ResolvedWorktree, String, RemoteFixImport) {
     let repo = try TempGitRepo.make()
+    try beforeRemote(repo)
     let (ssh, host, info, root) = try await verifiedFake()
     let spaces = remoteWorkspaces(host, info, root, origin: repo.origin)
     let bare = try await spaces.mirror(RepoRef(owner: "o", name: "r"))
@@ -40,6 +42,22 @@ enum RemoteFixImportTests {
             try expectEqual(result.commits?.count, 1)
             let local = try TempGitRepo.run(repo.local, ["rev-parse", objects.ref]).trimmingCharacters(in: .whitespacesAndNewlines)
             try expectEqual(local, result.headOid)
+        },
+        TestCase("remote fixes: si al clone del usuario le falta el commit de inicio, se trae sin volverlo shallow") {
+            let (repo, ssh, _, worktree, start, importer) = try await remoteFix { repo in
+                // La rama avanzó en GitHub después del último fetch del usuario.
+                try TempGitRepo.run(repo.origin, ["checkout", "-q", "feature"])
+                try Data("more\n".utf8).write(to: repo.origin.appendingPathComponent("more.txt"))
+                try TempGitRepo.run(repo.origin, ["add", "-A"])
+                try TempGitRepo.run(repo.origin, ["commit", "-q", "-m", "more"])
+                try TempGitRepo.run(repo.origin, ["checkout", "-q", "main"])
+            }
+            defer { repo.remove(); ssh.remove() }
+            try expect((try? TempGitRepo.run(repo.local, ["cat-file", "-e", "\(start)^{commit}"])) == nil, "el clone ya tenía el commit")
+            _ = try await importer.importFixes(draft: draft(worktree, start: start), localPath: repo.local.path, items: [], integrity: "x")
+            let shallow = try TempGitRepo.run(repo.local, ["rev-parse", "--is-shallow-repository"]).trimmingCharacters(in: .whitespacesAndNewlines)
+            try expectEqual(shallow, "false")
+            try expect(!FileManager.default.fileExists(atPath: repo.local.appendingPathComponent(".git/shallow").path))
         },
         TestCase("remote fixes: push verificado desde la Mac; el origin queda en el sha revisado") {
             let (repo, ssh, _, worktree, start, importer) = try await remoteFix()

@@ -67,7 +67,9 @@ public struct RemoteFixImport: Sendable {
         let (repository, temporary) = try await localRepository(draft: draft, localPath: localPath)
         do {
             if (try? await local(repository, ["cat-file", "-e", "\(draft.startHeadOid)^{commit}"])) == nil {
-                try await local(repository, ["fetch", "--no-write-fetch-head", "--no-tags", "--depth=1", "origin", draft.startHeadOid],
+                // `--depth=1` solo en el clone temporal: en el del usuario lo volvería shallow.
+                try await local(repository, ["fetch", "--no-write-fetch-head", "--no-tags"] + (temporary ? ["--depth=1"] : [])
+                                    + ["origin", draft.startHeadOid],
                                 environment: temporary ? Self.tokenEnvironment(token) : [:])
             }
             guard remoteHead != draft.startHeadOid else {
