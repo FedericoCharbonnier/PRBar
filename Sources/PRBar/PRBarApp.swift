@@ -42,7 +42,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let activeJobs = model.activeJobCount
         guard QuitConfirmation.shouldAsk(activeJobs: activeJobs, programmatic: QuitRequest.skipsConfirmation || systemQuit)
         else { return .terminateNow }
-        // From the menu bar panel the app isn't active: the alert needs it, on the Space the user is on.
+        // The panel is at menu level and would cover the alert. From it the app isn't active: the alert needs it, on
+        // the Space the user is on.
+        statusItem?.close()
         NSApp.activate()
         let alert = ConfirmAlert.make(title: QuitConfirmation.title(activeJobs: activeJobs),
                                       message: QuitConfirmation.message, action: "Quit")
