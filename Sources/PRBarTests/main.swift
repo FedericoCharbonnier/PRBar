@@ -97,6 +97,7 @@ let allTests: [TestCase] = []
     + CLISupportTests.cases
     + CLIParsingTests.cases
     + CLIParityTests.cases
+    + UIParityTests.cases
     + PRReferenceTests.cases
     + CommandProtocolTests.cases
     + AppCommandTests.cases
