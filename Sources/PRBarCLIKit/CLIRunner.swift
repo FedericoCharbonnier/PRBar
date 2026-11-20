@@ -53,21 +53,28 @@ public struct CLIEnvironment {
     public var terminal: Terminal
     public var out: (String) -> Void
     public var err: (String) -> Void
+    /// Conecta y, si la app no está corriendo, la abre.
     public var connect: () throws -> AppConnection
+    /// Solo conecta (cancelar con Ctrl-C: si la app no está, no hay nada que cancelar).
+    public var reconnect: () throws -> AppConnection
     public var ask: (String) -> Bool
 
+    /// `reconnect == nil` = `connect` (los tests nunca abren la app).
     public init(terminal: Terminal, out: @escaping (String) -> Void, err: @escaping (String) -> Void,
-                connect: @escaping () throws -> AppConnection, ask: @escaping (String) -> Bool) {
+                connect: @escaping () throws -> AppConnection, reconnect: (() throws -> AppConnection)? = nil,
+                ask: @escaping (String) -> Bool) {
         self.terminal = terminal
         self.out = out
         self.err = err
         self.connect = connect
+        self.reconnect = reconnect ?? connect
         self.ask = ask
     }
 
     public static var live: CLIEnvironment {
         CLIEnvironment(terminal: .current(), out: Output.standardOut, err: Output.standardError,
-                       connect: { try AppConnection.open() }, ask: Prompt.confirm)
+                       connect: { try AppConnection.open() }, reconnect: { try AppConnection.connect() },
+                       ask: Prompt.confirm)
     }
 }
 
@@ -93,7 +100,7 @@ public enum CLIRunner {
             }
             let request = try command.appCommand(confirmed: confirmed)
             let interrupt = command.cancelCommand.map {
-                InterruptHandler(cancel: $0, connect: environment.connect, err: environment.err)
+                InterruptHandler(cancel: $0, connect: environment.reconnect, err: environment.err)
             }
             defer { interrupt?.remove() }
             let result = try connection.run(request) { output.event($0) }
@@ -112,26 +119,71 @@ public enum CLIRunner {
     }
 }
 
-/// Ctrl-C mientras se espera (`--wait`, chat): cancela el job en la app y sale con 130 (spec C.5).
-final class InterruptHandler {
-    private let source: DispatchSourceSignal
+/// Ctrl-C mientras se espera (`--wait`, chat): cancela el job en la app y sale con 130 (spec C.5). El cancel va por
+/// una conexión nueva (la de la espera está ocupada) que solo conecta, nunca abre la app, en otro hilo y con un plazo:
+/// pasado `deadline` sale igual. Un segundo Ctrl-C sale enseguida.
+public final class InterruptHandler: @unchecked Sendable {
+    private let cancel: AppCommand
+    private let connect: () throws -> AppConnection
+    private let err: (String) -> Void
+    private let deadline: TimeInterval
+    private let terminate: @Sendable (Int32) -> Void
+    private let lock = NSLock()
+    private var interrupts = 0
+    private var finished = false
+    private var source: DispatchSourceSignal?
 
-    init(cancel: AppCommand, connect: @escaping () throws -> AppConnection, err: @escaping (String) -> Void) {
+    /// `connect` tiene que ser solo conectar (`AppConnection.connect`), no `open`. `terminate` e
+    /// `installsSignalHandler` cambian en los tests.
+    public init(cancel: AppCommand, connect: @escaping () throws -> AppConnection, err: @escaping (String) -> Void,
+                deadline: TimeInterval = 2, terminate: @escaping @Sendable (Int32) -> Void = { exit($0) },
+                installsSignalHandler: Bool = true) {
+        self.cancel = cancel
+        self.connect = connect
+        self.err = err
+        self.deadline = deadline
+        self.terminate = terminate
+        guard installsSignalHandler else { return }
         signal(SIGINT, SIG_IGN)
-        source = DispatchSource.makeSignalSource(signal: SIGINT, queue: .global())
-        source.setEventHandler {
+        let source = DispatchSource.makeSignalSource(signal: SIGINT, queue: .global())
+        source.setEventHandler { [weak self] in self?.interrupted() }
+        source.resume()
+        self.source = source
+    }
+
+    /// Lo que hace cada Ctrl-C (público para los tests).
+    public func interrupted() {
+        lock.lock()
+        interrupts += 1
+        let first = interrupts == 1
+        lock.unlock()
+        guard first else { return finish() }
+        let cancel = self.cancel
+        let connect = self.connect
+        Thread.detachNewThread { [self] in
             if let connection = try? connect() {
                 _ = try? connection.run(cancel)
                 connection.close()
             }
-            err("\nCanceled.\n")
-            exit(CLIExit.cancelled)
+            finish()
         }
-        source.resume()
+        DispatchQueue.global().asyncAfter(deadline: .now() + deadline) { [self] in finish() }
     }
 
-    func remove() {
-        source.cancel()
+    /// Sale una sola vez (el cancel, el plazo o el segundo Ctrl-C: lo que llegue primero).
+    private func finish() {
+        lock.lock()
+        let already = finished
+        finished = true
+        lock.unlock()
+        guard !already else { return }
+        err("\nCanceled.\n")
+        terminate(CLIExit.cancelled)
+    }
+
+    public func remove() {
+        source?.cancel()
+        source = nil
         signal(SIGINT, SIG_DFL)
     }
 }

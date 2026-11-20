@@ -85,7 +85,49 @@ enum CLISupportTests {
             try expectEqual(AppVersion.forExecutable(root.appendingPathComponent("loose")), PRBarCore.version)
         },
         TestCase("cli runner: status, --json y errores contra un servidor de prueba") { try await runnerAgainstServer() },
+        TestCase("ctrl-c: si cancelar no contesta, sale con 130 al vencer el plazo") {
+            let exits = ExitBox()
+            let handler = InterruptHandler(cancel: .reviewCancel(pr: "a#1"), connect: {
+                Thread.sleep(forTimeInterval: 5)
+                throw AppUnavailable("slow")
+            }, err: { _ in }, deadline: 0.2, terminate: { exits.append($0) }, installsSignalHandler: false)
+            let start = Date()
+            handler.interrupted()
+            for _ in 0..<100 where exits.codes.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+            try expectEqual(exits.codes.first, CLIExit.cancelled)
+            try expect(Date().timeIntervalSince(start) < 1, "tardó \(Date().timeIntervalSince(start)) s")
+        },
+        TestCase("ctrl-c: el segundo Ctrl-C sale enseguida") {
+            let exits = ExitBox()
+            let handler = InterruptHandler(cancel: .reviewCancel(pr: "a#1"), connect: {
+                Thread.sleep(forTimeInterval: 5)
+                throw AppUnavailable("slow")
+            }, err: { _ in }, deadline: 10, terminate: { exits.append($0) }, installsSignalHandler: false)
+            handler.interrupted()
+            handler.interrupted()
+            try expectEqual(exits.codes, [CLIExit.cancelled])
+        },
+        TestCase("ctrl-c: manda el cancel a la app y sale con 130") { try await interruptSendsCancel() },
     ]
+
+    @MainActor
+    private static func interruptSendsCancel() async throws {
+        let url = try shortSocketURL()
+        defer { removeSocketDirectory(url) }
+        let fake = FakeActions()
+        let server = CommandServer(socketURL: url, appVersion: "9.9.9") { command, events in
+            await CommandDispatcher.run(command, on: fake, events: events)
+        }
+        try server.start()
+        defer { server.stop() }
+        let exits = ExitBox()
+        let handler = InterruptHandler(cancel: .reviewCancel(pr: "a#1"), connect: { try AppConnection.connect(socketURL: url) },
+                                       err: { _ in }, deadline: 5, terminate: { exits.append($0) }, installsSignalHandler: false)
+        handler.interrupted()
+        for _ in 0..<200 where exits.codes.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+        try expectEqual(exits.codes, [CLIExit.cancelled])
+        try expectEqual(fake.calls, ["reviewCancel a#1"])
+    }
 
     /// `CLIRunner` de punta a punta por un socket real, con `FakeActions` detrás del dispatcher.
     @MainActor
@@ -167,5 +209,23 @@ final class OutputBox: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return stderr
+    }
+}
+
+/// Los exit codes que pidió un `InterruptHandler` de prueba.
+final class ExitBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: [Int32] = []
+
+    func append(_ code: Int32) {
+        lock.lock()
+        stored.append(code)
+        lock.unlock()
+    }
+
+    var codes: [Int32] {
+        lock.lock()
+        defer { lock.unlock() }
+        return stored
     }
 }

@@ -141,7 +141,7 @@ enum ChatREPL {
                         output.error(failure.message)
                     }
                 default:
-                    let interrupt = InterruptHandler(cancel: stop, connect: environment.connect, err: environment.err)
+                    let interrupt = InterruptHandler(cancel: stop, connect: environment.reconnect, err: environment.err)
                     defer { interrupt.remove() }
                     output.write(output.paint("claude› ", .violet, .bold))
                     do {
