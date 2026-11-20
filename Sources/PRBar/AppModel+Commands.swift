@@ -116,13 +116,12 @@ extension AppModel: StatusActions {
     func historyList(repo: String?, kind: HistoryKind?, limit: Int?, search: String?) -> [HistoryEntryInfo] {
         var entries: [HistoryEntryInfo] = []
         if kind == nil || kind == .review { entries += history.all().map(HistoryEntryInfo.init(review:)) }
-        if kind == nil || kind == .respond { entries += respondHistory.all().map(HistoryEntryInfo.init(respond:)) }
+        // Respond and Fix CI share `respondHistory`; `listing` keeps the requested kind only.
+        if kind == nil || kind == .respond || kind == .ciFix {
+            entries += respondHistory.all().map(HistoryEntryInfo.init(respond:))
+        }
         if kind == nil || kind == .merge { entries += mergeHistory.all().map(HistoryEntryInfo.init(merge:)) }
-        let filtered = entries
-            .filter { entry in repo.map { entry.repo.caseInsensitiveCompare($0) == .orderedSame } ?? true }
-            .filter { $0.matches(search ?? "") }
-            .sorted { $0.startedAt > $1.startedAt }
-        return Array(filtered.prefix(max(limit ?? 50, 1)))
+        return HistoryEntryInfo.listing(entries, repo: repo, kind: kind, limit: limit, search: search)
     }
 
     private enum HistoryHit {

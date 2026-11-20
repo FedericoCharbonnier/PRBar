@@ -531,6 +531,18 @@ public struct HistoryEntryInfo: Codable, Equatable, Sendable {
                   finishedAt: record.finishedAt, usage: record.chat?.usage)
     }
 
+    /// `prbar history`: filters by repo, kind (a Fix CI is `.ciFix`, never `.respond`; spec K.6.8) and search, newest
+    /// first, at most `limit` (50 by default).
+    public static func listing(_ entries: [HistoryEntryInfo], repo: String?, kind: HistoryKind?, limit: Int?,
+                               search: String?) -> [HistoryEntryInfo] {
+        let filtered = entries
+            .filter { kind == nil || $0.kind == kind }
+            .filter { entry in repo.map { entry.repo.caseInsensitiveCompare($0) == .orderedSame } ?? true }
+            .filter { $0.matches(search ?? "") }
+            .sorted { $0.startedAt > $1.startedAt }
+        return Array(filtered.prefix(max(limit ?? 50, 1)))
+    }
+
     /// Búsqueda de la ventana de Historial: título, repo o número ("482" o "#482"). `query` ya en minúsculas.
     public func matches(_ query: String) -> Bool {
         let query = query.trimmingCharacters(in: .whitespaces).lowercased()

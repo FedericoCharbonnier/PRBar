@@ -58,6 +58,23 @@ enum CIFixTests {
             try expect(posted.isEmpty)
             try expect(api.posts.isEmpty)
         },
+        TestCase("ci fix: history --kind ci-fix lista solo los Fix CI y --kind respond no los incluye") {
+            let make = { (id: Int, kind: HistoryKind) in
+                HistoryEntryInfo(id: UUID(), kind: kind, pr: "acme/api#\(id)", repo: "acme/api", number: id, title: "t\(id)",
+                                 status: "done", startedAt: Date(timeIntervalSince1970: TimeInterval(id)))
+            }
+            let all = [make(1, .review), make(2, .respond), make(3, .ciFix), make(4, .merge), make(5, .ciFix)]
+            let ids = { (kind: HistoryKind?) in
+                HistoryEntryInfo.listing(all, repo: nil, kind: kind, limit: nil, search: nil).map(\.number)
+            }
+            try expectEqual(ids(.ciFix), [5, 3])
+            try expectEqual(ids(.respond), [2])
+            try expectEqual(ids(.review), [1])
+            try expectEqual(ids(nil), [5, 4, 3, 2, 1])
+            try expectEqual(HistoryEntryInfo.listing(all, repo: "ACME/api", kind: nil, limit: 2, search: nil).map(\.number), [5, 4])
+            try expectEqual(HistoryEntryInfo.listing(all, repo: "other/x", kind: nil, limit: nil, search: nil), [])
+            try expectEqual(HistoryEntryInfo.listing(all, repo: nil, kind: nil, limit: nil, search: "#3").map(\.number), [3])
+        },
         TestCase("ci logs: saneado (ANSI, hora de Actions, \\r, control, bidi, tokens)") {
             let raw = "2026-11-20T10:00:00.1234567Z \u{1B}[31mError:\u{1B}[0m boom\r\nprogress 10%\rprogress 100%\n"
                 + "token ghp_\(String(repeating: "a", count: 36)) and secret-tok\n\u{202E}evil\u{200B}\u{07}ok\n"
