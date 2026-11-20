@@ -14,8 +14,6 @@ struct SecureChannel: Sendable {
     /// Rotación (spec P.5): handshake nuevo a las 24 h o a los 2²⁰ mensajes en cualquier dirección.
     static let maxAge: TimeInterval = 24 * 3_600
     static let maxMessages: UInt64 = 1 << 20
-    /// Se comprimen los `state` y lo que pasa de 4 KiB (spec P.5).
-    static let compressionThreshold = 4 * 1024
 
     init(sid: String, handshake: NoiseHandshake, startedAt: Date) throws {
         self.sid = sid
@@ -26,10 +24,11 @@ struct SecureChannel: Sendable {
 
     /// Cifra un marco: un `b` por trozo, en orden.
     mutating func seal(_ frame: RemoteFrame) throws -> [Data] {
+        // Nunca se comprime al mandar (M2): `home` y muchas respuestas mezclan texto que escribe cualquiera (títulos,
+        // comentarios) con datos privados, y el tamaño comprimido filtraría lo privado a quien mide los marcos.
+        // Al recibir se sigue aceptando un marco comprimido (bit 1 del trozo), por compatibilidad.
         let data = try frame.encoded()
-        var compress = data.count > Self.compressionThreshold
-        if case .state = frame { compress = true }
-        return try FrameChunker.chunks(for: data, compress: compress).map { try transport.send.encrypt($0) }
+        return try FrameChunker.chunks(for: data, compress: false).map { try transport.send.encrypt($0) }
     }
 
     /// Descifra un trozo; devuelve el marco cuando está completo.

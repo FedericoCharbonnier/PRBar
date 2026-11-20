@@ -155,8 +155,11 @@ mismo cliente se conectó de nuevo: gana el último) · 4413 marco demasiado gra
   plano de cada trozo es `flags(u8) ‖ len(u16 BE) ‖ datos ‖ ceros` hasta un múltiplo de 256 bytes (máximo 65 280 de
   texto plano por trozo). `flags`: bit 0 = siguen más trozos, bit 1 = datos comprimidos (zlib de Foundation). Un marco
   armado mide ≤ 16 MiB; más → se cierra la sesión.
-- **Compresión**: solo marcos `state` y resultados > 4 KiB. No llevan secretos (los tokens nunca salen de la Mac), así
-  que la fuga por tamaño comprimido (estilo CRIME) no expone nada que no sea ya del PR; el relleno a 256 achica la señal.
+- **Compresión**: **ninguna al mandar** (corregido tras la revisión de cifrado, P.15 M2). `home` y muchas respuestas
+  mezclan datos privados (PRs de repos privados, código, salida de Claude) con texto que escribe cualquiera (títulos y
+  comentarios de PRs de repos públicos): comprimir antes de cifrar dejaría que quien mide los marcos (el relay, o la red
+  por el tamaño de los registros TLS) adivine lo privado inyectando texto, al estilo CRIME. El bit 1 del trozo se sigue
+  aceptando al recibir, por compatibilidad; los marcos son más grandes pero el tope de 16 MiB sobra.
 - **Emparejamiento: `Noise_IKpsk2_25519_ChaChaPoly_SHA256`** (P.11): el teléfono conoce la estática de la Mac por el QR;
   el PSK sale del secreto del QR.
 
