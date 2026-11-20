@@ -473,13 +473,12 @@ public struct AppConfig: Hashable, Codable, Sendable {
     public var slack = SlackSettings()
     public var claude = ClaudeSettings()
     public var updates = UpdateSettings()
-    public var merge = MergeSettings()
 
     public init() {}
 
     enum CodingKeys: String, CodingKey {
+        // `merge` (`{"confirm": …}`, F.5) se quitó en el Plan 11 (spec G.1): la clave vieja se ignora al leer.
         case accounts, refreshIntervalMinutes, launchAtLogin, notifications, toolPaths, slack, claude, updates
-        case merge
     }
 
     public init(from decoder: Decoder) throws {
@@ -492,7 +491,6 @@ public struct AppConfig: Hashable, Codable, Sendable {
         slack = try c.decodeIfPresent(SlackSettings.self, forKey: .slack) ?? SlackSettings()
         claude = (try? c.decodeIfPresent(ClaudeSettings.self, forKey: .claude)) ?? ClaudeSettings()
         updates = (try? c.decodeIfPresent(UpdateSettings.self, forKey: .updates)) ?? UpdateSettings()
-        merge = (try? c.decodeIfPresent(MergeSettings.self, forKey: .merge)) ?? MergeSettings()
     }
 }
 

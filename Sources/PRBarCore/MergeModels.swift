@@ -153,18 +153,3 @@ public struct RepoMergeSettings: Hashable, Codable, Sendable {
         viewerPermission = try? c.decodeIfPresent(String.self, forKey: .viewerPermission)
     }
 }
-
-/// `config.json › merge` (spec F.5).
-public struct MergeSettings: Hashable, Codable, Sendable {
-    /// Pedir confirmación antes de mergear.
-    public var confirm = true
-
-    public init() {}
-
-    enum CodingKeys: String, CodingKey { case confirm }
-
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        confirm = (try? c.decodeIfPresent(Bool.self, forKey: .confirm)) ?? true
-    }
-}

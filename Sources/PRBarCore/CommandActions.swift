@@ -67,7 +67,6 @@ public protocol ConfigActions: AnyObject {
     func configShow() -> AppConfig
     func configSetRefreshInterval(minutes: Int) throws
     func configSetLaunchAtLogin(enabled: Bool) throws
-    func configSetConfirmMerge(enabled: Bool) throws
     func accountList() -> [AccountInfo]
     func accountSetEnabled(login: String, enabled: Bool) throws
     func accountReload() async throws -> [AccountInfo]

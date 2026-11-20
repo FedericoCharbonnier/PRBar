@@ -9,18 +9,16 @@ extension AppModel {
         MergePolicy.options(for: item, snapshot: prStore.snapshot, config: configStore.config)
     }
 
-    /// El botón Merge, el menú contextual y Retry. Con `merge.confirm` abre el diálogo; si no, mergea enseguida.
+    /// El botón Merge, el menú contextual y Retry: abren el diálogo (spec G.1: siempre se confirma).
     /// `method == nil` = el método por defecto. Lo que no se puede mergear queda como error en la fila
     /// (`MergeFlow.request`).
     func requestMerge(_ item: ClassifiedPR, method: MergeMethod? = nil) {
         let options = mergeOptions(item)
         switch MergeFlow.request(
-            item, method: method, options: options, confirm: configStore.config.merge.confirm,
-            blockedReason: jobsBlockedReason, phase: merges.phases[item.id]
+            item, method: method, options: options, blockedReason: jobsBlockedReason, phase: merges.phases[item.id]
         ) {
         case .ignore: break
         case .confirm(let chosen): openMergeConfirmation(item, method: chosen, options: options)
-        case .merge(let chosen): Task { _ = await merge(item, method: chosen) }
         case .fail(let chosen, let error): merges.reject(item, method: chosen, error: error)
         }
     }
@@ -43,7 +41,7 @@ extension AppModel {
 
     /// Retry de una fila con error: refresca (el PR pudo cambiar) y decide con `MergeFlow.retry`: si el PR cambió
     /// (head distinto, o el error fue `headChanged`) solo limpia el error, así nunca se mergea un head que no se vio;
-    /// si es el mismo, vuelve a pedir el merge con el mismo método (con `merge.confirm`, se vuelve a confirmar); si
+    /// si es el mismo, vuelve a pedir el merge con el mismo método (se vuelve a confirmar); si
     /// ya no está en la lista, le pregunta a GitHub si se mergeó.
     func retryMerge(prID: String) {
         guard let failure = merges.failure(prID: prID) else { return }
@@ -65,11 +63,6 @@ extension AppModel {
     /// Settings › Repos: `nil` = el método por defecto de GitHub.
     func setMergeMethod(_ method: MergeMethod?, repoID: String, login: String) {
         updateConfig(refresh: false) { $0.setMergeMethod(method, repoID: repoID, login: login) }
-    }
-
-    /// Settings › General › "Confirm before merging".
-    func setConfirmBeforeMerging(_ on: Bool) {
-        updateConfig(refresh: false) { $0.merge.confirm = on }
     }
 
     /// Lo llama `MergeQueue` después de un merge: "Merged" en Slack y, a los 2 s ("Merged" en la fila), un refresco

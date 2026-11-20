@@ -55,8 +55,6 @@ public enum AppCommand: Codable, Equatable, Sendable {
     case configShow
     case setRefreshInterval(minutes: Int)
     case setLaunchAtLogin(enabled: Bool)
-    /// Settings › General › "Confirm before merging".
-    case setConfirmMerge(enabled: Bool)
     case accountList
     case accountSetEnabled(login: String, enabled: Bool)
     case accountReload
@@ -149,7 +147,7 @@ public enum AppCommand: Codable, Equatable, Sendable {
         case quit, reviewStart, reviewShow, reviewEdit, reviewSetIncluded, reviewSetComment, reviewPublish, reviewCancel
         case reviewDismiss, respondStart, respondShow, respondSelect, respondReset, respondImplement, respondTest
         case respondDiff, respondPush, respondPushAnyway, respondReplyOnly, respondCancel, respondDismiss, merge
-        case mergePreview, mergeDismiss, configShow, setRefreshInterval, setLaunchAtLogin, setConfirmMerge, accountList
+        case mergePreview, mergeDismiss, configShow, setRefreshInterval, setLaunchAtLogin, accountList
         case accountSetEnabled, accountReload, repoList, repoAvailable, repoAdd, repoRemove, repoSet, repoBranches
         case followList, followAdd, followRemove, followSuggestions, notifyList, notifySet, notifySetEnabled, claudeShow
         case claudeSet, claudeReset, claudeSkills, toolsList, toolsSet, slackShow, slackSetEnabled, slackSetProvider
@@ -200,7 +198,6 @@ public enum AppCommand: Codable, Equatable, Sendable {
         case .configShow: .configShow
         case .setRefreshInterval: .setRefreshInterval
         case .setLaunchAtLogin: .setLaunchAtLogin
-        case .setConfirmMerge: .setConfirmMerge
         case .accountList: .accountList
         case .accountSetEnabled: .accountSetEnabled
         case .accountReload: .accountReload

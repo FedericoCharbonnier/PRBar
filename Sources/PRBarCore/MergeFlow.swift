@@ -9,17 +9,14 @@ public enum MergeFlow {
         case ignore
         /// Abrir la confirmación con este método.
         case confirm(MergeMethod)
-        /// Mergear ya con este método.
-        case merge(MergeMethod)
         /// No se puede: la fila muestra el error (nunca un silencio).
         case fail(MergeMethod?, MergeError)
     }
 
-    /// `method == nil` = el método por defecto. `confirm` = `merge.confirm`. `blockedReason`: se está instalando una
-    /// actualización.
+    /// `method == nil` = el método por defecto. `blockedReason`: se está instalando una actualización. Siempre se
+    /// confirma (spec G.1 quitó `merge.confirm`).
     public static func request(
-        _ item: ClassifiedPR, method: MergeMethod?, options: MergeOptions, confirm: Bool, blockedReason: String?,
-        phase: MergePhase?
+        _ item: ClassifiedPR, method: MergeMethod?, options: MergeOptions, blockedReason: String?, phase: MergePhase?
     ) -> RequestRoute {
         switch phase {
         case .merging?, .merged?: return .ignore
@@ -29,7 +26,7 @@ public enum MergeFlow {
         if let blockedReason { return .fail(chosen, .blocked(blockedReason)) }
         if let problem = MergePolicy.problem(item, method: chosen, options: options) { return .fail(chosen, problem) }
         guard let chosen else { return .fail(nil, .unavailable("This repo doesn’t allow any merge method")) }
-        return confirm ? .confirm(chosen) : .merge(chosen)
+        return .confirm(chosen)
     }
 
     /// Lo que verifica `prbar merge` (y `--preview`) contra el snapshot actual. `expectedHeadOid`: el head que la CLI

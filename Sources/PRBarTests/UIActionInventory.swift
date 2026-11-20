@@ -175,7 +175,7 @@ enum UIActionInventory {
         // Settings › General
         .init("Settings/GeneralTab.swift", "Picker", "Refresh every", 1, .cli(["config set"])),
         .init("Settings/GeneralTab.swift", "Toggle", "Open at login", 1, .cli(["config set"])),
-        .init("Settings/GeneralTab.swift", "Toggle", "-", 2, .cli(["notify enable", "notify disable", "config set"])),   // Show notifications y Confirm before merging
+        .init("Settings/GeneralTab.swift", "Toggle", "-", 1, .cli(["notify enable", "notify disable"])),   // Show notifications
         .init("Settings/GeneralTab.swift", "Toggle", "New PR to review", 1, .cli(["notify set"])),
         .init("Settings/GeneralTab.swift", "Toggle", "A PR I reviewed has new commits", 1, .cli(["notify set"])),
         .init("Settings/GeneralTab.swift", "Toggle", "My PR got change requests or comments", 1, .cli(["notify set"])),

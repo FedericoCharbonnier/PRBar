@@ -3,7 +3,7 @@ import PRBarCore
 import SwiftUI
 
 /// "Merge #42 into main?" (spec F.3): el título del PR, repo, commits y ramas, un popup con el método y el botón del
-/// método elegido. Lo abre `AppModel.requestMerge` en una ventana chica cuando `merge.confirm` está encendido.
+/// método elegido. Lo abre `AppModel.requestMerge` en una ventana chica.
 struct MergeConfirmView: View {
     static let size = NSSize(width: 440, height: 230)
 

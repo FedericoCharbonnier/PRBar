@@ -105,11 +105,6 @@ extension AppModel: ConfigActions {
         if let settingsError { throw CommandFailure(.failed, settingsError) }
     }
 
-    /// Settings › General › "Confirm before merging".
-    func configSetConfirmMerge(enabled: Bool) throws {
-        setConfirmBeforeMerging(enabled)
-        if let settingsError { throw CommandFailure(.failed, settingsError) }
-    }
 
     func accountList() -> [AccountInfo] {
         let configured = configStore.config.accounts

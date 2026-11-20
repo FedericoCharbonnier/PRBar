@@ -38,18 +38,6 @@ struct GeneralTab: View {
             }
 
             Section {
-                Toggle(isOn: Binding(
-                    get: { configStore.config.merge.confirm },
-                    set: { model.setConfirmBeforeMerging($0) }
-                )) {
-                    Text("Confirm before merging")
-                    Text("Shows the PR, the merge method and the number of commits first")
-                }
-            } header: {
-                Text("Merging")
-            }
-
-            Section {
                 Toggle(isOn: notification(\.enabled)) {
                     Text("Show notifications")
                     Text("Uses the style set in System Settings")

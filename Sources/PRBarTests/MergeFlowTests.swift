@@ -14,10 +14,10 @@ private func options(
 }
 
 private func request(
-    _ pr: ClassifiedPR = item(), method: MergeMethod? = nil, options opts: MergeOptions = options(), confirm: Bool = false,
+    _ pr: ClassifiedPR = item(), method: MergeMethod? = nil, options opts: MergeOptions = options(),
     blocked: String? = nil, phase: MergePhase? = nil
 ) -> MergeFlow.RequestRoute {
-    MergeFlow.request(pr, method: method, options: opts, confirm: confirm, blockedReason: blocked, phase: phase)
+    MergeFlow.request(pr, method: method, options: opts, blockedReason: blocked, phase: phase)
 }
 
 private func check(
@@ -67,18 +67,14 @@ enum MergeFlowTests {
             try expectEqual(preview.deletesBranch, true)
             try expectEqual(preview.previousError, MergeError.headChanged.localizedDescription)
         },
-        TestCase("merge flow: sin confirmación mergea con el método por defecto o el elegido") {
-            try expectEqual(request(), .merge(.squash))
-            try expectEqual(request(method: .merge), .merge(.merge))
-        },
-        TestCase("merge flow: con confirmación abre el diálogo") {
-            try expectEqual(request(confirm: true), .confirm(.squash))
-            try expectEqual(request(method: .merge, confirm: true), .confirm(.merge))
+        TestCase("merge flow: siempre confirma, con el método por defecto o el elegido") {
+            try expectEqual(request(), .confirm(.squash))
+            try expectEqual(request(method: .merge), .confirm(.merge))
         },
         TestCase("merge flow: un merge en curso o hecho no se pide de nuevo; un error previo no impide") {
             try expectEqual(request(phase: .merging(.squash)), .ignore)
             try expectEqual(request(phase: .merged(.squash)), .ignore)
-            try expectEqual(request(phase: .failed(method: .squash, error: .headChanged)), .merge(.squash))
+            try expectEqual(request(phase: .failed(method: .squash, error: .headChanged)), .confirm(.squash))
         },
         TestCase("merge flow: lo que no se puede mergear es un error visible, no un silencio") {
             try expectEqual(request(blocked: "Installing an update"), .fail(.squash, .blocked("Installing an update")))

@@ -70,7 +70,7 @@ shows the help of `review start`, the group’s default subcommand).
 | `prbar merge <pr> [--method squash\|merge\|rebase] [--yes]` | Merge a PR of yours that’s Ready to Merge (the repo’s method unless `--method`) |
 | `prbar merge <pr> --preview [--method M]` | What would be merged (title, branches, commits, head, the dialog’s note), without merging |
 | `prbar merge <pr> --dismiss` | Dismiss the row’s merge error |
-| `prbar config show`, `prbar config set refresh-interval 1\|2\|5\|10`, `… launch-at-login on\|off`, `… confirm-merge on\|off`, `… update-interval 0\|6\|12\|24\|168` (hours; 0 = check manually only) | General |
+| `prbar config show`, `prbar config set refresh-interval 1\|2\|5\|10`, `… launch-at-login on\|off`, `… update-interval 0\|6\|12\|24\|168` (hours; 0 = check manually only) | General |
 | `prbar account list\|reload`, `prbar account enable\|disable <login>` | Accounts |
 | `prbar repo list\|available\|add\|remove\|branches\|open`, `prbar repo set <repo> [--path P\|none] [--worktrees P\|default] [--test-command C] [--branches a,b] [--add-branch b] [--remove-branch b] [--channel #name\|ID\|none] [--merge-method squash\|merge\|rebase\|default] [--ignore G]… [--unignore G]…` | Repos (`--ignore`: hide findings in matching files in this repo’s reviews) |
 | `prbar follow list [repo]`, `prbar follow add\|remove <repo> <users…>`, `prbar follow suggestions <repo>` | People to follow |

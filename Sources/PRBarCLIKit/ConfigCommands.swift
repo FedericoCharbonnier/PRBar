@@ -25,14 +25,13 @@ struct ConfigShow: RemoteCommand {
 enum ConfigKey: String, ExpressibleByArgument, CaseIterable {
     case refreshInterval = "refresh-interval"
     case launchAtLogin = "launch-at-login"
-    case confirmMerge = "confirm-merge"
     case updateInterval = "update-interval"
 }
 
 struct ConfigSet: RemoteCommand {
     static let configuration = CommandConfiguration(
         commandName: "set", abstract: "Change a general setting.",
-        discussion: "refresh-interval 1|2|5|10 (minutes) · launch-at-login on|off · confirm-merge on|off (Confirm before merging) · update-interval 0|6|12|24|168 (hours; 0 = manual only)")
+        discussion: "refresh-interval 1|2|5|10 (minutes) · launch-at-login on|off · update-interval 0|6|12|24|168 (hours; 0 = manual only)")
     @Argument(help: "The setting.") var key: ConfigKey
     @Argument(help: "Its value.") var value: String
     @OptionGroup var global: GlobalOptions
@@ -47,9 +46,6 @@ struct ConfigSet: RemoteCommand {
         case .launchAtLogin:
             guard let on = OnOff(rawValue: value) else { throw ValidationError("launch-at-login takes on or off.") }
             return .setLaunchAtLogin(enabled: on.isOn)
-        case .confirmMerge:
-            guard let on = OnOff(rawValue: value) else { throw ValidationError("confirm-merge takes on or off.") }
-            return .setConfirmMerge(enabled: on.isOn)
         case .updateInterval:
             guard let hours = Int(value) else { throw ValidationError("update-interval takes hours: 0 (manual only), 6, 12, 24 or 168.") }
             return .setUpdateInterval(hours: hours)

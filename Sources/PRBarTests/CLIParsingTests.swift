@@ -129,7 +129,7 @@ enum CLIParsingTests {
                 try expectEqual(try parsed(["config", "set", "launch-at-login", "on"]), .setLaunchAtLogin(enabled: true))
                 try expect(rejects(["config", "set", "launch-at-login", "maybe"]))
                 try expect(rejects(["config", "set", "refresh-interval", "x"]))
-                try expectEqual(try parsed(["config", "set", "confirm-merge", "off"]), .setConfirmMerge(enabled: false))
+                try expect(rejects(["config", "set", "confirm-merge", "off"]))
                 try expectEqual(try parsed(["notify", "set", "ready-to-merge", "on"]), .notifySet(kind: .readyToMerge, enabled: true))
                 try expectEqual(try parsed(["account", "list"]), .accountList)
                 try expectEqual(try parsed(["account", "enable", "me"]), .accountSetEnabled(login: "me", enabled: true))
