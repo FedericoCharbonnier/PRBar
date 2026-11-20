@@ -60,5 +60,27 @@ enum PopoverTabsTests {
             try expectEqual(PopoverTabs.accessibilityLabel(.mine, count: 1), "My PRs, 1 needs your action")
             try expectEqual(PopoverTabs.accessibilityLabel(.toReview, count: 3), "To Review, 3 need your action")
         },
+        TestCase("popover tabs: la pestaña elegida se guarda en UserDefaults (popoverTab)") {
+            try await MainActor.run {
+                let suite = "prbar-tests-\(UUID().uuidString)"
+                let defaults = UserDefaults(suiteName: suite)!
+                defer { defaults.removePersistentDomain(forName: suite) }
+                let first = PopoverTabState(defaults: defaults)
+                try expectEqual(first.selected, .toReview)
+                first.selected = .mine
+                try expectEqual(defaults.string(forKey: "popoverTab"), "mine")
+                let second = PopoverTabState(defaults: defaults)
+                try expectEqual(second.selected, .mine)
+            }
+        },
+        TestCase("popover tabs: un valor guardado desconocido vuelve a To Review") {
+            try await MainActor.run {
+                let suite = "prbar-tests-\(UUID().uuidString)"
+                let defaults = UserDefaults(suiteName: suite)!
+                defer { defaults.removePersistentDomain(forName: suite) }
+                defaults.set("everything", forKey: PopoverTabState.defaultsKey)
+                try expectEqual(PopoverTabState(defaults: defaults).selected, .toReview)
+            }
+        },
     ]
 }

@@ -119,3 +119,21 @@ public enum PopoverTabs {
         "\(tab.title), \(count) \(count == 1 ? "needs" : "need") your action"
     }
 }
+
+/// La pestaña elegida del popover; se recuerda entre aperturas y reinicios (`UserDefaults`, clave `popoverTab`).
+/// La cambian el control segmentado, ⌘1/⌘2, `prbar app popover --tab` y el clic en una notificación de un PR.
+@MainActor
+public final class PopoverTabState: ObservableObject {
+    public nonisolated static let defaultsKey = "popoverTab"
+
+    private let defaults: UserDefaults
+
+    @Published public var selected: PopoverTab {
+        didSet { defaults.set(selected.rawValue, forKey: Self.defaultsKey) }
+    }
+
+    public init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        selected = defaults.string(forKey: Self.defaultsKey).flatMap(PopoverTab.init(rawValue:)) ?? .toReview
+    }
+}
