@@ -321,7 +321,7 @@ enum UIActionInventory {
         .init("Popover/PRRowView.swift", "Component:MergeButtonActions", "-", 2, .cli(["merge"])),   // merge, retry, --dismiss
         .init("Popover/PopoverView.swift", "Component:MessageView", "-", 3, .cli(["app settings", "refresh"])),   // Open Settings, Try Again
         .init("Popover/PopoverView.swift", "Component:MessageView", "checkmark.seal", 1, .viewOnly("a tab’s empty state, no action")),
-        .init("Popover/PopoverView.swift", "Component:WindowAccessor", "-", 1, .viewOnly("tracks the popover’s window")),
+        .init("Popover/StatusItemController.swift", "Component:PopoverPanelContent", "-", 1, .viewOnly("hosts the popover in the menu bar panel")),
         .init("Popover/PopoverView.swift", "Component:SectionHeader", "-", 1, .viewOnly("collapses a section")),
         .init("Popover/PopoverView.swift", "Component:UpdateRow", "-", 1, .cli(["update"])),
         .init("Chat/ChatPanel.swift", "Component:ChatMessageRow", "-", 2, .cli(["chat", "rules chat"])),   // Undo (--undo)

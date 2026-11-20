@@ -7,7 +7,8 @@ extension AppModel {
     /// `prbar app popover [--tab]`: elige la pestaña (si viene) y abre el popover. `shown` dice si quedó en pantalla.
     func openPopover(tab: PopoverTab?) async -> PopoverInfo {
         if let tab { popoverTab.selected = tab }
-        let shown = await StatusItemPopover.show { [weak self] in self?.popoverWindow }
+        let shown = showPopover?() ?? false
+        if !shown { AppLog.write("Couldn't show PRBar’s popover.") }
         return PopoverInfo(tab: popoverTab.selected, shown: shown)
     }
 
@@ -18,37 +19,16 @@ extension AppModel {
         popoverTab.selectForNextOpening(PopoverTabs.tab(of: item))
     }
 
-    /// Lo llama `WindowAccessor` cuando el contenido del popover entra en una ventana (o sale, con `nil`). Se miran
-    /// sus cambios de key/visibilidad para avisar a `PopoverTabState` cuándo se abre y se cierra, y al
-    /// `ResourceMonitor` cuándo puede muestrear (spec I).
-    func setPopoverWindow(_ window: NSWindow?) {
-        resources.setVisible("popover", window != nil)
-        guard window !== popoverWindow else { return syncPopoverVisibility() }
-        popoverWindowObservers.forEach(NotificationCenter.default.removeObserver)
-        popoverWindowObservers = []
-        popoverWindow = window
-        if let window {
-            let names: [Notification.Name] = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
-                                              NSWindow.didChangeOcclusionStateNotification]
-            popoverWindowObservers = names.map { name in
-                NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] note in
-                    // Al cerrarse, la ventana deja de ser key antes de salir de pantalla: se vuelve a mirar después.
-                    let occlusion = note.name == NSWindow.didChangeOcclusionStateNotification
-                    Task { @MainActor in
-                        // `MenuBarExtra` deja la ventana creada al cerrarse: su `occlusionState` dice si está en
-                        // pantalla, y el muestreo se para en cuanto deja de estarlo (spec I).
-                        if occlusion, let window = self?.popoverWindow {
-                            self?.resources.setVisible("popover", window.occlusionState.contains(.visible))
-                        }
-                        self?.syncPopoverVisibility()
-                    }
-                }
-            }
-        }
-        syncPopoverVisibility()
+    /// Lo llama `StatusItemController` al abrir y cerrar el panel: avisa a `PopoverTabState` y al `ResourceMonitor`,
+    /// que muestrea solo mientras se ve (spec I).
+    func popoverVisibilityChanged(_ visible: Bool) {
+        resources.setVisible("popover", visible)
+        if visible { popoverTab.popoverDidOpen() } else { popoverTab.popoverDidClose() }
     }
 
-    private func syncPopoverVisibility() {
-        if popoverWindow?.isVisible == true { popoverTab.popoverDidOpen() } else { popoverTab.popoverDidClose() }
+    /// Return on the row selected with the arrow keys: what clicking the row does (the PR on GitHub).
+    func openPRFromPopover(_ prID: String) {
+        guard let url = prStore.snapshot?.items.first(where: { $0.id == prID })?.pr.url else { return }
+        NSWorkspace.shared.open(url)
     }
 }

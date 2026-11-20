@@ -8,6 +8,8 @@ struct PRRowView: View {
     var dimmed = false
     /// Where the PR's last job ran (spec J): "on devbox" or the fallback; nil = this Mac.
     var placement: String? = nil
+    /// Selected with ↑/↓ in the popover: highlighted like the row under the mouse.
+    var isSelected = false
     let model: AppModel
     @ObservedObject var reviews: ReviewQueue
     @ObservedObject var respond: RespondQueue
@@ -29,7 +31,7 @@ struct PRRowView: View {
         Button { NSWorkspace.shared.open(pr.url) } label: { rowContent }
             .buttonStyle(.plain)
             .accessibilityLabel(accessibilityLabel)
-            .accessibilityAddTraits(.isLink)
+            .accessibilityAddTraits(isSelected ? [.isLink, .isSelected] : .isLink)
             .accessibilityHint("Opens the PR on GitHub")
             .overlayPreferenceValue(AccessoryAnchorKey.self) { anchor in
                 GeometryReader { proxy in
@@ -45,7 +47,7 @@ struct PRRowView: View {
             }
             .background(
                 RoundedRectangle(cornerRadius: Theme.Radius.row)
-                    .fill(hovering ? Color.primary.opacity(0.07) : .clear)
+                    .fill(hovering || isSelected ? Color.primary.opacity(0.07) : .clear)
                     .padding(.horizontal, 6)
             )
             .onHover { hovering = $0 }

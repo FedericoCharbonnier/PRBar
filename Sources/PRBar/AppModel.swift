@@ -191,11 +191,10 @@ final class AppModel: ObservableObject {
     let mergeHistory: MergeHistory
     /// La pestaña elegida del popover (spec H).
     let popoverTab: PopoverTabState
-    /// La ventana del popover cuando está en pantalla (la pone `WindowAccessor`): `prbar app popover` no la vuelve a
-    /// abrir (un clic en el botón la cerraría).
-    weak var popoverWindow: NSWindow?
-    /// Observadores de la ventana del popover para saber cuándo se abre y se cierra (`PopoverTabState`).
-    var popoverWindowObservers: [NSObjectProtocol] = []
+    /// Abre el panel de la barra de menú (`StatusItemController.show`); `false` si no pudo. Lo pone `AppDelegate`.
+    var showPopover: (() -> Bool)?
+    /// La fila elegida con ↑/↓ en el popover.
+    let popoverRows = PopoverRowSelection()
 
     @Published private(set) var tools = ResolvedTools()
     @Published private(set) var toolsResolved = false

@@ -196,7 +196,7 @@ private final class SnapshotSession {
     private func popover(_ name: String, model: AppModel) async throws {
         for appearance in options.appearances {
             let content = PopoverView(model: model, prStore: model.prStore, configStore: model.configStore, slack: model.slack,
-                                      tabs: model.popoverTab)
+                                      tabs: model.popoverTab, rows: model.popoverRows)
                 .background(Color(nsColor: .windowBackgroundColor))
                 .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.popover, style: .continuous))
                 .overlay(

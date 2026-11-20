@@ -8,7 +8,14 @@ struct PopoverView: View {
     @ObservedObject var configStore: ConfigStore
     @ObservedObject var slack: SlackAnnouncer
     @ObservedObject var tabs: PopoverTabState
+    /// ↑/↓ selection among the rows (handled by `StatusItemController`).
+    @ObservedObject var rows: PopoverRowSelection
     @State private var collapsed: Set<PopoverSection> = [.otherToReview, .waitingForReview]
+    /// The height the panel can take on this screen (`.infinity` in snapshot mode).
+    @Environment(\.popoverAvailableHeight) private var availableHeight
+    /// Everything but the PR list (header, tabs, footer, update row), measured: the list gets what's left.
+    @State private var totalHeight: CGFloat = 0
+    @State private var listHeight: CGFloat = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -28,7 +35,24 @@ struct PopoverView: View {
             UpdateRow(updates: model.updates) { model.openUpdateWindow() }
         }
         .frame(width: Theme.popoverWidth)
-        .background(WindowAccessor { window in model.setPopoverWindow(window) })
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { totalHeight = $0 }
+        .onChange(of: visibleRowIDs, initial: true) { _, ids in rows.setRows(ids) }
+    }
+
+    /// The list's maximum height: `Theme.popoverMaxHeight`, or less if the screen doesn't have room for it next to
+    /// the rest of the popover.
+    private var listMaxHeight: CGFloat {
+        guard availableHeight.isFinite else { return Theme.popoverMaxHeight }
+        let chrome = max(totalHeight - listHeight, 0)
+        return min(Theme.popoverMaxHeight, max(availableHeight - chrome, 120))
+    }
+
+    /// The PR rows on screen, top to bottom, for ↑/↓ (none when the popover shows a message instead of the list).
+    private var visibleRowIDs: [String] {
+        guard showsTabs, let snapshot = prStore.snapshot, !(snapshot.failedCompletely && snapshot.items.isEmpty) else { return [] }
+        let sections = PopoverTabs.sections(tabs.selected).filter { !PopoverTabs.items($0, in: snapshot).isEmpty }
+        let ordered = sections.filter { !$0.isQuiet } + sections.filter(\.isQuiet)
+        return ordered.filter { !collapsed.contains($0) }.flatMap { PopoverTabs.items($0, in: snapshot).map(\.id) }
     }
 
     // MARK: Header
@@ -202,33 +226,39 @@ struct PopoverView: View {
         let sections = PopoverTabs.sections(tab).filter { !PopoverTabs.items($0, in: snapshot).isEmpty }
         let loud = sections.filter { !$0.isQuiet }
         let quiet = sections.filter(\.isQuiet)
-        return ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                if snapshot.failedCompletely {
-                    ErrorBanner(messages: ["Offline. Showing data from \(RelativeAge.short(from: snapshot.fetchedAt)) ago."])
+        return ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    if snapshot.failedCompletely {
+                        ErrorBanner(messages: ["Offline. Showing data from \(RelativeAge.short(from: snapshot.fetchedAt)) ago."])
+                    }
+                    if !snapshot.issues.isEmpty {
+                        IssuesBanner(groups: snapshot.issuesByAccount)
+                    }
+                    if !slack.issues.isEmpty {
+                        IssuesBanner(groups: [(account: "Slack", issues: slack.issues)])
+                    }
+                    if loud.isEmpty {
+                        let empty = PopoverTabs.emptyState(tab)
+                        MessageView(icon: "checkmark.seal", iconColor: Theme.green, title: empty.title, text: empty.text)
+                    }
+                    ForEach(loud) { section in
+                        self.section(section, items: PopoverTabs.items(section, in: snapshot))
+                    }
+                    ForEach(quiet) { section in
+                        Divider().padding(.vertical, 4)
+                        self.section(section, items: PopoverTabs.items(section, in: snapshot))
+                    }
                 }
-                if !snapshot.issues.isEmpty {
-                    IssuesBanner(groups: snapshot.issuesByAccount)
-                }
-                if !slack.issues.isEmpty {
-                    IssuesBanner(groups: [(account: "Slack", issues: slack.issues)])
-                }
-                if loud.isEmpty {
-                    let empty = PopoverTabs.emptyState(tab)
-                    MessageView(icon: "checkmark.seal", iconColor: Theme.green, title: empty.title, text: empty.text)
-                }
-                ForEach(loud) { section in
-                    self.section(section, items: PopoverTabs.items(section, in: snapshot))
-                }
-                ForEach(quiet) { section in
-                    Divider().padding(.vertical, 4)
-                    self.section(section, items: PopoverTabs.items(section, in: snapshot))
-                }
+                .padding(.bottom, 6)
             }
-            .padding(.bottom, 6)
+            .frame(maxHeight: listMaxHeight)
+            .fixedSize(horizontal: false, vertical: true)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { listHeight = $0 }
+            .onChange(of: rows.selectedID) { _, id in
+                if let id { proxy.scrollTo(id) }
+            }
         }
-        .frame(maxHeight: Theme.popoverMaxHeight)
-        .fixedSize(horizontal: false, vertical: true)
     }
 
     @ViewBuilder
@@ -244,8 +274,12 @@ struct PopoverView: View {
         }
         if !collapsed.contains(section) {
             ForEach(items) { item in
-                PRRowView(item: item, dimmed: section.isQuiet, placement: model.placements.label(prID: item.id), model: model,
+                PRRowView(item: item, dimmed: section.isQuiet, placement: model.placements.label(prID: item.id),
+                          isSelected: rows.selectedID == item.id, model: model,
                           reviews: model.reviews, respond: model.respond, merges: model.merges, updateSession: model.updates.session)
+                    .id(item.id)
+                    // The mouse and the arrow keys share one highlighted row, as in a menu.
+                    .onHover { inside in if inside { rows.select(item.id) } }
             }
         }
     }

@@ -1,37 +1,34 @@
+import AppKit
 import PRBarCore
-import SwiftUI
 
-struct PRBarApp: App {
-    @StateObject private var model = AppModel()
-
-    var body: some Scene {
-        MenuBarExtra {
-            PopoverView(model: model, prStore: model.prStore, configStore: model.configStore, slack: model.slack,
-                        tabs: model.popoverTab)
-        } label: {
-            MenuBarLabel(prStore: model.prStore)
-        }
-        .menuBarExtraStyle(.window)
+/// The menu bar app: AppKit's lifecycle with `AppDelegate`. There are no SwiftUI scenes: the icon and its panel are
+/// `StatusItemController`, and every window goes through `WindowPresenter`.
+@MainActor
+enum PRBarApp {
+    static func main() {
+        let app = NSApplication.shared
+        let delegate = AppDelegate()
+        app.delegate = delegate
+        // `NSApplication.delegate` is weak; `run()` only returns when the app quits.
+        withExtendedLifetime(delegate) { app.run() }
     }
 }
 
-struct MenuBarLabel: View {
-    @ObservedObject var prStore: PRStore
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var model: AppModel?
+    private var statusItem: StatusItemController?
 
-    var body: some View {
-        Image(nsImage: BadgeIcon.image(for: state))
-            .accessibilityLabel("PRBar, \(accessibilityState)")
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // Before launching finishes: a click on a notification that launched the app needs the notification
+        // delegate that `AppModel` installs.
+        model = AppModel()
     }
 
-    private var accessibilityState: String {
-        guard let snapshot = prStore.snapshot else { return "loading" }
-        if snapshot.failedCompletely { return "offline" }
-        return snapshot.badgeCount == 1 ? "1 PR needs your action" : "\(snapshot.badgeCount) PRs need your action"
-    }
-
-    private var state: MenuBarIconState {
-        guard let snapshot = prStore.snapshot else { return .idle }
-        if snapshot.failedCompletely { return .error }
-        return .count(snapshot.badgeCount)
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        guard let model else { return }
+        let statusItem = StatusItemController(model: model)
+        self.statusItem = statusItem
+        model.showPopover = { [weak statusItem] in statusItem?.show() ?? false }
     }
 }
