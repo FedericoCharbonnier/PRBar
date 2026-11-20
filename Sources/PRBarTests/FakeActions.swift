@@ -196,8 +196,16 @@ final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActi
     func updateCheck() async throws -> UpdateInfo {
         try record("updateCheck"); return UpdateInfo(installed: "1.0.0", latest: updateLatest)
     }
+    /// `updateInstall` manda `waitEvents` y se queda esperando (hasta que la conexión se corte), como la app que se
+    /// reinicia.
+    var updateInstallHangs = false
     func updateInstall(cancelJobs: Bool, events: @escaping CommandEventSink) async throws -> UpdateInfo {
-        try record("updateInstall \(cancelJobs)"); return UpdateInfo(installed: "1.0.0")
+        try record("updateInstall \(cancelJobs)")
+        if updateInstallHangs {
+            emit(events)
+            try await Task.sleep(for: .seconds(30))
+        }
+        return UpdateInfo(installed: "1.0.0")
     }
     func updateCancel() throws { try record("updateCancel") }
     func updateSkip(version: String?) async throws -> UpdateInfo {

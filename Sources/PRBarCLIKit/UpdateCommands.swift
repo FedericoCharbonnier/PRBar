@@ -64,20 +64,46 @@ struct UpdateCommand: RemoteCommand {
     }
 
     mutating func run() throws {
+        guard installs else { return try CLIRunner.run(self) }
+        try UpdateInstallRunner.run(self, environment: .live)
+    }
+}
+
+/// `prbar update` (instalar): al final la app se reinicia y corta la conexión. Solo si antes avisó que se reiniciaba
+/// ("Restarting PRBar") espera a que vuelva, y confirma que volvió con otra versión. Cualquier otro corte es un error
+/// (exit 3) como en los demás comandos.
+public enum UpdateInstallRunner {
+    public static func run<C: RemoteCommand>(_ command: C, environment: CLIEnvironment, timeout: TimeInterval = 60,
+                                             poll: TimeInterval = 1) throws {
+        let output = Output(terminal: environment.terminal, json: command.global.json, out: environment.out,
+                            err: environment.err)
+        let before = try? environment.reconnect()
+        let previous = before?.appVersion
+        before?.close()
+        var relaunching = false
         do {
-            try CLIRunner.run(self)
-        } catch let exit as ExitCode where exit.rawValue == CLIExit.appUnavailable && installs {
-            // Al terminar de instalar la app se reinicia y corta la conexión: esperar a la versión nueva.
-            let deadline = Date().addingTimeInterval(60)
+            try CLIRunner.run(command, environment: environment) { event in
+                if case .progress(let message) = event, message == UpdatePhase.relaunching.title { relaunching = true }
+            }
+        } catch let exit as ExitCode where exit.rawValue == CLIExit.appUnavailable && relaunching {
+            let deadline = Date().addingTimeInterval(timeout)
+            var current: String?
             while Date() < deadline {
-                Thread.sleep(forTimeInterval: 1)
-                if let connection = try? AppConnection.connect() {
-                    print("PRBar \(connection.appVersion) is running.")
-                    connection.close()
-                    return
+                Thread.sleep(forTimeInterval: poll)
+                guard let connection = try? environment.reconnect() else { continue }
+                current = connection.appVersion
+                connection.close()
+                if current != previous {
+                    let message = "PRBar \(current ?? "") is running."
+                    return output.json ? output.note(message) : output.line(message)
                 }
             }
-            throw exit
+            if let current {
+                output.error("PRBar restarted but it’s still \(current): the update wasn’t installed. See the update log (`prbar doctor`).")
+                throw ExitCode(CLIExit.generalError)
+            }
+            output.error("PRBar didn’t come back within \(Int(timeout)) seconds. Open it from ~/Applications or run `prbar doctor`.")
+            throw ExitCode(CLIExit.appUnavailable)
         }
     }
 }

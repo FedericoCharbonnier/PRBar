@@ -83,7 +83,9 @@ public struct CLIEnvironment {
 }
 
 public enum CLIRunner {
-    public static func run<C: RemoteCommand>(_ command: C, environment: CLIEnvironment = .live) throws {
+    /// `observe` ve cada evento de la app (además de mostrarlo).
+    public static func run<C: RemoteCommand>(_ command: C, environment: CLIEnvironment = .live,
+                                             observe: (CommandEvent) -> Void = { _ in }) throws {
         var command = command
         let output = Output(terminal: environment.terminal, json: command.global.json, out: environment.out,
                             err: environment.err)
@@ -107,7 +109,10 @@ public enum CLIRunner {
                 InterruptHandler(cancel: $0, connect: environment.reconnect, err: environment.err)
             }
             defer { interrupt?.remove() }
-            let result = try connection.run(request) { output.event($0) }
+            let result = try connection.run(request) { event in
+                observe(event)
+                output.event(event)
+            }
             if output.json {
                 try output.printJSON(result)
             } else {

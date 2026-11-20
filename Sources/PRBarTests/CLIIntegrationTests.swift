@@ -10,10 +10,10 @@ private final class Harness {
     let fake = FakeActions()
     let server: CommandServer
 
-    init() throws {
-        url = try shortSocketURL()
+    init(url: URL? = nil) throws {
+        self.url = try url ?? (try shortSocketURL())
         let fake = self.fake
-        server = CommandServer(socketURL: url, appVersion: "9.9.9") { command, events in
+        server = CommandServer(socketURL: self.url, appVersion: "9.9.9") { command, events in
             await CommandDispatcher.run(command, on: fake, events: events)
         }
         try server.start()
@@ -46,6 +46,10 @@ private func runCLI(_ arguments: [String], socket: URL, interactive: Bool = fals
     return (code, captured.out, captured.err)
 }
 
+private func runInstall<C: RemoteCommand>(_ command: C, _ environment: CLIEnvironment, timeout: TimeInterval) throws {
+    try UpdateInstallRunner.run(command, environment: environment, timeout: timeout, poll: 0.1)
+}
+
 /// Abre el existencial para llamar al genérico.
 private func run<C: RemoteCommand>(_ command: C, _ environment: CLIEnvironment) throws {
     try CLIRunner.run(command, environment: environment)
@@ -60,7 +64,74 @@ enum CLIIntegrationTests {
         TestCase("integración: sin app → exit 3") { try await noApp() },
         TestCase("integración: merge sin --yes y sin terminal → exit 4; --dismiss no pregunta") { try await mergeNeedsYes() },
         TestCase("integración: update --check sale con 10 si hay versión nueva, también con --json") { try await updateCheckExit() },
+        TestCase("integración: update espera a la versión nueva solo si la app se estaba reiniciando") { try await updateRelaunch() },
     ]
+
+    /// Corre `prbar update --yes` con `UpdateInstallRunner` (lo que hace `run()`), con plazos cortos.
+    private static func runUpdate(socket: URL, timeout: TimeInterval) async throws -> (code: Int32, out: String, err: String) {
+        let captured = Captured()
+        let code = try await Task.detached { () -> Int32 in
+            guard let command = try PRBarCommand.parseAsRoot(["update", "--yes"]) as? any RemoteCommand else {
+                throw TestFailure(description: "no remoto")
+            }
+            let environment = CLIEnvironment(terminal: .plain, out: { captured.out += $0 }, err: { captured.err += $0 },
+                                             connect: { try AppConnection.connect(socketURL: socket) }, ask: { _ in true })
+            do {
+                try runInstall(command, environment, timeout: timeout)
+                return 0
+            } catch let exit as ExitCode {
+                return exit.rawValue
+            }
+        }.value
+        return (code, captured.out, captured.err)
+    }
+
+    @MainActor
+    private static func updateRelaunch() async throws {
+        // La app manda "Restarting PRBar", se va y vuelve con otra versión → espera y lo dice.
+        var harness = try Harness()
+        harness.fake.updateInstallHangs = true
+        harness.fake.waitEvents = [.progress(message: UpdatePhase.relaunching.title)]
+        let url = harness.url
+        defer { removeSocketDirectory(url) }
+        async let relaunched = runUpdate(socket: url, timeout: 5)
+        try await Task.sleep(for: .milliseconds(400))
+        harness.server.stop()
+        try await Task.sleep(for: .milliseconds(300))
+        let newer = CommandServer(socketURL: url, appVersion: "9.9.10") { _, _ in .success(.null) }
+        try newer.start()
+        let result = try await relaunched
+        newer.stop()
+        try expectEqual(result.code, 0)
+        try expect(result.out.contains("PRBar 9.9.10 is running"), result.out + result.err)
+
+        // Vuelve la misma versión: no se dice que se actualizó.
+        harness = try Harness(url: url)
+        harness.fake.updateInstallHangs = true
+        harness.fake.waitEvents = [.progress(message: UpdatePhase.relaunching.title)]
+        async let same = runUpdate(socket: url, timeout: 1)
+        try await Task.sleep(for: .milliseconds(400))
+        harness.server.stop()
+        let sameVersion = CommandServer(socketURL: url, appVersion: "9.9.9") { _, _ in .success(.null) }
+        try sameVersion.start()
+        let sameResult = try await same
+        sameVersion.stop()
+        try expect(sameResult.code != 0, "salió con 0")
+        try expect(!sameResult.out.contains("is running"), sameResult.out)
+        try expect(sameResult.err.contains("still 9.9.9"), sameResult.err)
+
+        // Se corta sin "Restarting PRBar": exit 3 enseguida, sin esperar.
+        harness = try Harness(url: url)
+        harness.fake.updateInstallHangs = true
+        harness.fake.waitEvents = [.progress(message: UpdatePhase.building.title)]
+        let start = Date()
+        async let lost = runUpdate(socket: url, timeout: 5)
+        try await Task.sleep(for: .milliseconds(400))
+        harness.server.stop()
+        let lostResult = try await lost
+        try expectEqual(lostResult.code, CLIExit.appUnavailable)
+        try expect(Date().timeIntervalSince(start) < 3, "esperó \(Date().timeIntervalSince(start)) s")
+    }
 
     @MainActor
     private static func updateCheckExit() async throws {
