@@ -165,7 +165,7 @@ public enum AppCommand: Codable, Equatable, Sendable {
 
     /// Un nombre por caso, sin argumentos: lo recorre el test de paridad y es lo único que se loguea (nunca los
     /// argumentos: `slackTokenSet` lleva un token).
-    public enum Name: String, CaseIterable, Sendable {
+    public enum Name: String, Codable, CaseIterable, Sendable {
         case status, listPRs, resolvePR, history, historyShow, historyReopen, refresh, open, openSettings, openHistory
         case quit, reviewStart, reviewShow, reviewEdit, reviewSetIncluded, reviewSetComment, reviewPublish, reviewCancel
         case reviewDismiss, respondStart, respondShow, respondSelect, respondReset, respondImplement, respondTest
