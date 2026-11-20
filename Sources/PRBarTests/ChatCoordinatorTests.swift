@@ -36,6 +36,7 @@ final class FakeChatBackend: ChatBackend, @unchecked Sendable {
     private var _editing = 0
     private var _undos: [String] = []
     private var _cleanups: [UUID] = []
+    private var _activities: [ProcessActivity?] = []
     var files = ChatFilesOutcome(changedFiles: [], snapshot: nil, result: nil)
     var undoResult = RespondResult(items: [], diffStat: "before", tests: nil)
     var changedSince = false
@@ -47,6 +48,8 @@ final class FakeChatBackend: ChatBackend, @unchecked Sendable {
     var editing: Int { lock.withLock { _editing } }
     var undos: [String] { lock.withLock { _undos } }
     var cleanups: [UUID] { lock.withLock { _cleanups } }
+    /// La `ProcessActivity` con la que corrió cada `workspace` (la que anota los procesos del turno).
+    var activities: [ProcessActivity?] { lock.withLock { _activities } }
     var held: Bool {
         get { lock.withLock { _held } }
         set { lock.withLock { _held = newValue } }
@@ -55,7 +58,9 @@ final class FakeChatBackend: ChatBackend, @unchecked Sendable {
     func reply(_ results: Result<ChatTurnOutput, Error>...) { lock.withLock { _replies += results } }
 
     func workspace(_ request: ChatWorkspaceRequest) async throws -> ChatWorkspace {
-        ChatWorkspace(directory: URL(fileURLWithPath: "/tmp/wt/chat"), contextDirectory: URL(fileURLWithPath: "/tmp/wt/chat.context"),
+        let activity = ProcessActivity.current
+        lock.withLock { _activities.append(activity) }
+        return ChatWorkspace(directory: URL(fileURLWithPath: "/tmp/wt/chat"), contextDirectory: URL(fileURLWithPath: "/tmp/wt/chat.context"),
                       files: ChatContextFiles(diff: URL(fileURLWithPath: "/tmp/wt/chat.context/pr.diff")), diffFiles: ["src/a.ts"],
                       isDiffOnly: false, refs: ["refs/prbar/pr-7-0a1b2c3d"], note: note)
     }
@@ -165,6 +170,15 @@ enum ChatCoordinatorTests {
             try expectEqual(h.running, [true, false])
             try expect(h.persisted >= 2)
             try expect(chat.canSend)
+        },
+        TestCase("chat coordinator: los procesos del turno quedan anotados con la sesión del chat (Stop de Activity)") { @MainActor in
+            let h = Harness()
+            let chat = h.review()
+            h.backend.reply(.success(output()))
+            try expect(chat.send("hola"))
+            try await h.finish(chat)
+            try expectEqual(h.backend.activities.first??.kind, .chat)
+            try expectEqual(h.backend.activities.first??.chatSessionID, chat.session.id)
         },
         TestCase("chat coordinator: los turnos siguientes retoman la sesión y mandan el estado solo si cambió") { @MainActor in
             let h = Harness()

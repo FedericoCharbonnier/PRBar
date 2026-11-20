@@ -191,7 +191,7 @@ public final class ChatCoordinator: ObservableObject {
         let ended: @MainActor (Result<Void, Error>) -> Void = { [weak self] _ in
             self?.finishTurn(id, outcome.value ?? .failure(CancellationError()))
         }
-        let accepted = scheduler.enqueue(key, activity: .chat(subject.prID), onStart: { [weak self] in
+        let accepted = scheduler.enqueue(key, activity: .chat(subject.prID, sessionID: session.id), onStart: { [weak self] in
             if self?.turnID == id { self?.activity = "Preparing the code…" }
         }, work: { [weak self] in
             do {
@@ -381,7 +381,7 @@ public final class ChatCoordinator: ObservableObject {
             let ended: @MainActor (Result<Void, Error>) -> Void = { [weak self] _ in
                 self?.finishUndoFiles(undoID, index: index, selections: before, outcome.value ?? .failure(CancellationError()))
             }
-            let accepted = scheduler.enqueue(key, activity: .chat(subject.prID), onStart: {}, work: {
+            let accepted = scheduler.enqueue(key, activity: .chat(subject.prID, sessionID: session.id), onStart: {}, work: {
                 do {
                     outcome.value = .success(try await backend.undoFiles(draft: draft, snapshot: files, logURL: context.logURL))
                 } catch {

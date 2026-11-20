@@ -54,7 +54,9 @@ struct ActivityWindow: View {
     struct TaskRow: Identifiable {
         var activity: ProcessActivity?
         var processes: [ProcessUsage]
-        var id: String { activity.map { "\($0.kind.rawValue)-\($0.prID ?? "")-\($0.host ?? "")" } ?? "app" }
+        var id: String {
+            activity.map { "\($0.kind.rawValue)-\($0.prID ?? "")-\($0.host ?? "")-\($0.chatSessionID?.uuidString ?? "")" } ?? "app"
+        }
         var title: String { activity?.title ?? "PRBar" }
         var host: String? { activity?.host }
         var cpu: Double { processes.map(\.cpuPercent).reduce(0, +) }

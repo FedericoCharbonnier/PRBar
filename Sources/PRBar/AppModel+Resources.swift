@@ -52,12 +52,14 @@ extension AppModel: ResourceActions {
         }
     }
 
-    /// Stop de una tarea de la ventana Activity (decisión I.1.10). `nil` = no se puede parar.
+    /// Stop de una tarea de la ventana Activity (decisión I.1.10). `nil` = no se puede parar. Se llama desde el body
+    /// de la vista: no tiene efectos; lo que para se resuelve al tocar el botón.
     func stopAction(for activity: ProcessActivity) -> (() -> Void)? {
         switch activity.kind {
         case .review: activity.prID.map { prID in { self.cancelReview(prID: prID) } }
         case .respond: activity.prID.map { prID in { self.cancelRespond(prID: prID) } }
-        case .chat: activity.prID.flatMap { prID in (try? self.chatCoordinator(prID)).map { chat in { chat.stop() } } }
+        // El chat de esa sesión, buscado al tocar Stop entre los que ya existen (nunca crea un coordinador).
+        case .chat: activity.chatSessionID.map { id in { self.runningChats.first { $0.session.id == id }?.stop() } }
         case .instructions: { self.instructionsChat.stop() }
         case .update: updates.canCancelInstall ? { self.updates.cancelInstall() } : nil
         case .slack: nil
