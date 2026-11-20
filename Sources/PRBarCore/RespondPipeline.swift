@@ -435,11 +435,13 @@ public struct RespondPipeline: RespondPipelineRunning {
         try checkRunner(draft)
         try ensureStopped(draft)
         let token = try await tokens.token(for: draft.account)
+        // Fix CI's prompt names no skill (spec K.3): no plugins to load.
+        let skills = draft.isCIFix ? [] : settings.respondSkills
         let pluginDirs: [String]
         if let remote = placement {
-            pluginDirs = try await remote.plugins(skills: settings.respondSkills)
+            pluginDirs = try await remote.plugins(skills: skills)
         } else {
-            pluginDirs = try ClaudePlugins.locate(skills: settings.respondSkills, in: pluginCacheDirectory)
+            pluginDirs = try ClaudePlugins.locate(skills: skills, in: pluginCacheDirectory)
         }
         let implementer = await fixImplementer(claude: claude(pluginDirs: pluginDirs, token: token, logURL: logURL(for: draft.id)),
                                                draft: draft)

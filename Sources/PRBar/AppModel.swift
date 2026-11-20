@@ -747,6 +747,9 @@ final class AppModel: ObservableObject {
         return PublishedReview(url: url, action: record.action, submission: submission, commentCount: texts.count, publishedAt: now)
     }
 
+    /// The record the History window selects when it appears (snapshot mode; `openHistory(selecting:)` in the app).
+    func requestHistorySelection(_ recordID: UUID) { historySelectionRequest = recordID }
+
     /// Devuelve (y borra) el registro que pidió elegir `openHistory(selecting:)`.
     func consumeHistorySelection() -> UUID? {
         defer { historySelectionRequest = nil }

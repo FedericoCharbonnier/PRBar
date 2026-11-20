@@ -405,7 +405,8 @@ public struct ChatService: ChatBackend {
             skills = settings.reviewSkills
         case .respond(let draft):
             account = draft.account
-            skills = settings.respondSkills
+            // A Fix CI uses no skill (spec K.3).
+            skills = draft.isCIFix ? [] : settings.respondSkills
         case .merge(let target):
             // No stage with a skill: the merge chat only reads.
             account = target.account

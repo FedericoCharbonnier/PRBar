@@ -83,7 +83,7 @@ struct RespondHistoryDetailView: View {
 
     /// Cada comentario con lo que decidió el usuario (o lo que propuso Claude, si no llegó a decidir).
     private var itemsSection: some View {
-        section("Comments (\(draft.items.count))") {
+        section(draft.isCIFix ? "Failing checks (\(draft.ci?.checkNames.count ?? 0))" : "Comments (\(draft.items.count))") {
             ForEach(Array(draft.items.enumerated()), id: \.element.id) { index, item in
                 if index > 0 { Divider() }
                 let selection = record.selections[item.id]

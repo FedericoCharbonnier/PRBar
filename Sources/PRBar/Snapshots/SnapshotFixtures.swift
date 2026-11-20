@@ -445,13 +445,17 @@ struct SnapshotFixtures {
 
     /// ~6 records, the published review of api#317 the newest (it's the one selected).
     var historyReviews: [ReviewRecord] {
-        let ready = ReviewRecord(draft: reactQueryDraft, startedAt: date(minutes: -55), finishedAt: date(minutes: -41), status: .ready)
+        var readyDraft = reactQueryDraft
+        readyDraft.usage = Self.usage(minutes: 6.2, input: 48_000, output: 7_300, cacheRead: 380_000, cost: 0.61)
+        let ready = ReviewRecord(draft: readyDraft, startedAt: date(minutes: -55), finishedAt: date(minutes: -41), status: .ready)
         let failedDraft = ReviewDraft(
             prID: "acme/mobile#96", repo: Self.mobile, number: 96, title: "Bump React Native to 0.76",
             url: URL(string: "https://github.com/acme/mobile/pull/96")!, author: "ana-p", headOid: "a1b2c3d", account: Self.work,
             summary: "", items: []
         )
-        let failed = ReviewRecord(draft: failedDraft, startedAt: date(days: -1, minutes: -30), finishedAt: date(days: -1, minutes: -26),
+        var stoppedDraft = failedDraft
+        stoppedDraft.usage = .run(duration: 20 * 60, tokens: nil, cost: nil)
+        let failed = ReviewRecord(draft: stoppedDraft, startedAt: date(days: -1, minutes: -30), finishedAt: date(days: -1, minutes: -26),
                                   status: .failed, errorMessage: "Claude stopped after 20 minutes without an answer.")
         let approvedDraft = ReviewDraft(
             prID: "acme/web-app#466", repo: Self.webApp, number: 466, title: "Add CSV export for reports (part 1)",
@@ -461,7 +465,9 @@ struct SnapshotFixtures {
         let approved = ReviewRecord(draft: approvedDraft, startedAt: date(days: -9), finishedAt: date(days: -9, minutes: 9),
                                     status: .published, action: .approve,
                                     reviewURL: URL(string: "https://github.com/acme/web-app/pull/466#pullrequestreview-1980")!)
-        return [publishedLoginRedirect, ready, failed, approved]
+        var published = publishedLoginRedirect
+        published.draft.usage = Self.usage(minutes: 9.6, input: 83_000, output: 11_900, cacheRead: 560_000, cost: 0.93)
+        return [published, ready, failed, approved]
     }
 
     var historyResponds: [RespondRecord] {
@@ -475,7 +481,8 @@ struct SnapshotFixtures {
             posted: Dictionary(uniqueKeysWithValues: csv.items.map {
                 ($0.id, PostedReply(id: $0.id, url: URL(string: "https://github.com/acme/web-app/pull/475#discussion_r\($0.id.count)")!))
             }),
-            pushed: true, startedAt: date(minutes: -60 * 3), finishedAt: date(minutes: -60 * 3 + 14)
+            pushed: true, startedAt: date(minutes: -60 * 3), finishedAt: date(minutes: -60 * 3 + 14),
+            usage: Self.usage(minutes: 11.3, input: 99_000, output: 15_300, cacheRead: 730_000, cost: 1.21)
         )
         let paymentsDraft = RespondDraft(
             prID: "acme/api#309", repo: Self.api, number: 309, title: "Handle 429 responses from the payments provider",
@@ -494,7 +501,7 @@ struct SnapshotFixtures {
             posted: ["thread:9": PostedReply(id: "thread:9", url: URL(string: "https://github.com/acme/api/pull/309#discussion_r1")!)],
             pushed: true, startedAt: date(days: -2), finishedAt: date(days: -2, minutes: 11)
         )
-        return [done, payments]
+        return [historyCIFix, done, payments]
     }
 
     // MARK: Helpers
@@ -700,5 +707,139 @@ extension SnapshotFixtures {
             DiskItem(path: "/Users/sam/Library/Logs/PRBar", bytes: 60 * mb, kind: .logs, state: .data, title: "Logs"),
             DiskItem(path: support, bytes: 30 * mb, kind: .appData, state: .data, title: "Settings and state"),
         ], scannedAt: now)
+    }
+}
+
+// MARK: - Fix CI y costo de Claude (specs K y O)
+
+extension SnapshotFixtures {
+    /// What a run "spent" in Claude (fictional numbers).
+    static func usage(minutes: Double, input: Int, output: Int, cacheRead: Int, cost: Double?, unknown: Int = 0) -> ClaudeUsage {
+        var usage = ClaudeUsage.run(duration: minutes * 60, tokens: ClaudeTokenUsage(inputTokens: input, outputTokens: output,
+                                                                                    cacheCreationTokens: input / 3, cacheReadTokens: cacheRead),
+                                    cost: cost)
+        for _ in 0..<unknown { usage += .run(duration: 40, tokens: nil, cost: nil) }
+        return usage
+    }
+
+    /// The Fix CI of web-app#475: `test (node 20)` and `typecheck` failed on the PR's head.
+    var ciFixDraft: RespondDraft {
+        let pr = csvExport.pr
+        let head = "4be81c09d2a7f3e6b5c4d3e2f1a0b9c8d7e6f5a4"
+        let failing = [
+            CICheckRun(source: .checkRun, id: 31_337, name: "test (node 20)", status: "completed", conclusion: "failure",
+                       appSlug: "github-actions", appName: "GitHub Actions",
+                       detailsURL: URL(string: "https://github.com/acme/web-app/actions/runs/1/job/31337")),
+            CICheckRun(source: .checkRun, id: 31_338, name: "typecheck", status: "completed", conclusion: "failure",
+                       appSlug: "github-actions", appName: "GitHub Actions",
+                       detailsURL: URL(string: "https://github.com/acme/web-app/actions/runs/1/job/31338")),
+        ]
+        let logs = [
+            31_337: """
+            > web-app@2.4.0 test
+            > jest --watchAll=false
+            FAIL src/reports/__tests__/formatDate.test.ts
+              ● formatDate › uses the user's timezone
+                expect(received).toBe(expected)
+                Expected: "2026-03-01 09:30"
+                Received: "2026-03-01 12:30"
+                  at Object.<anonymous> (src/reports/__tests__/formatDate.test.ts:14:41)
+            Test Suites: 1 failed, 41 passed, 42 total
+            Tests:       1 failed, 317 passed, 318 total
+            ##[error]Process completed with exit code 1.
+            """,
+            31_338: """
+            > web-app@2.4.0 typecheck
+            > tsc --noEmit
+            src/reports/export.ts(57,39): error TS2554: Expected 1 arguments, but got 2.
+            ##[error]Process completed with exit code 2.
+            """,
+        ]
+        let (item, context) = CIFixItem.make(headOid: head, failing: failing, logs: logs, secrets: [], prURL: pr.url,
+                                             at: date(minutes: -9))
+        return RespondDraft(
+            prID: csvExport.id, repo: Self.webApp, number: 475, title: pr.title, url: pr.url, headRef: pr.headRef,
+            account: Self.personal,
+            worktree: ResolvedWorktree(path: "/Users/sam/Code/worktrees/web-app-475-respond-5e6f7a8b", origin: .dedicated,
+                                       localPath: "/Users/sam/Code/web-app", ref: "refs/prbar/respond-475-5e6f7a8b"),
+            startHeadOid: head, items: [item], mode: .ciFix, ci: context)
+    }
+
+    var ciFixResult: RespondResult {
+        let item = ciFixDraft.items[0]
+        return RespondResult(
+            items: [ItemResult(id: item.id, status: .committed, commit: "e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8",
+                               summary: "formatDate() ignored its timeZone option, so the test and the typecheck failed; it now takes { timeZone } and export.ts passes the user's.")],
+            diffStat: """
+             src/reports/export.ts     |  2 +-
+             src/reports/formatDate.ts |  9 ++++++---
+             2 files changed, 8 insertions(+), 4 deletions(-)
+            """,
+            tests: nil, sensitiveChanges: [], headOid: "e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8", gitIntegrity: "snapshot",
+            diff: """
+            diff --git a/src/reports/formatDate.ts b/src/reports/formatDate.ts
+            --- a/src/reports/formatDate.ts
+            +++ b/src/reports/formatDate.ts
+            @@ -1,8 +1,11 @@
+             import { formatInTimeZone } from "date-fns-tz";
+            -export function formatDate(date: Date): string {
+            -  return formatInTimeZone(date, "UTC", "yyyy-MM-dd HH:mm");
+            +export function formatDate(date: Date, options: { timeZone?: string } = {}): string {
+            +  const timeZone = options.timeZone ?? "UTC";
+            +  return formatInTimeZone(date, timeZone, "yyyy-MM-dd HH:mm");
+             }
+            diff --git a/src/reports/export.ts b/src/reports/export.ts
+            --- a/src/reports/export.ts
+            +++ b/src/reports/export.ts
+            @@ -57 +57 @@
+            -    res.write(csvRow(row, formatDate(row.createdAt, req.user.timeZone)));
+            +    res.write(csvRow(row, formatDate(row.createdAt, { timeZone: req.user.timeZone })));
+            """,
+            diffTruncated: false,
+            commits: [CommitInfo(sha: "e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8", message: "Pass the user's timezone to formatDate")],
+            dependencyChanges: [])
+    }
+
+    /// PRBar Activity: what the running review of api#317 spent so far.
+    var liveUsage: [ProcessActivity: ClaudeUsage] {
+        [.review("acme/api#317"): Self.usage(minutes: 2.5, input: 18_000, output: 2_400, cacheRead: 160_000, cost: 0.21)]
+    }
+
+    /// The usage ledger: the recent tasks of PRBar Activity and this month's total.
+    var usageEntries: [ClaudeUsageEntry] {
+        func entry(_ activity: ProcessActivity, _ stage: String, minutes: Int, job: UUID, _ usage: ClaudeUsage) -> ClaudeUsageEntry {
+            ClaudeUsageEntry(date: date(minutes: minutes), jobID: job, activity: activity, stage: stage, usage: usage)
+        }
+        let reviewJob = UUID(), analysisJob = UUID(), fixesJob = UUID(), ciJob = UUID(), chatJob = UUID(), rulesJob = UUID(), stoppedJob = UUID()
+        return [
+            entry(.review("acme/web-app#482"), "review", minutes: -55, job: stoppedJob,
+                  Self.usage(minutes: 1.2, input: 4_000, output: 300, cacheRead: 20_000, cost: 0.08, unknown: 1)),
+            entry(.review("acme/api#317"), "review", minutes: -6, job: reviewJob,
+                  Self.usage(minutes: 7.5, input: 61_000, output: 9_800, cacheRead: 410_000, cost: 0.74)),
+            entry(.review("acme/api#317"), "filter", minutes: -3, job: reviewJob,
+                  Self.usage(minutes: 2.1, input: 22_000, output: 2_100, cacheRead: 150_000, cost: 0.19)),
+            entry(.respond("acme/web-app#475"), "analysis", minutes: -200, job: analysisJob,
+                  Self.usage(minutes: 3.4, input: 31_000, output: 4_600, cacheRead: 220_000, cost: 0.36)),
+            entry(.respond("acme/web-app#475"), "fix", minutes: -190, job: fixesJob,
+                  Self.usage(minutes: 4.8, input: 40_000, output: 6_900, cacheRead: 300_000, cost: 0.52)),
+            entry(.respond("acme/web-app#475"), "fix", minutes: -186, job: fixesJob,
+                  Self.usage(minutes: 3.1, input: 28_000, output: 3_800, cacheRead: 210_000, cost: 0.33)),
+            entry(.ciFix("acme/web-app#475"), "CI fix", minutes: -9, job: ciJob,
+                  Self.usage(minutes: 3.6, input: 26_000, output: 4_100, cacheRead: 190_000, cost: 0.31)),
+            entry(.chat("acme/api#317"), "chat", minutes: -15, job: chatJob,
+                  Self.usage(minutes: 0.6, input: 9_000, output: 700, cacheRead: 60_000, cost: 0.06)),
+            entry(.instructions, "instructions chat", minutes: -30, job: rulesJob,
+                  Self.usage(minutes: 0.2, input: 2_500, output: 200, cacheRead: 0, cost: 0.01)),
+        ]
+    }
+
+    /// History: the CI fix of web-app#475, pushed.
+    var historyCIFix: RespondRecord {
+        var draft = ciFixDraft
+        draft.id = UUID()
+        let selections = Dictionary(uniqueKeysWithValues: draft.items.map { ($0.id, RespondSelection.defaults(for: $0)) })
+        return RespondRecord(draft: draft, selections: selections, result: ciFixResult, pushed: true,
+                             startedAt: date(minutes: -70), finishedAt: date(minutes: -59),
+                             usage: Self.usage(minutes: 3.6, input: 26_000, output: 4_100, cacheRead: 190_000, cost: 0.31))
     }
 }
