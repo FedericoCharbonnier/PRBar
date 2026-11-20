@@ -24,6 +24,8 @@ extension View {
 extension EnvironmentValues {
     /// Set by the snapshot renderer: Liquid Glass doesn't draw into an image, so glass falls back to the HUD fill.
     @Entry public var isSnapshot = false
+    /// "Now" for relative ages (the snapshot renderer pins it to the sample data's clock).
+    @Entry public var clock: @Sendable () -> Date = { Date() }
 }
 
 struct Glass<S: Shape>: ViewModifier {

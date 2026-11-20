@@ -93,3 +93,42 @@ public struct Spinner: View {
         #endif
     }
 }
+
+/// A horizontal scroll view (file chips, diff lines). Scroll views don't draw into an image, so in snapshots the
+/// content is laid out unscrolled and clipped.
+public struct HorizontalScroll<Content: View>: View {
+    let content: Content
+    @Environment(\.isSnapshot) private var isSnapshot
+
+    public init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    public var body: some View {
+        if isSnapshot {
+            content.fixedSize(horizontal: true, vertical: false)
+                .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+                .clipped()
+        } else {
+            ScrollView(.horizontal, showsIndicators: false) { content }
+        }
+    }
+}
+
+/// A vertical scroll view that lays its content out unscrolled in snapshots.
+public struct VerticalScroll<Content: View>: View {
+    let content: Content
+    @Environment(\.isSnapshot) private var isSnapshot
+
+    public init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    public var body: some View {
+        if isSnapshot {
+            content.frame(maxHeight: .infinity, alignment: .top)
+        } else {
+            ScrollView { content }
+        }
+    }
+}
