@@ -38,7 +38,9 @@ struct LiveChatBackend: ChatBackend {
             return try await RunnerDispatch.pinned(runner: name, settings: context.runnerSettings, coordinator: context.coordinator,
                                                    onPlacement: onPlacement, local: local, remote: remote)
         case .repoDestination:
+            // Without claude (or git) on this Mac a host that's down shows its own error, not "claude not found" (J.7.24).
             return try await RunnerDispatch.run(destination: context.runner, coordinator: context.coordinator, fallbackOnPreparation: false,
+                                                canRunLocally: context.tools.git != nil && (!needsClaude || context.tools.claude != nil),
                                                 onPlacement: onPlacement, local: local, remote: remote)
         }
     }
