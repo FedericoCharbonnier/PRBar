@@ -209,6 +209,16 @@ enum CLIParsingTests {
                 try expectEqual(try parsed(["slack", "template", "set", "myPR.merged", "Done"]), .slackTemplateSet(template: .merged, text: "Done"))
                 try expectEqual(try parsed(["slack", "template", "reset", "myPR.merged"]), .slackTemplateReset(template: .merged))
             },
+            TestCase("cli parse: merge") {
+                try expectEqual(try parsed(["merge", "api#4", "--yes"]), .merge(pr: "api#4", method: nil, confirmed: true))
+                try expectEqual(try parsed(["merge", "api#4", "--method", "rebase"], confirmed: false),
+                                .merge(pr: "api#4", method: .rebase, confirmed: false))
+                try expectEqual(try parsed(["merge", "api#4", "--dismiss"]), .mergeDismiss(pr: "api#4"))
+                try expect(rejects(["merge", "api#4", "--method", "fast-forward"]))
+                try expect(rejects(["merge", "api#4", "--dismiss", "--method", "squash"]))
+                try expectEqual(MergeQuestion.text(pr: "acme/api#4", method: .squash), "Squash and Merge acme/api#4?")
+                try expectEqual(MergeQuestion.text(pr: "acme/api#4", method: nil), "Merge acme/api#4 with the repo’s default method?")
+            },
         ]
     }
 }
