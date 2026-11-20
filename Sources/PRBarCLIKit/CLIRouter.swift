@@ -1,0 +1,126 @@
+import ArgumentParser
+import PRBarCore
+
+/// Un comando de la CLI (su ruta, p. ej. `review publish`), qué `AppCommand` produce (vacío = local, no necesita la
+/// app) y ejemplos de argumentos que el test de paridad parsea.
+public struct CLICommandSpec: Sendable {
+    public let path: String
+    public let produces: [AppCommand.Name]
+    public let samples: [[String]]
+
+    init(_ path: String, _ produces: [AppCommand.Name], _ samples: [String]...) {
+        self.path = path
+        self.produces = produces
+        self.samples = samples
+    }
+}
+
+/// La tabla de la paridad (spec C.7). Agregar un caso a `AppCommand` obliga a agregar acá el comando que lo produce;
+/// agregar un subcomando obliga a agregarlo acá.
+public enum CLIRouter {
+    public static let commands: [CLICommandSpec] = [
+        // Estado, historial, ventanas y app
+        .init("status", [.status], ["status"]),
+        .init("prs", [.listPRs], ["prs", "--list", "mine"]),
+        .init("refresh", [.refresh], ["refresh"]),
+        .init("open", [.open, .resolvePR], ["open", "api#1", "--posted"], ["open", "api#1", "--copy"]),
+        .init("history list", [.history], ["history", "--kind", "respond"], ["history", "list"]),
+        .init("history show", [.historyShow], ["history", "show", "1a2b3c4d"]),
+        .init("history reopen", [.historyReopen], ["history", "reopen", "1a2b3c4d"]),
+        .init("app start", [], ["app", "start"]),
+        .init("app quit", [.quit], ["app", "quit"]),
+        .init("app settings", [.openSettings], ["app", "settings", "claude"]),
+        .init("app history", [.openHistory], ["app", "history"]),
+        .init("app logs", [], ["app", "logs", "--slack"], ["app", "logs", "--update"]),
+        .init("version", [], ["version"]),
+        .init("doctor", [], ["doctor"]),
+        .init("completion", [], ["completion", "fish"]),
+        // Review
+        .init("review start", [.reviewStart], ["review", "api#1", "--wait"]),
+        .init("review show", [.reviewShow], ["review", "show", "api#1"]),
+        .init("review edit", [.reviewEdit], ["review", "edit", "api#1", "1", "--title", "T"]),
+        .init("review include", [.reviewSetIncluded], ["review", "include", "api#1", "1"]),
+        .init("review exclude", [.reviewSetIncluded], ["review", "exclude", "api#1", "--all"]),
+        .init("review comment", [.reviewSetComment], ["review", "comment", "api#1", "--text", "LGTM"]),
+        .init("review publish", [.reviewPublish], ["review", "publish", "api#1", "--comment", "--yes"]),
+        .init("review cancel", [.reviewCancel], ["review", "cancel", "api#1"]),
+        .init("review dismiss", [.reviewDismiss], ["review", "dismiss", "api#1"]),
+        // Respond
+        .init("respond start", [.respondStart], ["respond", "web#2"]),
+        .init("respond show", [.respondShow], ["respond", "show", "web#2"]),
+        .init("respond select", [.respondSelect, .respondReset],
+              ["respond", "select", "web#2", "1", "--skip"], ["respond", "select", "web#2", "--reset"]),
+        .init("respond implement", [.respondImplement], ["respond", "implement", "web#2"]),
+        .init("respond test", [.respondTest], ["respond", "test", "web#2"]),
+        .init("respond diff", [.respondDiff], ["respond", "diff", "web#2"]),
+        .init("respond push", [.respondPush], ["respond", "push", "web#2", "--yes"]),
+        .init("respond reply-only", [.respondReplyOnly], ["respond", "reply-only", "web#2", "--yes"]),
+        .init("respond cancel", [.respondCancel], ["respond", "cancel", "web#2"]),
+        .init("respond dismiss", [.respondDismiss], ["respond", "dismiss", "web#2"]),
+        // Ready to Merge (plan 10)
+        .init("merge", [.merge, .mergeDismiss], ["merge", "api#4", "--method", "squash", "--yes"], ["merge", "api#4", "--dismiss"]),
+        // Configuración
+        .init("config show", [.configShow], ["config", "show"]),
+        .init("config set", [.setRefreshInterval, .setLaunchAtLogin, .setConfirmMerge],
+              ["config", "set", "refresh-interval", "2"], ["config", "set", "launch-at-login", "off"],
+              ["config", "set", "confirm-merge", "on"]),
+        .init("account list", [.accountList], ["account", "list"]),
+        .init("account enable", [.accountSetEnabled], ["account", "enable", "me"]),
+        .init("account disable", [.accountSetEnabled], ["account", "disable", "me"]),
+        .init("account reload", [.accountReload], ["account", "reload"]),
+        .init("repo list", [.repoList], ["repo", "list"]),
+        .init("repo available", [.repoAvailable], ["repo", "available"]),
+        .init("repo add", [.repoAdd], ["repo", "add", "acme/api"]),
+        .init("repo remove", [.repoRemove], ["repo", "remove", "acme/api"]),
+        .init("repo set", [.repoSet], ["repo", "set", "acme/api", "--test-command", "make test"],
+              ["repo", "set", "acme/api", "--merge-method", "default"]),
+        .init("repo branches", [.repoBranches], ["repo", "branches", "acme/api"]),
+        .init("repo open", [], ["repo", "open", "acme/api"]),
+        .init("follow list", [.followList], ["follow", "list"]),
+        .init("follow add", [.followAdd], ["follow", "add", "acme/api", "ana"]),
+        .init("follow remove", [.followRemove], ["follow", "remove", "acme/api", "ana"]),
+        .init("follow suggestions", [.followSuggestions], ["follow", "suggestions", "acme/api"]),
+        .init("notify list", [.notifyList], ["notify", "list"]),
+        .init("notify set", [.notifySet], ["notify", "set", "review-finished", "off"]),
+        .init("notify enable", [.notifySetEnabled], ["notify", "enable"]),
+        .init("notify disable", [.notifySetEnabled], ["notify", "disable"]),
+        .init("notify system-settings", [], ["notify", "system-settings"]),
+        .init("claude show", [.claudeShow], ["claude", "show"]),
+        .init("claude set", [.claudeSet], ["claude", "set", "--filter", "on"]),
+        .init("claude reset", [.claudeReset], ["claude", "reset"]),
+        .init("claude skills", [.claudeSkills], ["claude", "skills"]),
+        .init("tools list", [.toolsList], ["tools", "list"]),
+        .init("tools set", [.toolsSet], ["tools", "set", "git", "/usr/bin/git"]),
+        .init("tools reset", [.toolsSet], ["tools", "reset", "git"]),
+        // Slack
+        .init("slack show", [.slackShow], ["slack", "show"]),
+        .init("slack enable", [.slackSetEnabled], ["slack", "enable"]),
+        .init("slack disable", [.slackSetEnabled], ["slack", "disable"]),
+        .init("slack provider", [.slackSetProvider], ["slack", "provider", "token"]),
+        .init("slack token set", [.slackTokenSet], ["slack", "token", "set", "--stdin"]),
+        .init("slack token clear", [.slackTokenClear], ["slack", "token", "clear"]),
+        .init("slack set", [.slackSetToggle], ["slack", "set", "announce", "off"], ["slack", "set", "merged", "on"]),
+        .init("slack emoji", [.slackSetEmoji], ["slack", "emoji", "approved", "white_check_mark"]),
+        .init("slack search-days", [.slackSetSearchDays], ["slack", "search-days", "14"]),
+        .init("slack template list", [.slackTemplateList], ["slack", "template", "list"]),
+        .init("slack template show", [.slackTemplateList], ["slack", "template", "show", "round"]),
+        .init("slack template set", [.slackTemplateSet], ["slack", "template", "set", "new-pr", "{link}"]),
+        .init("slack template reset", [.slackTemplateReset], ["slack", "template", "reset", "new-pr"]),
+        .init("slack check", [.slackCheck], ["slack", "check"]),
+        .init("slack test", [.slackSelfTest], ["slack", "test", "--yes"]),
+        .init("slack channels", [.slackChannels], ["slack", "channels"]),
+    ]
+
+    /// Todas las rutas que existen (para el inventario de la UI, Task 21).
+    public static var allPaths: Set<String> { Set(commands.map(\.path)) }
+
+    /// Las rutas de los subcomandos hoja de `PRBarCommand` (los que corren algo).
+    public static func leafPaths() -> [String] {
+        func walk(_ type: ParsableCommand.Type, prefix: [String]) -> [String] {
+            let subcommands = type.configuration.subcommands
+            guard !subcommands.isEmpty else { return [prefix.joined(separator: " ")] }
+            return subcommands.flatMap { walk($0, prefix: prefix + [$0.configuration.commandName ?? "?"]) }
+        }
+        return PRBarCommand.configuration.subcommands.flatMap { walk($0, prefix: [$0.configuration.commandName ?? "?"]) }
+    }
+}
