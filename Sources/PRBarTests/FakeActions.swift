@@ -13,6 +13,12 @@ final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActi
     /// Lo que devuelven `reviewShow` y `respondShow` (las preguntas de publicar, pushear y responder lo miran antes).
     var reviewPhase: ReviewPhase?
     var respondPhase: RespondPhase?
+    /// Si no es nil, merge, publicar el review y las llamadas a Slack tardan esto (cancelable, como `URLSession`).
+    var networkDelay: Duration?
+
+    private func network() async throws {
+        if let networkDelay { try await Task.sleep(for: networkDelay) }
+    }
 
     private let link = PRLink(pr: "acme/api#1", url: URL(string: "https://github.com/acme/api/pull/1")!)
 
@@ -59,6 +65,7 @@ final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActi
         try record("reviewSetComment \(pr) \(text)"); return ReviewInfo(prID: pr, phase: nil)
     }
     func reviewPublish(pr: String, event: ReviewEvent, only: [String]?, withComments: Bool, allInBody: Bool) async throws -> PublishedReviewInfo {
+        try await network()
         try record("reviewPublish \(pr) \(event.rawValue) only=\(only ?? []) comments=\(withComments) body=\(allInBody)")
         return PublishedReviewInfo(pr: pr, url: link.url, action: "approve", comments: 0, publishedAt: t0)
     }
@@ -101,6 +108,7 @@ final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActi
 
     // MARK: MergeActions
     func merge(pr: String, method: MergeMethod?) async throws -> MergeInfo {
+        try await network()
         try record("merge \(pr) \(method?.rawValue ?? "default")")
         return MergeInfo(pr: pr, method: method ?? .squash, mergedAt: t0, url: link.url)
     }
@@ -159,7 +167,7 @@ final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActi
     }
     func slackSetEnabled(enabled: Bool) throws { try record("slackSetEnabled \(enabled)") }
     func slackSetProvider(provider: SlackProvider) throws { try record("slackSetProvider \(provider.rawValue)") }
-    func slackTokenSet(token: String) async throws -> SlackCheckInfo { try record("slackTokenSet \(token.count)"); return check }
+    func slackTokenSet(token: String) async throws -> SlackCheckInfo { try await network(); try record("slackTokenSet \(token.count)"); return check }
     func slackTokenClear() throws { try record("slackTokenClear") }
     func slackSetToggle(toggle: SlackToggleName, enabled: Bool) throws { try record("slackSetToggle \(toggle.rawValue) \(enabled)") }
     func slackSetEmoji(kind: SlackEmojiKind, name: String) throws { try record("slackSetEmoji \(kind.rawValue) \(name)") }
@@ -168,7 +176,7 @@ final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActi
     func slackTemplateSet(template: SlackTemplateName, text: String) throws { try record("slackTemplateSet \(template.rawValue)") }
     func slackTemplateReset(template: SlackTemplateName) throws { try record("slackTemplateReset \(template.rawValue)") }
     func slackCheck() async throws -> SlackCheckInfo { try record("slackCheck"); return check }
-    func slackSelfTest() async throws -> [SelfTestStepInfo] { try record("slackSelfTest"); return [] }
+    func slackSelfTest() async throws -> [SelfTestStepInfo] { try await network(); try record("slackSelfTest"); return [] }
     func slackChannels(reload: Bool) async throws -> [ChannelInfo] { try record("slackChannels reload=\(reload)"); return [] }
 
     // MARK: ChatCommandActions

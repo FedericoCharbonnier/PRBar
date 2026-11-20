@@ -129,6 +129,16 @@ public enum AppCommand: Codable, Equatable, Sendable {
     case claudePromptSet(stage: PromptStage, text: String)
     case claudePromptReset(stage: PromptStage)
 
+    /// Lo que cambia algo en GitHub o Slack con una sola llamada: si la CLI se va a mitad (Ctrl-C), la llamada sigue
+    /// hasta el final (cortarla dejaría el merge, el review o el token en un estado desconocido). Lo demás se cancela
+    /// con la conexión (las esperas de `--wait`, el chat).
+    public var runsToCompletion: Bool {
+        switch self {
+        case .merge, .reviewPublish, .slackSelfTest, .slackTokenSet: true
+        default: false
+        }
+    }
+
     /// Un nombre por caso, sin argumentos: lo recorre el test de paridad y es lo único que se loguea (nunca los
     /// argumentos: `slackTokenSet` lleva un token).
     public enum Name: String, CaseIterable, Sendable {

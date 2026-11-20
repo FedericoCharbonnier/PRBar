@@ -9,6 +9,11 @@ public enum CommandDispatcher {
     public static func run(_ command: AppCommand, on actions: any PRBarActions,
                            events: @escaping CommandEventSink) async -> Result<JSONValue, CommandFailure> {
         do {
+            if command.runsToCompletion {
+                // Una tarea aparte no hereda la cancelación de la conexión.
+                let task = Task { @MainActor in try await perform(command, actions, events) }
+                return .success(try await task.value)
+            }
             return .success(try await perform(command, actions, events))
         } catch let failure as CommandFailure {
             return .failure(failure)

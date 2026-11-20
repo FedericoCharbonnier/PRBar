@@ -111,6 +111,7 @@ enum CommandDispatcherTests {
         TestCase("dispatcher: los argumentos llegan") { try await arguments() },
         TestCase("dispatcher: publicar, pushear, mergear, actualizar y la prueba de Slack exigen confirmación") { try await confirmations() },
         TestCase("dispatcher: errores → CommandFailure") { try await errors() },
+        TestCase("dispatcher: merge, publicar y Slack terminan aunque la CLI se vaya") { try await notCutByDisconnect() },
         TestCase("dispatcher: los eventos de una espera llegan al sink") { try await events() },
     ]
 
@@ -143,6 +144,28 @@ enum CommandDispatcherTests {
         try expectEqual(fake.calls.last, #"respondSelect web#2 ["1", "2"] implement=false reply=- text=Thanks plan=-"#)
         let result = await run(.reviewCancel(pr: "x"), fake)
         try expectEqual(result, .success(.ok))
+    }
+
+    /// Si la CLI se va (Ctrl-C) mientras se mergea, publica o habla con Slack, la llamada termina igual: cortarla a
+    /// mitad dejaría el merge o el review en un estado desconocido.
+    @MainActor
+    private static func notCutByDisconnect() async throws {
+        let commands: [AppCommand] = [
+            .merge(pr: "a#4", method: nil, confirmed: true),
+            .reviewPublish(pr: "a#1", event: .comment, only: nil, withComments: true, allInBody: false, confirmed: true),
+            .slackSelfTest(confirmed: true),
+            .slackTokenSet(token: "xoxp-1"),
+        ]
+        for command in commands {
+            let fake = FakeActions()
+            fake.networkDelay = .milliseconds(200)
+            let task = Task { await run(command, fake) }
+            try await Task.sleep(for: .milliseconds(50))
+            task.cancel()
+            let result = await task.value
+            guard case .success = result else { throw TestFailure(description: "\(command.name) se cortó: \(result)") }
+            try expectEqual(fake.calls.count, 1)
+        }
     }
 
     @MainActor
