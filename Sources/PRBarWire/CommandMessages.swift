@@ -14,10 +14,11 @@ public enum CommandProtocol {
     /// 5: `RepoChanges.runOn` y los comandos de destinos SSH (`prbar runners`).
     /// 6: Fix CI (`ciList`, `ciFix`, `HistoryKind.ciFix`, `RespondInfo.mode`) y el uso de Claude (`usage`, `usage` en los
     ///    resultados de historial, review, respond y recursos).
-    public static let version = 6
+    /// 7: acceso desde el iPhone (`remote*`, `minimumRemoteVersion`).
+    public static let version = 7
     /// El `commandProtocol` más viejo que la Mac acepta de un iPhone (spec P.6): los casos de `AppCommand` solo se
     /// agregan, así que una app de iPhone un poco más vieja sigue andando; un cambio que rompe sube este número.
-    public static let minimumRemoteVersion = 6
+    public static let minimumRemoteVersion = 7
 
     public static var encoder: JSONEncoder {
         let encoder = JSONEncoder()

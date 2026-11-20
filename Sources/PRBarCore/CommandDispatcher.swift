@@ -319,6 +319,35 @@ public enum CommandDispatcher {
         case .runnerDefault(let target):
             try actions.runnerDefault(target: target)
             return .ok
+        // Acceso desde el iPhone
+        case .remoteStatus:
+            return try encode(actions.remoteStatus())
+        case .remoteEnable(let relay, let enrollToken):
+            return try encode(try await actions.remoteEnable(relay: relay, enrollToken: enrollToken))
+        case .remoteDisable:
+            return try encode(try await actions.remoteDisable())
+        case .remotePairStart:
+            return try encode(try await actions.remotePairStart())
+        case .remotePairWait(let pairing):
+            return try encode(try await actions.remotePairWait(pairing: pairing, events: events))
+        case .remotePairConfirm(let pairing, let confirmed):
+            return try encode(try await actions.remotePairConfirm(pairing: pairing, accepted: confirmed))
+        case .remoteDevices:
+            return try encode(actions.remoteDevices())
+        case .remoteRevoke(let device, let confirmed):
+            try requireConfirmation(confirmed, "Revoking an iPhone")
+            return try encode(try await actions.remoteRevoke(device: device))
+        case .remoteSetKeepAwake(let enabled):
+            return try encode(try actions.remoteSetKeepAwake(enabled: enabled))
+        case .remoteReset(let confirmed):
+            try requireConfirmation(confirmed, "Resetting iPhone access")
+            return try encode(try await actions.remoteReset())
+        case .remoteSetPresenceRequirement(let device, let enabled):
+            return try encode(try await actions.remoteSetPresenceRequirement(device: device, enabled: enabled))
+        case .remoteSetMailbox(let enabled):
+            return try encode(try await actions.remoteSetMailbox(enabled: enabled))
+        case .remoteSetAppLink(let url):
+            return try encode(try actions.remoteSetAppLink(url: url))
         }
     }
 }

@@ -1002,3 +1002,95 @@ public struct UsageInfo: Codable, Equatable, Sendable {
         self.note = note
     }
 }
+
+// MARK: - Acceso desde el iPhone (spec Q)
+
+/// `prbar remote status` y el encabezado de Settings › iPhone.
+public struct RemoteStatusInfo: Codable, Equatable, Sendable {
+    public var enabled: Bool
+    public var relayHost: String?
+    /// `disabled`, `connecting`, `connected`, `offline` o `failed`.
+    public var state: String
+    /// "Offline — retrying in 30 s", el error de inscripción…
+    public var detail: String?
+    public var devices: Int
+    public var devicesOnline: Int
+    public var keepAwake: Bool
+    /// La aserción que impide dormir está tomada ahora (en corriente).
+    public var keepingAwake: Bool
+    public var mailbox: Bool
+    public var appInstallURL: URL?
+    /// Los primeros 4 caracteres de la cuenta en el relay.
+    public var accountPrefix: String?
+
+    public init(enabled: Bool, relayHost: String?, state: String, detail: String? = nil, devices: Int, devicesOnline: Int,
+                keepAwake: Bool, keepingAwake: Bool, mailbox: Bool, appInstallURL: URL?, accountPrefix: String?) {
+        self.enabled = enabled
+        self.relayHost = relayHost
+        self.state = state
+        self.detail = detail
+        self.devices = devices
+        self.devicesOnline = devicesOnline
+        self.keepAwake = keepAwake
+        self.keepingAwake = keepingAwake
+        self.mailbox = mailbox
+        self.appInstallURL = appInstallURL
+        self.accountPrefix = accountPrefix
+    }
+}
+
+/// Un iPhone emparejado (`prbar remote devices`).
+public struct RemoteDeviceInfo: Codable, Equatable, Sendable {
+    public var id: String
+    public var name: String
+    public var model: String
+    public var pairedAt: Date
+    public var lastSeen: Date?
+    public var online: Bool
+    public var requirePresence: Bool
+    /// `false` si APNs dijo que el token ya no sirve.
+    public var notifications: Bool
+
+    public init(id: String, name: String, model: String, pairedAt: Date, lastSeen: Date?, online: Bool,
+                requirePresence: Bool, notifications: Bool) {
+        self.id = id
+        self.name = name
+        self.model = model
+        self.pairedAt = pairedAt
+        self.lastSeen = lastSeen
+        self.online = online
+        self.requirePresence = requirePresence
+        self.notifications = notifications
+    }
+}
+
+/// Una ranura de emparejamiento (`prbar remote pair`): el QR y, cuando un teléfono se une, su código.
+public struct RemotePairingInfo: Codable, Equatable, Sendable {
+    public var pairing: String
+    /// `prbar://pair?…` (secreto: vence a los 5 min y sirve una sola vez).
+    public var qr: String
+    public var expiresAt: Date
+    /// "123 456" cuando un teléfono se unió.
+    public var code: String?
+    public var deviceName: String?
+    public var model: String?
+
+    public init(pairing: String, qr: String, expiresAt: Date, code: String? = nil, deviceName: String? = nil,
+                model: String? = nil) {
+        self.pairing = pairing
+        self.qr = qr
+        self.expiresAt = expiresAt
+        self.code = code
+        self.deviceName = deviceName
+        self.model = model
+    }
+}
+
+/// `remotePairConfirm`: el dispositivo nuevo, o nil si se canceló.
+public struct RemotePairResult: Codable, Equatable, Sendable {
+    public var device: RemoteDeviceInfo?
+
+    public init(device: RemoteDeviceInfo?) {
+        self.device = device
+    }
+}

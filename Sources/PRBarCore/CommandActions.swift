@@ -188,7 +188,29 @@ public protocol RunnerActions: AnyObject {
     func runnerDefault(target: String) throws
 }
 
+/// El acceso desde el iPhone (spec Q.3). Lo implementa `RemoteAccessService` (la app lo expone por `AppModel`).
+@MainActor
+public protocol RemoteActions: AnyObject {
+    func remoteStatus() -> RemoteStatusInfo
+    /// Crea la cuenta en el relay con el token de inscripción (que no se guarda) y conecta.
+    func remoteEnable(relay: String, enrollToken: String) async throws -> RemoteStatusInfo
+    /// Corta la conexión; los dispositivos quedan emparejados.
+    func remoteDisable() async throws -> RemoteStatusInfo
+    func remotePairStart() async throws -> RemotePairingInfo
+    /// Espera a que un teléfono se una (devuelve su código) o a que la ranura venza o se cancele.
+    func remotePairWait(pairing: String, events: CommandEventSink) async throws -> RemotePairingInfo
+    func remotePairConfirm(pairing: String, accepted: Bool) async throws -> RemotePairResult
+    func remoteDevices() -> [RemoteDeviceInfo]
+    /// `device`: id, prefijo del id (≥ 4) o nombre exacto.
+    func remoteRevoke(device: String) async throws -> RemoteDeviceInfo
+    func remoteSetKeepAwake(enabled: Bool) throws -> RemoteStatusInfo
+    func remoteReset() async throws -> RemoteStatusInfo
+    func remoteSetPresenceRequirement(device: String, enabled: Bool) async throws -> RemoteDeviceInfo
+    func remoteSetMailbox(enabled: Bool) async throws -> RemoteStatusInfo
+    func remoteSetAppLink(url: String?) throws -> RemoteStatusInfo
+}
+
 /// Lo que la app tiene que saber hacer para abrir el socket.
 public typealias PRBarActions = StatusActions & ReviewActions & RespondActions & MergeActions & ConfigActions
     & SlackActions & ChatCommandActions & UpdateCommandActions & InstructionCommandActions & ResourceActions
-    & RunnerActions & CIFixUsageActions
+    & RunnerActions & CIFixUsageActions & RemoteActions

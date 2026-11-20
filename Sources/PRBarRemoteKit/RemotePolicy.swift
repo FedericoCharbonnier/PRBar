@@ -35,7 +35,7 @@ public enum RemotePolicy {
         // Face ID (`prbar ci push [--anyway]` es `respondPush`/`respondPushAnyway`: también gated)
         case .merge, .respondPush, .respondPushAnyway:
             return .gated
-        case .reviewPublish:
+        case .reviewPublish, .remoteSetPresenceRequirement:
             return .dependsOnArguments
         // Ventanas y app, cuentas y repos, herramientas, Slack, actualizaciones, destinos SSH, reglas, Claude, prompts,
         // limpieza y ajustes de la Mac: nada de eso desde el teléfono.
@@ -50,7 +50,10 @@ public enum RemotePolicy {
              .rulesChatShow, .rulesChatUndo, .rulesChatStop, .rulesSuggestions, .rulesSuggestionAct, .chatProposal,
              .claudeReviewSet, .claudeRespondSet, .claudeStageSet, .claudePromptShow, .claudePromptSet,
              .claudePromptReset, .openPopover, .cleanupPreview, .cleanup, .setDiskWarning, .runnersList, .runnerAdd,
-             .runnerSet, .runnerRemove, .runnerTest, .runnerDefault:
+             .runnerSet, .runnerRemove, .runnerTest, .runnerDefault,
+             // El acceso remoto se maneja desde la Mac (salvo Face ID del propio teléfono, arriba).
+             .remoteStatus, .remoteEnable, .remoteDisable, .remotePairStart, .remotePairWait, .remotePairConfirm,
+             .remoteDevices, .remoteRevoke, .remoteSetKeepAwake, .remoteReset, .remoteSetMailbox, .remoteSetAppLink:
             return .denied
         }
     }
@@ -61,10 +64,15 @@ public enum RemotePolicy {
         case .gated: return .gated
         case .denied: return .denied
         case .dependsOnArguments:
-            if case .reviewPublish(_, let event, _, _, _, _) = command {
+            switch command {
+            case .reviewPublish(_, let event, _, _, _, _):
                 return event == .approve ? .gated : .allowed
+            case .remoteSetPresenceRequirement(_, let enabled):
+                // Prenderlo no; apagarlo es en sí gated (spec P.8, revisión L5).
+                return enabled ? .allowed : .gated
+            default:
+                return .denied
             }
-            return .denied
         }
     }
 

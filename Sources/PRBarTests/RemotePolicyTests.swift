@@ -16,7 +16,7 @@ enum RemotePolicyTests {
             let gated: Set<AppCommand.Name> = [.merge, .respondPush, .respondPushAnyway]
             for name in AppCommand.Name.allCases {
                 let expected: RemotePolicy.Class = allowed.contains(name) ? .allowed : gated.contains(name) ? .gated
-                    : name == .reviewPublish ? .dependsOnArguments : .denied
+                    : [.reviewPublish, .remoteSetPresenceRequirement].contains(name) ? .dependsOnArguments : .denied
                 try expect(RemotePolicy.classify(name) == expected, "\(name)")
             }
         },
@@ -38,6 +38,18 @@ enum RemotePolicyTests {
             try expectEqual(RemotePolicy.decide(.ciList), .allowed)
             try expectEqual(RemotePolicy.decide(.usage(month: nil)), .allowed)
             try expect(RemotePolicy.gatedNames.contains(.merge) && RemotePolicy.gatedNames.contains(.reviewPublish))
+        },
+        TestCase("remote policy: los remote* se deniegan; apagar Face ID desde el teléfono pide Face ID (L5)") {
+            let remote: [AppCommand] = [.remoteStatus, .remoteEnable(relay: "r.example.com", enrollToken: "t"),
+                                        .remoteDisable, .remotePairStart, .remotePairWait(pairing: "p"),
+                                        .remotePairConfirm(pairing: "p", confirmed: true), .remoteDevices,
+                                        .remoteRevoke(device: "d", confirmed: true), .remoteSetKeepAwake(enabled: true),
+                                        .remoteReset(confirmed: true), .remoteSetMailbox(enabled: false),
+                                        .remoteSetAppLink(url: nil)]
+            for command in remote { try expectEqual(RemotePolicy.decide(command), .denied) }
+            try expectEqual(RemotePolicy.decide(.remoteSetPresenceRequirement(device: "d", enabled: true)), .allowed)
+            try expectEqual(RemotePolicy.decide(.remoteSetPresenceRequirement(device: "d", enabled: false)), .gated)
+            try expect(RemotePolicy.gatedNames.contains(.remoteSetPresenceRequirement))
         },
     ]
 }
