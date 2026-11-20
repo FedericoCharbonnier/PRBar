@@ -119,6 +119,18 @@ let allTests: [TestCase] = []
     + DiskCleanupSafetyTests.cases
     + ResourceMonitorTests.cases
     + WindowVisibilityTests.cases
+    + ShellQuoteTests.cases
+    + RunnerSettingsTests.cases
+    + SSHCommandTests.cases
+    + FileIOProcessTests.cases
+    + RemoteExecTests.cases
+    + SSHHostTests.cases
+    + RunnerProbeTests.cases
+    + RemoteProcessRunnerTests.cases
+    + RemotePluginsTests.cases
+    + WorkspaceFSParityTests.cases
+    + RemoteWorkspacesTests.cases
+    + RemoteFixImportTests.cases
 
 let filter = CommandLine.arguments.dropFirst().first
 let selected = allTests.filter { test in

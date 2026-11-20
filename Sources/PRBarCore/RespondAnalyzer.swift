@@ -15,18 +15,22 @@ public struct RespondAnalyzer: Sendable {
     private let settings: ClaudeSettings
     /// All the user's rules; the effective ones for `respond` go in the prompt (spec E.1).
     private let rules: [Rule]
+    /// Dónde queda la carpeta de contexto: esta Mac o el host del worktree (spec J.3).
+    private let files: any ContextFiles
 
-    public init(claude: ClaudeRunner, settings: ClaudeSettings = ClaudeSettings(), rules: [Rule] = []) {
+    public init(claude: ClaudeRunner, settings: ClaudeSettings = ClaudeSettings(), rules: [Rule] = [],
+                files: any ContextFiles = LocalContextFiles()) {
         self.claude = claude
         self.settings = settings
         self.rules = rules
+        self.files = files
     }
 
     /// Only the skill (as before Plan 9).
     public init(claude: ClaudeRunner, skill: String) {
         var settings = ClaudeSettings()
         settings.respondSkill = skill
-        self.init(claude: claude, settings: settings)
+        self.init(claude: claude, settings: settings, files: LocalContextFiles())
     }
 
     /// Escribe <contextDir>/feedback.json (los FeedbackItem) y pr.md (con `description`, como texto no confiable),
@@ -36,11 +40,12 @@ public struct RespondAnalyzer: Sendable {
     public func analyze(pr: PullRequest, items: [FeedbackItem], worktree: URL, contextDir: URL,
                         description: String, language: PRLanguage,
                         onAgent: @escaping @Sendable (Int) -> Void) async throws -> [RespondItem] {
-        try FileManager.default.createDirectory(at: contextDir, withIntermediateDirectories: true)
+        try await files.createDirectory(contextDir.path)
         let feedbackFile = contextDir.appendingPathComponent("feedback.json")
         let metadataFile = contextDir.appendingPathComponent("pr.md")
-        try Self.encodeFeedback(items).write(to: feedbackFile)
-        try Data(ReviewContextWriter.metadata(pr, headOid: pr.headOid, description: description).utf8).write(to: metadataFile)
+        try await files.write(try Self.encodeFeedback(items), to: feedbackFile.path)
+        try await files.write(Data(ReviewContextWriter.metadata(pr, headOid: pr.headOid, description: description).utf8),
+                              to: metadataFile.path)
 
         let invocation = ClaudeInvocation(
             prompt: Self.prompt(pr: pr, feedbackFile: feedbackFile, metadataFile: metadataFile, language: language,

@@ -1,0 +1,304 @@
+import Foundation
+
+/// Dónde se escriben la carpeta de contexto y sus archivos (`pr.diff`, `pr.md`, `feedback.json`). PRBar genera el
+/// contenido igual que siempre (fences, neutralización); acá solo cambia dónde queda.
+public protocol ContextFiles: Sendable {
+    func createDirectory(_ path: String) async throws
+    func write(_ data: Data, to path: String) async throws
+    func removeTree(_ path: String) async
+    func exists(_ path: String) async -> Bool
+}
+
+public struct LocalContextFiles: ContextFiles {
+    public init() {}
+    public func createDirectory(_ path: String) async throws {
+        try FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
+    }
+    public func write(_ data: Data, to path: String) async throws { try data.write(to: URL(fileURLWithPath: path)) }
+    public func removeTree(_ path: String) async { try? FileManager.default.removeItem(atPath: path) }
+    public func exists(_ path: String) async -> Bool { FileManager.default.fileExists(atPath: path) }
+}
+
+public struct RemoteContextFiles: ContextFiles {
+    let host: SSHHost
+    let root: RemoteRoot
+
+    public init(host: SSHHost, root: RemoteRoot) {
+        self.host = host
+        self.root = root
+    }
+
+    public func createDirectory(_ path: String) async throws {
+        guard root.isRemovable(path) else { throw RemoteRunnerError.outsideRoot(path) }
+        try host.checked(try await host.runScript("umask 077 && mkdir -p -- \(try ShellQuote.posix(path))", timeout: 30), "mkdir")
+    }
+    public func write(_ data: Data, to path: String) async throws { try await host.upload(data, to: path, root: root) }
+    public func removeTree(_ path: String) async { try? await host.removeTree(path, root: root) }
+    public func exists(_ path: String) async -> Bool {
+        guard root.contains(path), let quoted = try? ShellQuote.posix(path) else { return false }
+        return (try? await host.runScript("[ -e \(quoted) ]", timeout: 30).status) == 0
+    }
+}
+
+/// Repos y worktrees en el host (spec J.3, decisiones J.7.7 y J.7.16). Los mismos refs (`refs/prbar/*`), el mismo
+/// `GitHardening` y la misma neutralización de symlinks que en la Mac; el "clone" es un mirror bare propio de PRBar.
+public struct RemoteWorkspaces: Sendable {
+    public let host: SSHHost
+    public let root: RemoteRoot
+    public let gitPath: String
+    public let runner: RemoteProcessRunner
+    public let fs: RemoteWorkspaceFS
+    public let gitEnvironment: [String: String]
+    let remoteURLs: @Sendable (RepoRef) -> [String]
+    let originMatches: @Sendable (String, RepoRef) -> Bool
+    let runID: @Sendable () -> String
+    let now: @Sendable () -> Date
+
+    public init(host: SSHHost, root: RemoteRoot, gitPath: String, runner: RemoteProcessRunner, fs: RemoteWorkspaceFS,
+                gitEnvironment: [String: String] = [:],
+                remoteURLs: @escaping @Sendable (RepoRef) -> [String] = { ["https://github.com/\($0.fullName).git", "git@github.com:\($0.fullName).git"] },
+                originMatches: @escaping @Sendable (String, RepoRef) -> Bool = { WorktreeResolver.originMatches($0, repo: $1) },
+                runID: @escaping @Sendable () -> String = WorktreeManager.newRunID, now: @escaping @Sendable () -> Date = { Date() }) {
+        self.host = host
+        self.root = root
+        self.gitPath = gitPath
+        self.runner = runner
+        self.fs = fs
+        self.gitEnvironment = gitEnvironment.merging(GitHardening.environment) { _, forced in forced }
+        self.remoteURLs = remoteURLs
+        self.originMatches = originMatches
+        self.runID = runID
+        self.now = now
+    }
+
+    public var contextFiles: RemoteContextFiles { RemoteContextFiles(host: host, root: root) }
+
+    // MARK: Git
+
+    @discardableResult
+    func git(_ path: String, _ arguments: [String], timeout: TimeInterval = WorktreeManager.slowTimeout) async throws -> String {
+        guard root.contains(path) else { throw RemoteRunnerError.outsideRoot(path) }
+        let result = try await runner.run(gitPath, GitHardening.arguments + ["-C", path] + arguments, environment: gitEnvironment,
+                                          currentDirectory: nil, timeout: timeout)
+        guard result.status == 0 else {
+            throw PRBarError.commandFailed(command: (["git"] + arguments.prefix(2)).joined(separator: " "), status: result.status,
+                                           stderr: result.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        return result.stdout
+    }
+
+    @discardableResult
+    func gitLogged(_ path: String, _ arguments: [String]) async -> String? {
+        do { return try await git(path, arguments) } catch {
+            AppLog.write("Remote (\(host.name)): `git \(arguments.joined(separator: " "))` failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    // MARK: Mirror
+
+    /// `<raíz>/repos/<owner>/<name>.git`, bare; lo crea la primera vez. El `origin` queda en la primera URL que fetchea.
+    public func mirror(_ repo: RepoRef) async throws -> String {
+        let bare = try root.child(["repos", repo.owner, repo.name + ".git"])
+        let exists = (try? await host.runScript("[ -d \(try ShellQuote.posix(bare + "/objects")) ]", timeout: 30).status) == 0
+        if !exists {
+            try host.checked(try await host.runScript("umask 077 && mkdir -p -- \(try ShellQuote.posix(bare))", timeout: 30), "mkdir")
+            let created = try await runner.run(gitPath, ["init", "--bare", "-q", bare], environment: gitEnvironment, currentDirectory: nil, timeout: 60)
+            guard created.status == 0 else { throw RemoteRunnerError.cannotFetch(host: host.name, repo: repo.fullName) }
+            try await git(bare, ["remote", "add", "origin", remoteURLs(repo).first ?? ""])
+        }
+        return bare
+    }
+
+    /// `fetch` con la URL de `origin`; si falla, prueba las otras y deja la que anduvo.
+    func fetch(_ bare: String, repo: RepoRef, _ refspecs: [String]) async throws {
+        let urls = remoteURLs(repo)
+        let current = (try? await git(bare, ["remote", "get-url", "origin"]))?.trimmingCharacters(in: .whitespacesAndNewlines)
+        for url in [current].compactMap({ $0 }) + urls.filter({ $0 != current }) {
+            if url != current { try await git(bare, ["remote", "set-url", "origin", url]) }
+            if (try? await git(bare, ["fetch", "--no-write-fetch-head", "--no-tags", "origin"] + refspecs)) != nil { return }
+        }
+        throw RemoteRunnerError.cannotFetch(host: host.name, repo: repo.fullName)
+    }
+
+    // MARK: Review y chat
+
+    /// Como `WorktreeManager.prepare`, en el host. `localPath` es el mirror (`mirror(_:)`).
+    public func prepare(repo: RepoRef, number: Int, baseRef: String, localPath: String?, name customName: String?,
+                        pinnedHeadOid: String?) async throws -> ReviewWorkspace {
+        guard let bare = localPath, root.contains(bare) else { throw RemoteRunnerError.outsideRoot(localPath ?? "") }
+        if let customName {
+            guard WorktreeManager.isChatWorkspaceName(customName), !customName.hasSuffix(".context"), !customName.hasSuffix("-diff") else {
+                throw PRBarError.invalidResponse("Invalid chat workspace name: \(customName)")
+            }
+        }
+        if let pinnedHeadOid, CommitSHA.parse(pinnedHeadOid) != pinnedHeadOid {
+            throw PRBarError.invalidResponse("Invalid pinned commit: \(pinnedHeadOid.prefix(80))")
+        }
+        let id = runID()
+        let name = customName ?? "\(repo.name)-\(number)-\(Int(now().timeIntervalSince1970))-\(id)"
+        let directory = try root.child(["work", name])
+        let prRef = WorktreeManager.prRef(number, id)
+        let base = WorktreeManager.baseRef(number, id)
+        let workspace = ReviewWorkspace(directory: URL(fileURLWithPath: directory, isDirectory: true), baseRef: base, prRef: prRef, isDiffOnly: false)
+        do {
+            try await fetch(bare, repo: repo, ["+pull/\(number)/head:\(prRef)", "+refs/heads/\(baseRef):\(base)"])
+            guard var sha = CommitSHA.parse(try await git(bare, ["rev-parse", "--verify", "--quiet", "\(prRef)^{commit}"])) else {
+                throw RemoteRunnerError.malformedOutput(host: host.name, what: "commit id")
+            }
+            if let pinned = pinnedHeadOid, pinned != sha, (try? await git(bare, ["cat-file", "-e", "\(pinned)^{commit}"])) != nil {
+                try await git(bare, ["update-ref", prRef, pinned])
+                sha = pinned
+            }
+            try await git(bare, ["worktree", "add", "--detach", directory, prRef])
+            let listing = try await git(directory, ["ls-files", "-s", "-z"])
+            try await fs.neutralizeSymlinks(WorktreeManager.symlinkPaths(fromLsFiles: listing), in: directory)
+            return ReviewWorkspace(directory: workspace.directory, baseRef: base, prRef: prRef, isDiffOnly: false, headOid: sha)
+        } catch {
+            let spaces = self
+            await Task.detached { await spaces.cleanup(workspace, localPath: bare) }.value
+            throw error
+        }
+    }
+
+    /// §8.5 en el host: `worktree remove --force` de ese worktree, su carpeta y su admin dir en el mirror propio, las dos
+    /// refs y la carpeta de contexto. Nunca `git worktree prune`. Nunca lanza.
+    public func cleanup(_ workspace: ReviewWorkspace, localPath: String?) async {
+        let directory = workspace.directory.path
+        try? await host.removeTree(workspace.contextDirectory.path, root: root)
+        guard root.isRemovable(directory) else { return }
+        if let bare = localPath, root.contains(bare) {
+            await gitLogged(bare, ["worktree", "remove", "--force", directory])
+            for ref in [workspace.prRef, workspace.baseRef].compactMap({ $0 }) where ref.hasPrefix("refs/prbar/") {
+                await gitLogged(bare, ["update-ref", "-d", ref])
+            }
+            // Si git no pudo sacarlo, su admin dir en el mirror propio (nunca `git worktree prune`).
+            let admin = bare + "/worktrees/" + workspace.directory.lastPathComponent
+            if root.isRemovable(admin) { try? await host.removeTree(admin, root: root) }
+        }
+        try? await host.removeTree(directory, root: root)
+    }
+
+    // MARK: Respond
+
+    /// Como `WorktreeResolver.prepare`, en el host. `worktreeDir` se ignora (siempre `<raíz>/work`).
+    public func prepareRespond(localPath bare: String, repo: RepoRef, number: Int, headRef: String, worktreeDir: String?,
+                               runID: String = WorktreeManager.newRunID()) async throws -> (worktree: ResolvedWorktree, headOid: String) {
+        guard root.contains(bare) else { throw RemoteRunnerError.outsideRoot(bare) }
+        let resolver = WorktreeResolver(runner: runner, gitPath: gitPath, environment: gitEnvironment, originMatches: originMatches)
+        try await resolver.validateBranchName(headRef)
+        let name = WorktreeResolver.directoryName(repo: repo, number: number, runID: runID)
+        let target = try root.child(["work", name])
+        let ref = WorktreeResolver.respondRef(number: number, runID: runID)
+        let worktree = ResolvedWorktree(path: target, origin: .dedicated, localPath: bare, ref: ref)
+        do {
+            try await fetch(bare, repo: repo, ["+refs/heads/\(headRef):\(ref)"])
+            try await resolver.verifyOrigin(bare, repo: repo)
+            guard let sha = CommitSHA.parse(try await git(bare, ["rev-parse", "--verify", "--quiet", "\(ref)^{commit}"])) else {
+                throw RemoteRunnerError.malformedOutput(host: host.name, what: "commit id")
+            }
+            try await git(bare, ["worktree", "add", "--detach", target, sha])
+            let real = try host.checked(try await host.runScript("cd -P -- \(try ShellQuote.posix(target)) && pwd -P", timeout: 30), "pwd")
+                .stdout.trimmingCharacters(in: .newlines)
+            guard real == target else { throw RemoteRunnerError.outsideRoot(real) }
+            return (worktree, sha)
+        } catch {
+            let spaces = self
+            await Task.detached { await spaces.cleanupRespond(worktree) }.value
+            throw error
+        }
+    }
+
+    public func cleanupRespond(_ worktree: ResolvedWorktree) async {
+        guard worktree.origin == .dedicated, let bare = worktree.localPath, root.contains(bare),
+              WorktreeResolver.isRespondWorktreeName((worktree.path as NSString).lastPathComponent) else { return }
+        await gitLogged(bare, ["worktree", "remove", "--force", worktree.path])
+        if let ref = worktree.ref, ref.hasPrefix("refs/prbar/respond-") { await gitLogged(bare, ["update-ref", "-d", ref]) }
+        try? await host.removeTree(worktree.path, root: root)
+    }
+
+    // MARK: Huérfanos
+
+    /// Al arrancar (decisión J.7.16). Solo dentro de la raíz de esta instalación (`installs/<id>`: otra Mac con la
+    /// misma carpeta tiene la suya) y con un candado (`cleanup.lock`, un `mkdir` atómico: la app y la CLI de esta Mac
+    /// comparten la raíz). Aun así, solo lo que seguro no está en uso: los pid de grupos que ya no existen (y su
+    /// lápida), y en `work/` y `tmp/` lo que no cambió en `olderThan`. Las refs `refs/prbar/*` de un mirror se borran
+    /// solo si ya no le queda ningún worktree. Nunca lanza.
+    public func cleanupOrphans(olderThan age: TimeInterval = 12 * 3600) async {
+        guard let marker = try? ShellQuote.posix(root.markerPath), let lockPath = try? root.child(["cleanup.lock"]),
+              let lock = try? ShellQuote.posix(lockPath), let work = try? ShellQuote.posix(root.work),
+              let jobs = try? ShellQuote.posix(root.jobs), let tmp = try? ShellQuote.posix(root.tmp),
+              let repos = try? ShellQuote.posix(root.repos) else { return }
+        let minutes = max(1, Int((age / 60).rounded(.up)))
+        let acquire = """
+        [ -f \(marker) ] || exit 96
+        mkdir -- \(lock) 2>/dev/null && exit 0
+        [ -n "$(find \(lock) -maxdepth 0 -mmin +60 2>/dev/null)" ] && rmdir -- \(lock) 2>/dev/null && mkdir -- \(lock) 2>/dev/null && exit 0
+        exit 75
+        """
+        guard (try? await host.runScript(acquire, timeout: 30))?.status == 0 else {
+            AppLog.write("Remote (\(host.name)): another PRBar is cleaning \(root.path); skipping the orphan cleanup.")
+            return
+        }
+
+        // Trabajos: un pid cuyo grupo ya no existe (o inválido y viejo) se borra con su lápida; lápidas viejas sueltas.
+        let jobsScript = """
+        cd -- \(jobs) || exit 0
+        for f in *.pid; do
+          [ -f "$f" ] || continue
+          pgid=$(cat -- "$f" 2>/dev/null)
+          case $pgid in
+            ''|*[!0-9]*) [ -n "$(find "$f" -mmin +\(minutes) 2>/dev/null)" ] && rm -f -- "$f" "${f%.pid}.cancel" ;;
+            *) if [ "$pgid" -le 1 ] || ! kill -0 -- "-$pgid" 2>/dev/null; then rm -f -- "$f" "${f%.pid}.cancel"; fi ;;
+          esac
+        done
+        for f in *.cancel; do
+          [ -f "$f" ] && [ ! -e "${f%.cancel}.pid" ] && [ -n "$(find "$f" -mmin +\(minutes) 2>/dev/null)" ] && rm -f -- "$f"
+        done
+        exit 0
+        """
+        _ = try? await host.runScript("[ -f \(marker) ] || exit 96\n" + jobsScript, timeout: 60)
+
+        // `work/`: cada entrada, vieja (nada adentro cambió en `olderThan`) o no.
+        let workScript = """
+        cd -- \(work) || exit 0
+        for d in * .[!.]* ..?*; do
+          [ -e "$d" ] || [ -L "$d" ] || continue
+          if [ -z "$(find "$d" -mmin -\(minutes) -print 2>/dev/null | head -n 1)" ]; then printf 'old %s\\n' "$d"; else printf 'new %s\\n' "$d"; fi
+        done
+        exit 0
+        """
+        var stale: Set<String> = []
+        var present: Set<String> = []
+        for line in ((try? await host.runScript(workScript, timeout: 300))?.stdout ?? "").split(separator: "\n") {
+            let parts = line.split(separator: " ", maxSplits: 1).map(String.init)
+            guard parts.count == 2, let path = try? root.child(["work", parts[1]]) else { continue }
+            present.insert(path)
+            if parts[0] == "old" { stale.insert(path) }
+        }
+
+        let listing = "for d in \(repos)/*/*.git; do [ -d \"$d/objects\" ] && printf '%s\\n' \"$d\"; done; exit 0"
+        let mirrors = ((try? await host.runScript(listing, timeout: 60))?.stdout ?? "")
+            .split(separator: "\n").map(String.init).filter(root.contains)
+        for bare in mirrors {
+            guard let list = await gitLogged(bare, ["worktree", "list", "--porcelain"]) else { continue }
+            var remaining = 0
+            for path in WorktreeManager.worktreePaths(fromPorcelain: list) where path.hasPrefix(root.work + "/") {
+                // Viejo, o perdido (registrado pero su carpeta ya no está).
+                if stale.contains(path) || !present.contains(path) {
+                    await gitLogged(bare, ["worktree", "remove", "--force", path])
+                } else {
+                    remaining += 1
+                }
+            }
+            guard remaining == 0, let refs = await gitLogged(bare, ["for-each-ref", "--format=%(refname)", "refs/prbar/"]) else { continue }
+            for ref in refs.split(separator: "\n").map(String.init) where ref.hasPrefix("refs/prbar/") && !ref.contains("..") {
+                await gitLogged(bare, ["update-ref", "-d", ref])
+            }
+        }
+        for path in stale.sorted() { try? await host.removeTree(path, root: root) }
+        _ = try? await host.runScript("[ -f \(marker) ] || exit 96\nfind \(tmp) -mindepth 1 -maxdepth 1 -mmin +\(minutes) -exec rm -rf -- {} +",
+                                      timeout: 300)
+        _ = try? await host.runScript("rmdir -- \(lock)", timeout: 30)
+    }
+}

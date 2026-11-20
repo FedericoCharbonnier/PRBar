@@ -53,17 +53,27 @@ public struct FixImplementer: Sendable {
     private let settings: ClaudeSettings
     /// All the user's rules; the effective ones of the draft's repo for `respond` go in each fix's prompt (spec E.1).
     private let rules: [Rule]
+    /// Lo que el guardián lee y toca del disco del worktree: esta Mac o el host (decisión J.7.8).
+    private let fs: any WorkspaceFS
+    /// El shell de login de `runTests` (`/bin/sh` en un host remoto, decisión J.7.13).
+    private let testShell: String
+    /// El runner de `runTests`; nil = `runner`.
+    private let testRunner: ProcessRunning?
 
     /// `environment` se suma al de cada `git` (los tests lo usan para aislar la configuración global);
     /// `GIT_TERMINAL_PROMPT=0` siempre se mantiene.
     public init(claude: ClaudeRunner, runner: ProcessRunning, gitPath: String, environment: [String: String] = [:],
-                settings: ClaudeSettings = ClaudeSettings(), rules: [Rule] = []) {
+                settings: ClaudeSettings = ClaudeSettings(), rules: [Rule] = [], fs: any WorkspaceFS = LocalWorkspaceFS(),
+                testShell: String = "/bin/zsh", testRunner: ProcessRunning? = nil) {
         self.claude = claude
         self.runner = runner
         self.gitPath = gitPath
         self.environment = environment.merging(["GIT_TERMINAL_PROMPT": "0"]) { _, forced in forced }
         self.settings = settings
         self.rules = rules
+        self.fs = fs
+        self.testShell = testShell
+        self.testRunner = testRunner
     }
 
     /// Para cada ítem con implement == true, en orden: corre Claude → si `git status --porcelain` muestra cambios,
@@ -75,7 +85,7 @@ public struct FixImplementer: Sendable {
     public func implement(draft: RespondDraft, selections: [String: RespondSelection],
                           onProgress: @escaping @MainActor @Sendable (_ done: Int, _ total: Int) -> Void) async throws -> RespondResult {
         let worktree = URL(fileURLWithPath: draft.worktree.path, isDirectory: true)
-        try Self.checkNoNestedGit(worktree, allowed: [])
+        try await checkNoNestedGit(worktree, allowed: [])
         let start = try await verifyStart(draft.startHeadOid, worktree: worktree)
         let guarded = try await gitPaths(worktree)
 
@@ -94,49 +104,50 @@ public struct FixImplementer: Sendable {
             results = try await squash(results, draft: draft, worktree: worktree, start: start)
         }
 
-        return try await summarize(worktree, start: start, items: results, integrity: guarded.securityDigest())
+        return try await summarize(worktree, start: start, items: results, integrity: try await guarded.securityDigest(using: fs))
     }
 
     /// The result of the fixes (`start..HEAD`): diff stat, sensitive files, the full diff (capped), the commits with
     /// their messages, HEAD and `integrity` (git's digest, the push's baseline). Never runs tests (`tests` is nil).
     private func summarize(_ worktree: URL, start: String, items: [ItemResult], integrity: String?) async throws -> RespondResult {
-        let diffStat = try await git(worktree, ["diff", GitHardening.ignoreSubmodules, "--no-ext-diff", "--no-color", "--stat", "\(start)..HEAD"])
-        let changed = try await git(worktree, ["diff", GitHardening.ignoreSubmodules, "--no-ext-diff", "--no-renames", "--name-only", "-z", "\(start)..HEAD"])
-        let paths = changed.split(separator: "\0").map(String.init)
-        let sensitive = paths.filter(Self.isSensitive).sorted()
-        try Self.checkNoNestedGit(worktree, allowed: [])
-        // I3: lo que se va a pushear, entero, para que el usuario lo vea antes de correr tests o pushear.
-        let fullDiff = try await git(worktree, ["diff", GitHardening.ignoreSubmodules, "--text", "--no-textconv", "--no-ext-diff",
-                                                "--no-color", "\(start)..HEAD"])
-        let (diff, truncated) = Self.capDiff(fullDiff)
-        let log = try await git(worktree, ["log", "--reverse", "--format=%H%x00%B%x1e", "\(start)..HEAD"])
-        return RespondResult(items: items, diffStat: diffStat.trimmingCharacters(in: .newlines), tests: nil,
-                             sensitiveChanges: sensitive, headOid: try await head(worktree),
-                             gitIntegrity: integrity, diff: diff, diffTruncated: truncated,
-                             commits: Self.commits(fromLog: log),
-                             dependencyChanges: await dependencyChanges(paths, worktree: worktree, start: start))
+        try await checkNoNestedGit(worktree, allowed: [])
+        return try await Self.summarize(repository: worktree, start: start, head: try await head(worktree), items: items,
+                                        integrity: integrity) { repository, arguments in
+            try await self.git(repository, arguments)
+        }
     }
 
-    /// The changed manifests (see `RespondResult.dependencyChanges`), sorted.
-    private func dependencyChanges(_ paths: [String], worktree: URL, start: String) async -> [String] {
-        var changes: [String] = []
+    /// El resultado de `start..head` en `repository` (un worktree o un repo cualquiera, p. ej. el clone local donde se
+    /// trajeron los fixes de un host): `--stat`, diff completo (cortado), commits, sensibles y dependencias.
+    /// `items`/`integrity` se copian. `git` corre git endurecido en `repository`.
+    static func summarize(repository: URL, start: String, head: String, items: [ItemResult], integrity: String?,
+                          git: (URL, [String]) async throws -> String) async throws -> RespondResult {
+        let range = "\(start)..\(head)"
+        let diffStat = try await git(repository, ["diff", GitHardening.ignoreSubmodules, "--no-ext-diff", "--no-color", "--stat", range])
+        let changed = try await git(repository, ["diff", GitHardening.ignoreSubmodules, "--no-ext-diff", "--no-renames", "--name-only", "-z", range])
+        let paths = changed.split(separator: "\0").map(String.init)
+        let sensitive = paths.filter(isSensitive).sorted()
+        // I3: lo que se va a pushear, entero, para que el usuario lo vea antes de correr tests o pushear.
+        let fullDiff = try await git(repository, ["diff", GitHardening.ignoreSubmodules, "--text", "--no-textconv", "--no-ext-diff",
+                                                  "--no-color", range])
+        let (diff, truncated) = capDiff(fullDiff)
+        let log = try await git(repository, ["log", "--reverse", "--format=%H%x00%B%x1e", range])
+        // The changed manifests (see `RespondResult.dependencyChanges`), sorted. A file at a commit is
+        // `git cat-file blob <rev>:<path>`, or nil if it isn't there.
+        var dependencies: [String] = []
         for path in paths where DependencyManifests.isManifest(path) {
             if DependencyManifests.isPackageJSON(path) {
-                let before = await blob(worktree, "\(start):\(path)")
-                let after = await blob(worktree, "HEAD:\(path)")
+                let before = (try? await git(repository, ["cat-file", "blob", "\(start):\(path)"])).map { Data($0.utf8) }
+                let after = (try? await git(repository, ["cat-file", "blob", "\(head):\(path)"])).map { Data($0.utf8) }
                 guard DependencyManifests.packageJSONDependenciesChanged(before: before, after: after) else { continue }
             }
-            changes.append(path)
+            dependencies.append(path)
         }
-        return changes.sorted()
-    }
-
-    /// A file at a commit (`git cat-file blob <rev>:<path>`, hardened), or nil if it isn't there.
-    private func blob(_ worktree: URL, _ spec: String) async -> Data? {
-        let args = ["-C", worktree.path] + GitHardening.arguments + ["cat-file", "blob", spec]
-        guard let result = try? await runner.run(gitPath, args, environment: environment, currentDirectory: nil,
-                                                 timeout: ProcessTimeouts.standard), result.status == 0 else { return nil }
-        return Data(result.stdout.utf8)
+        return RespondResult(items: items, diffStat: diffStat.trimmingCharacters(in: .newlines), tests: nil,
+                             sensitiveChanges: sensitive, headOid: head,
+                             gitIntegrity: integrity, diff: diff, diffTruncated: truncated,
+                             commits: commits(fromLog: log),
+                             dependencyChanges: dependencies.sorted())
     }
 
     /// Líneas del diff que se guardan en el resultado y muestra la UI; el resto se ve en el worktree.
@@ -181,9 +192,9 @@ public struct FixImplementer: Sendable {
         try await checkConfigOrigins(worktree)
         let headBefore = try await head(worktree)
         // Lo último antes de Claude: después, ningún git corre hasta revisar todo esto.
-        let before = guarded.fingerprint()
-        let nestedBefore = Set(WorktreeIntegrity.nestedGitEntries(in: worktree))
-        let snapshot = WorktreeIntegrity.Snapshot.take(worktree)
+        let before = try await guarded.fingerprint(using: fs)
+        let nestedBefore = Set(try await fs.nestedGitEntries(worktree.path))
+        let snapshot = try await fs.snapshot(worktree.path)
 
         let invocation = ClaudeInvocation(
             prompt: Self.prompt(item: item, fixPlan: fixPlan, settings: settings,
@@ -196,6 +207,8 @@ public struct FixImplementer: Sendable {
             output = try await claude.run(invocation, as: FixOutput.self, onAgent: { _ in })
         } catch let error as ClaudeRunnerError {
             throw error  // Invocación insegura: no se lanzó nada.
+        } catch let error as RemoteRunnerError where error.jobHost != nil {
+            throw error  // Claude puede seguir corriendo en el host: ni el guardián ni git hasta que pare.
         } catch {
             // Timeout, crash o cancelación: Claude pudo dejar cambios a medias. Como el árbol estaba limpio, se
             // descartan igual que en un `failed`. La restauración corre fuera de esta tarea para que una
@@ -254,7 +267,7 @@ public struct FixImplementer: Sendable {
     private func restore(_ worktree: URL, removing invisible: [String] = []) async throws {
         try await git(worktree, ["checkout", "--", "."])
         try await git(worktree, ["clean", "-fd"])
-        for path in invisible { try Self.removeCreatedFile(path, in: worktree) }
+        for path in invisible { try await fs.removeCreatedFile(path, in: worktree.path) }
     }
 
     /// Borra un archivo que creó Claude, sin seguir symlinks y solo si su carpeta está de verdad dentro del worktree.
@@ -270,7 +283,8 @@ public struct FixImplementer: Sendable {
             throw PRBarError.respond("\(relative) is outside the worktree: not deleting it.")
         }
         let path = realParent + "/" + url.lastPathComponent
-        guard unlink(path) == 0 || errno == ENOENT else {
+        // Estaba en el snapshot: si ya no está, el árbol no es el que se inspeccionó.
+        guard unlink(path) == 0 else {
             throw PRBarError.respond("Couldn't delete \(relative), which Claude created: \(String(cString: strerror(errno))).")
         }
     }
@@ -291,9 +305,10 @@ public struct FixImplementer: Sendable {
     /// que ya existía, se restaura lo trackeado y se corta toda la corrida (no se puede volver atrás).
     private func inspect(_ worktree: URL, guarded: GitPaths, before: [String: String], nestedBefore: Set<String>,
                          snapshot: WorktreeIntegrity.Snapshot) async throws -> Inspection {
-        try checkGitUntouched(guarded, before: before, worktree: worktree)
-        try Self.checkNoNestedGit(worktree, allowed: nestedBefore)
-        let changes = snapshot.changes(to: WorktreeIntegrity.Snapshot.take(worktree))
+        try await checkGitUntouched(guarded, before: before, worktree: worktree)
+        try await checkNoNestedGit(worktree, allowed: nestedBefore)
+        let after = try await fs.snapshot(worktree.path)
+        let changes = snapshot.changes(to: after)
         let attributes = changes.all.filter { ["gitattributes", "lfsconfig"].contains(($0 as NSString).lastPathComponent.lowercased().dropFirst()) }
         guard attributes.isEmpty else {
             claude.appendLog("--- Claude changed \(attributes.joined(separator: ", ")) ---\n")
@@ -327,6 +342,8 @@ public struct FixImplementer: Sendable {
             invisibleModified.removeAll { tracked.contains($0) }
             invisibleAdded.removeAll { tracked.contains($0) }
         }
+        // Se comparan en NFC, pero se borran por su nombre real (en Linux, uno NFD es otro archivo).
+        invisibleAdded = invisibleAdded.map(after.rawPath)
         if !invisibleModified.isEmpty {
             claude.appendLog("--- Claude changed files ignored by git: \((invisibleModified + invisibleAdded).joined(separator: ", ")) ---\n")
             try await restore(worktree, removing: invisibleAdded)
@@ -338,7 +355,17 @@ public struct FixImplementer: Sendable {
         return Inspection(hasChanges: !visible.isEmpty, invisibleAdded: invisibleAdded)
     }
 
-    /// Lanza si hay un `.git` anidado que no está en `allowed`. No corre git.
+    /// Lanza si hay un `.git` anidado que no está en `allowed`, mirando el disco del worktree (`fs`). No corre git.
+    func checkNoNestedGit(_ worktree: URL, allowed: Set<String>) async throws {
+        let nested = try await fs.nestedGitEntries(worktree.path).filter { !allowed.contains($0) }
+        guard nested.isEmpty else {
+            throw PRBarError.respond(
+                "A nested .git appeared in the worktree (\(nested.prefix(3).joined(separator: ", "))): "
+                + "any git command could run its configuration. Stopped without running git. Check the worktree \(worktree.path).")
+        }
+    }
+
+    /// Lanza si hay un `.git` anidado que no está en `allowed`. No corre git. Solo en esta Mac (`RespondPublisher`).
     static func checkNoNestedGit(_ worktree: URL, allowed: Set<String>) throws {
         let nested = WorktreeIntegrity.nestedGitEntries(in: worktree).filter { !allowed.contains($0) }
         guard nested.isEmpty else {
@@ -393,11 +420,11 @@ public struct FixImplementer: Sendable {
     public func chatTurn<T: Sendable>(draft: RespondDraft, current: RespondResult, sessionID: UUID, turn: Int,
                                       body: @Sendable () async throws -> T) async throws -> (T, ChatFilesOutcome) {
         let worktree = URL(fileURLWithPath: draft.worktree.path, isDirectory: true)
-        try Self.checkNoNestedGit(worktree, allowed: [])
+        try await checkNoNestedGit(worktree, allowed: [])
         let guarded = try await gitPaths(worktree)
         // The push's baseline is the fixes' digest: a change since then (between turns, or one a failed turn
         // detected) blocks the chat instead of becoming the new baseline.
-        try checkIntegrity(guarded, expected: current.gitIntegrity, worktree: worktree)
+        try await checkIntegrity(guarded, expected: current.gitIntegrity, worktree: worktree)
         let start = try await verifyStart(draft.startHeadOid, worktree: worktree)
         // Before `status`: it can run filter drivers from the config.
         try await checkConfigOrigins(worktree)
@@ -409,9 +436,9 @@ public struct FixImplementer: Sendable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         try await git(worktree, ["update-ref", ref, snapshotCommit])
         // The last thing before Claude: after it, no git runs until all of this is checked.
-        let before = guarded.fingerprint()
-        let nestedBefore = Set(WorktreeIntegrity.nestedGitEntries(in: worktree))
-        let snapshot = WorktreeIntegrity.Snapshot.take(worktree)
+        let before = try await guarded.fingerprint(using: fs)
+        let nestedBefore = Set(try await fs.nestedGitEntries(worktree.path))
+        let snapshot = try await fs.snapshot(worktree.path)
 
         let value: T
         do {
@@ -419,6 +446,8 @@ public struct FixImplementer: Sendable {
         } catch let error as ClaudeRunnerError {
             _ = try? await git(worktree, ["update-ref", "-d", ref])   // Nothing was launched: git is safe.
             throw error
+        } catch let error as RemoteRunnerError where error.jobHost != nil {
+            throw error  // Claude may still be running on the host: no guard, no git until it stops.
         } catch {
             // Timeout, invalid answer, Stop: the files Claude touched in this turn are reverted (spec B.9), outside
             // this task so a cancellation doesn't cut the restore. The original error goes to the log first: if
@@ -476,8 +505,8 @@ public struct FixImplementer: Sendable {
     /// ones). The snapshot was taken on a clean tree, so the tree ends clean. Returns the result before the turn.
     public func undoChatTurn(draft: RespondDraft, snapshot: ChatFileSnapshot) async throws -> RespondResult {
         let worktree = URL(fileURLWithPath: draft.worktree.path, isDirectory: true)
-        try Self.checkNoNestedGit(worktree, allowed: [])
-        try checkIntegrity(try await gitPaths(worktree), expected: snapshot.resultBefore.gitIntegrity, worktree: worktree)
+        try await checkNoNestedGit(worktree, allowed: [])
+        try await checkIntegrity(try await gitPaths(worktree), expected: snapshot.resultBefore.gitIntegrity, worktree: worktree)
         try await checkConfigOrigins(worktree)
         guard try await head(worktree) == snapshot.headAfter else {
             throw PRBarError.respond("The worktree’s HEAD moved after that message: it can’t be undone.")
@@ -501,9 +530,9 @@ public struct FixImplementer: Sendable {
     /// checked (a nested `.git`, a git error), it says yes.
     public func chatFilesChangedSince(_ snapshot: ChatFileSnapshot, draft: RespondDraft) async -> Bool {
         let worktree = URL(fileURLWithPath: draft.worktree.path, isDirectory: true)
-        guard WorktreeIntegrity.nestedGitEntries(in: worktree).isEmpty,
+        guard let nested = try? await fs.nestedGitEntries(worktree.path), nested.isEmpty,
               let guarded = try? await gitPaths(worktree),
-              (try? checkIntegrity(guarded, expected: snapshot.resultBefore.gitIntegrity, worktree: worktree)) != nil,
+              (try? await checkIntegrity(guarded, expected: snapshot.resultBefore.gitIntegrity, worktree: worktree)) != nil,
               let head = try? await head(worktree), head == snapshot.headAfter,
               let status = try? await git(worktree, ["status", GitHardening.ignoreSubmodules, "--porcelain", "--untracked-files=all"])
         else { return true }
@@ -513,12 +542,19 @@ public struct FixImplementer: Sendable {
     /// Spec B.6: the worktree (tracked and untracked, not ignored) as a tree, through a temporary index so the real
     /// one isn't touched.
     private func snapshotTree(_ worktree: URL) async throws -> String {
-        let index = FileManager.default.temporaryDirectory.appendingPathComponent("prbar-chat-index-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: index) }
-        let env = ["GIT_INDEX_FILE": index.path]
-        try await git(worktree, ["read-tree", "HEAD"], extraEnvironment: env)
-        try await git(worktree, ["add", "-A"], extraEnvironment: env)
-        return try await git(worktree, ["write-tree"], extraEnvironment: env).trimmingCharacters(in: .whitespacesAndNewlines)
+        // En la máquina del worktree (en un host, `<raíz>/tmp`): un índice local no existe allá y git usaría el real.
+        let index = try fs.temporaryFilePath("prbar-chat-index")
+        let env = ["GIT_INDEX_FILE": index]
+        do {
+            try await git(worktree, ["read-tree", "HEAD"], extraEnvironment: env)
+            try await git(worktree, ["add", "-A"], extraEnvironment: env)
+            let tree = try await git(worktree, ["write-tree"], extraEnvironment: env).trimmingCharacters(in: .whitespacesAndNewlines)
+            await fs.removeTemporaryFile(index)
+            return tree
+        } catch {
+            await fs.removeTemporaryFile(index)
+            throw error
+        }
     }
 
     // MARK: - Commits
@@ -594,7 +630,7 @@ public struct FixImplementer: Sendable {
         let output: String
         let passed: Bool
         do {
-            let result = try await runner.run("/bin/zsh", ["-lc", testCommand], environment: nil,
+            let result = try await (testRunner ?? runner).run(testShell, ["-lc", testCommand], environment: nil,
                                               currentDirectory: worktree, timeout: Self.testTimeout)
             output = [result.stdout, result.stderr]
                 .map { $0.trimmingCharacters(in: .newlines) }
@@ -687,34 +723,35 @@ public struct FixImplementer: Sendable {
         /// Carpetas de un submódulo (en `modules/`) que no se recorren: datos que git cambia solo.
         static let moduleSkippedDirs: Set<String> = ["objects", "refs", "logs", "lfs", "rr-cache", "worktrees"]
 
-        /// Ruta → descripción de cada cosa de la lista de permitidos (ver el tipo). Las que no existen también
-        /// están, como `none`, para que aparecer cuente como cambio.
-        func fingerprint() -> [String: String] {
-            var entries: [String: String] = [:]
-            var configs: [String] = []
-            func add(_ path: String) { entries[path] = Self.describe(path) }
-
-            add(dotGit)
-            add(commonDir)
-            for name in Self.commonFiles { add(Self.join(commonDir, name)) }
-            for name in Self.commonTrees { Self.addTree(Self.join(commonDir, name), to: &entries) }
-            configs += ["config", "config.worktree"].map { Self.join(commonDir, $0) }
-            Self.addModules(Self.join(commonDir, "modules"), to: &entries, configs: &configs)
+        /// Ruta → descripción de cada cosa de la lista de permitidos (ver el tipo), leída con `fs` (esta Mac o el host).
+        /// Las que no existen también están, como `none`, para que aparecer cuente como cambio.
+        func fingerprint(using fs: any WorkspaceFS) async throws -> [String: String] {
+            var files = [dotGit, commonDir] + Self.commonFiles.map { Self.join(commonDir, $0) }
+            var trees = Self.commonTrees.map { Self.join(commonDir, $0) }
             if let adminDir {
-                add(adminDir)
-                for name in Self.adminFiles { add(Self.join(adminDir, name)) }
-                for name in Self.adminTrees { Self.addTree(Self.join(adminDir, name), to: &entries) }
-                configs.append(Self.join(adminDir, "config.worktree"))
+                files += [adminDir] + Self.adminFiles.map { Self.join(adminDir, $0) }
+                trees += Self.adminTrees.map { Self.join(adminDir, $0) }
             }
-
+            var entries = try await fs.describe(files)
+            entries.merge(try await fs.describeTrees(trees)) { _, new in new }
+            let modules = try await fs.modules(Self.join(commonDir, "modules"))
+            entries.merge(modules.entries) { _, new in new }
+            var configs = ["config", "config.worktree"].map { Self.join(commonDir, $0) } + modules.configs
+            if let adminDir { configs.append(Self.join(adminDir, "config.worktree")) }
             // Los includes que caen dentro de las carpetas de git (y los includes de esos, sin ciclos).
             let roots = [commonDir] + (adminDir.map { [$0] } ?? [])
             var seen = Set(configs)
             while let config = configs.popLast() {
-                for target in Self.includedPaths(ofConfigAt: config) where !seen.contains(target) {
+                // Límite conocido (aceptado en la revisión de seguridad del Plan 14): un config de más de 1 MiB no se
+                // lee, así que sus includes no se siguen. El config mismo sí queda en la huella (cualquier cambio
+                // corta), y un config así de grande no lo arma PRBar ni git; solo quedaría sin cubrir un include,
+                // ya presente antes de Claude, a un archivo dentro de las carpetas de git fuera de los árboles que
+                // ya se describen.
+                let text = try await fs.readText(config, limit: 1 << 20)
+                for target in Self.includedPaths(text: text, configPath: config, home: fs.home) where !seen.contains(target) {
                     seen.insert(target)
                     guard roots.contains(where: { target.hasPrefix($0 + "/") }) else { continue }
-                    add(target)
+                    entries.merge(try await fs.describe([target])) { _, new in new }
                     configs.append(target)
                 }
             }
@@ -724,8 +761,8 @@ public struct FixImplementer: Sendable {
         /// SHA-256 de `fingerprint` sin el `HEAD` del worktree (que cambia con cada commit de los fixes y que
         /// `RespondPublisher` compara aparte con el sha revisado). `RespondPublisher` lo recalcula justo antes
         /// del push, que corre los hooks del usuario.
-        func securityDigest() -> String {
-            var entries = fingerprint()
+        func securityDigest(using fs: any WorkspaceFS) async throws -> String {
+            var entries = try await fingerprint(using: fs)
             if let adminDir { entries[Self.join(adminDir, "HEAD")] = nil }
             let text = entries.sorted { $0.key < $1.key }.map { "\($0.key)\t\($0.value)" }.joined(separator: "\n")
             return SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
@@ -752,7 +789,7 @@ public struct FixImplementer: Sendable {
         }
 
         /// `root` y todo lo de adentro (sin seguir symlinks ni mirar metadatos de macOS).
-        private static func addTree(_ root: String, to entries: inout [String: String]) {
+        static func addTree(_ root: String, to entries: inout [String: String]) {
             entries[root] = describe(root)
             walk(root) { path, _ in
                 entries[path] = describe(path)
@@ -761,7 +798,7 @@ public struct FixImplementer: Sendable {
         }
 
         /// En `modules/` (submódulos, a cualquier profundidad): `config`, `config.worktree` y `hooks/`.
-        private static func addModules(_ root: String, to entries: inout [String: String], configs: inout [String]) {
+        static func addModules(_ root: String, to entries: inout [String: String], configs: inout [String]) {
             walk(root) { path, isDirectory in
                 let name = (path as NSString).lastPathComponent
                 if isDirectory {
@@ -779,29 +816,32 @@ public struct FixImplementer: Sendable {
             }
         }
 
-        /// Recorre `root` sin seguir symlinks ni entrar ni mirar metadatos de macOS. `visit(ruta, esCarpeta)`;
-        /// si devuelve false no se entra en esa carpeta.
-        private static func walk(_ root: String, visit: (String, Bool) -> Bool) {
+        /// Recorre `root` sin seguir symlinks. `visit(ruta, esCarpeta)`; si devuelve false no se entra en esa carpeta.
+        /// Los archivos de metadatos de macOS (`.DS_Store`, `._*`, `Icon\r`) no se miran (Finder los deja en
+        /// cualquier carpeta y git no los usa), pero una carpeta con ese nombre sí se recorre.
+        static func walk(_ root: String, visit: (String, Bool) -> Bool) {
             var stack = [root]
             while let directory = stack.popLast() {
-                guard let names = try? FileManager.default.contentsOfDirectory(atPath: directory) else { continue }
-                for name in names where !WorktreeIntegrity.isMacMetadata(name) {
+                guard let names = WorktreeIntegrity.directoryNames(directory) else { continue }
+                for name in names {
                     let path = join(directory, name)
                     var info = stat()
                     guard lstat(path, &info) == 0 else { continue }
                     let isDirectory = info.st_mode & S_IFMT == S_IFDIR
+                    if !isDirectory && WorktreeIntegrity.isMacMetadata(name) { continue }
                     if visit(path, isDirectory) && isDirectory { stack.append(path) }
                 }
             }
         }
 
-        /// Las rutas absolutas de `include.path` e `includeIf.<cond>.path` de un archivo de config, sin correr git
-        /// (todavía no es seguro). Como git: las relativas son relativas a la carpeta del archivo y `~/` es el home.
-        static func includedPaths(ofConfigAt path: String) -> [String] {
-            guard let data = FileManager.default.contents(atPath: path) else { return [] }
-            let base = (path as NSString).deletingLastPathComponent
-            return includeValues(in: String(decoding: data, as: UTF8.self)).map { value in
-                let expanded = value.hasPrefix("~/") ? NSHomeDirectory() + String(value.dropFirst(1)) : value
+        /// Las rutas absolutas de `include.path` e `includeIf.<cond>.path` de un archivo de config (su texto ya
+        /// leído, sin correr git: todavía no es seguro). Como git: las relativas son relativas a la carpeta del
+        /// archivo y `~/` es el `HOME` de la máquina del worktree.
+        static func includedPaths(text: String?, configPath: String, home: String) -> [String] {
+            guard let text else { return [] }
+            let base = (configPath as NSString).deletingLastPathComponent
+            return includeValues(in: text).map { value in
+                let expanded = value.hasPrefix("~/") ? home + String(value.dropFirst(1)) : value
                 return normalize(expanded.hasPrefix("/") ? expanded : join(base, expanded))
             }
         }
@@ -877,16 +917,16 @@ public struct FixImplementer: Sendable {
 
     /// Throws, without running git, if git's digest isn't `expected` (the fixes' `gitIntegrity`; nil = an older
     /// result, which can't be pushed anyway).
-    private func checkIntegrity(_ paths: GitPaths, expected: String?, worktree: URL) throws {
-        guard let expected, paths.securityDigest() != expected else { return }
+    private func checkIntegrity(_ paths: GitPaths, expected: String?, worktree: URL) async throws {
+        guard let expected, try await paths.securityDigest(using: fs) != expected else { return }
         claude.appendLog("--- git configuration or hooks changed since the fixes were implemented ---\n")
         throw PRBarError.respond(
             "Git configuration or hooks changed since the fixes were implemented. PRBar stopped before running git. "
             + "Review the worktree at \(worktree.path), then Dismiss to clean it up.")
     }
 
-    private func checkGitUntouched(_ paths: GitPaths, before: [String: String], worktree: URL) throws {
-        let after = paths.fingerprint()
+    private func checkGitUntouched(_ paths: GitPaths, before: [String: String], worktree: URL) async throws {
+        let after = try await paths.fingerprint(using: fs)
         guard after != before else { return }
         let changed = Set(before.keys).union(after.keys).filter { before[$0] != after[$0] }.sorted()
         claude.appendLog("--- git configuration or hooks changed during the run: \(changed.joined(separator: ", ")) ---\n")

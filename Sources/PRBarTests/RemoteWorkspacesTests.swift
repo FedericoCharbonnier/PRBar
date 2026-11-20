@@ -1,0 +1,168 @@
+import Foundation
+import PRBarCore
+
+func remoteWorkspaces(_ host: SSHHost, _ info: RunnerHostInfo, _ root: RemoteRoot, origin: URL,
+                      extraURLs: [String] = []) -> RemoteWorkspaces {
+    RemoteWorkspaces(host: host, root: root, gitPath: info.gitPath!,
+                     runner: RemoteProcessRunner(host: host, root: root, toolDirectories: info.toolDirectories),
+                     fs: RemoteWorkspaceFS.ssh(host: host, home: (root.path as NSString).deletingLastPathComponent, root: root),
+                     gitEnvironment: ["GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1",
+                                      "GIT_AUTHOR_NAME": "PRBar Tests", "GIT_AUTHOR_EMAIL": "tests@prbar.invalid",
+                                      "GIT_COMMITTER_NAME": "PRBar Tests", "GIT_COMMITTER_EMAIL": "tests@prbar.invalid"],
+                     remoteURLs: { _ in extraURLs + [origin.path] }, originMatches: { _, _ in true })
+}
+
+enum RemoteWorkspacesTests {
+    static let cases: [TestCase] = [
+        TestCase("remote workspaces: mirror propio, worktree del PR con refs propias, symlinks neutralizados, contexto subido; limpieza") {
+            let repo = try TempGitRepo.make { origin in
+                try FileManager.default.createSymbolicLink(atPath: origin.appendingPathComponent("evil").path, withDestinationPath: "/etc/passwd")
+            }
+            defer { repo.remove() }
+            let (ssh, host, info, root) = try await verifiedFake()
+            defer { ssh.remove() }
+            let spaces = remoteWorkspaces(host, info, root, origin: repo.origin, extraURLs: ["/nonexistent/first-url-fails"])
+            let gitHubRepo = RepoRef(owner: "o", name: "r")
+            let bare = try await spaces.mirror(gitHubRepo)
+            try expectEqual(bare, try root.child(["repos", "o", "r.git"]))
+            let workspace = try await spaces.prepare(repo: gitHubRepo, number: 7, baseRef: "main", localPath: bare, name: nil, pinnedHeadOid: nil)
+            try expectEqual(workspace.headOid, repo.prSHA)
+            try expect(root.contains(workspace.directory.path) && workspace.directory.path.hasPrefix(root.work + "/"))
+            let evil = try String(contentsOf: workspace.directory.appendingPathComponent("evil"), encoding: .utf8)
+            try expect(evil.hasPrefix("[symlink to /etc/passwd omitted by PRBar]"), evil)
+            let writer = ReviewContextWriter(runner: spaces.runner, gitPath: info.gitPath!, ghPath: nil, files: spaces.contextFiles)
+            let pr = makePR(repo: gitHubRepo, number: 7, base: "main")
+            _ = try await writer.write(pr: pr, workspace: workspace, token: "ghp_never_sent", description: "Desc")
+            let diff = try String(contentsOf: workspace.diffFile, encoding: .utf8)
+            try expect(diff.contains("feature.txt"))
+            let invocationsText = ssh.invocations().flatMap { $0 }.joined(separator: " ")
+            try expect(!invocationsText.contains("ghp_never_sent"))
+            await spaces.cleanup(workspace, localPath: bare)
+            try expect(!FileManager.default.fileExists(atPath: workspace.directory.path))
+            try expect(!FileManager.default.fileExists(atPath: workspace.contextDirectory.path))
+            let refs = try TempGitRepo.run(URL(fileURLWithPath: bare), ["for-each-ref", "refs/prbar/"])
+            try expectEqual(refs, "")
+            try expect(FileManager.default.fileExists(atPath: bare))
+        },
+        TestCase("remote workspaces: worktree de Respond desde la rama y limpieza; nombre de rama hostil rechazado") {
+            let repo = try TempGitRepo.make()
+            defer { repo.remove() }
+            let (ssh, host, info, root) = try await verifiedFake()
+            defer { ssh.remove() }
+            let spaces = remoteWorkspaces(host, info, root, origin: repo.origin)
+            let bare = try await spaces.mirror(RepoRef(owner: "o", name: "r"))
+            let (worktree, start) = try await spaces.prepareRespond(localPath: bare, repo: RepoRef(owner: "o", name: "r"), number: 7,
+                                                                    headRef: "feature", worktreeDir: nil, runID: "0a0b0c0d")
+            try expectEqual(start, repo.prSHA)
+            try expectEqual(worktree.path, try root.child(["work", "r-7-respond-0a0b0c0d"]))
+            try expectEqual(worktree.localPath, bare)
+            for hostile in ["$(touch PWNED)", "-x", "a..b", "a b"] {
+                _ = try await expectThrows {
+                    _ = try await spaces.prepareRespond(localPath: bare, repo: RepoRef(owner: "o", name: "r"), number: 7, headRef: hostile,
+                                                        worktreeDir: nil, runID: "0e0e0e0e")
+                }
+            }
+            try expect(!FileManager.default.fileExists(atPath: ssh.home.appendingPathComponent("PWNED").path))
+            await spaces.cleanupRespond(worktree)
+            try expect(!FileManager.default.fileExists(atPath: worktree.path))
+        },
+        TestCase("remote workspaces: si el host no puede fetchear, el error lo dice") {
+            let (ssh, host, info, root) = try await verifiedFake()
+            defer { ssh.remove() }
+            let spaces = RemoteWorkspaces(host: host, root: root, gitPath: info.gitPath!,
+                                          runner: RemoteProcessRunner(host: host, root: root, toolDirectories: info.toolDirectories),
+                                          fs: RemoteWorkspaceFS.ssh(host: host, home: ssh.home.path, root: root),
+                                          remoteURLs: { _ in ["/nonexistent/repo.git"] }, originMatches: { _, _ in true })
+            let error = try await expectThrows {
+                let bare = try await spaces.mirror(RepoRef(owner: "acme", name: "api"))
+                _ = try await spaces.prepare(repo: RepoRef(owner: "acme", name: "api"), number: 1, baseRef: "main", localPath: bare,
+                                             name: nil, pinnedHeadOid: nil)
+            }
+            try expectEqual(error.localizedDescription, "devbox can't fetch acme/api — set up git access on the server.")
+        },
+        TestCase("remote workspaces: al arrancar se limpian huérfanos viejos solo dentro de la raíz; lo reciente y los mirrors quedan") {
+            let repo = try TempGitRepo.make()
+            defer { repo.remove() }
+            let (ssh, host, info, root) = try await verifiedFake()
+            defer { ssh.remove() }
+            let spaces = remoteWorkspaces(host, info, root, origin: repo.origin)
+            let bare = try await spaces.mirror(RepoRef(owner: "o", name: "r"))
+            let old = try await spaces.prepare(repo: RepoRef(owner: "o", name: "r"), number: 7, baseRef: "main", localPath: bare,
+                                               name: nil, pinnedHeadOid: nil)
+            let outside = ssh.home.appendingPathComponent("my-own-stuff")
+            try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+            let tmp = URL(fileURLWithPath: root.tmp)
+            try Data().write(to: tmp.appendingPathComponent("leftover.stdin"))
+            try Data().write(to: tmp.appendingPathComponent("fresh.stdin"))
+            try makeOld(old.directory)
+            try makeOld(tmp.appendingPathComponent("leftover.stdin"))
+            await spaces.cleanupOrphans()
+            try expect(!FileManager.default.fileExists(atPath: old.directory.path))
+            try expectEqual(try FileManager.default.contentsOfDirectory(atPath: root.tmp), ["fresh.stdin"])
+            try expect(FileManager.default.fileExists(atPath: bare) && FileManager.default.fileExists(atPath: outside.path))
+            let worktrees = try TempGitRepo.run(URL(fileURLWithPath: bare), ["worktree", "list", "--porcelain"])
+            try expect(!worktrees.contains(root.work), worktrees)
+            try expectEqual(try TempGitRepo.run(URL(fileURLWithPath: bare), ["for-each-ref", "refs/prbar/"]), "")
+        },
+        TestCase("remote workspaces: huérfanos con dos instalaciones en la misma carpeta, trabajos vivos y el candado") {
+            let repo = try TempGitRepo.make()
+            defer { repo.remove() }
+            let (ssh, host, info, root) = try await verifiedFake()
+            defer { ssh.remove() }
+            // La otra Mac (otra instalación) con la misma carpeta remota.
+            let otherHost = try ssh.host(installationID: "00000000-0000-4000-8000-0000000000b2")
+            let otherInfo = try await RunnerProbe.check(otherHost)
+            let otherRoot = try RemoteRoot(verified: otherInfo.root!)
+            try expect(otherRoot != root)
+            let other = remoteWorkspaces(otherHost, otherInfo, otherRoot, origin: repo.origin)
+            let otherBare = try await other.mirror(RepoRef(owner: "o", name: "r"))
+            let otherWork = try await other.prepare(repo: RepoRef(owner: "o", name: "r"), number: 7, baseRef: "main", localPath: otherBare,
+                                                    name: nil, pinnedHeadOid: nil)
+            try makeOld(otherWork.directory)
+            try Data("\(getpgrp())\n".utf8).write(to: URL(fileURLWithPath: otherRoot.jobs).appendingPathComponent("x.pid"))
+
+            let spaces = remoteWorkspaces(host, info, root, origin: repo.origin)
+            let bare = try await spaces.mirror(RepoRef(owner: "o", name: "r"))
+            let fresh = try await spaces.prepare(repo: RepoRef(owner: "o", name: "r"), number: 7, baseRef: "main", localPath: bare,
+                                                 name: nil, pinnedHeadOid: nil)
+            let jobs = URL(fileURLWithPath: root.jobs)
+            try Data("\(getpgrp())\n".utf8).write(to: jobs.appendingPathComponent("live.pid"))
+            try Data("999999\n".utf8).write(to: jobs.appendingPathComponent("dead.pid"))
+            try Data().write(to: jobs.appendingPathComponent("dead.cancel"))
+
+            // Otro proceso de esta instalación limpiando (el candado está tomado): no se toca nada.
+            let lock = URL(fileURLWithPath: try root.child(["cleanup.lock"]))
+            try FileManager.default.createDirectory(at: lock, withIntermediateDirectories: false)
+            try makeOld(fresh.directory)
+            await spaces.cleanupOrphans()
+            try expect(FileManager.default.fileExists(atPath: fresh.directory.path) && FileManager.default.fileExists(atPath: jobs.appendingPathComponent("dead.pid").path))
+            try FileManager.default.removeItem(at: lock)
+            try FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: fresh.directory.appendingPathComponent("README.md").path)
+
+            await spaces.cleanupOrphans()
+            // Lo de esta instalación: el worktree con cambios recientes queda (con sus refs), el trabajo vivo queda,
+            // el muerto se va con su lápida.
+            try expect(FileManager.default.fileExists(atPath: fresh.directory.path))
+            try expect(!(try TempGitRepo.run(URL(fileURLWithPath: bare), ["for-each-ref", "refs/prbar/"])).isEmpty)
+            try expectEqual(Set(try FileManager.default.contentsOfDirectory(atPath: root.jobs)), ["live.pid"])
+            try expect(!FileManager.default.fileExists(atPath: lock.path))
+            // Lo de la otra instalación no se toca, aunque sea viejo.
+            try expect(FileManager.default.fileExists(atPath: otherWork.directory.path))
+            try expect(FileManager.default.fileExists(atPath: URL(fileURLWithPath: otherRoot.jobs).appendingPathComponent("x.pid").path))
+            try expect(!(try TempGitRepo.run(URL(fileURLWithPath: otherBare), ["for-each-ref", "refs/prbar/"])).isEmpty)
+        },
+    ]
+}
+
+/// Lleva la fecha de modificación de `url` (y de todo lo de adentro) 13 horas atrás.
+private func makeOld(_ url: URL) throws {
+    let date = Date().addingTimeInterval(-13 * 3600)
+    var paths = [url.path]
+    if let enumerator = FileManager.default.enumerator(atPath: url.path) {
+        for case let relative as String in enumerator { paths.append(url.path + "/" + relative) }
+    }
+    for path in paths.reversed() {
+        var times = [timespec(tv_sec: Int(date.timeIntervalSince1970), tv_nsec: 0), timespec(tv_sec: Int(date.timeIntervalSince1970), tv_nsec: 0)]
+        guard utimensat(AT_FDCWD, path, &times, AT_SYMLINK_NOFOLLOW) == 0 else { throw TestFailure(description: "utimensat \(path)") }
+    }
+}

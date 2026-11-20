@@ -98,6 +98,9 @@ public enum AppPaths {
             .appendingPathComponent("PRBar", isDirectory: true)
     }
     public static var configFile: URL { appSupport.appendingPathComponent("config.json") }
+    /// El id de esta instalación de PRBar (su subcarpeta en la carpeta remota de cada host). Aparte de la config:
+    /// si se copia la config a otra Mac, el id no viaja.
+    public static var installationIDFile: URL { appSupport.appendingPathComponent("installation-id") }
     /// Socket de `prbar` (spec C.2). La carpeta queda en 0700 (`CommandServer.secure`).
     public static var socketFile: URL { appSupport.appendingPathComponent("prbar.sock") }
     public static var stateFile: URL { appSupport.appendingPathComponent("state.json") }

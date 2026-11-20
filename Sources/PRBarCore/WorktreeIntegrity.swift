@@ -41,13 +41,31 @@ public enum WorktreeIntegrity {
     /// (en nanosegundos) e inodo, con `lstat`. Sirve para ver cambios que `git status` no muestra.
     public struct Snapshot: Equatable, Sendable {
         public struct Entry: Equatable, Sendable {
-            let type: UInt16
-            let size: Int64
-            let modified: Int64
-            let inode: UInt64
+            public let type: UInt16
+            public let size: Int64
+            public let modified: Int64
+            public let inode: UInt64
+
+            public init(type: UInt16, size: Int64, modified: Int64, inode: UInt64) {
+                self.type = type
+                self.size = size
+                self.modified = modified
+                self.inode = inode
+            }
         }
 
         public let entries: [String: Entry]
+        /// Las claves de `entries` van en NFC (para compararlas con lo que muestra git). En un disco que distingue
+        /// formas (Linux), el nombre real en bytes puede ser otro: acá, por clave, cuando difiere.
+        public let rawPaths: [String: String]
+
+        public init(entries: [String: Entry], rawPaths: [String: String] = [:]) {
+            self.entries = entries
+            self.rawPaths = rawPaths
+        }
+
+        /// El nombre real de `key` (para borrarlo), o la clave misma.
+        public func rawPath(_ key: String) -> String { rawPaths[key] ?? key }
 
         public static func take(_ root: URL) -> Snapshot {
             var entries: [String: Entry] = [:]
@@ -156,6 +174,22 @@ public enum WorktreeIntegrity {
 
     // MARK: - Recorrido
 
+    /// Todos los nombres de una carpeta salvo `.` y `..`, con `readdir`: `FileManager.contentsOfDirectory` esconde
+    /// los que empiezan con `._` (AppleDouble), y ahí puede haber un `._x/.git` o un archivo plantado.
+    static func directoryNames(_ path: String) -> [String]? {
+        guard let directory = opendir(path) else { return nil }
+        defer { closedir(directory) }
+        var names: [String] = []
+        while let entry = readdir(directory) {
+            let name = withUnsafeBytes(of: entry.pointee.d_name) { raw -> String in
+                let bytes = raw.prefix(Int(entry.pointee.d_namlen))
+                return String(decoding: bytes, as: UTF8.self)
+            }
+            if name != "." && name != ".." { names.append(name) }
+        }
+        return names
+    }
+
     /// Recorre `root` sin seguir symlinks ni entrar en el `.git` de arriba. `visit(relativa, esCarpeta)`; si
     /// devuelve false no se entra en esa carpeta. Las rutas van en NFC (git en macOS usa precomposeunicode).
     static func walk(_ root: URL, visit: (String, Bool) -> Bool) {
@@ -163,7 +197,7 @@ public enum WorktreeIntegrity {
         let base = root.path
         while let relative = stack.popLast() {
             let path = relative.isEmpty ? base : base + "/" + relative
-            guard let names = try? FileManager.default.contentsOfDirectory(atPath: path) else { continue }
+            guard let names = directoryNames(path) else { continue }
             for name in names {
                 if relative.isEmpty && name == ".git" { continue }
                 let child = (relative.isEmpty ? name : relative + "/" + name).precomposedStringWithCanonicalMapping

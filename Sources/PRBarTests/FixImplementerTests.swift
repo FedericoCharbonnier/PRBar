@@ -1,6 +1,9 @@
 import Foundation
 import PRBarCore
 
+/// El guardián de los `FixImplementer` de esta suite; el último caso la repite con el guardián Perl.
+nonisolated(unsafe) var fixImplementerFS: any WorkspaceFS = LocalWorkspaceFS()
+
 /// Un repo git temporal con un commit (`README.md` y `.gitignore`) y un archivo ignorado (`ignored.txt`) que
 /// hace de "trabajo del usuario" que nunca se puede perder. Nunca toca los repos del usuario.
 private struct FixRepo {
@@ -176,7 +179,8 @@ private func implementer(_ claude: FakeStreamingRunner, log: URL, runner: Proces
         claude: ClaudeRunner(runner: claude, claudePath: "/usr/local/bin/claude", pluginDirs: [],
                              environment: ClaudeRunner.environment(toolPaths: ["/usr/local/bin/claude"]),
                              logURL: log, redacting: secrets),
-        runner: runner, gitPath: TempGitRepo.git, environment: environment, settings: settings, rules: rules)
+        runner: runner, gitPath: TempGitRepo.git, environment: environment, settings: settings, rules: rules,
+        fs: fixImplementerFS)
 }
 
 private func logURL() throws -> URL { try temporaryDirectory().appendingPathComponent("respond.log") }
@@ -218,6 +222,41 @@ private final class FailingGitRunner: ProcessRunning, @unchecked Sendable {
     func run(_ executable: String, _ arguments: [String], environment: [String: String]?, currentDirectory: URL?, timeout: TimeInterval?) async throws -> ProcessResult {
         lock.withLock { recorded.append(arguments) }
         if fails(arguments) { return ProcessResult(status: 1, stdout: "", stderr: "simulated failure") }
+        return try await SystemProcessRunner().run(executable, arguments, environment: environment, currentDirectory: currentDirectory, timeout: timeout)
+    }
+}
+
+/// Un `WorkspaceFS` que delega y anota cada `removeCreatedFile`.
+private final class RecordingWorkspaceFS: WorkspaceFS, @unchecked Sendable {
+    let base: any WorkspaceFS
+    private let lock = NSLock()
+    private var recorded: [String] = []
+    var removed: [String] { lock.withLock { recorded } }
+    init(base: any WorkspaceFS) { self.base = base }
+    var home: String { base.home }
+    func snapshot(_ root: String) async throws -> WorktreeIntegrity.Snapshot { try await base.snapshot(root) }
+    func nestedGitEntries(_ root: String) async throws -> [String] { try await base.nestedGitEntries(root) }
+    func describe(_ paths: [String]) async throws -> [String: String] { try await base.describe(paths) }
+    func describeTrees(_ roots: [String]) async throws -> [String: String] { try await base.describeTrees(roots) }
+    func modules(_ root: String) async throws -> (entries: [String: String], configs: [String]) { try await base.modules(root) }
+    func readText(_ path: String, limit: Int) async throws -> String? { try await base.readText(path, limit: limit) }
+    func removeCreatedFile(_ relative: String, in root: String) async throws {
+        lock.withLock { recorded.append(relative) }
+        try await base.removeCreatedFile(relative, in: root)
+    }
+    func neutralizeSymlinks(_ relatives: [String], in root: String) async throws { try await base.neutralizeSymlinks(relatives, in: root) }
+    func temporaryFilePath(_ prefix: String) throws -> String { try base.temporaryFilePath(prefix) }
+    func removeTemporaryFile(_ path: String) async { await base.removeTemporaryFile(path) }
+}
+
+/// Runner real que anota el entorno de cada llamada.
+private final class EnvironmentRecordingRunner: ProcessRunning, @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [[String: String]?] = []
+    var environments: [[String: String]?] { lock.withLock { recorded } }
+
+    func run(_ executable: String, _ arguments: [String], environment: [String: String]?, currentDirectory: URL?, timeout: TimeInterval?) async throws -> ProcessResult {
+        lock.withLock { recorded.append(environment) }
         return try await SystemProcessRunner().run(executable, arguments, environment: environment, currentDirectory: currentDirectory, timeout: timeout)
     }
 }
@@ -284,7 +323,7 @@ enum FixImplementerTests {
             try expect(result.gitIntegrity?.count == 64, "\(String(describing: result.gitIntegrity))")
             let diffCall = try recorder.calls.first { $0.arguments.contains("--text") } ?? { throw TestFailure(description: "sin git diff --text") }()
             try expectEqual(Array(diffCall.arguments.dropFirst(2)), GitHardening.arguments + [
-                "diff", "--ignore-submodules=all", "--text", "--no-textconv", "--no-ext-diff", "--no-color", "\(start)..HEAD",
+                "diff", "--ignore-submodules=all", "--text", "--no-textconv", "--no-ext-diff", "--no-color", "\(start)..\(try repo.head())",
             ])
         },
         TestCase("fix implementer: I3, el diff se corta en 5000 líneas y lo avisa") {
@@ -482,6 +521,34 @@ enum FixImplementerTests {
             try expectEqual(repo.read("README.md"), "hola\n")
             try expectEqual(try repo.status(), "")
         },
+        TestCase("fix implementer: si no se confirmó que Claude paró en el host, no se restaura nada (ni corre el guardián) y se corta") {
+            let repo = try FixRepo.make()
+            defer { repo.remove() }
+            let items = [item("thread:A", marker: "MARK-A"), item("thread:B", marker: "MARK-B")]
+            let claude = fakeClaude([
+                Script(marker: "MARK-A", action: { cwd in
+                    try edit("README.md", "a medias\n")(cwd)
+                    throw RemoteRunnerError.jobNotStopped(host: "devbox")
+                }, line: ""),
+                Script(marker: "MARK-B", action: edit("b.txt", "b\n"), line: fixLine("done", message: "B")),
+            ])
+            let error = try await expectThrows {
+                _ = try await run(implementer(claude, log: try logURL()), try draft(repo, items: items), selections(items))
+            }
+            try expectEqual(error as? RemoteRunnerError, .jobNotStopped(host: "devbox"))
+            try expectEqual(repo.read("README.md"), "a medias\n")
+            try expectEqual(repo.read("b.txt"), nil)
+            _ = try repo.git(["checkout", "--", "."])
+
+            let chat = try await expectThrows {
+                _ = try await implementer(fakeClaude([]), log: try logURL())
+                    .chatTurn(draft: try draft(repo, items: []), current: RespondResult(items: [], diffStat: "", tests: nil),
+                              sessionID: UUID(), turn: 1) { () async throws -> String in
+                        throw RemoteRunnerError.jobNotStopped(host: "devbox")
+                    }
+            }
+            try expectEqual(chat as? RemoteRunnerError, .jobNotStopped(host: "devbox"))
+        },
         TestCase("fix implementer: si Claude toca .git (config o hooks) se corta sin correr git ni sus hooks") {
             for target in [".git/hooks/pre-commit", ".git/config"] {
                 let repo = try FixRepo.make()
@@ -622,7 +689,8 @@ enum FixImplementerTests {
             // La reproducción de C2: Claude crea `sub/.git` (archivo) que apunta a `vendor/data`, un git dir con
             // `core.fsmonitor` y `alternates` hacia los objetos del repo. Sin la protección, el `git add -A`
             // registra `sub` como gitlink y el próximo `git status` corre el fsmonitor del repo anidado.
-            for asDirectory in [false, true] {
+            // `._x`: FileManager esconde los nombres `._*` (y el guardián Perl los salteaba).
+            for (sub, asDirectory) in [("sub", false), ("sub", true), ("._x", false), ("._x", true)] {
                 let repo = try FixRepo.make()
                 defer { repo.remove() }
                 let pwned = repo.dir.deletingLastPathComponent().appendingPathComponent("PWNED")
@@ -630,8 +698,8 @@ enum FixImplementerTests {
                 let items = [item("thread:A", marker: "MARK-A")]
                 let claude = fakeClaude([Script(marker: "MARK-A", action: { cwd in
                     try edit("README.md", "chau\n")(cwd)
-                    let gitDir = asDirectory ? "sub/.git" : "vendor/data"
-                    if !asDirectory { try edit("sub/.git", "gitdir: ../vendor/data\n")(cwd) }
+                    let gitDir = asDirectory ? "\(sub)/.git" : "vendor/data"
+                    if !asDirectory { try edit("\(sub)/.git", "gitdir: ../vendor/data\n")(cwd) }
                     try edit("\(gitDir)/HEAD", head + "\n")(cwd)
                     try edit("\(gitDir)/config", "[core]\n\tfsmonitor = touch \(pwned.path);false\n")(cwd)
                     try edit("\(gitDir)/objects/info/alternates", cwd.appendingPathComponent(".git/objects").path + "\n")(cwd)
@@ -642,8 +710,8 @@ enum FixImplementerTests {
                     _ = try await run(implementer(claude, log: try logURL(), runner: recorder), try draft(repo, items: items), selections(items))
                 }
                 let message = try respondMessage(error)
-                try expect(message.contains("sub/.git"), message)
-                try expect(!FileManager.default.fileExists(atPath: pwned.path), "corrió el fsmonitor (dir: \(asDirectory))")
+                try expect(message.contains("\(sub)/.git"), message)
+                try expect(!FileManager.default.fileExists(atPath: pwned.path), "corrió el fsmonitor (\(sub), dir: \(asDirectory))")
                 // Ningún git después de Claude: el último es el de antes de lanzarlo.
                 let verbs = recorder.calls.map { $0.arguments.dropFirst(2 + GitHardening.arguments.count).first ?? "" }
                 try expect(!verbs.contains("add") && !verbs.contains("commit") && !verbs.contains("checkout") && !verbs.contains("clean"), "\(verbs)")
@@ -705,6 +773,23 @@ enum FixImplementerTests {
             try expectEqual(repo.read("README.md"), "hola\n")
             try expectEqual(repo.read("ignored.txt"), "secreto del usuario\n")
             try expectEqual(try repo.subjects(), ["B", "base"])
+        },
+        TestCase("fix implementer: un archivo ignorado nuevo con nombre NFD se borra por su nombre en bytes (guardián Perl)") {
+            let repo = try FixRepo.make()
+            defer { repo.remove() }
+            let recording = RecordingWorkspaceFS(base: RemoteWorkspaceFS.local())
+            fixImplementerFS = recording
+            defer { fixImplementerFS = LocalWorkspaceFS() }
+            let nfd = "build/e\u{0301}.js"
+            let items = [item("thread:A", marker: "MARK-A")]
+            let claude = fakeClaude([Script(marker: "MARK-A", action: { cwd in
+                try edit("README.md", "chau\n")(cwd)
+                try edit(nfd, "x\n")(cwd)
+            }, line: fixLine("done", message: "A"))])
+            let result = try await run(implementer(claude, log: try logURL()), try draft(repo, items: items), selections(items))
+            try expectEqual(result.items.map(\.status), [.failed])
+            try expectEqual(recording.removed.map { Array($0.utf8) }, [Array(nfd.utf8)])
+            try expect(try FileManager.default.contentsOfDirectory(atPath: repo.dir.appendingPathComponent("build").path).isEmpty)
         },
         TestCase("fix implementer: C3, reescribir un archivo trackeado con el mismo contenido no corta nada") {
             let repo = try FixRepo.make()
@@ -1033,6 +1118,25 @@ enum FixImplementerTests {
             try expectEqual(try repo.git(["rev-parse", "\(snapshot.ref)^{tree}"]).trimmingCharacters(in: .whitespacesAndNewlines),
                             snapshot.tree)
             try expectEqual(try repo.git(["rev-parse", "\(start)^{tree}"]).trimmingCharacters(in: .whitespacesAndNewlines), snapshot.tree)
+        },
+        TestCase("fix implementer: el índice temporal del snapshot del chat lo da el WorkspaceFS (en un host, <raíz>/tmp)") {
+            let repo = try FixRepo.make()
+            defer { repo.remove() }
+            let tmp = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: tmp) }
+            fixImplementerFS = RemoteWorkspaceFS.local(temporaryDirectory: tmp.path)
+            defer { fixImplementerFS = LocalWorkspaceFS() }
+            let recorder = EnvironmentRecordingRunner()
+            _ = try await implementer(fakeClaude([]), log: try logURL(), runner: recorder)
+                .chatTurn(draft: try draft(repo, items: []), current: RespondResult(items: [], diffStat: "", tests: nil),
+                          sessionID: UUID(), turn: 1) { () async throws -> String in
+                    try edit("README.md", "chat\n")(repo.dir)
+                    return "ok"
+                }
+            let indexes = recorder.environments.compactMap { $0?["GIT_INDEX_FILE"] }
+            try expect(indexes.count == 3 && Set(indexes).count == 1, "\(indexes)")
+            try expect(indexes[0].hasPrefix(tmp.path + "/"), indexes[0])
+            try expect(!FileManager.default.fileExists(atPath: indexes[0]), "el índice temporal quedó")
         },
         TestCase("fix implementer: chatTurn sin cambios no commitea ni deja la ref") {
             let repo = try FixRepo.make()
@@ -1452,6 +1556,19 @@ enum FixImplementerTests {
             ])
             let result = try await run(implementer(claude, log: try logURL()), try draft(repo, items: items), selections(items))
             try expectEqual(result.dependencyChanges, ["go.mod"])
+        },
+        TestCase("fix implementer: la suite de integridad pasa igual con el guardián Perl") {
+            let integrity = ["C2", "C3", "I4", "I5", "toca .git", "config, hooks, info", "Finder", ".DS_Store", "symlink o un gitlink"]
+            let selected = FixImplementerTests.cases.filter { test in
+                test.name != "fix implementer: la suite de integridad pasa igual con el guardián Perl"
+                    && integrity.contains { test.name.contains($0) }
+            }
+            try expect(selected.count >= 9, "solo \(selected.count) casos")
+            fixImplementerFS = RemoteWorkspaceFS.local()
+            defer { fixImplementerFS = LocalWorkspaceFS() }
+            for test in selected {
+                do { try await test.body() } catch { throw TestFailure(description: "\(test.name) con el guardián Perl: \(error)") }
+            }
         },
     ]
 }

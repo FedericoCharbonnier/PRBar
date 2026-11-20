@@ -61,9 +61,12 @@ public enum ClaudeRunnerError: Error, Equatable, LocalizedError {
     /// El cwd o una carpeta extra está dentro de una ruta que Claude tiene negada (`ClaudeRunner.deniedPaths`):
     /// no podría leer nada.
     case deniedDirectory(String)
+    /// El prompt tenía que ir por stdin (un host remoto: en argv lo vería `ps`) y el runner no puede mandarlo.
+    case standardInputUnavailable
 
     public var errorDescription: String? {
         switch self {
+        case .standardInputUnavailable: "Internal error: Claude's prompt can't be sent on standard input."
         case .forbiddenTool(let tool): "Internal error: Claude can't use the \(tool) tool."
         case .secretInEnvironment(let variable): "Internal error: Claude's environment contained a token (\(variable))."
         case .deniedDirectory(let path):
@@ -113,13 +116,18 @@ public struct ClaudeRunner: Sendable {
     private let environment: [String: String]
     private let secrets: [String]
     private let log: ClaudeLogWriter
+    /// El prompt va por stdin y no en los argumentos (host remoto, decisión J.7.2). Solo con un runner
+    /// `StandardInputStreamingRunning`; con otro, sigue por argumentos.
+    private let promptViaStandardInput: Bool
 
     /// `pluginDirs`: los de `ClaudePlugins.locate(skills:)`. `environment`: el entorno completo de Claude (ver
     /// `environment(toolPaths:)`); las variables fuera de `environmentAllowlist` se descartan. `secrets`: se tachan
     /// del log, de la salida y de los errores. `model`: `--model` (`nil` = el del CLI).
     public init(runner: StreamingProcessRunning, claudePath: String, pluginDirs: [String],
-                environment: [String: String], logURL: URL, redacting secrets: [String], model: ClaudeModel? = nil) {
+                environment: [String: String], logURL: URL, redacting secrets: [String], model: ClaudeModel? = nil,
+                promptViaStandardInput: Bool = false) {
         self.runner = runner
+        self.promptViaStandardInput = promptViaStandardInput
         self.claudePath = claudePath
         self.pluginDirs = pluginDirs
         self.model = model
@@ -150,10 +158,12 @@ public struct ClaudeRunner: Sendable {
 
     // MARK: - Argumentos
 
-    public static func arguments(for invocation: ClaudeInvocation, pluginDirs: [String], model: ClaudeModel? = nil) -> [String] {
+    /// `promptInArguments == false`: solo `-p`; el prompt va por stdin.
+    public static func arguments(for invocation: ClaudeInvocation, pluginDirs: [String], model: ClaudeModel? = nil,
+                                 promptInArguments: Bool = true) -> [String] {
         let tools = invocation.tools.joined(separator: ",")
         let disallowed = disallowedTools(for: invocation.tools)
-        var arguments = ["-p", invocation.prompt]
+        var arguments = promptInArguments ? ["-p", invocation.prompt] : ["-p"]
         if let model { arguments += ["--model", model.rawValue] }
         switch invocation.session {
         case .start(let id)?: arguments += ["--session-id", id.uuidString.lowercased()]
@@ -288,6 +298,8 @@ public struct ClaudeRunner: Sendable {
 
     /// Las garantías de aislamiento que no dependen de los flags: se chequean antes de lanzar nada.
     private func validate(_ invocation: ClaudeInvocation) throws {
+        // Nunca se cae al prompt en los argumentos.
+        if promptViaStandardInput && !(runner is StandardInputStreamingRunning) { throw ClaudeRunnerError.standardInputUnavailable }
         for tool in invocation.tools {
             // `contains`: también `Bash(git:*)`, `BashOutput`, etc.
             if tool.contains("Bash") || Self.alwaysDisallowedTools.contains(tool) {
@@ -334,14 +346,23 @@ public struct ClaudeRunner: Sendable {
         let result: ProcessResult
         do {
             // Exact environment: Claude doesn't inherit the app's (it can have tokens, `SSH_AUTH_SOCK`, `DYLD_*`, …).
-            result = try await runner.runStreamingIsolated(
-                claudePath, Self.arguments(for: invocation, pluginDirs: pluginDirs, model: model),
-                environment: environment, currentDirectory: invocation.workingDirectory, timeout: timeout
-            ) { line in
+            let stdinRunner = promptViaStandardInput ? runner as? StandardInputStreamingRunning : nil   // `validate` ya lo exigió.
+            let arguments = Self.arguments(for: invocation, pluginDirs: pluginDirs, model: model,
+                                           promptInArguments: stdinRunner == nil)
+            let onLine: @Sendable (String) -> Void = { line in
                 // Redacted before parsing: the decoded output and the errors don't carry the token either.
                 let line = Redactor.redact(line, secrets: secrets)
                 log.append(line + "\n")
                 for event in parser.withLock({ $0.consumeAll(line) }) { onEvent(event) }
+            }
+            if let stdinRunner {
+                result = try await stdinRunner.runStreamingIsolated(
+                    claudePath, arguments, environment: environment, currentDirectory: invocation.workingDirectory, timeout: timeout,
+                    standardInput: Data(invocation.prompt.utf8), onStdoutLine: onLine)
+            } else {
+                result = try await runner.runStreamingIsolated(
+                    claudePath, arguments, environment: environment, currentDirectory: invocation.workingDirectory, timeout: timeout,
+                    onStdoutLine: onLine)
             }
         } catch {
             log.append("--- \(error) ---\n")

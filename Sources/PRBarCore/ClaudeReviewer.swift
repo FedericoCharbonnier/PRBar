@@ -31,12 +31,12 @@ public struct ClaudeReviewer: Sendable {
     public init(
         runner: StreamingProcessRunning, claudePath: String, pluginDirs: [String],
         toolPaths: [String], redacting secrets: [String], logURL: URL, settings: ClaudeSettings = ClaudeSettings(),
-        rules: [Rule] = []
+        rules: [Rule] = [], promptViaStandardInput: Bool = false
     ) {
         self.claude = ClaudeRunner(
             runner: runner, claudePath: claudePath, pluginDirs: pluginDirs,
             environment: ClaudeRunner.environment(toolPaths: toolPaths + [claudePath]),
-            logURL: logURL, redacting: secrets, model: settings.model
+            logURL: logURL, redacting: secrets, model: settings.model, promptViaStandardInput: promptViaStandardInput
         )
         self.secrets = secrets
         self.settings = settings
