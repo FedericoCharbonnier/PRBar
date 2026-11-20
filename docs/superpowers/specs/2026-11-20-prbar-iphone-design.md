@@ -348,6 +348,71 @@ compila hasta que alguien decide. Clases: `.allowed`, `.gated` (Face ID, P.8), `
 
 Fuera de alcance: una Mac comprometida (ya controla todo), malware en el teléfono con root.
 
+### P.14 Decisiones de implementación (Plan 17)
+
+**Tipos movidos a `PRBarWire`** (solo la declaración y lo que no depende de Core): `AppCommand` (+ `AppCommand.Name`,
+ahora `Codable`), `AppCommandTypes`, `JSONValue`, `CommandProtocol` y sus mensajes (`CommandMessages.swift`), los
+structs de `CommandResults`, y las hojas `CommitMode`, `DiskUsage`, `DiskItem`, `DiskItemState`, `DiskCategoryKind`,
+`MergeDetail` (+ `Section`), `MergeReviewSummary`, `MergeCheck`, `MergeChangedFile`, `MergeableState`,
+`MergeStateStatus`, `ReviewDecision`, `MergeMethod`, `PopoverSection`, `PopoverTab`, `PRCategory`, `PromptStage`,
+`PromptVariable`, `PromptIssue`, `ResourceUsage`, `ProcessUsage`, `ProcessActivity`, `ReviewEvent`, `ReviewTone`,
+`RuleScope`, `RuleStage`, `RunnerHostInfo`, `Severity`, `SlackProvider` y `LossyArray` (ahora `public`). Quedan en Core
+como `extension` (`WireLeaves+Core.swift`, `CommandResults+Core.swift`): `PromptStage.validate/isUsable`,
+`RuleScope.covers`, `RunnerHostInfo.statusSummary`, los `keyPath`/`toggle`/`kind` de los nombres de la CLI,
+`RespondSelectionChange.apply`, `PRListing`, las fases (`cliName`/`cliDetail`) y las 21 conversiones de modelos de Core
+a resultados. Las que asignaban campo por campo ahora delegan en un `init` memberwise público nuevo de cada struct
+(Swift no deja asignar campos de un struct de otro módulo desde una extensión sin warning).
+
+**`feat/ci-cost` no está mergeada en esta rama** (protocolo 5): `RemotePolicy` no tiene `usage`, `ciList` ni `ciFix`.
+Al mergear, el `switch` exhaustivo no compila hasta clasificarlos (`usage` y `ciList` lectura, `ciFix` acción: los tres
+`.allowed`, como en P.7) y se agregan al test. `CommandProtocol.minimumRemoteVersion` existe y vale lo mismo que
+`version` (5); el Plan 18 los sube a 7.
+
+**Vectores**:
+- Noise: cacophony (`vectors/cacophony.txt`, commit `8ee9d41e34a1a596cfa3ab12aa4069ff87dc1247`) para
+  `Noise_KK_25519_ChaChaPoly_SHA256` e `Noise_IKpsk2_25519_ChaChaPoly_SHA256`, más snow (`tests/vectors/snow.txt`,
+  commit `8ac60f51cfe3e010c84f0a454cc575ad9204fa12`) para KK como segunda fuente. Los dos pasan byte a byte (mensajes de
+  handshake, transporte y hash final), y un cambio de una constante del HKDF los rompe.
+- HPKE: RFC 9180 A.2.3 (DHKEM(X25519), HKDF-SHA256, ChaCha20Poly1305, modo Auth), tomado de `test-vectors.json` del
+  repo `cfrg/draft-irtf-cfrg-hpke`: `HPKE.Recipient` de CryptoKit abre las tres primeras encriptaciones. CryptoKit no deja
+  fijar la efímera del remitente, así que el lado que sella se prueba por ida y vuelta.
+- SAS: `SAS.code(32 × 0x00) = "745502"` y `SAS.code(0x00…0x1f) = "425641"`, calculados aparte con
+  `openssl kdf -keylen 4 -kdfopt digest:SHA256 -kdfopt hexkey:<hash> -kdfopt info:"PRBar SAS v1" HKDF`.
+
+**Desvíos y precisiones del protocolo**:
+- Prólogos: `"PRBar Remote v1" ‖ accountId ‖ 0x00 ‖ deviceId` y `"PRBar Pair v1" ‖ accountId ‖ 0x00 ‖ pairingId` (un
+  separador para que dos pares de ids distintos no den el mismo prólogo).
+- `collapse` = HMAC(`pushIdKey`, `"collapse" 0x00 kind 0x00 pr`) y `thread` = HMAC(`pushIdKey`, `"thread" 0x00 pr`)
+  truncado a 16 (separadores por la misma razón).
+- Push: el sobre en base64 se limita a 3 072 caracteres; con el relleno a 256 eso deja ~2 040 bytes de JSON (no 2 816):
+  `PushPayload.sealedForAPNs` corta `body` (y si hace falta `title`) con "…" hasta que entra. El relay recibe el sobre
+  crudo en `b` y lo pone en base64 estándar en `e`.
+- `PresenceProof.ts` viaja como milisegundos enteros (`"ts": 1800000000123`), los mismos que se firmaron (las fechas
+  ISO 8601 de `CommandProtocol.encoder` no tienen milisegundos).
+- El relay le avisa a la Mac cuando quema o vence una ranura: `{"t":"pair.close","pairing":…}` en sentido relay → Mac
+  (antes solo existía Mac → relay). Si el resultado de "Codes Match" no llega al teléfono (`undeliverable` a `pair:…`),
+  la Mac deshace el alta.
+- Nuevo marco `{"t":"error","reason":…}` del relay para pedidos rechazados sin cerrar la conexión (p. ej. un teléfono
+  que manda a otro teléfono). `{"t":"devices"}` sin `items` es el pedido; con `items`, la respuesta.
+- La Mac manda `presencePolicy` **antes** del `hello`: cuando `connect()` del teléfono termina, ya la tiene.
+- `relayHost` acepta `host:puerto` siempre (para el entrypoint dedicado de V.2); una IP literal solo con
+  `allowInsecureTransportForTests`. La firma del desafío usa el host **sin** puerto (`RELAY_PUBLIC_HOST`).
+- Buzón: un blob viaja en un solo marco del relay (≤ 128 KiB), así que el tope práctico es ~90 KiB cifrados
+  (`RemoteHost.maxMailboxBlob`), no 512 KiB; si `home` no entra, no se guarda (el estado en vivo igual llega).
+- Seguridad extra: un `CipherState` que falla al descifrar queda inutilizable (no se puede seguir con el mensaje bueno);
+  las colas del `WebSocketRelayLink` son acotadas y una cola llena corta la conexión en vez de perder marcos; los
+  timeouts del cliente quedan atados a la espera que los creó.
+- Eventos del host: en vez de callbacks sueltos, `RemoteHost.events` (`AsyncStream<RemoteHostEvent>`: estado,
+  `pairingJoined`, `pairingEnded`, `devicesChanged`, `deviceOnline`, `sessionRejected`, `commandRefused`).
+- Relay: el límite de pushes cuenta solo los que irían a Apple (no los rechazados por falta de token); el `auth` sin
+  respuesta se corta con un timer (cancelar el contexto de lectura cerraría sin el código 4408).
+
+**Go**: módulo `prbar-relay`, `go 1.26`; `github.com/coder/websocket v1.8.15`, `go.etcd.io/bbolt v1.5.0`
+(`golang.org/x/sys v0.45.0` indirecta). En la máquina donde se escribió no había Go (Homebrew no instala sin aceptar la
+licencia de Xcode y Docker no estaba corriendo): `go.sum` se armó con las sumas de `sum.golang.org` y el código del
+relay **no se compiló ni se testeó todavía**: antes de desplegar hay que correr `go mod tidy` (no debería cambiar nada),
+`go vet ./...`, `gofmt -l .` y `go test ./...`, y la integración Swift ↔ Go.
+
 ---
 
 ## Q. Lado Mac
