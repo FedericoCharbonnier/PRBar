@@ -55,6 +55,38 @@ enum CLIParsingTests {
                     try expect(command is any LocalCommand, "\(local)")
                 }
             },
+            TestCase("cli parse: review") {
+                try expectEqual(try parsed(["review", "acme/api#1"]), .reviewStart(pr: "acme/api#1", wait: false))
+                try expectEqual(try parsed(["review", "acme/api#1", "--wait"]), .reviewStart(pr: "acme/api#1", wait: true))
+                try expectEqual(try parsed(["review", "show", "api#1"]), .reviewShow(pr: "api#1"))
+                try expectEqual(try parsed(["review", "edit", "api#1", "2", "--title", "T", "--body", "B"]),
+                                .reviewEdit(pr: "api#1", finding: "2", title: "T", body: "B"))
+                try expect(rejects(["review", "edit", "api#1", "2", "--body", "B", "--editor"]))
+                try expectEqual(try parsed(["review", "include", "api#1", "1", "3"]),
+                                .reviewSetIncluded(pr: "api#1", findings: ["1", "3"], all: false, included: true))
+                try expectEqual(try parsed(["review", "exclude", "api#1", "--all"]),
+                                .reviewSetIncluded(pr: "api#1", findings: [], all: true, included: false))
+                try expect(rejects(["review", "include", "api#1"]))
+                try expectEqual(try parsed(["review", "comment", "api#1", "--text", "LGTM"]), .reviewSetComment(pr: "api#1", text: "LGTM"))
+                try expectEqual(try parsed(["review", "publish", "api#1", "--approve", "--only", "1,3", "--yes"]),
+                                .reviewPublish(pr: "api#1", event: .approve, only: ["1", "3"], withComments: true, allInBody: false, confirmed: true))
+                try expectEqual(try parsed(["review", "publish", "api#1", "--request-changes", "--all-in-body"], confirmed: false),
+                                .reviewPublish(pr: "api#1", event: .requestChanges, only: nil, withComments: true, allInBody: true, confirmed: false))
+                try expectEqual(try parsed(["review", "publish", "api#1", "--approve", "--no-comments"]),
+                                .reviewPublish(pr: "api#1", event: .approve, only: nil, withComments: false, allInBody: false, confirmed: true))
+                try expect(rejects(["review", "publish", "api#1"]))
+                try expect(rejects(["review", "publish", "api#1", "--comment", "--no-comments"]))
+                try expectEqual(try parsed(["review", "cancel", "api#1"]), .reviewCancel(pr: "api#1"))
+                try expectEqual(try parsed(["review", "dismiss", "api#1"]), .reviewDismiss(pr: "api#1"))
+            },
+            TestCase("cli: pregunta de confirmación de la review") {
+                try expectEqual(ReviewQuestion.text(event: .approve, pr: "acme/api#1", account: "me", comments: 2, general: true),
+                                "Approve acme/api#1 as @me with 2 comments and a general comment?")
+                try expectEqual(ReviewQuestion.text(event: .comment, pr: "acme/api#1", account: "me", comments: 1, general: false),
+                                "Comment on acme/api#1 as @me with 1 comment?")
+                try expectEqual(ReviewQuestion.text(event: .approve, pr: "acme/api#1", account: "me", comments: 0, general: false),
+                                "Approve acme/api#1 as @me without comments?")
+            },
         ]
     }
 }
