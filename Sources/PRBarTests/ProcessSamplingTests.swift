@@ -71,6 +71,15 @@ enum ProcessSamplingTests {
             try expectEqual(remote?.remoteHost, "devbox")
             try expectEqual(remote?.cpuPercent, 0)
         },
+        TestCase("sampling: un pid reusado por otro proceso entre muestras cuenta como nuevo (pid + inicio)") {
+            let old = ProcessStat(pid: 7, name: "git", cpuNanos: 100_000_000, memoryBytes: 1, startedAt: t0)
+            let reused = ProcessStat(pid: 7, name: "claude", cpuNanos: 300_000_000, memoryBytes: 1, startedAt: t0.addingTimeInterval(0.5))
+            let first = ProcessSample(date: t0, parents: [7: 1], stats: [7: old])
+            let second = ProcessSample(date: t0.addingTimeInterval(1), parents: [7: 1], stats: [7: reused])
+            let usage = ResourceMeter.usage(previous: first, current: second, registered: [:])
+            // Todo su tiempo (300 ms en 1 s), no la diferencia con el proceso viejo (200 ms).
+            try expect(abs(usage.cpuPercent - 30) < 0.001, "cpu \(usage.cpuPercent)")
+        },
         TestCase("sampling: libproc ve a un hijo de verdad con su nombre, CPU y memoria") {
             let child = Process()
             child.executableURL = URL(fileURLWithPath: "/bin/sleep")

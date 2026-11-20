@@ -45,6 +45,12 @@ public struct ProcessSample: Sendable {
     public var date: Date
     public var parents: [Int32: Int32]
     public var stats: [Int32: ProcessStat]
+
+    public init(date: Date, parents: [Int32: Int32], stats: [Int32: ProcessStat]) {
+        self.date = date
+        self.parents = parents
+        self.stats = stats
+    }
 }
 
 public struct ProcessSampler: Sendable {
@@ -115,7 +121,8 @@ public enum ResourceMeter {
             let activity = activity(of: pid, parents: current.parents, registered: registered)
             var cpu = 0.0
             if let previous, elapsed > 0 {
-                let before = previous.stats[pid].map(\.cpuNanos) ?? 0
+                // El mismo proceso = mismo pid y mismo inicio: un pid reusado aporta todo su tiempo, como uno nuevo.
+                let before = previous.stats[pid].flatMap { $0.startedAt == stat.startedAt ? $0.cpuNanos : nil } ?? 0
                 let delta = stat.cpuNanos >= before ? stat.cpuNanos - before : 0
                 cpu = Double(delta) / (elapsed * 1_000_000_000) * 100
             }
