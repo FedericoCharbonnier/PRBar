@@ -111,7 +111,7 @@ public enum Sample {
     ]
 
     public static func respond475(phase: String) -> RespondInfo {
-        RespondInfo(pr: "acme/web-app#475", phase: phase, runningTests: phase == "implementing",
+        RespondInfo(pr: "acme/web-app#475", phase: phase, runningTests: false,
                     title: webApp475.title, headRef: webApp475.headRef, items: respondItems, fixes: 2, replies: 2,
                     commits: [], diffStat: "2 files changed, 15 insertions(+), 4 deletions(-)", sensitiveChanges: [],
                     tests: phase == "readyToPush" ? TestInfo(command: "npm test", passed: true, outputTail: "142 passed") : nil,
