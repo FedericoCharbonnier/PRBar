@@ -108,11 +108,21 @@ public struct WorktreeManager: Sendable {
 
         guard let localPath else {
             let directory = root.appendingPathComponent(name + "-diff", isDirectory: true)
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+            WorkspaceRegistry.shared.insert(directory.path)
+            WorkspaceRegistry.shared.insert(directory.path + ".context")
+            do {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+            } catch {
+                WorkspaceRegistry.shared.remove(directory.path)
+                WorkspaceRegistry.shared.remove(directory.path + ".context")
+                throw error
+            }
             return ReviewWorkspace(directory: directory, baseRef: nil, isDiffOnly: true)
         }
 
         let directory = root.appendingPathComponent(name, isDirectory: true)
+        WorkspaceRegistry.shared.insert(directory.path)
+        WorkspaceRegistry.shared.insert(directory.path + ".context")
         let prRef = Self.prRef(number, id)
         let baseRefName = Self.baseRef(number, id)
         let headOid: String
@@ -162,6 +172,8 @@ public struct WorktreeManager: Sendable {
         } else if insideRoot {
             removeItem(workspace.directory)
         }
+        WorkspaceRegistry.shared.remove(workspace.directory.path)
+        WorkspaceRegistry.shared.remove(workspace.contextDirectory.path)
     }
 
     /// Al arrancar: en cada `localPath`, saca los worktrees que `git worktree list --porcelain` muestra dentro

@@ -52,6 +52,7 @@ public struct WorktreeResolver: Sendable {
 
         let ref = Self.respondRef(number: number, runID: runID)
         let worktree = ResolvedWorktree(path: target, origin: .dedicated, localPath: localPath, ref: ref)
+        WorkspaceRegistry.shared.insert(target)
         do {
             try await git(localPath, ["fetch", "--no-write-fetch-head", "origin", "+refs/heads/\(headRef):\(ref)"],
                           timeout: WorktreeManager.slowTimeout)
@@ -130,6 +131,7 @@ public struct WorktreeResolver: Sendable {
         if let ref = worktree.ref, Self.isOwnRef(ref) {
             await gitLogged(localPath, ["update-ref", "-d", ref])
         }
+        WorkspaceRegistry.shared.remove(worktree.path)
     }
 
     /// Al arrancar: saca los worktrees de Responder que quedaron en `worktreeDir` (separados y con nombre de
