@@ -119,7 +119,8 @@ public protocol ChatCommandActions: AnyObject {
 @MainActor
 public protocol UpdateCommandActions: AnyObject {
     func updateCheck() async throws -> UpdateInfo
-    func updateInstall(cancelJobs: Bool, events: CommandEventSink) async throws -> UpdateInfo
+    /// `events` sigue la instalación, que corre en su propia tarea (la ventana o `prbar update --cancel` la cancelan).
+    func updateInstall(cancelJobs: Bool, events: @escaping CommandEventSink) async throws -> UpdateInfo
     func updateCancel() throws
     func updateSkip(version: String?) async throws -> UpdateInfo
     func configSetUpdateInterval(hours: Int) throws
@@ -150,4 +151,4 @@ public protocol InstructionCommandActions: AnyObject {
 /// Lo que la app tiene que saber hacer para abrir el socket. El chat, las actualizaciones y las instrucciones se
 /// suman cuando `AppModel` los implementa (Tasks 26–28); mientras tanto el dispatcher los busca con `as?`.
 public typealias PRBarActions = StatusActions & ReviewActions & RespondActions & MergeActions & ConfigActions
-    & SlackActions & ChatCommandActions
+    & SlackActions & ChatCommandActions & UpdateCommandActions

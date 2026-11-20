@@ -184,7 +184,7 @@ final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActi
 
     // MARK: UpdateCommandActions
     func updateCheck() async throws -> UpdateInfo { try record("updateCheck"); return UpdateInfo(installed: "1.0.0") }
-    func updateInstall(cancelJobs: Bool, events: CommandEventSink) async throws -> UpdateInfo {
+    func updateInstall(cancelJobs: Bool, events: @escaping CommandEventSink) async throws -> UpdateInfo {
         try record("updateInstall \(cancelJobs)"); return UpdateInfo(installed: "1.0.0")
     }
     func updateCancel() throws { try record("updateCancel") }

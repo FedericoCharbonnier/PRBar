@@ -244,18 +244,17 @@ public enum CommandDispatcher {
             return try encode(actions.chatStop(pr: pr))
         // Actualizaciones
         case .updateCheck:
-            return try encode(await extra(actions, UpdateCommandActions.self, "updates").updateCheck())
+            return try encode(await actions.updateCheck())
         case .updateInstall(let confirmed, let cancelJobs):
             try requireConfirmation(confirmed, "Updating PRBar")
-            return try encode(await extra(actions, UpdateCommandActions.self, "updates")
-                .updateInstall(cancelJobs: cancelJobs, events: events))
+            return try encode(await actions.updateInstall(cancelJobs: cancelJobs, events: events))
         case .updateCancel:
-            try extra(actions, UpdateCommandActions.self, "updates").updateCancel()
+            try actions.updateCancel()
             return .ok
         case .updateSkip(let version):
-            return try encode(await extra(actions, UpdateCommandActions.self, "updates").updateSkip(version: version))
+            return try encode(await actions.updateSkip(version: version))
         case .setUpdateInterval(let hours):
-            try extra(actions, UpdateCommandActions.self, "updates").configSetUpdateInterval(hours: hours)
+            try actions.configSetUpdateInterval(hours: hours)
             return .ok
         // Instrucciones, opciones y prompts
         case .rulesList(let repo):

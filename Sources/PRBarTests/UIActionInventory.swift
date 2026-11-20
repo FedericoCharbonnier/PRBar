@@ -81,17 +81,17 @@ enum UIActionInventory {
         .init("Popover/MergeConfirmView.swift", "Button", "Cancel", 1, .viewOnly("cancels the confirmation")),
         .init("Popover/MergeConfirmView.swift", "Picker", "Method", 1, .cli(["merge"])),   // --method
         // Actualizaciones (plan 8)
-        .init("Popover/UpdateRow.swift", "Button", "-", 1, .deferred("Task 27")),   // "PRBar x is available — Update…"
-        .init("Settings/UpdatesSection.swift", "Toggle", "Check automatically", 1, .deferred("Task 27")),
-        .init("Settings/UpdatesSection.swift", "Picker", "Frequency", 1, .deferred("Task 27")),
-        .init("Settings/UpdatesSection.swift", "Button", "Check for Updates", 1, .deferred("Task 27")),
-        .init("Settings/UpdatesSection.swift", "Button", "Update…", 1, .deferred("Task 27")),
-        .init("Update/UpdateWindow.swift", "Button", "Try Again", 1, .deferred("Task 27")),   // "Update" / "Try Again"
-        .init("Update/UpdateWindow.swift", "Button", "Update When Done", 1, .deferred("Task 27")),
-        .init("Update/UpdateWindow.swift", "Button", "Cancel Jobs and Update", 1, .deferred("Task 27")),
-        .init("Update/UpdateWindow.swift", "Button", "Skip This Version", 1, .deferred("Task 27")),
-        .init("Update/UpdateWindow.swift", "Button", "Cancel", 1, .deferred("Task 27")),
-        .init("Update/UpdateWindow.swift", "Button", "Show Log", 2, .deferred("Task 27")),
+        .init("Popover/UpdateRow.swift", "Button", "-", 1, .cli(["update"])),   // "PRBar x is available — Update…"
+        .init("Settings/UpdatesSection.swift", "Toggle", "Check automatically", 1, .cli(["config set"])),   // update-interval 0
+        .init("Settings/UpdatesSection.swift", "Picker", "Frequency", 1, .cli(["config set"])),   // update-interval N
+        .init("Settings/UpdatesSection.swift", "Button", "Check for Updates", 1, .cli(["update"])),   // --check
+        .init("Settings/UpdatesSection.swift", "Button", "Update…", 1, .cli(["update"])),
+        .init("Update/UpdateWindow.swift", "Button", "Try Again", 1, .cli(["update"])),   // "Update" / "Try Again"
+        .init("Update/UpdateWindow.swift", "Button", "Update When Done", 1, .cli(["update"])),
+        .init("Update/UpdateWindow.swift", "Button", "Cancel Jobs and Update", 1, .cli(["update"])),   // --cancel-jobs
+        .init("Update/UpdateWindow.swift", "Button", "Skip This Version", 1, .cli(["update"])),   // --skip
+        .init("Update/UpdateWindow.swift", "Button", "Cancel", 1, .cli(["update"])),   // --cancel
+        .init("Update/UpdateWindow.swift", "Button", "Show Log", 2, .cli(["app logs"])),   // --update
         .init("Update/UpdateWindow.swift", "Button", "Later", 1, .viewOnly("closes the window")),
         .init("Update/UpdateWindow.swift", "Button", "Hide", 1, .viewOnly("closes the window; the update keeps going")),
         .init("Update/UpdateWindow.swift", "Button", "OK", 1, .viewOnly("closes the window")),

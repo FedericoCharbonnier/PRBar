@@ -60,13 +60,16 @@ public enum CLIRouter {
         // Chat (plan 6)
         .init("chat", [.chatSend, .chatShow, .chatUndo, .chatStop],
               ["chat", "api#1", "hi"], ["chat", "api#1", "--show"], ["chat", "api#1", "--undo"], ["chat", "api#1", "--stop"]),
+        // Actualizaciones (plan 8)
+        .init("update", [.updateCheck, .updateInstall, .updateCancel, .updateSkip],
+              ["update", "--check"], ["update", "--yes"], ["update", "--cancel"], ["update", "--skip"]),
         // Ready to Merge (plan 10)
         .init("merge", [.merge, .mergeDismiss], ["merge", "api#4", "--method", "squash", "--yes"], ["merge", "api#4", "--dismiss"]),
         // Configuración
         .init("config show", [.configShow], ["config", "show"]),
-        .init("config set", [.setRefreshInterval, .setLaunchAtLogin, .setConfirmMerge],
+        .init("config set", [.setRefreshInterval, .setLaunchAtLogin, .setConfirmMerge, .setUpdateInterval],
               ["config", "set", "refresh-interval", "2"], ["config", "set", "launch-at-login", "off"],
-              ["config", "set", "confirm-merge", "on"]),
+              ["config", "set", "confirm-merge", "on"], ["config", "set", "update-interval", "24"]),
         .init("account list", [.accountList], ["account", "list"]),
         .init("account enable", [.accountSetEnabled], ["account", "enable", "me"]),
         .init("account disable", [.accountSetEnabled], ["account", "disable", "me"]),

@@ -30,6 +30,8 @@ final class UpdateController: ObservableObject {
     private let activeJobs: () -> Int
     private var scheduler: Task<Void, Never>?
     private var installTask: Task<Void, Never>?
+    /// La instalación que pidió la CLI (`install`): "Cancel" (ventana o `prbar update --cancel`) también la cancela.
+    private var requestedInstall: Task<Void, Error>?
     /// Id de la instalación en curso: los eventos de una instalación vieja (que llegan tarde al hilo principal) se ignoran.
     private var installID: UUID?
     /// Quien pidió la instalación por `install(_:whenBusy:onEvent:)` (la CLI) recibe también los eventos.
@@ -128,6 +130,7 @@ final class UpdateController: ObservableObject {
     /// Solo antes de instalar (la ventana no ofrece Cancel en `installing`/`relaunching`).
     func cancelInstall() {
         installTask?.cancel()
+        requestedInstall?.cancel()
     }
 
     /// Todo el flujo: esperar trabajos, bajar, compilar, verificar, reemplazar y reiniciar. Si sale bien no vuelve:
@@ -135,7 +138,10 @@ final class UpdateController: ObservableObject {
     /// canceló) y se relanza el error (la CLI lo reporta).
     func install(_ release: ReleaseInfo, whenBusy: UpdateBusyPolicy, onEvent: ((UpdateEvent) -> Void)? = nil) async throws {
         try beginInstall(release)
-        try await runInstall(release, whenBusy: whenBusy, onEvent: onEvent)
+        let task = Task { try await self.runInstall(release, whenBusy: whenBusy, onEvent: onEvent) }
+        requestedInstall = task
+        defer { requestedInstall = nil }
+        try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
     }
 
     private func beginInstall(_ release: ReleaseInfo) throws {

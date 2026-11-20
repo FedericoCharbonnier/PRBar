@@ -42,6 +42,9 @@ shows the help of `review start`, the group’s default subcommand).
 | `prbar app start\|quit\|settings [tab]\|history [id]` | The app (tabs: `general`, `claude`, `instructions`, `accounts`, `repos`, `slack`) |
 | `prbar app logs [--app\|--slack\|--update] [--path]` | Open a log (PRBar’s, the Slack connector’s, the last update’s) |
 | `prbar doctor [--json]` | Check the installation |
+| `prbar update --check` | Exit 0 if up to date, 10 if there’s a new version (prints it and its notes) |
+| `prbar update [--yes] [--cancel-jobs]` | Download, build and install the new version, then restart PRBar (progress in the terminal; Ctrl-C cancels). Running jobs are waited for (Update When Done) unless `--cancel-jobs` |
+| `prbar update --skip [--skip-version V]` / `--cancel` | Skip This Version / cancel the update being installed |
 | `prbar version [--json]` | prbar’s and the app’s versions (About PRBar) |
 | `prbar completion zsh\|bash\|fish` | Shell completion script |
 | `prbar review <pr> [--wait]` | Review with Claude |
@@ -63,7 +66,7 @@ shows the help of `review start`, the group’s default subcommand).
 | `prbar chat <pr> --undo [--yes]\|--show\|--stop` | Undo Claude’s last change (asks if it would discard your manual edits), print the conversation, stop the answer |
 | `prbar merge <pr> [--method squash\|merge\|rebase] [--yes]` | Merge a PR of yours that’s Ready to Merge (the repo’s method unless `--method`) |
 | `prbar merge <pr> --dismiss` | Dismiss the row’s merge error |
-| `prbar config show`, `prbar config set refresh-interval 1\|2\|5\|10`, `… launch-at-login on\|off`, `… confirm-merge on\|off` | General |
+| `prbar config show`, `prbar config set refresh-interval 1\|2\|5\|10`, `… launch-at-login on\|off`, `… confirm-merge on\|off`, `… update-interval 0\|6\|12\|24\|168` (hours; 0 = check manually only) | General |
 | `prbar account list\|reload`, `prbar account enable\|disable <login>` | Accounts |
 | `prbar repo list\|available\|add\|remove\|branches\|open`, `prbar repo set <repo> [--path P\|none] [--worktrees P\|default] [--test-command C] [--branches a,b] [--add-branch b] [--remove-branch b] [--channel #name\|ID\|none] [--merge-method squash\|merge\|rebase\|default]` | Repos |
 | `prbar follow list [repo]`, `prbar follow add\|remove <repo> <users…>`, `prbar follow suggestions <repo>` | People to follow |
@@ -90,7 +93,7 @@ In a terminal (stdin and stdout are a TTY, no `--json`): colored tables (`NO_COL
 - `repo remove`, `slack token clear`: a confirmation (only in a terminal).
 
 Without a terminal (a script, a pipe, `--json`) `prbar` never asks. Commands that post, push or approve
-(`review publish`, `respond push`, `respond reply-only`, `merge`, `slack test`) **need `--yes`**; without it they exit with 4.
+(`review publish`, `respond push`, `respond reply-only`, `merge`, `slack test`, `update`) **need `--yes`**; without it they exit with 4.
 
 `--wait` prints progress to stderr. Ctrl-C cancels the job in the app too and exits with 130.
 

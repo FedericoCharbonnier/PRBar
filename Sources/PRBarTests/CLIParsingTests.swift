@@ -228,6 +228,17 @@ enum CLIParsingTests {
                 try expectEqual(try parsed(["claude", "set", "--chat", "off", "--chat-model", "same"]),
                                 .claudeSet(changes: ClaudeChanges(chatEnabled: false, chatModel: .clear)))
             },
+            TestCase("cli parse: update") {
+                try expectEqual(try parsed(["update", "--check"]), .updateCheck)
+                try expectEqual(try parsed(["update", "--yes"]), .updateInstall(confirmed: true, cancelJobs: false))
+                try expectEqual(try parsed(["update", "--cancel-jobs", "--yes"]), .updateInstall(confirmed: true, cancelJobs: true))
+                try expectEqual(try parsed(["update", "--skip"]), .updateSkip(version: nil))
+                try expectEqual(try parsed(["update", "--skip", "--skip-version", "1.3.0"]), .updateSkip(version: "1.3.0"))
+                try expect(rejects(["update", "--skip-version", "1.3.0"]))
+                try expectEqual(try parsed(["update", "--cancel"]), .updateCancel)
+                try expect(rejects(["update", "--check", "--skip"]))
+                try expectEqual(try parsed(["config", "set", "update-interval", "0"]), .setUpdateInterval(hours: 0))
+            },
         ]
     }
 }
