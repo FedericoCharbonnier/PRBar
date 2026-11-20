@@ -383,7 +383,7 @@ enum UIActionInventory {
         // Settings › Claude › Run On (plan 14, spec J.4)
         .init("Settings/RunOnSection.swift", "Picker", "-", 1, .cli(["runners default"])),   // Default
         .init("Settings/RunOnSection.swift", "Component:RunOnTable", "-", 1, .cli(["runners list"])),
-        .init("Settings/RunOnSection.swift", "onTapGesture", "-", 1, .viewOnly("selects the host the buttons act on")),
+        .init("Settings/RunOnSection.swift", "onDeleteCommand", "-", 1, .cli(["runners remove"])),   // ⌫, asks first
         .init("Settings/RunOnSection.swift", "Toggle", "Fall back to this Mac", 1, .cli(["runners set"])),   // --fallback on|off
         .init("Settings/RunOnSection.swift", "Button", "Add SSH Host…", 1, .cli(["runners add"])),
         .init("Settings/RunOnSection.swift", "Button", "Test Connection", 1, .cli(["runners test"])),

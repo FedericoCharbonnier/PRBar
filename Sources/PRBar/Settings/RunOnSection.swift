@@ -35,6 +35,8 @@ struct RunOnSection: View {
                 RunOnTable(model: model, settings: settings, selected: $selected, testing: testing) { name, on in
                     run { _ = try await model.runnerSet(name: name, dir: nil, fallback: on) }
                 }
+                // ⌫ removes the selected host, after the same confirmation as Remove.
+                .onDeleteCommand { if let destination = selectedDestination { confirmRemove(destination) } }
                 HStack(spacing: 8) {
                     Button("Add SSH Host…") { adding = true }
                     Button("Test Connection") { if let selected { test(selected) } }
@@ -102,7 +104,22 @@ struct RunOnSection: View {
     }
 }
 
-/// The destinations table: This Mac and each host, with its folder, its last check and whether it falls back.
+/// A row of the Run On table: This Mac or an SSH host. Its id is the selection (`""` for This Mac, which can't be
+/// tested or removed; a host's name can't be empty).
+private enum RunOnRow: Identifiable {
+    case local
+    case host(RunnerDestination)
+
+    var id: String {
+        switch self {
+        case .local: ""
+        case .host(let destination): destination.name
+        }
+    }
+}
+
+/// The destinations table: This Mac and each host, with its folder, its last check and whether it falls back. A real
+/// `Table`: ↑/↓ and VoiceOver select a host, ⌫ removes it (with confirmation), and the columns have headers.
 private struct RunOnTable: View {
     @ObservedObject var model: AppModel
     let settings: RunnerSettings
@@ -110,42 +127,31 @@ private struct RunOnTable: View {
     let testing: Set<String>
     let setFallback: (String, Bool) -> Void
 
+    private var rows: [RunOnRow] { [.local] + settings.destinations.map(RunOnRow.host) }
+
     var body: some View {
         // Status ages ("5 min ago") move on their own.
         TimelineView(.periodic(from: .now, by: 60)) { context in
-            VStack(spacing: 0) {
-                row(isHeader: true, isSelected: false) {
-                    Text("Destination")
-                } folder: {
-                    Text("Folder")
-                } status: {
-                    Text("Status")
-                } fallback: {
-                    Text("Fallback")
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .background(Color.primary.opacity(0.04))
-                Divider()
-                row(isHeader: false, isSelected: false) {
-                    Text("This Mac").fontWeight(.medium)
-                } folder: {
-                    Text("—").foregroundStyle(.secondary)
-                } status: {
-                    statusText(localStatus)
-                } fallback: {
-                    Text("—").foregroundStyle(.secondary)
-                }
-                ForEach(settings.destinations) { destination in
-                    Divider()
-                    hostRow(destination, now: context.date)
-                }
+            Table(rows, selection: $selected) {
+                TableColumn("Destination") { row in destinationCell(row) }
+                    .width(min: 110, ideal: 140)
+                TableColumn("Folder") { row in folderCell(row) }
+                    .width(min: 70, ideal: 100)
+                TableColumn("Status") { row in statusCell(row, now: context.date) }
+                    .width(min: 120, ideal: 220)
+                TableColumn("Fallback") { row in fallbackCell(row) }
+                    .width(56)
             }
+            .tableStyle(.bordered(alternatesRowBackgrounds: false))
+            .scrollDisabled(true)
+            .frame(height: Self.height(rows: rows.count))
         }
         .font(.callout)
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.primary.opacity(0.12)))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .accessibilityLabel("Run On destinations")
     }
+
+    /// Tall enough for every row (the table doesn't scroll inside the settings page).
+    private static func height(rows: Int) -> CGFloat { 28 + CGFloat(rows) * 40 }
 
     private var localStatus: String {
         let versions = model.localToolVersions
@@ -153,9 +159,12 @@ private struct RunOnTable: View {
                                         gitVersion: versions?.git, claudeVersion: versions?.claude)
     }
 
-    private func hostRow(_ destination: RunnerDestination, now: Date) -> some View {
-        let isSelected = selected?.caseInsensitiveCompare(destination.name) == .orderedSame
-        return row(isHeader: false, isSelected: isSelected) {
+    @ViewBuilder
+    private func destinationCell(_ row: RunOnRow) -> some View {
+        switch row {
+        case .local:
+            Text("This Mac").fontWeight(.medium)
+        case .host(let destination):
             VStack(alignment: .leading, spacing: 1) {
                 (Text(destination.name).fontWeight(.medium) + Text(" (ssh)").foregroundColor(.secondary))
                     .lineLimit(1)
@@ -164,13 +173,29 @@ private struct RunOnTable: View {
                 }
             }
             .help(destination.endpoint.display)
-        } folder: {
+        }
+    }
+
+    @ViewBuilder
+    private func folderCell(_ row: RunOnRow) -> some View {
+        switch row {
+        case .local:
+            Text("—").foregroundStyle(.secondary).accessibilityLabel("None")
+        case .host(let destination):
             Text(destination.remoteDir)
                 .font(.system(.callout, design: .monospaced))
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .help(destination.remoteDir)
-        } status: {
+        }
+    }
+
+    @ViewBuilder
+    private func statusCell(_ row: RunOnRow, now: Date) -> some View {
+        switch row {
+        case .local:
+            statusText(localStatus)
+        case .host(let destination):
             if testing.contains(destination.name) {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.small)
@@ -181,7 +206,15 @@ private struct RunOnTable: View {
             } else {
                 Text("not checked").foregroundStyle(.secondary)
             }
-        } fallback: {
+        }
+    }
+
+    @ViewBuilder
+    private func fallbackCell(_ row: RunOnRow) -> some View {
+        switch row {
+        case .local:
+            Text("—").foregroundStyle(.secondary).accessibilityLabel("Not applicable")
+        case .host(let destination):
             Toggle("Fall back to this Mac", isOn: Binding(
                 get: { destination.fallbackToLocal },
                 set: { on in setFallback(destination.name, on) }
@@ -190,33 +223,13 @@ private struct RunOnTable: View {
             .labelsHidden()
             .help("If \(destination.name) is down or not ready, run on this Mac")
         }
-        .contentShape(Rectangle())
-        .onTapGesture { selected = destination.name }
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private func statusText(_ text: String) -> some View {
         Text(text)
             .foregroundStyle(text.hasPrefix("✓") ? Theme.greenText : text.hasPrefix("⚠") ? Theme.orangeText : .secondary)
             .lineLimit(2)
-            .fixedSize(horizontal: false, vertical: true)
             .help(text)
-    }
-
-    private func row<A: View, B: View, C: View, D: View>(
-        isHeader: Bool, isSelected: Bool,
-        @ViewBuilder destination: () -> A, @ViewBuilder folder: () -> B,
-        @ViewBuilder status: () -> C, @ViewBuilder fallback: () -> D
-    ) -> some View {
-        HStack(alignment: .center, spacing: 10) {
-            destination().frame(width: 130, alignment: .leading)
-            folder().frame(width: 90, alignment: .leading)
-            status().frame(maxWidth: .infinity, alignment: .leading)
-            fallback().frame(width: 56, alignment: .center)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, isHeader ? 5 : 8)
-        .background(isSelected ? Color.accentColor.opacity(0.12) : .clear)
     }
 }
 
