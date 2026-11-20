@@ -17,6 +17,10 @@ private func makeTree() throws -> URL {
     try put("e\u{0301}.txt", "nfd\n")
     try put(".DS_Store", "x")
     try put("dir/._b.txt", "x")
+    try put("._evil", "x")
+    try put("._x/.git/config", "[core]\n\tfsmonitor = touch PWNED\n")
+    try put(".git/modules/._m/config", "[core]\n")
+    try put(".git/hooks/._h/pre-commit", "#!/bin/sh\n", mode: 0o755)
     try put("sub/.git/config", "[core]\n")
     try put("sub2/.git", "gitdir: /elsewhere\n")
     try put(".git/config", "[include]\n\tpath = extra.conf\n")
@@ -46,9 +50,12 @@ enum WorkspaceFSParityTests {
                 try expect(entry.type == other.type && entry.size == other.size && entry.inode == other.inode, key)
                 try expect(abs(entry.modified - other.modified) < 2_000, "\(key): \(entry.modified) vs \(other.modified)")
             }
+            // Los nombres `._*` se ven (FileManager los esconde; los recorridos usan readdir).
+            for key in ["._evil", "._x/.git/config", "dir/._b.txt"] { try expect(a.entries[key] != nil, key) }
             let nestedLocal = try await local.nestedGitEntries(root.path)
             let nestedPerl = try await perl.nestedGitEntries(root.path)
             try expectEqual(nestedPerl, nestedLocal)
+            try expect(nestedLocal.contains("._x/.git"), "\(nestedLocal)")
             let git = root.appendingPathComponent(".git").path
             let paths = [git, git + "/config", git + "/missing", root.appendingPathComponent("link").path, root.path]
             let describeLocal = try await local.describe(paths)
@@ -61,6 +68,8 @@ enum WorkspaceFSParityTests {
             let modulesPerl = try await perl.modules(git + "/modules")
             try expectEqual(modulesPerl.entries, modulesLocal.entries)
             try expectEqual(modulesPerl.configs.sorted(), modulesLocal.configs.sorted())
+            try expect(modulesLocal.configs.contains(git + "/modules/._m/config"), "\(modulesLocal.configs)")
+            try expect(treesLocal[git + "/hooks/._h/pre-commit"] != nil, "\(treesLocal.keys)")
             let textLocal = try await local.readText(git + "/config", limit: 1 << 20)
             let textPerl = try await perl.readText(git + "/config", limit: 1 << 20)
             try expectEqual(textPerl, textLocal)

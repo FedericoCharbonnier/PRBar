@@ -216,11 +216,11 @@ public enum RemoteGuard {
     sub hx { return unpack('H*', $_[0]); }
     sub mac_meta { my ($n) = @_; return $n eq '.DS_Store' || substr($n, 0, 2) eq '._' || $n eq "Icon\r"; }
     sub utf8_ok { my ($s) = @_; my $c = $s; return utf8::decode($c); }
-    # Como `FileManager.contentsOfDirectory` en la Mac, que nunca lista los nombres que empiezan con `._`.
+    # Todos los nombres, también `._*` (como `WorktreeIntegrity.directoryNames` en la Mac).
     sub entries {
         my ($dir) = @_;
         opendir(my $h, $dir) or return ();
-        my @names = grep { $_ ne '.' && $_ ne '..' && substr($_, 0, 2) ne '._' } readdir($h);
+        my @names = grep { $_ ne '.' && $_ ne '..' } readdir($h);
         closedir($h);
         return @names;
     }
@@ -252,9 +252,9 @@ public enum RemoteGuard {
         while (@stack) {
             my $dir = pop @stack;
             for my $name (entries($dir)) {
-                next if mac_meta($name);
                 my $path = "$dir/$name";
                 my @st = lstat($path) or next;
+                next if !S_ISDIR($st[2]) && mac_meta($name);
                 out('E', hx($path), describe($path));
                 push @stack, $path if S_ISDIR($st[2]);
             }
@@ -286,9 +286,9 @@ public enum RemoteGuard {
         while (@stack) {
             my $dir = pop @stack;
             for my $name (entries($dir)) {
-                next if mac_meta($name);
                 my $path = "$dir/$name";
                 my @st = lstat($path) or next;
+                next if !S_ISDIR($st[2]) && mac_meta($name);
                 if (S_ISDIR($st[2])) {
                     if ($name eq 'hooks') { tree($path); next; }
                     push @stack, $path unless $skip{$name};

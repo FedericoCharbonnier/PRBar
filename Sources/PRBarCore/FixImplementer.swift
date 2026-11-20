@@ -804,17 +804,19 @@ public struct FixImplementer: Sendable {
             }
         }
 
-        /// Recorre `root` sin seguir symlinks ni entrar ni mirar metadatos de macOS. `visit(ruta, esCarpeta)`;
-        /// si devuelve false no se entra en esa carpeta.
+        /// Recorre `root` sin seguir symlinks. `visit(ruta, esCarpeta)`; si devuelve false no se entra en esa carpeta.
+        /// Los archivos de metadatos de macOS (`.DS_Store`, `._*`, `Icon\r`) no se miran (Finder los deja en
+        /// cualquier carpeta y git no los usa), pero una carpeta con ese nombre sí se recorre.
         static func walk(_ root: String, visit: (String, Bool) -> Bool) {
             var stack = [root]
             while let directory = stack.popLast() {
-                guard let names = try? FileManager.default.contentsOfDirectory(atPath: directory) else { continue }
-                for name in names where !WorktreeIntegrity.isMacMetadata(name) {
+                guard let names = WorktreeIntegrity.directoryNames(directory) else { continue }
+                for name in names {
                     let path = join(directory, name)
                     var info = stat()
                     guard lstat(path, &info) == 0 else { continue }
                     let isDirectory = info.st_mode & S_IFMT == S_IFDIR
+                    if !isDirectory && WorktreeIntegrity.isMacMetadata(name) { continue }
                     if visit(path, isDirectory) && isDirectory { stack.append(path) }
                 }
             }

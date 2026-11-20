@@ -675,7 +675,8 @@ enum FixImplementerTests {
             // La reproducción de C2: Claude crea `sub/.git` (archivo) que apunta a `vendor/data`, un git dir con
             // `core.fsmonitor` y `alternates` hacia los objetos del repo. Sin la protección, el `git add -A`
             // registra `sub` como gitlink y el próximo `git status` corre el fsmonitor del repo anidado.
-            for asDirectory in [false, true] {
+            // `._x`: FileManager esconde los nombres `._*` (y el guardián Perl los salteaba).
+            for (sub, asDirectory) in [("sub", false), ("sub", true), ("._x", false), ("._x", true)] {
                 let repo = try FixRepo.make()
                 defer { repo.remove() }
                 let pwned = repo.dir.deletingLastPathComponent().appendingPathComponent("PWNED")
@@ -683,8 +684,8 @@ enum FixImplementerTests {
                 let items = [item("thread:A", marker: "MARK-A")]
                 let claude = fakeClaude([Script(marker: "MARK-A", action: { cwd in
                     try edit("README.md", "chau\n")(cwd)
-                    let gitDir = asDirectory ? "sub/.git" : "vendor/data"
-                    if !asDirectory { try edit("sub/.git", "gitdir: ../vendor/data\n")(cwd) }
+                    let gitDir = asDirectory ? "\(sub)/.git" : "vendor/data"
+                    if !asDirectory { try edit("\(sub)/.git", "gitdir: ../vendor/data\n")(cwd) }
                     try edit("\(gitDir)/HEAD", head + "\n")(cwd)
                     try edit("\(gitDir)/config", "[core]\n\tfsmonitor = touch \(pwned.path);false\n")(cwd)
                     try edit("\(gitDir)/objects/info/alternates", cwd.appendingPathComponent(".git/objects").path + "\n")(cwd)
@@ -695,8 +696,8 @@ enum FixImplementerTests {
                     _ = try await run(implementer(claude, log: try logURL(), runner: recorder), try draft(repo, items: items), selections(items))
                 }
                 let message = try respondMessage(error)
-                try expect(message.contains("sub/.git"), message)
-                try expect(!FileManager.default.fileExists(atPath: pwned.path), "corrió el fsmonitor (dir: \(asDirectory))")
+                try expect(message.contains("\(sub)/.git"), message)
+                try expect(!FileManager.default.fileExists(atPath: pwned.path), "corrió el fsmonitor (\(sub), dir: \(asDirectory))")
                 // Ningún git después de Claude: el último es el de antes de lanzarlo.
                 let verbs = recorder.calls.map { $0.arguments.dropFirst(2 + GitHardening.arguments.count).first ?? "" }
                 try expect(!verbs.contains("add") && !verbs.contains("commit") && !verbs.contains("checkout") && !verbs.contains("clean"), "\(verbs)")
