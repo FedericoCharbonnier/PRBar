@@ -27,6 +27,7 @@ enum UIActionInventory {
         // Menú de la app (AppKit, con una ventana abierta)
         .init("AppMenu.swift", "ClosureMenuItem", "Settings…", 1, .cli(["app settings"])),
         .init("AppMenu.swift", "MenuItem", "About PRBar", 1, .cli(["version"])),
+        .init("AppMenu.swift", "ClosureMenuItem", "Check for Updates…", 1, .cli(["update"])),   // --check; "Update to PRBar x…"
         .init("AppMenu.swift", "MenuItem", "Quit PRBar", 1, .cli(["app quit"])),
         .init("AppMenu.swift", "MenuItem", "Hide PRBar", 1, .viewOnly("hides the app’s windows")),
         .init("AppMenu.swift", "MenuItem", "Hide Others", 1, .viewOnly("hides other apps")),

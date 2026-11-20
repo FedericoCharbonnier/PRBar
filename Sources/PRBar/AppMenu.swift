@@ -12,11 +12,15 @@ enum AppMenu {
         var openSettings: () -> Void
         var openHistory: () -> Void
         var openActivity: () -> Void
+        /// "Check for Updates…", or the Update window when a version is offered (`AppModel.checkForUpdatesFromMenu`).
+        var checkForUpdates: () -> Void
+        /// The version offered, if any: the item then reads "Update to PRBar 1.3.0…".
+        var availableUpdate: () -> String?
     }
 
     static func build(_ actions: Actions) -> NSMenu {
         let main = NSMenu()
-        main.addItem(submenu(appMenu(openSettings: actions.openSettings)))
+        main.addItem(submenu(appMenu(actions)))
         main.addItem(submenu(editMenu()))
         main.addItem(submenu(viewMenu()))
         main.addItem(submenu(windowMenu(actions)))
@@ -24,11 +28,14 @@ enum AppMenu {
         return main
     }
 
-    private static func appMenu(openSettings: @escaping () -> Void) -> NSMenu {
+    private static func appMenu(_ actions: Actions) -> NSMenu {
         let menu = NSMenu(title: "PRBar")
         menu.addItem(item("About PRBar", #selector(NSApplication.orderFrontStandardAboutPanel(_:))))
+        // Retitled each time the menu opens (`validateMenuItem`).
+        menu.addItem(ClosureMenuItem(title: "Check for Updates…", action: actions.checkForUpdates)
+            .retitled { UpdatePrompt.menuTitle(availableVersion: actions.availableUpdate()) })
         menu.addItem(.separator())
-        menu.addItem(ClosureMenuItem(title: "Settings…", keyEquivalent: ",", action: openSettings))
+        menu.addItem(ClosureMenuItem(title: "Settings…", keyEquivalent: ",", action: actions.openSettings))
         menu.addItem(.separator())
         menu.addItem(item("Hide PRBar", #selector(NSApplication.hide(_:)), "h"))
         menu.addItem(item("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", modifiers: [.command, .option]))
@@ -113,8 +120,9 @@ enum AppMenu {
 }
 
 /// `NSMenuItem` que corre un closure. Es su propio `target` (referencia débil): lo retiene el menú.
-final class ClosureMenuItem: NSMenuItem {
+final class ClosureMenuItem: NSMenuItem, NSMenuItemValidation {
     private let handler: () -> Void
+    private var titleProvider: (() -> String)?
 
     init(title: String, keyEquivalent: String = "", action handler: @escaping () -> Void) {
         self.handler = handler
@@ -125,5 +133,17 @@ final class ClosureMenuItem: NSMenuItem {
     @available(*, unavailable)
     required init(coder: NSCoder) { fatalError("init(coder:) not used") }
 
+    /// A title worked out again every time the menu is about to show (e.g. "Update to PRBar 1.3.0…").
+    func retitled(_ provider: @escaping () -> String) -> ClosureMenuItem {
+        titleProvider = provider
+        title = provider()
+        return self
+    }
+
     @objc private func run() { handler() }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if let titleProvider { menuItem.title = titleProvider() }
+        return true
+    }
 }

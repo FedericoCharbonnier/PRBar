@@ -23,6 +23,21 @@ extension AppModel {
         }
     }
 
+    /// The app menu's "Check for Updates…" / "Update to PRBar 1.3.0…": with a version offered, its Update window;
+    /// otherwise a manual check, shown in Settings › General › Updates ("Checking…", then "up to date" or the error),
+    /// and the Update window if it finds one.
+    func checkForUpdatesFromMenu() {
+        if updates.available != nil || updates.isInstalling {
+            openUpdateWindow()
+            return
+        }
+        openSettings(tab: .general)
+        guard !updates.isChecking else { return }
+        Task {
+            if case .available(let release) = await checkForUpdates() { openUpdateWindow(.available(release)) }
+        }
+    }
+
     /// La versión instalada (`prbar version`).
     var appVersion: String { updates.currentVersion }
 

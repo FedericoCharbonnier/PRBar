@@ -51,6 +51,8 @@ final class WindowPresenter: NSObject, NSWindowDelegate {
     var openSettings: (() -> Void)?
     var openHistory: (() -> Void)?
     var openActivity: (() -> Void)?
+    var checkForUpdates: (() -> Void)?
+    var availableUpdate: (() -> String?)?
 
     private var windows: [String: NSWindow] = [:]
     /// Qué contenido muestra cada ventana (ver `contentID` en `present`).
@@ -61,7 +63,9 @@ final class WindowPresenter: NSObject, NSWindowDelegate {
     private lazy var mainMenu = AppMenu.build(AppMenu.Actions(
         openSettings: { [weak self] in self?.openSettings?() },
         openHistory: { [weak self] in self?.openHistory?() },
-        openActivity: { [weak self] in self?.openActivity?() }
+        openActivity: { [weak self] in self?.openActivity?() },
+        checkForUpdates: { [weak self] in self?.checkForUpdates?() },
+        availableUpdate: { [weak self] in self?.availableUpdate?() }
     ))
     private var spaceObserver: NSObjectProtocol?
 
