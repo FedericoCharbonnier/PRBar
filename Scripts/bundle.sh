@@ -82,10 +82,9 @@ if [[ $INSTALL == 1 ]]; then
     done
     echo "Instalado y abierto: ~/Applications/PRBar.app"
     # `prbar` en el PATH: un link al helper del bundle instalado (sigue valiendo después de actualizar).
+    # No pisa un `prbar` que no sea un link a PRBar (otra herramienta con el mismo nombre).
     LINK_DIR="${PRBAR_BIN_DIR:-$HOME/.local/bin}"
-    mkdir -p "$LINK_DIR"
-    ln -sf "$HOME/Applications/PRBar.app/Contents/Helpers/prbar" "$LINK_DIR/prbar"
-    echo "CLI: $LINK_DIR/prbar"
+    Scripts/link-cli.sh "$HOME/Applications/PRBar.app/Contents/Helpers/prbar" "$LINK_DIR"
     case ":$PATH:" in
         *":$LINK_DIR:"*) ;;
         *) echo "Aviso: $LINK_DIR no está en tu PATH. Agregá a ~/.zshrc: export PATH=\"$LINK_DIR:\$PATH\"" >&2 ;;

@@ -1,4 +1,5 @@
 import Foundation
+import PRBarCLIKit
 import PRBarCore
 
 enum ScriptTests {
@@ -25,6 +26,69 @@ enum ScriptTests {
             try expect(text.contains("--product PRBarCLI"))
             try expect(text.contains("Contents/Helpers/prbar"))
             try expect(text.contains("PRBAR_BIN_DIR"))
+        },
+        TestCase("scripts: link-cli.sh crea el link y reemplaza uno viejo a PRBar") {
+            let dir = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: dir) }
+            let target = dir.appendingPathComponent("Applications/PRBar.app/Contents/Helpers/prbar").path
+            let bin = dir.appendingPathComponent("bin").path
+            let created = try await bash([script("link-cli.sh"), target, bin])
+            try expectEqual(created.status, 0)
+            try expectEqual(try FileManager.default.destinationOfSymbolicLink(atPath: bin + "/prbar"), target)
+            // Un link a otro PRBar.app (p. ej. build/) se reemplaza.
+            try FileManager.default.removeItem(atPath: bin + "/prbar")
+            try FileManager.default.createSymbolicLink(atPath: bin + "/prbar", withDestinationPath: "/old/build/PRBar.app/Contents/Helpers/prbar")
+            let replaced = try await bash([script("link-cli.sh"), target, bin])
+            try expectEqual(replaced.status, 0)
+            try expectEqual(try FileManager.default.destinationOfSymbolicLink(atPath: bin + "/prbar"), target)
+        },
+        TestCase("scripts: link-cli.sh no pisa un prbar ajeno (archivo, link a otra cosa o carpeta)") {
+            let dir = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: dir) }
+            let target = dir.appendingPathComponent("Applications/PRBar.app/Contents/Helpers/prbar").path
+            let bin = dir.appendingPathComponent("bin").path
+            try FileManager.default.createDirectory(atPath: bin, withIntermediateDirectories: true)
+            let link = bin + "/prbar"
+
+            try Data("#!/bin/sh\necho other\n".utf8).write(to: URL(fileURLWithPath: link))
+            let file = try await bash([script("link-cli.sh"), target, bin])
+            try expectEqual(file.status, 0)
+            try expect(file.stderr.contains("isn’t a link to PRBar"), file.stderr)
+            try expectEqual(try String(contentsOfFile: link, encoding: .utf8), "#!/bin/sh\necho other\n")
+
+            try FileManager.default.removeItem(atPath: link)
+            try FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: "/usr/local/bin/other-prbar")
+            let foreign = try await bash([script("link-cli.sh"), target, bin])
+            try expectEqual(foreign.status, 0)
+            try expect(foreign.stderr.contains("isn’t a link to PRBar"), foreign.stderr)
+            try expectEqual(try FileManager.default.destinationOfSymbolicLink(atPath: link), "/usr/local/bin/other-prbar")
+
+            try FileManager.default.removeItem(atPath: link)
+            try FileManager.default.createDirectory(atPath: link, withIntermediateDirectories: true)
+            let folder = try await bash([script("link-cli.sh"), target, bin])
+            try expectEqual(folder.status, 0)
+            try expect(folder.stderr.contains("isn’t a link to PRBar"), folder.stderr)
+            try expect(!FileManager.default.fileExists(atPath: link + "/prbar"), "creó el link adentro de la carpeta")
+        },
+        TestCase("scripts: bundle.sh enlaza la CLI con link-cli.sh, nunca con ln -sf") {
+            let text = try String(contentsOfFile: script("bundle.sh"), encoding: .utf8)
+            try expect(text.contains("Scripts/link-cli.sh"), "bundle.sh no usa link-cli.sh")
+            try expect(!text.contains("ln -sf "), "bundle.sh todavía usa ln -sf")
+        },
+        TestCase("doctor: el link de prbar tiene que apuntar al helper de un PRBar.app") {
+            let dir = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: dir) }
+            let bin = dir.appendingPathComponent("bin").path
+            try FileManager.default.createDirectory(atPath: bin, withIntermediateDirectories: true)
+            let environment = ["PRBAR_BIN_DIR": bin, "PATH": "/usr/bin:\(bin)"]
+            try expect(!DoctorChecks.link(environment: environment).ok, "sin link")
+            try FileManager.default.createSymbolicLink(atPath: bin + "/prbar", withDestinationPath: "/somewhere/else/prbar")
+            let foreign = DoctorChecks.link(environment: environment)
+            try expect(!foreign.ok && foreign.detail.contains("/somewhere/else/prbar"), foreign.detail)
+            try FileManager.default.removeItem(atPath: bin + "/prbar")
+            try FileManager.default.createSymbolicLink(atPath: bin + "/prbar", withDestinationPath: "/Users/x/Applications/PRBar.app/Contents/Helpers/prbar")
+            try expect(DoctorChecks.link(environment: environment).ok)
+            try expect(!DoctorChecks.link(environment: ["PRBAR_BIN_DIR": bin, "PATH": "/usr/bin"]).ok, "fuera del PATH")
         },
         TestCase("scripts: release.sh no tiene errores de sintaxis") {
             let result = try await bash(["-n", script("release.sh")])

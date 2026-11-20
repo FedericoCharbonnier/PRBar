@@ -8,7 +8,9 @@ and posts); `prbar` asks it over a private socket.
 
 `Scripts/bundle.sh --install` installs PRBar.app in `~/Applications` and links the CLI at `~/.local/bin/prbar`
 (or `$PRBAR_BIN_DIR/prbar`). If that folder isn’t in your `PATH`, add `export PATH="$HOME/.local/bin:$PATH"` to
-`~/.zshrc`. The link points inside the app, so updates (`prbar update`) update the CLI too.
+`~/.zshrc`. The link points inside the app, so updates (`prbar update`) update the CLI too. If something else is
+already called `prbar` there (a file, a folder or a link that doesn’t point to a PRBar.app), it’s left alone with a
+warning; `prbar doctor` checks where the link points.
 
 Shell completion: `prbar completion zsh > ~/.zfunc/_prbar` (also `bash` and `fish`).
 

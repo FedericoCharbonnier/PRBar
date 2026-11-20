@@ -296,10 +296,10 @@ struct CompletionCommand: LocalCommand {
     }
 }
 
-struct DoctorCheck: Codable {
-    let name: String
-    let ok: Bool
-    let detail: String
+public struct DoctorCheck: Codable {
+    public let name: String
+    public let ok: Bool
+    public let detail: String
 }
 
 struct DoctorCommand: AsyncParsableCommand, LocalCommand {
@@ -320,7 +320,7 @@ struct DoctorCommand: AsyncParsableCommand, LocalCommand {
         } catch {
             checks.append(DoctorCheck(name: "App", ok: true, detail: "Not running (prbar opens it when needed)."))
         }
-        checks.append(Self.linkCheck())
+        checks.append(DoctorChecks.link())
         let config = try? JSONCoding.decoder.decode(AppConfig.self, from: Data(contentsOf: AppPaths.configFile))
         checks.append(DoctorCheck(name: "config.json", ok: config != nil,
                                   detail: config != nil ? AppPaths.configFile.path : "Missing or unreadable: \(AppPaths.configFile.path)"))
@@ -340,23 +340,34 @@ struct DoctorCommand: AsyncParsableCommand, LocalCommand {
         if checks.contains(where: { !$0.ok }) { throw ExitCode(CLIExit.generalError) }
     }
 
-    /// `~/.local/bin/prbar` (o `$PRBAR_BIN_DIR/prbar`) existe y su carpeta está en el PATH.
-    static func linkCheck(environment: [String: String] = ProcessInfo.processInfo.environment) -> DoctorCheck {
-        let dir = environment["PRBAR_BIN_DIR"].flatMap { $0.isEmpty ? nil : $0 } ?? NSHomeDirectory() + "/.local/bin"
-        let link = dir + "/prbar"
-        guard FileManager.default.fileExists(atPath: link) else {
-            return DoctorCheck(name: "prbar in PATH", ok: false, detail: "No \(link). Run Scripts/bundle.sh --install.")
-        }
-        let inPath = (environment["PATH"] ?? "").split(separator: ":").contains { $0 == dir }
-        return DoctorCheck(name: "prbar in PATH", ok: inPath,
-                           detail: inPath ? link : "\(dir) isn’t in your PATH: add `export PATH=\"\(dir):$PATH\"` to ~/.zshrc.")
-    }
-
     static func installHint(_ tool: ToolName) -> String {
         switch tool {
         case .gh: "Not found. Install it with `brew install gh`, then `gh auth login --hostname github.com`."
         case .git: "Not found. Install the Command Line Tools: `xcode-select --install`."
         case .claude: "Not found. Install Claude Code (https://claude.com/claude-code) and sign in."
         }
+    }
+}
+
+public enum DoctorChecks {
+    /// `~/.local/bin/prbar` (o `$PRBAR_BIN_DIR/prbar`) es un link al helper de un PRBar.app y su carpeta está en el
+    /// PATH.
+    public static func link(environment: [String: String] = ProcessInfo.processInfo.environment) -> DoctorCheck {
+        let name = "prbar in PATH"
+        let dir = environment["PRBAR_BIN_DIR"].flatMap { $0.isEmpty ? nil : $0 } ?? NSHomeDirectory() + "/.local/bin"
+        let link = dir + "/prbar"
+        guard let target = try? FileManager.default.destinationOfSymbolicLink(atPath: link) else {
+            let detail = FileManager.default.fileExists(atPath: link)
+                ? "\(link) isn’t a link to PRBar (another tool?). Remove it and run Scripts/bundle.sh --install."
+                : "No \(link). Run Scripts/bundle.sh --install."
+            return DoctorCheck(name: name, ok: false, detail: detail)
+        }
+        guard target.hasSuffix("PRBar.app/Contents/Helpers/prbar") else {
+            return DoctorCheck(name: name, ok: false,
+                               detail: "\(link) points to \(target), not to PRBar. Remove it and run Scripts/bundle.sh --install.")
+        }
+        let inPath = (environment["PATH"] ?? "").split(separator: ":").contains { $0 == dir }
+        return DoctorCheck(name: name, ok: inPath,
+                           detail: inPath ? "\(link) → \(target)" : "\(dir) isn’t in your PATH: add `export PATH=\"\(dir):$PATH\"` to ~/.zshrc.")
     }
 }
