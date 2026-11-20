@@ -206,20 +206,24 @@ public struct RespondOptions: Hashable, Codable, Sendable {
 public struct ChatPromptSettings: Hashable, Codable, Sendable {
     public var review: String?
     public var respond: String?
+    /// The merge window's chat (spec G.4).
+    public var merge: String?
     public var instructions: String?
 
-    public init(review: String? = nil, respond: String? = nil, instructions: String? = nil) {
+    public init(review: String? = nil, respond: String? = nil, merge: String? = nil, instructions: String? = nil) {
         self.review = review
         self.respond = respond
+        self.merge = merge
         self.instructions = instructions
     }
 
-    private enum CodingKeys: String, CodingKey { case review, respond, instructions }
+    private enum CodingKeys: String, CodingKey { case review, respond, merge, instructions }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         review = (try? c.decodeIfPresent(String.self, forKey: .review)) ?? nil
         respond = (try? c.decodeIfPresent(String.self, forKey: .respond)) ?? nil
+        merge = (try? c.decodeIfPresent(String.self, forKey: .merge)) ?? nil
         instructions = (try? c.decodeIfPresent(String.self, forKey: .instructions)) ?? nil
     }
 }

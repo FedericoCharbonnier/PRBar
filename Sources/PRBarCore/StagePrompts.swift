@@ -35,7 +35,7 @@ public enum PromptIssue: Hashable, Sendable {
 /// The stages whose prompt the user can edit (spec E.6). Each has a default editable part and variables; PRBar
 /// always wraps it with the fixed part (`PromptWrapper`), so editing it never changes tools, permissions or schema.
 public enum PromptStage: String, CaseIterable, Codable, Identifiable, Sendable {
-    case review, filter, analysis, implementation, reviewChat, respondChat, instructionsChat
+    case review, filter, analysis, implementation, reviewChat, respondChat, mergeChat, instructionsChat
 
     public var id: String { rawValue }
 
@@ -47,6 +47,7 @@ public enum PromptStage: String, CaseIterable, Codable, Identifiable, Sendable {
         case .implementation: "Fix implementation"
         case .reviewChat: "Review chat"
         case .respondChat: "Respond chat"
+        case .mergeChat: "Merge chat"
         case .instructionsChat: "Instructions chat"
         }
     }
@@ -55,7 +56,7 @@ public enum PromptStage: String, CaseIterable, Codable, Identifiable, Sendable {
     public var ruleStage: RuleStage? {
         switch self {
         case .review, .filter, .reviewChat: .review
-        case .analysis, .implementation, .respondChat: .respond
+        case .analysis, .implementation, .respondChat, .mergeChat: .respond
         case .instructionsChat: nil
         }
     }
@@ -95,6 +96,8 @@ public enum PromptStage: String, CaseIterable, Codable, Identifiable, Sendable {
             [Self.location, Self.assessment, Self.fixPlan, Self.skill, Self.rules]
         case .reviewChat, .respondChat:
             [Self.pr, Self.repo, Self.title, Self.author, Self.language, Self.rules]
+        case .mergeChat:
+            [Self.pr, Self.repo, Self.title, Self.author, Self.rules]
         case .instructionsChat:
             [Self.repos]
         }
@@ -107,7 +110,7 @@ public enum PromptStage: String, CaseIterable, Codable, Identifiable, Sendable {
         case .filter: ["findings_json"]
         case .analysis: ["feedback_path"]
         case .implementation: ["fix_plan"]
-        case .reviewChat, .respondChat, .instructionsChat: []
+        case .reviewChat, .respondChat, .mergeChat, .instructionsChat: []
         }
     }
 
@@ -165,6 +168,11 @@ public enum PromptStage: String, CaseIterable, Codable, Identifiable, Sendable {
             You are the user's assistant in PRBar. The user is the author of PR #{pr} of {repo} ("{title}") and is responding to the review comments it received.
             Write `reply` in the language the user writes in: brief, in simple Markdown.
             """
+        case .mergeChat:
+            """
+            You are the user's assistant in PRBar. The user is the author of PR #{pr} of {repo} ("{title}") and is about to merge it. Help them decide: answer questions about the changes, the reviews and the checks, and point out anything risky.
+            Write `reply` in the language the user writes in: brief, in simple Markdown.
+            """
         case .instructionsChat:
             """
             You help the user manage PRBar's rules: short instructions that PRBar adds to Claude's prompts when it reviews other people's PRs (Review) or fixes the feedback on the user's own PRs (Fixes). The user's repos: {repos}.
@@ -219,7 +227,7 @@ extension ClaudeSettings {
         case .filter: review.filter.stage
         case .analysis: respond.analysis
         case .implementation: respond.implementation
-        case .reviewChat, .respondChat, .instructionsChat: nil
+        case .reviewChat, .respondChat, .mergeChat, .instructionsChat: nil
         }
     }
 
@@ -230,7 +238,7 @@ extension ClaudeSettings {
         case .filter: effectiveFilterSkill
         case .analysis: effectiveRespondSkill
         case .implementation: effectiveImplementationSkill
-        case .reviewChat, .respondChat, .instructionsChat: nil
+        case .reviewChat, .respondChat, .mergeChat, .instructionsChat: nil
         }
     }
 
@@ -239,6 +247,7 @@ extension ClaudeSettings {
         switch stage {
         case .reviewChat: chatPrompts.review
         case .respondChat: chatPrompts.respond
+        case .mergeChat: chatPrompts.merge
         case .instructionsChat: chatPrompts.instructions
         case .review, .filter, .analysis, .implementation: self.stage(stage)?.prompt
         }
@@ -282,6 +291,7 @@ extension ClaudeSettings {
             respond.implementation.mode = .prompt
         case .reviewChat: chatPrompts.review = text
         case .respondChat: chatPrompts.respond = text
+        case .mergeChat: chatPrompts.merge = text
         case .instructionsChat: chatPrompts.instructions = text
         }
     }
@@ -303,6 +313,7 @@ extension ClaudeSettings {
             respond.implementation.mode = .skill
         case .reviewChat: chatPrompts.review = nil
         case .respondChat: chatPrompts.respond = nil
+        case .mergeChat: chatPrompts.merge = nil
         case .instructionsChat: chatPrompts.instructions = nil
         }
     }
@@ -313,7 +324,7 @@ extension ClaudeSettings {
         case .filter: review.filter.mode = mode
         case .analysis: respond.analysis.mode = mode
         case .implementation: respond.implementation.mode = mode
-        case .reviewChat, .respondChat, .instructionsChat: break
+        case .reviewChat, .respondChat, .mergeChat, .instructionsChat: break
         }
     }
 
@@ -324,7 +335,7 @@ extension ClaudeSettings {
         case .filter: review.filter.skill = skill ?? Self.defaultFilterSkill
         case .analysis: respond.analysis.skill = skill ?? Self.defaultRespondSkill
         case .implementation: respond.implementation.skill = skill
-        case .reviewChat, .respondChat, .instructionsChat: break
+        case .reviewChat, .respondChat, .mergeChat, .instructionsChat: break
         }
     }
 

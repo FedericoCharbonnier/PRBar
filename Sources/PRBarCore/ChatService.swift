@@ -10,14 +10,17 @@ public struct ChatWorkspaceRequest: Sendable {
     public var localPath: String?
     /// Respond: the fixes' result, for `fixes.diff`.
     public var respondResult: RespondResult?
+    /// Merge: what the window shows, for its `pr.md` (spec G.4).
+    public var mergeDetail: MergeDetail?
 
     public init(session: ChatSession, subject: ChatSubject, pr: PullRequest?, localPath: String?,
-                respondResult: RespondResult? = nil) {
+                respondResult: RespondResult? = nil, mergeDetail: MergeDetail? = nil) {
         self.session = session
         self.subject = subject
         self.pr = pr
         self.localPath = localPath
         self.respondResult = respondResult
+        self.mergeDetail = mergeDetail
     }
 }
 
@@ -100,14 +103,29 @@ public struct ChatService: ChatBackend {
 
     public func workspace(_ request: ChatWorkspaceRequest) async throws -> ChatWorkspace {
         switch request.subject {
-        case .review(let draft): return try await reviewWorkspace(draft, request)
-        case .respond(let draft): return try respondWorkspace(draft, request)
+        case .review(let draft):
+            return try await pinnedWorkspace(account: draft.account, headOid: draft.headOid, request)
+        case .respond(let draft):
+            return try respondWorkspace(draft, request)
+        case .merge(let target):
+            // The review chat's worktree, on the head the merge window shows (spec G.4), with the merge's own `pr.md`.
+            var workspace = try await pinnedWorkspace(account: target.account, headOid: target.headOid, request,
+                                                      description: request.mergeDetail?.body)
+            if let detail = request.mergeDetail, let metadata = workspace.files.metadata {
+                try Data(MergeContextWriter.metadata(target: target, detail: detail).utf8).write(to: metadata, options: .atomic)
+            }
+            if workspace.note == Self.olderCommitNote { workspace.note = Self.olderMergeCommitNote }
+            return workspace
         }
     }
 
+    public static let olderMergeCommitNote = "Claude sees the PR’s latest commit, not the one this window shows."
+
     /// Spec B.5: the review's worktree was deleted after the analysis; the chat makes its own on the first turn, on
-    /// the reviewed commit, at a path fixed per session (so `--resume` finds the conversation).
-    private func reviewWorkspace(_ draft: ReviewDraft, _ request: ChatWorkspaceRequest) async throws -> ChatWorkspace {
+    /// the reviewed commit (merge: the shown head), at a path fixed per session (so `--resume` finds the conversation).
+    /// `description`: the PR's description if it's known already (the merge window loaded it).
+    private func pinnedWorkspace(account: String, headOid pinned: String, _ request: ChatWorkspaceRequest,
+                                 description known: String? = nil) async throws -> ChatWorkspace {
         if let path = request.session.worktreePath,
            let existing = Self.existingReviewWorkspace(path: path, refs: request.session.worktreeRefs) {
             return existing
@@ -115,12 +133,13 @@ public struct ChatService: ChatBackend {
         guard let pr = request.pr else {
             throw PRBarError.respond("This PR is no longer in the list: the chat can’t prepare its code.")
         }
-        let token = try await tokens.token(for: draft.account)
-        let description = try await ReviewPipeline.description(of: pr, api: api, token: token)
+        let token = try await tokens.token(for: account)
+        let description: String?
+        if let known { description = known } else { description = try await ReviewPipeline.description(of: pr, api: api, token: token) }
         let manager = WorktreeManager(runner: processRunner, gitPath: gitPath, root: worktreeRoot)
-        let name = WorktreeManager.chatWorkspaceName(repo: draft.repo, number: draft.number, sessionID: request.session.id)
+        let name = WorktreeManager.chatWorkspaceName(repo: pr.repo, number: pr.number, sessionID: request.session.id)
         let workspace = try await manager.prepare(repo: pr.repo, number: pr.number, baseRef: pr.baseRef,
-                                                  localPath: request.localPath, name: name, pinnedHeadOid: draft.headOid)
+                                                  localPath: request.localPath, name: name, pinnedHeadOid: pinned)
         let headOid: String
         do {
             headOid = try await ReviewContextWriter(runner: processRunner, gitPath: gitPath, ghPath: ghPath)
@@ -131,7 +150,7 @@ public struct ChatService: ChatBackend {
             throw error
         }
         var result = Self.chatWorkspace(workspace)
-        if headOid != draft.headOid { result.note = Self.olderCommitNote }
+        if headOid != pinned { result.note = Self.olderCommitNote }
         return result
     }
 
@@ -233,6 +252,10 @@ public struct ChatService: ChatBackend {
         case .respond(let draft):
             account = draft.account
             skills = settings.respondSkills
+        case .merge(let target):
+            // No stage with a skill: the merge chat only reads.
+            account = target.account
+            skills = []
         }
         let token = try await tokens.token(for: account)
         let pluginDirs = try ClaudePlugins.locate(skills: skills, in: pluginCacheDirectory)
@@ -252,7 +275,7 @@ public struct ChatService: ChatBackend {
 
     public func cleanup(session: ChatSession, subject: ChatSubject, localPath: String?) async {
         switch subject {
-        case .review:
+        case .review, .merge:
             guard let path = session.worktreePath else { return }
             let workspace = Self.reviewWorkspace(path: path, refs: session.worktreeRefs)
             await WorktreeManager(runner: processRunner, gitPath: gitPath, root: worktreeRoot).cleanup(workspace, localPath: localPath)

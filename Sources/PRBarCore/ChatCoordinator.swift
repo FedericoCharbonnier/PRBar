@@ -14,9 +14,11 @@ public struct ChatContext: Sendable {
     public var rules: [Rule]
     /// The user's own prompt for this chat (spec E.6); nil = the default.
     public var promptBody: String?
+    /// Merge: what the window shows (spec G.4), for `pr.md` and the state; nil until it loads.
+    public var mergeDetail: MergeDetail?
 
     public init(pr: PullRequest?, localPath: String?, respondResult: RespondResult?, canEditFiles: Bool, logURL: URL,
-                rules: [Rule] = [], promptBody: String? = nil) {
+                rules: [Rule] = [], promptBody: String? = nil, mergeDetail: MergeDetail? = nil) {
         self.pr = pr
         self.localPath = localPath
         self.respondResult = respondResult
@@ -24,6 +26,7 @@ public struct ChatContext: Sendable {
         self.logURL = logURL
         self.rules = rules
         self.promptBody = promptBody
+        self.mergeDetail = mergeDetail
     }
 }
 
@@ -132,6 +135,7 @@ public final class ChatCoordinator: ObservableObject {
         switch subject {
         case .review(let draft): reviewEdits.number(of: id, in: draft)
         case .respond(let draft): draft.items.firstIndex { $0.id == id }.map { $0 + 1 }
+        case .merge: nil
         }
     }
 
@@ -166,7 +170,7 @@ public final class ChatCoordinator: ObservableObject {
         partialText = ""
         setRunning(true, activity: "Waiting for another chat to finish…")
         let request = ChatWorkspaceRequest(session: session, subject: subject, pr: context.pr, localPath: context.localPath,
-                                           respondResult: context.respondResult)
+                                           respondResult: context.respondResult, mergeDetail: context.mergeDetail)
         let backend = self.backend
         let subject = self.subject
         let claudeSessionID = session.claudeSessionID
@@ -305,6 +309,9 @@ public final class ChatCoordinator: ObservableObject {
                 restore.files = files.snapshot
                 if let result = files.result { hooks.resultChanged(result) }
             }
+        case .merge:
+            // Read only (spec G.4): nothing changes; only rule proposals become cards.
+            notes += ChatActions.applyMerge(turn.output.actions)
         }
         let proposed = ChatActions.proposals(turn.output.actions, repo: subject.repo, stage: subject.ruleStage)
         notes += proposed.notes
@@ -330,6 +337,8 @@ public final class ChatCoordinator: ObservableObject {
             if let after = restore.selectionsAfter, after != selections { return true }
             guard let files = restore.files else { return false }
             return await backend.filesChangedSince(draft: draft, snapshot: files)
+        case .merge:
+            return false
         }
     }
 
@@ -339,6 +348,8 @@ public final class ChatCoordinator: ObservableObject {
               let index = session.messages.firstIndex(where: { $0.id == id }),
               let restore = session.messages[index].restore else { return }
         switch subject {
+        case .merge:
+            return
         case .review:
             if var before = restore.reviewEdits {
                 before.addedCount = max(before.addedCount, reviewEdits.addedCount)
@@ -465,6 +476,7 @@ public final class ChatCoordinator: ObservableObject {
         switch subject {
         case .review(let draft): ChatPrompts.reviewState(draft: draft, edits: reviewEdits)
         case .respond(let draft): ChatPrompts.respondState(draft: draft, selections: selections, result: context.respondResult)
+        case .merge(let target): ChatPrompts.mergeState(target: target, detail: context.mergeDetail)
         }
     }
 

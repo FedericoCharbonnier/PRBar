@@ -229,11 +229,12 @@ public enum SuggestionAction: String, Codable, CaseIterable, Sendable {
 
 extension PromptStage {
     /// El nombre en la CLI: `review`, `filter`, `analysis`, `implementation`, `chat-review`, `chat-respond`,
-    /// `chat-instructions`.
+    /// `chat-merge`, `chat-instructions`.
     public var cliName: String {
         switch self {
         case .reviewChat: "chat-review"
         case .respondChat: "chat-respond"
+        case .mergeChat: "chat-merge"
         case .instructionsChat: "chat-instructions"
         case .review, .filter, .analysis, .implementation: rawValue
         }

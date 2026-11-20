@@ -137,6 +137,14 @@ public enum ChatActions {
         return ChatApplication(state: selections, changes: changes, notes: notes)
     }
 
+    // MARK: Merge
+
+    /// The merge chat is read only (spec G.4): no action changes anything; `proposeRule` becomes a card
+    /// (`proposals(_:repo:stage:)`) and the rest are discarded: returns their notes.
+    public static func applyMerge(_ actions: [ChatAction]) -> [String] {
+        actions.filter { $0.type != "proposeRule" }.map { otherKindNote($0.type, available: [], here: "Merge") }
+    }
+
     // MARK: Reglas
 
     public static let maxProposals = 3

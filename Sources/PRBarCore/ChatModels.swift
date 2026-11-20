@@ -1,14 +1,54 @@
 import Foundation
 
-/// What the chat is about: the Review window of someone else's PR or the Respond window of mine.
+/// What the merge window's chat needs from the PR (spec G.4). `headOid` is the head the window showed: Claude sees that
+/// commit (or only the diff).
+public struct MergeChatTarget: Equatable, Sendable {
+    /// The session's `MergeRecord`.
+    public let id: UUID
+    public let prID: String
+    public let account: String
+    public let repo: RepoRef
+    public let number: Int
+    public let title: String
+    public let author: String
+    public let headOid: String
+    public let baseRef: String
+    public let headRef: String
+
+    public init(id: UUID, prID: String, account: String, repo: RepoRef, number: Int, title: String, author: String,
+                headOid: String, baseRef: String, headRef: String) {
+        self.id = id
+        self.prID = prID
+        self.account = account
+        self.repo = repo
+        self.number = number
+        self.title = title
+        self.author = author
+        self.headOid = headOid
+        self.baseRef = baseRef
+        self.headRef = headRef
+    }
+
+    /// The target for `item` with the merge window's head.
+    public init(recordID: UUID, item: ClassifiedPR, headOid: String) {
+        let pr = item.pr
+        self.init(id: recordID, prID: item.id, account: item.account, repo: pr.repo, number: pr.number, title: pr.title,
+                  author: pr.author, headOid: headOid, baseRef: pr.baseRef, headRef: pr.headRef)
+    }
+}
+
+/// What the chat is about: the Review window of someone else's PR, the Respond window of mine, or the Merge window of
+/// mine (spec G.4, read only).
 public enum ChatSubject: Equatable, Sendable {
     case review(ReviewDraft)
     case respond(RespondDraft)
+    case merge(MergeChatTarget)
 
     public var kind: ChatSession.Kind {
         switch self {
         case .review: .review
         case .respond: .respond
+        case .merge: .merge
         }
     }
 
@@ -16,6 +56,7 @@ public enum ChatSubject: Equatable, Sendable {
         switch self {
         case .review(let draft): draft.prID
         case .respond(let draft): draft.prID
+        case .merge(let target): target.prID
         }
     }
 
@@ -23,6 +64,7 @@ public enum ChatSubject: Equatable, Sendable {
         switch self {
         case .review(let draft): draft.id
         case .respond(let draft): draft.id
+        case .merge(let target): target.id
         }
     }
 
@@ -30,14 +72,21 @@ public enum ChatSubject: Equatable, Sendable {
         switch self {
         case .review(let draft): draft.repo
         case .respond(let draft): draft.repo
+        case .merge(let target): target.repo
         }
     }
 
-    /// The rules that apply to this chat (spec E.1).
+    /// The rules that apply to this chat (spec E.1): the merge chat is about my own PR, like Respond.
     public var ruleStage: RuleStage { kind == .review ? .review : .respond }
 
     /// Its editable prompt (spec E.6).
-    public var promptStage: PromptStage { kind == .review ? .reviewChat : .respondChat }
+    public var promptStage: PromptStage {
+        switch kind {
+        case .review: .reviewChat
+        case .respond: .respondChat
+        case .merge: .mergeChat
+        }
+    }
 }
 
 /// One message of the chat (spec B.3).
@@ -182,7 +231,7 @@ public struct ChatRestorePoint: Codable, Equatable, Sendable {
 
 /// One conversation per PR (spec B.3). It's saved inside the draft (`ReviewDraft.chat`, `RespondRecord.chat`).
 public struct ChatSession: Codable, Equatable, Sendable {
-    public enum Kind: String, Codable, Sendable { case review, respond }
+    public enum Kind: String, Codable, Sendable { case review, respond, merge }
 
     public static let interruptedText = "Interrupted"
 

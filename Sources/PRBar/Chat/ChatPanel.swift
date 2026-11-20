@@ -76,6 +76,8 @@ struct ChatPanel: View {
             examples = "Ask about the code or a finding (“is #2 right?”), or ask for changes: reword, add, drop or bring back findings, or write the general comment."
         case .respond:
             examples = "Ask about the comments you received, have Claude draft replies or choose which fixes to make. After implementing, it can also change the fixes’ code."
+        case .merge:
+            examples = "Ask about the changes, the reviews or the checks before merging (“is anything risky here?”, “why did lint fail?”). Claude can’t change anything here."
         }
         return VStack(alignment: .leading, spacing: 6) {
             Text("Chat with Claude").font(.headline)
