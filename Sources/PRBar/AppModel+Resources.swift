@@ -80,8 +80,9 @@ extension AppModel: ResourceActions {
         return DiskCleanup.plan(usage: disk, oldFiles: old, updateInProgress: updates.session.isInstalling)
     }
 
-    func cleanup(olderThanDays: Int?, confirmed: Bool) async throws -> CleanupResult {
-        let plan = await cleanupPreview(olderThanDays: olderThanDays)
+    func cleanup(olderThanDays: Int?, confirmed: Bool, paths: [String]?) async throws -> CleanupResult {
+        // Solo lo que se confirmó y sigue en el plan nuevo (re-verificado otra vez al borrar cada ítem).
+        let plan = await cleanupPreview(olderThanDays: olderThanDays).limited(to: paths)
         guard !plan.isEmpty else { return CleanupResult() }
         guard confirmed else { throw CommandFailure(.confirmationRequired, "Clean Up needs confirmation: run it again with --yes.") }
         guard let git = tools.git else { throw CommandFailure(.failed, PRBarError.toolNotFound("git").localizedDescription) }

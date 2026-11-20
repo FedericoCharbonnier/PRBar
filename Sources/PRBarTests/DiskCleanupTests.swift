@@ -23,6 +23,15 @@ enum DiskCleanupTests {
             let busy = DiskCleanup.plan(usage: usage, oldFiles: [], updateInProgress: true)
             try expectEqual(busy.candidates.map(\.path), ["/w/api-2-1-bbbbbbbb"])
         },
+        TestCase("cleanup: al confirmar solo se ejecuta lo que está en el plan nuevo y en el confirmado") {
+            let a = CleanupCandidate(path: "/w/a", bytes: 1, kind: .workspace, clone: nil, title: "a")
+            let b = CleanupCandidate(path: "/w/b", bytes: 2, kind: .workspace, clone: nil, title: "b")
+            let c = CleanupCandidate(path: "/w/c", bytes: 4, kind: .workspace, clone: nil, title: "c")
+            let fresh = CleanupPlan(candidates: [a, b, c])
+            try expectEqual(fresh.limited(to: ["/w/a", "/w/c", "/w/gone"]).candidates, [a, c])
+            try expectEqual(fresh.limited(to: nil), fresh)
+            try expectEqual(fresh.limited(to: []).candidates, [])
+        },
         TestCase("cleanup: archivos viejos solo si se piden, nunca prbar.log") {
             let base = try temporaryDirectory()
             defer { try? FileManager.default.removeItem(at: base) }

@@ -290,15 +290,15 @@ struct ActivityWindow: View {
             message: "PRBar will delete:\n\(list)\(more)\n\nWorktrees with a job running or fixes not pushed yet are never touched.",
             action: "Clean Up"
         ) {
-            Task { await runCleanUp(days) }
+            Task { await runCleanUp(days, paths: plan.candidates.map(\.path)) }
         }
     }
 
-    private func runCleanUp(_ days: Int?) async {
+    private func runCleanUp(_ days: Int?, paths: [String]) async {
         cleaning = true
         defer { cleaning = false }
         do {
-            lastResult = Self.resultText(try await model.cleanup(olderThanDays: days, confirmed: true))
+            lastResult = Self.resultText(try await model.cleanup(olderThanDays: days, confirmed: true, paths: paths))
         } catch {
             lastResult = (error as? CommandFailure)?.message ?? error.localizedDescription
         }

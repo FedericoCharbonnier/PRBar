@@ -63,6 +63,7 @@ enum CLIIntegrationTests {
         TestCase("integración: errores de la app → exit codes") { try await errors() },
         TestCase("integración: sin app → exit 3") { try await noApp() },
         TestCase("integración: merge sin --yes y sin terminal → exit 4; --dismiss no pregunta") { try await mergeNeedsYes() },
+        TestCase("integración: cleanup solo borra lo que mostró (las rutas de la vista previa)") { try await cleanupOnlyShown() },
         TestCase("integración: update --check sale con 10 si hay versión nueva, también con --json") { try await updateCheckExit() },
         TestCase("integración: update espera a la versión nueva solo si la app se estaba reiniciando") { try await updateRelaunch() },
         TestCase("integración: chat --json sin mensaje en una terminal no se queda leyendo la terminal") { try await chatJSONWithoutMessage() },
@@ -252,6 +253,22 @@ enum CLIIntegrationTests {
         harness.fake.failure = CommandFailure(.invalidState, "No review ready.")
         let state = try await runCLI(["review", "show", "acme/api#9"], socket: harness.url)
         try expectEqual(state.code, 6)
+    }
+
+    @MainActor
+    private static func cleanupOnlyShown() async throws {
+        let harness = try Harness()
+        defer { harness.server.stop() }
+        harness.fake.cleanupPlan = CleanupPlan(candidates: [
+            CleanupCandidate(path: "/w/a", bytes: 1, kind: .workspace, clone: nil, title: "a"),
+            CleanupCandidate(path: "/w/b", bytes: 2, kind: .workspace, clone: nil, title: "b"),
+        ])
+        let confirmed = try await runCLI(["cleanup", "--yes"], socket: harness.url)
+        try expectEqual(confirmed.code, 0)
+        try expect(harness.fake.calls.contains("cleanup 0 confirmed=true paths=/w/a,/w/b"), "\(harness.fake.calls)")
+        let asked = try await runCLI(["cleanup", "--older-than", "30d"], socket: harness.url, interactive: true)
+        try expectEqual(asked.code, 0)
+        try expect(harness.fake.calls.contains("cleanup 30 confirmed=true paths=/w/a,/w/b"), "\(harness.fake.calls)")
     }
 
     @MainActor

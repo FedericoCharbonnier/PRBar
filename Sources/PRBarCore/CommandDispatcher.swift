@@ -292,8 +292,8 @@ public enum CommandDispatcher {
             return try encode(await actions.resources())
         case .cleanupPreview(let days):
             return try encode(await actions.cleanupPreview(olderThanDays: days))
-        case .cleanup(let days, let confirmed):
-            return try encode(try await actions.cleanup(olderThanDays: days, confirmed: confirmed))
+        case .cleanup(let days, let confirmed, let paths):
+            return try encode(try await actions.cleanup(olderThanDays: days, confirmed: confirmed, paths: paths))
         case .setDiskWarning(let gigabytes):
             try actions.configSetDiskWarning(gigabytes: gigabytes)
             return .ok

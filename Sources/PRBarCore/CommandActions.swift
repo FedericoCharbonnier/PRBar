@@ -158,7 +158,9 @@ public protocol ResourceActions: AnyObject {
     func resources() async -> ResourcesInfo
     func cleanupPreview(olderThanDays: Int?) async -> CleanupPlan
     /// Arma el plan de nuevo; vacío → resultado vacío sin pedir confirmación; si no, exige `confirmed`.
-    func cleanup(olderThanDays: Int?, confirmed: Bool) async throws -> CleanupResult
+    /// `paths`: lo que el usuario confirmó (la vista previa que vio); solo se borra lo que siga en el plan nuevo y
+    /// esté ahí. nil = todo el plan nuevo (una CLI vieja).
+    func cleanup(olderThanDays: Int?, confirmed: Bool, paths: [String]?) async throws -> CleanupResult
     func configSetDiskWarning(gigabytes: Int?) throws
 }
 

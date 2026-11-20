@@ -58,8 +58,9 @@ public enum AppCommand: Codable, Equatable, Sendable {
     case resources
     /// Lo que borraría Clean Up, sin borrar. `olderThanDays`: también historial y logs más viejos.
     case cleanupPreview(olderThanDays: Int?)
-    /// Clean Up. Con algo para borrar exige `confirmed` (lo verifica la app).
-    case cleanup(olderThanDays: Int?, confirmed: Bool)
+    /// Clean Up. Con algo para borrar exige `confirmed` (lo verifica la app). `paths`: las rutas de la vista previa que
+    /// se confirmó; la app solo borra las que sigan en su plan nuevo (nil = todo el plan nuevo).
+    case cleanup(olderThanDays: Int?, confirmed: Bool, paths: [String]? = nil)
     // Configuración
     case configShow
     case setRefreshInterval(minutes: Int)

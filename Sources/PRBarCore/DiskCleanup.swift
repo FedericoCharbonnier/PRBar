@@ -32,6 +32,13 @@ public struct CleanupPlan: Codable, Equatable, Sendable {
     public var isEmpty: Bool { candidates.isEmpty }
 
     public init(candidates: [CleanupCandidate]) { self.candidates = candidates }
+
+    /// Solo los candidatos cuya ruta está en `paths` (lo que se confirmó); nil = todos.
+    public func limited(to paths: [String]?) -> CleanupPlan {
+        guard let paths else { return self }
+        let confirmed = Set(paths)
+        return CleanupPlan(candidates: candidates.filter { confirmed.contains($0.path) })
+    }
 }
 
 public struct CleanupResult: Codable, Equatable, Sendable {

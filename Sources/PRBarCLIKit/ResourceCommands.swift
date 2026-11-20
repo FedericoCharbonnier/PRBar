@@ -52,10 +52,16 @@ struct CleanupCommand: RemoteCommand {
     @Flag(help: "Only show what would be deleted.") var preview = false
     @OptionGroup var global: GlobalOptions
 
+    /// La vista previa (`prepare`, también con `--yes`): la app solo borra lo que está acá y sigue en su plan nuevo.
+    var shown: CleanupPlan?
+
+    mutating func prepare(_ connection: AppConnection, _ output: Output) throws {
+        guard !preview else { return }
+        shown = try connection.run(.cleanupPreview(olderThanDays: olderThan?.days)).decode()
+    }
+
     func confirmation(_ connection: AppConnection, _ output: Output) throws -> String? {
-        guard !preview else { return nil }
-        let plan: CleanupPlan = try connection.run(.cleanupPreview(olderThanDays: olderThan?.days)).decode()
-        guard !plan.isEmpty else { return nil }
+        guard let plan = shown, !plan.isEmpty else { return nil }
         if !output.json {
             output.table(["Delete", "Size"], plan.candidates.map { [$0.title, Bytes.text($0.bytes)] })
         }
@@ -63,7 +69,8 @@ struct CleanupCommand: RemoteCommand {
     }
 
     func appCommand(confirmed: Bool) -> AppCommand {
-        preview ? .cleanupPreview(olderThanDays: olderThan?.days) : .cleanup(olderThanDays: olderThan?.days, confirmed: confirmed)
+        preview ? .cleanupPreview(olderThanDays: olderThan?.days)
+            : .cleanup(olderThanDays: olderThan?.days, confirmed: confirmed, paths: shown?.candidates.map(\.path))
     }
 
     func render(_ result: JSONValue, _ output: Output) throws {
