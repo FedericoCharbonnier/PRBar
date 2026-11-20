@@ -41,8 +41,8 @@ public enum CommandDispatcher {
         // Estado
         case .status:
             return try encode(await actions.status())
-        case .listPRs(let list, let account):
-            return try encode(actions.listPRs(list: list, account: account))
+        case .listPRs(let list, let account, let tab):
+            return try encode(actions.listPRs(list: list, account: account, tab: tab))
         case .resolvePR(let pr):
             return try encode(actions.resolvePR(pr))
         case .history(let repo, let kind, let limit, let search):
@@ -67,6 +67,8 @@ public enum CommandDispatcher {
         case .quit:
             actions.quit()
             return .ok
+        case .openPopover(let tab):
+            return try encode(actions.openPopover(tab: tab))
         // Review
         case .reviewStart(let pr, let wait):
             return try encode(await actions.reviewStart(pr: pr, wait: wait, events: events))

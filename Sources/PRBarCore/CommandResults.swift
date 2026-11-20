@@ -117,11 +117,13 @@ public struct StatusInfo: Codable, Equatable, Sendable {
     public var blockedReason: String?
     /// La versión nueva que ofrece PRBar, si hay.
     public var updateAvailable: String?
+    /// PRs accionables por pestaña (`PopoverTab.rawValue`). Opcional: una app vieja no lo manda.
+    public var tabCounts: [String: Int]?
 
     public init(appVersion: String, refreshing: Bool = false, fetchedAt: Date? = nil, offline: Bool = false,
                 rateLimitedUntil: Date? = nil, badgeCount: Int = 0, counts: [String: Int] = [:], issues: [String] = [],
                 slackIssues: [String] = [], jobs: [JobInfo] = [], accounts: [String] = [], tools: [ToolInfo] = [],
-                blockedReason: String? = nil, updateAvailable: String? = nil) {
+                blockedReason: String? = nil, updateAvailable: String? = nil, tabCounts: [String: Int]? = nil) {
         self.appVersion = appVersion
         self.refreshing = refreshing
         self.fetchedAt = fetchedAt
@@ -136,6 +138,7 @@ public struct StatusInfo: Codable, Equatable, Sendable {
         self.tools = tools
         self.blockedReason = blockedReason
         self.updateAvailable = updateAvailable
+        self.tabCounts = tabCounts
     }
 }
 
@@ -163,6 +166,9 @@ public struct PRInfo: Codable, Equatable, Sendable {
     public var merge: String?
     /// El error del merge, si falló.
     public var mergeError: String?
+    /// Pestaña y sección del popover (spec H). Opcionales: una app con protocolo 3 no las manda.
+    public var tab: PopoverTab?
+    public var section: PopoverSection?
 
     public init(item: ClassifiedPR, review: ReviewPhase?, respond: RespondPhase?, merge: MergePhase? = nil) {
         let pr = item.pr
@@ -185,6 +191,8 @@ public struct PRInfo: Codable, Equatable, Sendable {
         self.respond = respond?.cliName
         self.merge = merge?.cliName
         mergeError = merge?.message
+        tab = PopoverTabs.tab(of: item)
+        section = PopoverTabs.section(of: item)
     }
 }
 

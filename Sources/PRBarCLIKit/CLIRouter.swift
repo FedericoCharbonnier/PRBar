@@ -30,6 +30,7 @@ public enum CLIRouter {
         .init("history reopen", [.historyReopen], ["history", "reopen", "1a2b3c4d"]),
         .init("app start", [], ["app", "start"]),
         .init("app quit", [.quit], ["app", "quit"]),
+        .init("app popover", [.openPopover], ["app", "popover", "--tab", "mine"]),
         .init("app settings", [.openSettings], ["app", "settings", "claude"]),
         .init("app history", [.openHistory], ["app", "history"]),
         .init("app logs", [], ["app", "logs", "--slack"], ["app", "logs", "--update"], ["app", "logs", "--instructions"]),

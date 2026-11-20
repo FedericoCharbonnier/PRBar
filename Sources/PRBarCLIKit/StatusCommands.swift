@@ -188,7 +188,7 @@ struct HistoryReopen: RemoteCommand {
 struct AppGroup: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "app", abstract: "PRBar.app itself.",
-        subcommands: [AppStart.self, AppQuit.self, AppSettings.self, AppHistory.self, AppLogs.self])
+        subcommands: [AppStart.self, AppQuit.self, AppPopover.self, AppSettings.self, AppHistory.self, AppLogs.self])
 }
 
 struct AppStart: LocalCommand {
@@ -212,6 +212,21 @@ struct AppQuit: RemoteCommand {
 
     func appCommand(confirmed: Bool) -> AppCommand { .quit }
     func render(_ result: JSONValue, _ output: Output) throws { output.line("PRBar is quitting.") }
+}
+
+struct AppPopover: RemoteCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "popover", abstract: "Show the menu bar popover, optionally on a tab (⌘1 / ⌘2).")
+    @Option(help: "to-review or mine. The popover remembers it.") var tab: PopoverTab?
+    @OptionGroup var global: GlobalOptions
+
+    func appCommand(confirmed: Bool) -> AppCommand { .openPopover(tab: tab) }
+
+    func render(_ result: JSONValue, _ output: Output) throws {
+        let info: PopoverInfo = try result.decode()
+        output.line(info.shown ? "Showing \(info.tab.title)."
+                               : "Selected \(info.tab.title). Click PRBar in the menu bar to see it.")
+    }
 }
 
 struct AppSettings: RemoteCommand {

@@ -9,7 +9,7 @@ import Foundation
 public enum AppCommand: Codable, Equatable, Sendable {
     // Estado
     case status
-    case listPRs(list: PRListFilter?, account: String?)
+    case listPRs(list: PRListFilter?, account: String?, tab: PopoverTab? = nil)
     case resolvePR(pr: String)
     case history(repo: String?, kind: HistoryKind?, limit: Int?, search: String?)
     case historyShow(id: String)
@@ -20,6 +20,8 @@ public enum AppCommand: Codable, Equatable, Sendable {
     case openSettings(tab: SettingsTabName?)
     case openHistory(id: String?)
     case quit
+    /// Abre el popover (spec H.2), en `tab` si viene (y la deja elegida).
+    case openPopover(tab: PopoverTab?)
     // Review (PR ajeno)
     case reviewStart(pr: String, wait: Bool)
     case reviewShow(pr: String)
@@ -157,6 +159,7 @@ public enum AppCommand: Codable, Equatable, Sendable {
         case rulesEdit, rulesRemove, rulesSetEnabled, rulesChatSend, rulesChatShow, rulesChatUndo, rulesChatStop
         case rulesSuggestions, rulesSuggestionAct, chatProposal, claudeReviewSet, claudeRespondSet, claudeStageSet
         case claudePromptShow, claudePromptSet, claudePromptReset
+        case openPopover
     }
 
     public var name: Name {
@@ -172,6 +175,7 @@ public enum AppCommand: Codable, Equatable, Sendable {
         case .openSettings: .openSettings
         case .openHistory: .openHistory
         case .quit: .quit
+        case .openPopover: .openPopover
         case .reviewStart: .reviewStart
         case .reviewShow: .reviewShow
         case .reviewEdit: .reviewEdit

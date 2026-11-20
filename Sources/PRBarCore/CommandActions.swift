@@ -10,7 +10,7 @@ import Foundation
 @MainActor
 public protocol StatusActions: AnyObject {
     func status() async throws -> StatusInfo
-    func listPRs(list: PRListFilter?, account: String?) throws -> [PRInfo]
+    func listPRs(list: PRListFilter?, account: String?, tab: PopoverTab?) throws -> [PRInfo]
     func resolvePR(_ pr: String) throws -> PRLink
     func historyList(repo: String?, kind: HistoryKind?, limit: Int?, search: String?) -> [HistoryEntryInfo]
     func historyShow(id: String) throws -> HistoryDetail
@@ -20,6 +20,7 @@ public protocol StatusActions: AnyObject {
     func openSettings(tab: SettingsTabName?)
     func openHistory(id: String?) throws
     func quit()
+    func openPopover(tab: PopoverTab?) -> PopoverInfo
 }
 
 @MainActor

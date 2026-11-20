@@ -150,6 +150,7 @@ public enum OnOff: String, ExpressibleByArgument, CaseIterable {
 }
 
 extension PRListFilter: ExpressibleByArgument {}
+extension PopoverTab: ExpressibleByArgument {}
 extension HistoryKind: ExpressibleByArgument {}
 extension SettingsTabName: ExpressibleByArgument {}
 extension NotificationSettingName: ExpressibleByArgument {}

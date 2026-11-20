@@ -5,6 +5,7 @@ import PRBarCore
 let dispatchSamples: [(command: AppCommand, call: String)] = [
     (.status, "status"),
     (.listPRs(list: .mine, account: nil), "listPRs"),
+    (.listPRs(list: nil, account: nil, tab: .mine), "listPRs"),
     (.resolvePR(pr: "api#1"), "resolvePR"),
     (.history(repo: nil, kind: .review, limit: 3, search: nil), "historyList"),
     (.historyShow(id: "abcd"), "historyShow"),
@@ -14,6 +15,7 @@ let dispatchSamples: [(command: AppCommand, call: String)] = [
     (.openSettings(tab: .slack), "openSettings"),
     (.openHistory(id: nil), "openHistory"),
     (.quit, "quit"),
+    (.openPopover(tab: .mine), "openPopover"),
     (.reviewStart(pr: "api#1", wait: false), "reviewStart"),
     (.reviewShow(pr: "api#1"), "reviewShow"),
     (.reviewEdit(pr: "api#1", finding: "2", title: nil, body: "b"), "reviewEdit"),
@@ -142,6 +144,10 @@ enum CommandDispatcherTests {
         _ = await run(.respondSelect(pr: "web#2", items: ["1", "2"],
                                      change: RespondSelectionChange(implement: false, replyText: "Thanks")), fake)
         try expectEqual(fake.calls.last, #"respondSelect web#2 ["1", "2"] implement=false reply=- text=Thanks plan=-"#)
+        _ = await run(.listPRs(list: .other, account: "me", tab: .mine), fake)
+        try expectEqual(fake.calls.last, "listPRs other me mine")
+        _ = await run(.openPopover(tab: nil), fake)
+        try expectEqual(fake.calls.last, "openPopover -")
         let result = await run(.reviewCancel(pr: "x"), fake)
         try expectEqual(result, .success(.ok))
     }

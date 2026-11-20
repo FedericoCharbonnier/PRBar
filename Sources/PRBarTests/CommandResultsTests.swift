@@ -27,7 +27,7 @@ enum CommandResultsTests {
         TestCase("resultados: PRInfo con JSON estable") {
             let item = ClassifiedPR(pr: makePR(number: 1), category: .toReview, account: "fede")
             let info = PRInfo(item: item, review: nil, respond: nil)
-            try expectEqual(try CommandProtocol.line(info), #"{"account":"fede","additions":10,"author":"juan","baseRef":"develop","category":"toReview","ci":"success","deletions":2,"headRef":"feature/1","id":"o/r#1","isDraft":false,"number":1,"repo":"o/r","title":"PR 1","updatedAt":"2027-01-15T08:00:00Z","url":"https://github.com/o/r/pull/1"}"#)
+            try expectEqual(try CommandProtocol.line(info), #"{"account":"fede","additions":10,"author":"juan","baseRef":"develop","category":"toReview","ci":"success","deletions":2,"headRef":"feature/1","id":"o/r#1","isDraft":false,"number":1,"repo":"o/r","section":"toReview","tab":"to-review","title":"PR 1","updatedAt":"2027-01-15T08:00:00Z","url":"https://github.com/o/r/pull/1"}"#)
             let reviewing = PRInfo(item: item, review: .reviewing(agents: 2), respond: nil)
             try expectEqual(reviewing.review, "reviewing")
         },
@@ -107,6 +107,15 @@ enum CommandResultsTests {
             try expectEqual(ReviewPhase.reviewing(agents: 1).cliDetail, "1 agent")
             try expectEqual(RespondPhase.implementing(done: 1, total: 3).cliName, "implementing")
             try expectEqual(RespondPhase.implementing(done: 1, total: 3).cliDetail, "1/3")
+        },
+        TestCase("results: PRInfo trae pestaña y sección; StatusInfo viejo se lee sin totales por pestaña") {
+            let mine = ClassifiedPR(pr: makePR(number: 6, author: "me"), category: .other, account: "me")
+            let info = PRInfo(item: mine, review: nil, respond: nil)
+            try expectEqual(info.tab, .mine)
+            try expectEqual(info.section, .waitingForReview)
+            let old = #"{"appVersion":"1.0.0","refreshing":false,"offline":false,"badgeCount":0,"counts":{},"issues":[],"slackIssues":[],"jobs":[],"accounts":[],"tools":[]}"#
+            let status = try CommandProtocol.decoder.decode(StatusInfo.self, from: Data(old.utf8))
+            try expectEqual(status.tabCounts, nil)
         },
     ]
 }

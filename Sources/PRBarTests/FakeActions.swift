@@ -33,8 +33,8 @@ final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActi
 
     // MARK: StatusActions
     func status() async throws -> StatusInfo { try record("status"); return StatusInfo(appVersion: "test") }
-    func listPRs(list: PRListFilter?, account: String?) throws -> [PRInfo] {
-        try record("listPRs \(list?.rawValue ?? "-") \(account ?? "-")"); return []
+    func listPRs(list: PRListFilter?, account: String?, tab: PopoverTab?) throws -> [PRInfo] {
+        try record("listPRs \(list?.rawValue ?? "-") \(account ?? "-") \(tab?.rawValue ?? "-")"); return []
     }
     func resolvePR(_ pr: String) throws -> PRLink { try record("resolvePR \(pr)"); return link }
     func historyList(repo: String?, kind: HistoryKind?, limit: Int?, search: String?) -> [HistoryEntryInfo] {
@@ -51,6 +51,9 @@ final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActi
     func openSettings(tab: SettingsTabName?) { calls.append("openSettings \(tab?.rawValue ?? "-")") }
     func openHistory(id: String?) throws { try record("openHistory \(id ?? "-")") }
     func quit() { calls.append("quit") }
+    func openPopover(tab: PopoverTab?) -> PopoverInfo {
+        calls.append("openPopover \(tab?.rawValue ?? "-")"); return PopoverInfo(tab: tab ?? .toReview, shown: true)
+    }
 
     // MARK: ReviewActions
     func reviewStart(pr: String, wait: Bool, events: CommandEventSink) async throws -> ReviewInfo {

@@ -49,7 +49,7 @@ enum AppCommandTests {
             }
         },
         TestCase("app command: Name tiene un caso por comando") {
-            try expectEqual(AppCommand.Name.allCases.count, 100)
+            try expectEqual(AppCommand.Name.allCases.count, 101)
             try expectEqual(AppCommand.slackTokenSet(token: "xoxp-secret").name, .slackTokenSet)
             try expectEqual(AppCommand.reviewCancel(pr: "x").name.rawValue, "reviewCancel")
             try expectEqual(AppCommand.claudePromptShow(stage: .review).name, .claudePromptShow)
@@ -73,6 +73,16 @@ enum AppCommandTests {
                        && !settings.reviewFinished && !settings.myPRApprovedOrCIFailed && !settings.readyToMerge)
             try expectEqual(PRListFilter.mine.category, .myFeedback)
             try expectEqual(Set(PRListFilter.allCases.map(\.category)), Set(PRCategory.allCases))
+        },
+        TestCase("app command: listPRs con pestaña y openPopover van y vuelven; un listPRs viejo no trae pestaña") {
+            for command: AppCommand in [.listPRs(list: .other, account: nil, tab: .mine), .openPopover(tab: nil), .openPopover(tab: .toReview)] {
+                let line = try CommandProtocol.line(CommandRequest(id: 1, command: command))
+                let back = try CommandProtocol.decode(CommandRequest.self, line: line)
+                try expectEqual(back.command, command)
+            }
+            let old = try JSONDecoder().decode(AppCommand.self, from: Data(#"{"listPRs":{"list":"mine"}}"#.utf8))
+            try expectEqual(old, .listPRs(list: .mine, account: nil, tab: nil))
+            try expectEqual(AppCommand.openPopover(tab: nil).name, .openPopover)
         },
     ]
 }

@@ -87,7 +87,7 @@ extension AppModel: StatusActions {
         )
     }
 
-    func listPRs(list: PRListFilter?, account: String?) throws -> [PRInfo] {
+    func listPRs(list: PRListFilter?, account: String?, tab: PopoverTab?) throws -> [PRInfo] {
         guard let snapshot = prStore.snapshot else {
             throw CommandFailure(.invalidState, "PRBar hasn’t loaded the PRs yet. Try again in a few seconds.")
         }
@@ -96,6 +96,7 @@ extension AppModel: StatusActions {
         }
         return snapshot.items
             .filter { item in list.map { item.category == $0.category } ?? true }
+            .filter { item in tab.map { PopoverTabs.tab(of: item) == $0 } ?? true }
             .filter { item in account.map { item.account.caseInsensitiveCompare($0) == .orderedSame } ?? true }
             .map { PRInfo(item: $0, review: reviews.phases[$0.id], respond: respond.phases[$0.id], merge: merges.phases[$0.id]) }
     }

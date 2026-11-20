@@ -137,3 +137,15 @@ public final class PopoverTabState: ObservableObject {
         selected = defaults.string(forKey: Self.defaultsKey).flatMap(PopoverTab.init(rawValue:)) ?? .toReview
     }
 }
+
+/// Respuesta de `prbar app popover`.
+public struct PopoverInfo: Codable, Equatable, Sendable {
+    public var tab: PopoverTab
+    /// `false` si no se pudo abrir el popover (la pestaña igual quedó elegida).
+    public var shown: Bool
+
+    public init(tab: PopoverTab, shown: Bool) {
+        self.tab = tab
+        self.shown = shown
+    }
+}
