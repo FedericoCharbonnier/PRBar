@@ -21,12 +21,10 @@ struct RespondButton: View {
     /// Hay un registro abierto (la ventana tiene algo que mostrar).
     let hasRecord: Bool
     let actions: RespondButtonActions
-    @State private var hovering = false
 
     var body: some View {
         content
             .font(.subheadline.weight(.medium))
-            .onHover { hovering = $0 }
     }
 
     @ViewBuilder
@@ -117,31 +115,24 @@ struct RespondButton: View {
         .help(tooltip)
     }
 
-    /// Fase activa: el click cancela; con hover aparece la ✕ que lo indica (su lugar está siempre reservado).
+    /// Fase activa: con hover dice "Cancel"; el clic pregunta antes de cancelar (`CancellablePill`).
     private func cancellable<Icon: View>(
         label: String, tooltip: String, fg: Color = Theme.violet, bg: Color = Theme.tint(Theme.violet),
         @ViewBuilder icon: () -> Icon
     ) -> some View {
-        let icon = icon()
-        return Button(action: actions.cancel) {
-            PhasePill(fg: fg, bg: bg, trailing: 6) {
-                icon
-                Text(label)
-                // The ✕ slot is always reserved (drawn transparent) so the pill keeps its width on hover and
-                // the copy `PRRowView` measures matches the visible one.
-                Image(systemName: "xmark.circle.fill")
-                    .font(.callout)
-                    .padding(.leading, 2)
-                    .opacity(hovering ? 1 : 0)
-                    .accessibilityHidden(true)
-            }
+        CancellablePill(label: label, tooltip: tooltip, fg: fg, bg: bg, job: "response",
+                        accessibilityValue: accessibilityValue, cancel: actions.cancel, icon: icon)
+    }
+
+    /// "Analyzing, 2 agents" for VoiceOver (the label says what the button does: cancel).
+    private var accessibilityValue: String {
+        switch phase {
+        case .queued?: "Queued"
+        case .preparing?: "Preparing the worktree"
+        case .analyzing(let agents)?: agents == 0 ? "Analyzing" : "Analyzing, \(agents) agent\(agents == 1 ? "" : "s")"
+        case .implementing(let done, let total)?: "Implementing fix \(min(done + 1, max(total, 1))) of \(max(total, 1))"
+        default: ""
         }
-        .buttonStyle(.plain)
-        .help(tooltip)
-        // La ✕ solo se ve con el mouse encima: VoiceOver ofrece cancelar como acción.
-        .accessibilityLabel(label)
-        .accessibilityHint("Activate to cancel")
-        .accessibilityAction(named: "Cancel", actions.cancel)
     }
 
     /// "Show Log / Retry / Dismiss". If fixes or replies are already in play, "Open" shows the window

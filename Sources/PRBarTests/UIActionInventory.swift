@@ -145,12 +145,14 @@ enum UIActionInventory {
         .init("Review/ReviewButton.swift", "ClosureMenuItem", "Show Log", 1, .cli(["history show", "app logs"])),
         .init("Review/ReviewButton.swift", "ClosureMenuItem", "Retry", 1, .cli(["review start"])),
         .init("Review/ReviewButton.swift", "ClosureMenuItem", "Dismiss", 1, .cli(["review dismiss", "respond dismiss", "merge"])),
-        .init("Review/ReviewButton.swift", "accessibilityAction", "Cancel Review", 1, .cli(["review cancel"])),
+        .init("Review/ReviewButton.swift", "Component:CancellablePill", "review", 1, .cli(["review cancel"])),   // asks first
+        .init("Review/ReviewButton.swift", "Button", "Keep Running", 1, .viewOnly("closes the cancel confirmation")),
+        .init("Review/ReviewButton.swift", "Button", #"Cancel \(job.capitalized)"#, 1, .cli(["review cancel", "respond cancel"])),
         .init("Respond/RespondButton.swift", "Button", "Respond", 1, .cli(["respond start"])),
-        .init("Respond/RespondButton.swift", "Button", "-", 5, .cli(["open", "respond cancel", "history show"])),
+        .init("Respond/RespondButton.swift", "Button", "-", 4, .cli(["open", "respond cancel", "history show"])),
         .init("Respond/RespondButton.swift", "ClosureMenuItem", "Open", 1, .cli(["open"])),
         .init("Respond/RespondButton.swift", "ClosureMenuItem", "Retry", 1, .cli(["respond start", "respond push"])),
-        .init("Respond/RespondButton.swift", "accessibilityAction", "Cancel", 1, .cli(["respond cancel"])),
+        .init("Respond/RespondButton.swift", "Component:CancellablePill", "response", 1, .cli(["respond cancel"])),   // asks first
         // Ventana de Review
         // Discarded y "Hidden by your settings" (vista; `review show` los lista), "Approve with N comments" y el botón Chat
         .init("Review/ReviewWindow.swift", "Button", "-", 4, .cli(["review publish", "review show", "chat"])),

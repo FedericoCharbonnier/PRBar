@@ -18,12 +18,10 @@ struct ReviewButton: View {
     /// Why a review can't start (an update is being installed); `nil` = it can.
     var unavailableReason: String? = nil
     let actions: ReviewButtonActions
-    @State private var hovering = false
 
     var body: some View {
         content
             .font(.subheadline.weight(.medium))
-            .onHover { hovering = $0 }
     }
 
     @ViewBuilder
@@ -85,31 +83,24 @@ struct ReviewButton: View {
         }
     }
 
-    /// Fase activa: el click cancela; con hover aparece la ✕ que lo indica (su lugar está siempre reservado).
+    /// Fase activa: con hover dice "Cancel"; el clic pregunta antes de cancelar (`CancellablePill`).
     private func cancellable<Icon: View>(
         label: String, tooltip: String, fg: Color = Theme.violet, bg: Color = Theme.tint(Theme.violet),
         @ViewBuilder icon: () -> Icon
     ) -> some View {
-        let icon = icon()
-        return Button(action: actions.cancel) {
-            pill(fg: fg, bg: bg, trailing: 6) {
-                icon
-                Text(label)
-                // The ✕ slot is always reserved (drawn transparent) so the pill keeps its width on hover and
-                // the copy `PRRowView` measures matches the visible one.
-                Image(systemName: "xmark.circle.fill")
-                    .font(.callout)
-                    .padding(.leading, 2)
-                    .opacity(hovering ? 1 : 0)
-                    .accessibilityHidden(true)
-            }
+        CancellablePill(label: label, tooltip: tooltip, fg: fg, bg: bg, job: "review",
+                        accessibilityValue: accessibilityValue, cancel: actions.cancel, icon: icon)
+    }
+
+    /// "Reviewing, 2 agents" for VoiceOver (the label says what the button does: cancel).
+    private var accessibilityValue: String {
+        switch phase {
+        case .queued?: "Queued"
+        case .preparing?: "Preparing the worktree"
+        case .reviewing(let agents)?: "Reviewing, \(agents) agent\(agents == 1 ? "" : "s")"
+        case .filtering?: "Filtering the findings"
+        default: ""
         }
-        .buttonStyle(.plain)
-        .help(tooltip)
-        // La ✕ solo se ve con el mouse encima: VoiceOver ofrece cancelar como acción.
-        .accessibilityLabel(label)
-        .accessibilityHint("Activate to cancel the review")
-        .accessibilityAction(named: "Cancel Review", actions.cancel)
     }
 
     private func pill<Content: View>(
@@ -122,6 +113,82 @@ struct ReviewButton: View {
         FailureMenu.show(message: message, logURL: logURL, items: [
             ClosureMenuItem(title: "Retry", action: actions.retry),
         ], dismiss: actions.dismiss)
+    }
+}
+
+/// The pill of a running job (Queued, Preparing, Reviewing, Analyzing…). A misclick mustn't throw away minutes of
+/// Claude's work: on hover it turns red and says "Cancel", and clicking it asks first in a popover ("Keep Running"
+/// is what Esc and Return do). VoiceOver reads it as "Cancel review", with the progress as its value.
+struct CancellablePill<Icon: View>: View {
+    let label: String
+    let tooltip: String
+    let fg: Color
+    let bg: Color
+    /// "review", "response": in "Cancel review" and the question.
+    let job: String
+    let accessibilityValue: String
+    let cancel: () -> Void
+    let icon: Icon
+    @State private var hovering = false
+    @State private var confirming = false
+
+    init(label: String, tooltip: String, fg: Color, bg: Color, job: String, accessibilityValue: String,
+         cancel: @escaping () -> Void, @ViewBuilder icon: () -> Icon) {
+        self.label = label
+        self.tooltip = tooltip
+        self.fg = fg
+        self.bg = bg
+        self.job = job
+        self.accessibilityValue = accessibilityValue
+        self.cancel = cancel
+        self.icon = icon()
+    }
+
+    private var armed: Bool { hovering || confirming }
+
+    var body: some View {
+        Button { confirming = true } label: {
+            PhasePill(fg: armed ? Theme.redText : fg, bg: armed ? Theme.tint(Theme.red) : bg, trailing: 6) {
+                icon
+                // Both texts are laid out so the pill keeps its width on hover (and matches the copy `PRRowView`
+                // measures).
+                ZStack(alignment: .leading) {
+                    Text(label).opacity(armed ? 0 : 1)
+                    Text("Cancel").opacity(armed ? 1 : 0)
+                }
+                Image(systemName: "xmark.circle.fill")
+                    .font(.callout)
+                    .padding(.leading, 2)
+                    .opacity(armed ? 1 : 0)
+                    .accessibilityHidden(true)
+            }
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help(tooltip)
+        .accessibilityLabel("Cancel \(job)")
+        .accessibilityValue(accessibilityValue)
+        .accessibilityHint("Asks before cancelling")
+        .popover(isPresented: $confirming, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Cancel this \(job)?").font(.headline)
+                Text("Claude stops and what it did so far is lost.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Spacer()
+                    Button("Keep Running") { confirming = false }
+                        .keyboardShortcut(.cancelAction)
+                    Button("Cancel \(job.capitalized)", role: .destructive) {
+                        confirming = false
+                        cancel()
+                    }
+                }
+            }
+            .padding(14)
+            .frame(width: 280)
+        }
     }
 }
 
