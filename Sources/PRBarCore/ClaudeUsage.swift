@@ -196,8 +196,12 @@ public final class ClaudeUsageCenter: Sendable {
     public func liveJobs() -> [UUID: LiveJob] { state.withLock { $0.live } }
 
     /// Lo ya terminado de los trabajos vivos de esa tarea; nil si no hay ninguno o ninguna corrida terminó.
+    /// The host doesn't count: a remote job's processes are tagged "on <host>" after the job started (spec J).
     public func liveUsage(for activity: ProcessActivity) -> ClaudeUsage? {
-        let usages = liveJobs().values.filter { $0.activity == activity }.map(\.usage)
+        let usages = liveJobs().values.filter { job in
+            guard let other = job.activity else { return false }
+            return other.kind == activity.kind && other.prID == activity.prID && other.chatSessionID == activity.chatSessionID
+        }.map(\.usage)
         let total = usages.reduce(ClaudeUsage.zero, +)
         return total.runs == 0 ? nil : total
     }

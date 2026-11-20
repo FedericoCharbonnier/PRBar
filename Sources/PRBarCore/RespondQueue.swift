@@ -124,7 +124,8 @@ public final class RespondQueue: ObservableObject {
             guard let self else { return }
             switch result {
             case .success(let draft):
-                let record = RespondRecord(draft: draft, startedAt: startedAt)
+                let record = RespondRecord(draft: draft, startedAt: startedAt,
+                                           usage: self.jobUsage[prID].flatMap { $0.runs > 0 ? $0 : nil })
                 self.records[prID] = record
                 self.save(record)
                 self.finish(prID, .ready(draft))
@@ -359,12 +360,17 @@ public final class RespondQueue: ObservableObject {
         }, onComplete: { [weak self] result in
             guard let self, self.jobs[prID]?.id == jobID else { return }
             self.jobs[prID] = nil
-            self.jobUsage[prID] = usage.value
+            // Saved before `completion`, so the record the phase event announces already has it. An analysis makes
+            // a new record: its `completion` puts the usage there (`jobUsage`).
+            if kind == .analyze {
+                self.jobUsage[prID] = usage.value
+            } else {
+                self.addUsage(prID, usage.value)
+            }
             completion(result.map { slot.value! })
             self.jobUsage[prID] = nil
-            self.addUsage(prID, usage.value)
         }, onCancelledEnd: { [weak self] _ in
-            self?.addUsage(prID, usage.value)
+            if kind != .analyze { self?.addUsage(prID, usage.value) }
         })
     }
 

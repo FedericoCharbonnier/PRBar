@@ -5,7 +5,7 @@ import SwiftUI
 /// PRBar Activity (spec I): CPU, RAM y disco arriba; lo que corre ahora por tarea, con Stop; y el disco por categoría
 /// (y por repo en los worktrees), con Clean Up.
 struct ActivityWindow: View {
-    static let size = NSSize(width: 720, height: 640)
+    static let size = NSSize(width: 760, height: 720)
 
     @ObservedObject var model: AppModel
     @ObservedObject var monitor: ResourceMonitor
@@ -32,6 +32,7 @@ struct ActivityWindow: View {
             VStack(alignment: .leading, spacing: 22) {
                 tiles
                 runningNow
+                claudeUsage
                 disk
             }
             .padding(20)
@@ -77,7 +78,99 @@ struct ActivityWindow: View {
             StatTile(title: "Disk", symbol: "internaldrive",
                      value: monitor.disk.map { ResourceFooter.bytes($0.total) },
                      detail: monitor.disk.map { _ in cleanableBytes > 0 ? "\(ResourceFooter.bytes(cleanableBytes)) can be cleaned" : "Nothing to clean up" })
+            StatTile(title: "Claude", symbol: "sparkles", value: UsageFormat.cost(thisMonth.usage),
+                     detail: "this month · estimated")
+                .help(UsageFormat.note)
         }
+    }
+
+    // MARK: Claude (spec O)
+
+    /// This month's Claude usage, from the ledger (refreshed when a run is recorded: `usageRevision`).
+    private var thisMonth: UsageMonth {
+        _ = model.usageRevision
+        return UsageSummary.month(UsageSummary.monthKey(Date()), entries: model.usageLedger.entries())
+    }
+
+    private var recentTasks: [UsageTask] {
+        _ = model.usageRevision
+        return UsageSummary.recentTasks(model.usageLedger.entries(), limit: 8)
+    }
+
+    private var claudeUsage: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Claude usage").font(.headline)
+                Spacer()
+                let month = thisMonth.usage
+                Text(month.runs == 0 ? "No runs this month"
+                     : "This month: \(UsageFormat.cost(month)) estimated · \(month.runs) run\(month.runs == 1 ? "" : "s") · \(UsageFormat.tokens(month)) tokens")
+                    .font(.callout.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            let tasks = recentTasks
+            VStack(spacing: 0) {
+                usageHeader
+                if tasks.isEmpty {
+                    Divider()
+                    Text("No Claude runs recorded yet.")
+                        .font(.callout).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 8).padding(.horizontal, 10)
+                }
+                ForEach(tasks) { task in
+                    Divider()
+                    usageRow(task)
+                }
+            }
+            .background(RoundedRectangle(cornerRadius: Theme.Radius.card).fill(Color.primary.opacity(0.04)))
+            Text(UsageFormat.note).font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private static let usageColumns: [CGFloat] = [0, 90, 64, 72, 64]
+
+    private var usageHeader: some View {
+        HStack(spacing: 8) {
+            Text("Recent tasks").frame(maxWidth: .infinity, alignment: .leading)
+            Text("When").frame(width: Self.usageColumns[1], alignment: .trailing)
+            Text("Time").frame(width: Self.usageColumns[2], alignment: .trailing)
+            Text("Tokens").frame(width: Self.usageColumns[3], alignment: .trailing)
+            Text("Cost").frame(width: Self.usageColumns[4], alignment: .trailing)
+        }
+        .font(.caption.weight(.medium))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+    }
+
+    private func usageRow(_ task: UsageTask) -> some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(task.title).font(.body.weight(.semibold))
+                    if let host = task.activity?.host {
+                        Text("on \(host)").font(.caption).padding(.horizontal, 6).padding(.vertical, 1)
+                            .background(Capsule().fill(Theme.tint(Theme.blue)))
+                    }
+                }
+                Text(task.stages.joined(separator: " · ")
+                     + (task.usage.unknownRuns > 0 ? " · \(task.usage.unknownRuns) without usage data" : ""))
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Group {
+                Text(RelativeAge.short(from: task.finishedAt) + " ago").frame(width: Self.usageColumns[1], alignment: .trailing)
+                Text(UsageFormat.duration(seconds: task.usage.durationSeconds)).frame(width: Self.usageColumns[2], alignment: .trailing)
+                Text(UsageFormat.tokens(task.usage)).frame(width: Self.usageColumns[3], alignment: .trailing)
+                Text(UsageFormat.cost(task.usage)).frame(width: Self.usageColumns[4], alignment: .trailing)
+            }
+            .font(.callout.monospacedDigit())
+            .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: Ahora
@@ -118,7 +211,7 @@ struct ActivityWindow: View {
             } else {
                 let rows = Self.taskRows(monitor.usage)
                 VStack(spacing: 0) {
-                    tableHeader(["Task", "CPU", "RAM", "Time", ""])
+                    tableHeader(["Task", "CPU", "RAM", "Time", "Cost", ""])
                     ForEach(rows) { row in
                         Divider()
                         taskRow(row)
@@ -136,7 +229,7 @@ struct ActivityWindow: View {
         }
     }
 
-    private static let columns: [CGFloat] = [0, 56, 84, 60, 64]
+    private static let columns: [CGFloat] = [0, 56, 84, 60, 60, 64]
 
     private func tableHeader(_ titles: [String]) -> some View {
         HStack(spacing: 8) {
@@ -178,10 +271,14 @@ struct ActivityWindow: View {
                     Text("—").frame(width: Self.columns[2], alignment: .trailing)
                 }
                 Text(row.startedAt.map { RelativeAge.short(from: $0) } ?? "—").frame(width: Self.columns[3], alignment: .trailing)
+                // What the task's finished Claude runs cost so far (spec O.2).
+                Text(row.activity.map { UsageFormat.cost(model.liveClaudeUsage($0)) } ?? "")
+                    .frame(width: Self.columns[4], alignment: .trailing)
+                    .help("Estimated cost of the Claude runs of this task that already finished")
             }
             .font(.callout.monospacedDigit())
             .foregroundStyle(.secondary)
-            stopButton(row.activity).frame(width: Self.columns[4], alignment: .trailing)
+            stopButton(row.activity).frame(width: Self.columns[5], alignment: .trailing)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)

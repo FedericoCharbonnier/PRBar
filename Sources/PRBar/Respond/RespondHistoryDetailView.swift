@@ -55,7 +55,8 @@ struct RespondHistoryDetailView: View {
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 6) {
-                Image(systemName: "arrowshape.turn.up.left").accessibilityLabel("Feedback response")
+                Image(systemName: draft.isCIFix ? "wrench.and.screwdriver" : "arrowshape.turn.up.left")
+                    .accessibilityLabel(draft.isCIFix ? "Fix CI" : "Feedback response")
                 Text("@\(draft.account)").foregroundStyle(.primary)
                 Text("·").foregroundStyle(.tertiary)
                 Text(ReviewDates.short(record.finishedAt ?? record.startedAt))
@@ -67,6 +68,7 @@ struct RespondHistoryDetailView: View {
             }
             .font(.callout)
             .foregroundStyle(.secondary)
+            ClaudeUsageLine(usage: record.totalUsage)
             if !draft.worktree.path.isEmpty {
                 Text("Worktree: \(draft.worktree.path)")
                     .font(.system(.subheadline, design: .monospaced))

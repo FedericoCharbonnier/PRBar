@@ -40,3 +40,13 @@ extension AppModel {
         "\(draft.isCIFix ? "Fix CI" : "Respond") · \(draft.repo.name)#\(draft.number)"
     }
 }
+
+// MARK: - Claude usage (spec O)
+
+extension AppModel {
+    /// What a running task's finished Claude runs cost so far (Activity's Cost column). The snapshot mode fills
+    /// `snapshotLiveUsage`.
+    func liveClaudeUsage(_ activity: ProcessActivity) -> ClaudeUsage? {
+        snapshotLiveUsage[activity] ?? ClaudeUsageCenter.shared.liveUsage(for: activity)
+    }
+}

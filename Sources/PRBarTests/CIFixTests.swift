@@ -200,5 +200,22 @@ enum CIFixTests {
             try expectEqual(CIFixPrompt.commitMessage(""), "Fix CI")
             try expectEqual(CIFixPrompt.commitMessage("Fix the flaky date test\n\nbody"), "Fix the flaky date test")
         },
+        TestCase("ci fix: notificaciones (listo, pusheado, falló) con el interruptor de Claude") {
+            var settings = NotificationSettings()
+            let ready = NotificationPlanner.respondFinished(prID: "acme/api#12", repo: RepoRef(owner: "acme", name: "api"), number: 12,
+                                                           event: .ciFixReady(commits: 1), settings: settings)
+            try expectEqual(ready?.title, "CI Fix Ready")
+            try expectEqual(ready?.respondPRID, "acme/api#12")
+            try expectEqual(NotificationPlanner.respondFinished(prID: "x", repo: RepoRef(owner: "acme", name: "api"), number: 12,
+                                                                event: .ciFixReady(commits: 0), settings: settings)?.body,
+                            "api#12: Claude made no changes — see why")
+            try expectEqual(NotificationPlanner.respondFinished(prID: "x", repo: RepoRef(owner: "acme", name: "api"), number: 12,
+                                                                event: .ciFixPushed, settings: settings)?.title, "CI Fix Pushed")
+            try expectEqual(NotificationPlanner.respondFinished(prID: "x", repo: RepoRef(owner: "acme", name: "api"), number: 12,
+                                                                event: .ciFixFailed, settings: settings)?.title, "Couldn't Fix CI")
+            settings.reviewFinished = false
+            try expectEqual(NotificationPlanner.respondFinished(prID: "x", repo: RepoRef(owner: "acme", name: "api"), number: 12,
+                                                                event: .ciFixReady(commits: 1), settings: settings), nil)
+        },
     ]
 }

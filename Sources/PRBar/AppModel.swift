@@ -201,6 +201,8 @@ final class AppModel: ObservableObject {
     let usageLedger: UsageLedger
     /// Goes up when a Claude run is recorded (Activity and History refresh their costs).
     @Published var usageRevision = 0
+    /// The snapshot mode's "running" tasks' Claude usage (`liveClaudeUsage`); empty in the real app.
+    var snapshotLiveUsage: [ProcessActivity: ClaudeUsage] = [:]
 
     @Published private(set) var tools = ResolvedTools()
     @Published private(set) var toolsResolved = false

@@ -259,6 +259,15 @@ enum HistoryEntry: Identifiable {
         case .merge(let record): record.startedAt
         }
     }
+
+    /// Claude's usage for the whole job and its chat (spec O); nil in older records.
+    var usage: ClaudeUsage? {
+        switch self {
+        case .review(let record): record.draft.totalUsage
+        case .respond(let record): record.totalUsage
+        case .merge(let record): record.chat?.usage
+        }
+    }
 }
 
 /// Fila de la lista: `repo#N` + fecha, título y pill de estado.
@@ -282,10 +291,21 @@ private struct HistoryRow: View {
             Text(record.title)
                 .font(.body.weight(.medium))
                 .lineLimit(1)
-            switch record {
-            case .review(let review): StatusPill.record(review)
-            case .respond(let respond): StatusPill.respond(respond)
-            case .merge(let merge): StatusPill.merge(merge)
+            HStack(spacing: 6) {
+                switch record {
+                case .review(let review): StatusPill.record(review)
+                case .respond(let respond): StatusPill.respond(respond)
+                case .merge(let merge): StatusPill.merge(merge)
+                }
+                Spacer(minLength: 4)
+                // Estimated cost of the job (spec O.2); older entries have none.
+                if let usage = record.usage, usage.hasData {
+                    Text(UsageFormat.cost(usage))
+                        .font(.subheadline.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .help("Claude: \(UsageFormat.summary(usage)). \(UsageFormat.note)")
+                        .accessibilityLabel("Estimated Claude cost \(UsageFormat.cost(usage))")
+                }
             }
         }
         .padding(.vertical, 3)
@@ -295,6 +315,7 @@ private struct HistoryRow: View {
     private var kindIcon: some View {
         let (icon, label) = switch record {
         case .review: ("text.magnifyingglass", "Review")
+        case .respond(let respond) where respond.draft.isCIFix: ("wrench.and.screwdriver", "Fix CI")
         case .respond: ("arrowshape.turn.up.left", "Feedback response")
         case .merge: ("arrow.triangle.merge", "Merge")
         }
