@@ -1,0 +1,69 @@
+# PRBar for iPhone (plan 19). Generate the project with Scripts/ios-generate.sh; never edit the .xcodeproj by hand.
+name: PRBarMobile
+options:
+  bundleIdPrefix: com.federico.prbar
+  deploymentTarget: { iOS: "26.0" }
+  createIntermediateGroups: true
+configFiles:
+  Debug: Config/Base.xcconfig
+  Release: Config/Base.xcconfig
+packages:
+  # The app's logic and views; it depends on the root package's PRBarRemoteKit (path ../..).
+  PRBarMobileKit:
+    path: PRBarMobileKit
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    CODE_SIGN_STYLE: Automatic
+    TARGETED_DEVICE_FAMILY: "1"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+targets:
+  PRBarMobile:
+    type: application
+    platform: iOS
+    sources: [PRBarMobile]
+    dependencies:
+      - package: PRBarMobileKit
+        product: PRBarMobileKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.federico.prbar.ios
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    # Push (aps-environment) and the notification service extension come with plan 19 Task 8, once the Team ID and
+    # the App IDs exist (spec T).
+    entitlements:
+      path: PRBarMobile/Resources/PRBarMobile.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.federico.prbar.ios]
+        keychain-access-groups: ["$(AppIdentifierPrefix)com.federico.prbar.ios.shared"]
+    info:
+      path: PRBarMobile/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: PRBar
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleURLTypes: [{ CFBundleURLName: com.federico.prbar.ios, CFBundleURLSchemes: [prbar] }]
+        NSCameraUsageDescription: "PRBar uses the camera to scan the pairing code shown on your Mac."
+        NSFaceIDUsageDescription: "PRBar uses Face ID before merging, pushing or approving."
+        PRBarKeychainAccessGroup: $(AppIdentifierPrefix)com.federico.prbar.ios.shared
+        PRBarAppGroup: group.com.federico.prbar.ios
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+  PRBarMobileTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [PRBarMobileTests]
+    dependencies:
+      - target: PRBarMobile
+      - package: PRBarMobileKit
+        product: PRBarMobileKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.federico.prbar.ios.tests
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  PRBarMobile:
+    build: { targets: { PRBarMobile: all, PRBarMobileTests: [test] } }
+    test: { targets: [PRBarMobileTests] }
