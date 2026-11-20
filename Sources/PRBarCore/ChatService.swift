@@ -299,15 +299,65 @@ public struct ChatService: ChatBackend {
         }
         guard let changed = outcome.result else { return (output, outcome) }
         // From a host: the result the user sees is computed on this Mac from the commits brought back.
-        let imported = try await importFromHost(draft: draft, result: changed)
+        let imported: RespondResult
+        do {
+            imported = try await importFromHost(draft: draft, result: changed)
+        } catch {
+            // The host has a commit this Mac doesn't (and no Undo would be offered for it): it's undone there, so the
+            // host, this Mac and the fixes' result stay as they were before the turn.
+            guard let snapshot = outcome.snapshot else { throw error }
+            let host = placement?.name ?? "the server"
+            let detail = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            let service = self
+            let rollback: Error? = await Task.detached {
+                do {
+                    let before = try await implementer.undoChatTurn(draft: draft, snapshot: snapshot)
+                    // The local copy goes back too, if the import got that far (best effort: the push checks it).
+                    _ = try? await service.importFromHost(draft: draft, result: before)
+                    return nil
+                } catch {
+                    return error
+                }
+            }.value
+            if let rollback {
+                AppLog.write("Chat: couldn’t undo a turn on \(host) after its import failed: \(rollback.localizedDescription)")
+                throw PRBarError.respond("Claude’s changes are on \(host) but couldn’t be brought to this Mac (\(detail)), and undoing "
+                                         + "them there failed (\(rollback.localizedDescription)). Analyze the PR again before pushing.")
+            }
+            if error is CancellationError { throw error }
+            throw PRBarError.respond("Claude’s changes couldn’t be brought from \(host) to this Mac, so PRBar undid them there: \(detail)")
+        }
         return (output, ChatFilesOutcome(changedFiles: outcome.changedFiles, snapshot: outcome.snapshot, result: imported))
     }
 
     public func undoFiles(draft: RespondDraft, snapshot: ChatFileSnapshot, logURL: URL) async throws -> RespondResult {
         try checkRunner(draft)
-        let before = try await implementer(claude: gitOnlyClaude(logURL: logURL), draft: draft).undoChatTurn(draft: draft, snapshot: snapshot)
+        let implementer = await implementer(claude: gitOnlyClaude(logURL: logURL), draft: draft)
+        let before = try await implementer.undoChatTurn(draft: draft, snapshot: snapshot)
         // The local copy of a host's commits goes back too (the push checks it's at the reviewed commit).
-        return try await importFromHost(draft: draft, result: before)
+        do {
+            return try await importFromHost(draft: draft, result: before)
+        } catch {
+            // The host went back but this Mac didn't: the undo is taken back there, so the turn (and its Undo) stays
+            // as the user sees it.
+            let host = placement?.name ?? "the server"
+            let detail = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            let redo: Error? = await Task.detached {
+                do {
+                    try await implementer.redoChatTurn(draft: draft, snapshot: snapshot)
+                    return nil
+                } catch {
+                    return error
+                }
+            }.value
+            if let redo {
+                AppLog.write("Chat: couldn’t redo a turn on \(host) after the undo’s import failed: \(redo.localizedDescription)")
+                throw PRBarError.respond("PRBar undid the change on \(host) but couldn’t bring that to this Mac (\(detail)). "
+                                         + "Implement the fixes again before pushing.")
+            }
+            if error is CancellationError { throw error }
+            throw PRBarError.respond("The change wasn’t undone: PRBar couldn’t bring the result from \(host) to this Mac (\(detail)).")
+        }
     }
 
     public func filesChangedSince(draft: RespondDraft, snapshot: ChatFileSnapshot) async -> Bool {

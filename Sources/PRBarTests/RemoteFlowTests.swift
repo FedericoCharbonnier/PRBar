@@ -284,6 +284,69 @@ enum RemoteFlowTests {
             try expect(!FileManager.default.fileExists(atPath: workspace.contextDirectory.path))
             await pipeline.cleanup(draft: draft)
         },
+        TestCase("remote flow: chat de Respond en el host: si el turno o su undo no se pueden traer a la Mac, el host vuelve a como estaba") {
+            let repo = try TempGitRepo.make()
+            defer { repo.remove() }
+            let ssh = try FakeSSH.make()
+            defer { ssh.remove() }
+            try ssh.installFakeClaude()
+            let remote = try await placement(ssh, origin: repo.origin)
+            let pipeline = try respondPipeline(repo, ssh, remote)
+            let draft = try await pipeline.analyze(RespondRequest(item: respondItem(), localPath: repo.local.path, worktreeDir: nil),
+                                                   draftID: UUID()) { _ in }
+            try stream(ssh, ["reply": "Done", "actions": []])
+            for call in [2, 3] {
+                try Data("printf 'from the chat\\n' > feature.txt\n".utf8).write(to: ssh.home.appendingPathComponent("claude-edit-\(call).sh"))
+            }
+            // `importing == false`: traer los commits a la Mac falla (el origin del clone no coincide).
+            func service(importing: Bool) -> ChatService {
+                ChatService(processRunner: SystemProcessRunner(), streamingRunner: SystemProcessRunner(), tokens: FakeTokens(),
+                            api: FakeAPI(), gitPath: "/usr/bin/git", ghPath: nil, claudePath: "/nonexistent/claude",
+                            worktreeRoot: repo.base.appendingPathComponent("wt"), gitEnvironment: isolatedGit, placement: remote,
+                            importer: RemoteFixImport(spaces: remote.workspaces, localGit: "/usr/bin/git", gitEnvironment: isolatedGit,
+                                                      tempRoot: repo.base.appendingPathComponent("push"),
+                                                      originURL: { _ in repo.origin.path }, originMatches: { _, _ in importing }))
+            }
+            let good = service(importing: true)
+            let broken = service(importing: false)
+            let session = ChatSession(prID: draft.prID, kind: .respond)
+            let workspace = try await good.workspace(ChatWorkspaceRequest(session: session, subject: .respond(draft), pr: makePR(number: 7),
+                                                                          localPath: nil))
+            let worktree = URL(fileURLWithPath: draft.worktree.path, isDirectory: true)
+            let head = { try TempGitRepo.run(worktree, ["rev-parse", "HEAD"]).trimmingCharacters(in: .whitespacesAndNewlines) }
+            let clean = { try TempGitRepo.run(worktree, ["status", "--porcelain", "--untracked-files=all"]).isEmpty }
+            let start = try head()
+            let before = RespondResult(items: [], diffStat: "", tests: nil)
+            let log = repo.base.appendingPathComponent("chat.log")
+            func input(_ turn: Int) -> ChatTurnInput {
+                ChatTurnInput(kind: .respond, claudeSessionID: nil, bootstrap: "B", message: "m", stateIfChanged: nil, transcript: [],
+                              canEditFiles: true, workingDirectory: workspace.directory, additionalDirectories: [workspace.contextDirectory],
+                              turn: turn, fence: .random())
+            }
+
+            // 1. El turno commiteó en el host pero no se pudo traer: se deshace allá (sin Undo que ofrecer).
+            let error = try await expectThrows {
+                _ = try await broken.sendEditing(input(1), draft: draft, result: before, sessionID: session.id, logURL: log) { _ in }
+            }
+            try expect(error.localizedDescription.contains("undid"), error.localizedDescription)
+            try expectEqual(try head(), start)
+            try expect(try clean())
+            try expect(!(try String(contentsOf: worktree.appendingPathComponent("feature.txt"), encoding: .utf8)).contains("from the chat"))
+
+            // 2. Un turno que sí se trae; su undo en el host no se puede traer: el host vuelve al turno y Undo sigue valiendo.
+            let (_, outcome) = try await good.sendEditing(input(2), draft: draft, result: before, sessionID: session.id, logURL: log) { _ in }
+            let snapshot = try expectNotNil(outcome.snapshot)
+            let undoError = try await expectThrows { _ = try await broken.undoFiles(draft: draft, snapshot: snapshot, logURL: log) }
+            try expect(undoError.localizedDescription.contains("wasn’t undone"), undoError.localizedDescription)
+            try expectEqual(try head(), snapshot.headAfter)
+            try expect(try clean())
+            let changedSince = await good.filesChangedSince(draft: draft, snapshot: snapshot)
+            try expect(!changedSince)
+            _ = try await good.undoFiles(draft: draft, snapshot: snapshot, logURL: log)
+            try expectEqual(try head(), start)
+            await good.cleanup(session: session, subject: .respond(draft), localPath: nil)
+            await pipeline.cleanup(draft: draft)
+        },
         TestCase("remote flow: el chat de un review prepara su worktree en el host, lo reusa y lo limpia") {
             let repo = try TempGitRepo.make()
             defer { repo.remove() }

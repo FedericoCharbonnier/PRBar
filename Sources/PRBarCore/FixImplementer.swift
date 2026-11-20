@@ -526,6 +526,32 @@ public struct FixImplementer: Sendable {
         return snapshot.resultBefore
     }
 
+    /// Takes back an `undoChatTurn` (its result couldn't be brought to this Mac from a host): the worktree goes back to
+    /// the turn's commit, with the same checks and the same compare-and-swap, and the snapshot ref is made again so the
+    /// turn can still be undone.
+    public func redoChatTurn(draft: RespondDraft, snapshot: ChatFileSnapshot) async throws {
+        let worktree = URL(fileURLWithPath: draft.worktree.path, isDirectory: true)
+        try await checkNoNestedGit(worktree, allowed: [])
+        try await checkIntegrity(try await gitPaths(worktree), expected: snapshot.resultBefore.gitIntegrity, worktree: worktree)
+        try await checkConfigOrigins(worktree)
+        guard try await head(worktree) == snapshot.headBefore else {
+            throw PRBarError.respond("The worktree’s HEAD moved after the undo: it can’t be redone.")
+        }
+        try await ensureClean(worktree)
+        try await git(worktree, ["read-tree", "-u", "--reset", snapshot.headAfter])
+        do {
+            try await git(worktree, ["update-ref", "--no-deref", "HEAD", snapshot.headAfter, snapshot.headBefore])
+        } catch {
+            _ = try? await git(worktree, ["read-tree", "-u", "--reset", snapshot.headBefore])
+            throw error
+        }
+        try await git(worktree, ["clean", "-fd"])
+        try await ensureClean(worktree)
+        let commit = try await git(worktree, ["commit-tree", snapshot.tree, "-p", snapshot.headBefore, "-m", "PRBar chat snapshot"])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        try await git(worktree, ["update-ref", snapshot.ref, commit])
+    }
+
     /// Undoing would also discard later edits: HEAD isn't the turn's commit or the tree has changes. If it can't be
     /// checked (a nested `.git`, a git error), it says yes.
     public func chatFilesChangedSince(_ snapshot: ChatFileSnapshot, draft: RespondDraft) async -> Bool {
