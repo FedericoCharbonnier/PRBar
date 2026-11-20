@@ -2,6 +2,7 @@ package hub
 
 import (
 	"context"
+	"io"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -132,7 +133,7 @@ func (c *Conn) serve(ctx context.Context) {
 		timedOut.Store(true)
 		_ = c.ws.Close(CloseAuthTimeout, "auth timeout")
 	})
-	_, data, err := c.ws.Read(ctx)
+	data, err := c.readFrame(ctx)
 	timer.Stop()
 	if timedOut.Load() {
 		h.o.Log.Warn("auth failed", "ip", c.ip, "reason", "timeout")
@@ -173,6 +174,15 @@ func (c *Conn) serve(ctx context.Context) {
 		"code", int(reason.code))
 }
 
+// readFrame lee un mensaje sin guardar más de MaxFrame+1 bytes (quien llama corta con 4413 si pasa el tope).
+func (c *Conn) readFrame(ctx context.Context) ([]byte, error) {
+	_, reader, err := c.ws.Reader(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return io.ReadAll(io.LimitReader(reader, int64(c.hub.o.MaxFrame)+1))
+}
+
 type closeReason struct {
 	code websocket.StatusCode
 	text string
@@ -181,16 +191,10 @@ type closeReason struct {
 func (c *Conn) readLoop(ctx context.Context) closeReason {
 	h := c.hub
 	for {
-		_, data, err := c.ws.Read(ctx)
+		// Sin límite de la biblioteca (cerraría con 1009): se lee como mucho MaxFrame+1 y un marco más grande se
+		// corta con 4413 sin guardarlo entero.
+		data, err := c.readFrame(ctx)
 		if err != nil {
-			select {
-			case <-c.done:
-				return closeReason{code: websocket.StatusNormalClosure, text: "closed"}
-			default:
-			}
-			if websocket.CloseStatus(err) == websocket.StatusMessageTooBig {
-				return closeReason{code: CloseTooLarge, text: "frame too large"}
-			}
 			return closeReason{code: websocket.StatusNormalClosure, text: "closed"}
 		}
 		c.in.Add(int64(len(data)))

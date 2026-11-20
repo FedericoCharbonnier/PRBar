@@ -129,6 +129,13 @@ func (l *Lockout) Fail(key string) bool {
 		return true
 	}
 	l.failures[key] = recent
+	if len(l.blocked) > 10_000 {
+		for k, until := range l.blocked {
+			if !now.Before(until) {
+				delete(l.blocked, k)
+			}
+		}
+	}
 	if len(l.failures) > 10_000 {
 		for k, times := range l.failures {
 			if len(times) == 0 || now.Sub(times[len(times)-1]) >= l.window {

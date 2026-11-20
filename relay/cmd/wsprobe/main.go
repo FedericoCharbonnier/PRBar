@@ -91,7 +91,8 @@ func probe(host, tokenFile, statePath string, duration, interval time.Duration, 
 	if err != nil {
 		return err
 	}
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ws, _, err := websocket.Dial(ctx, wsScheme+"://"+host+"/v1/ws",
 		&websocket.DialOptions{Subprotocols: []string{"prbar-relay.v1"}})
 	if err != nil {
@@ -136,6 +137,9 @@ func probe(host, tokenFile, statePath string, duration, interval time.Duration, 
 	go func() {
 		for {
 			if _, err := read(); err != nil {
+				if ctx.Err() != nil {
+					return
+				}
 				fmt.Printf("cut after %.0f s: %v\n", time.Since(started).Seconds(), err)
 				os.Exit(1)
 			}
@@ -144,6 +148,7 @@ func probe(host, tokenFile, statePath string, duration, interval time.Duration, 
 	for {
 		select {
 		case <-deadline:
+			cancel()
 			fmt.Printf("ok: still connected after %.0f s\n", time.Since(started).Seconds())
 			return nil
 		case <-ticker.C:

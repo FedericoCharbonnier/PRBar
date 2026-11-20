@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"sync"
 	"time"
@@ -176,7 +177,12 @@ func (c *Client) Send(ctx context.Context, deviceToken, env string, n Notificati
 	req.Header.Set("content-type", "application/json")
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return Result{}, err
+		// *url.Error trae la URL, que lleva el token del dispositivo: se descarta para que no llegue a los logs.
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) {
+			err = urlErr.Err
+		}
+		return Result{}, fmt.Errorf("apns: %w", err)
 	}
 	defer resp.Body.Close()
 	result := Result{Status: resp.StatusCode}

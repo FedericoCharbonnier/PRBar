@@ -292,8 +292,9 @@ func (h *Hub) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		ws.Close(websocket.StatusPolicyViolation, "subprotocol "+Subprotocol+" required")
 		return
 	}
-	// Un poco más que el máximo: así un marco grande se cierra con 4413 y no con el 1009 de la biblioteca.
-	ws.SetReadLimit(int64(h.o.MaxFrame) * 2)
+	// Sin el límite de la biblioteca (que cierra con 1009): readLoop corta con 4413 apenas pasa MaxFrame. El `auth`
+	// se lee con Read y un límite propio.
+	ws.SetReadLimit(-1)
 	c := newConn(h, ws, ip)
 	c.serve(r.Context())
 }

@@ -596,6 +596,16 @@ func TestLimits(t *testing.T) {
 	if code := mac.closedWith(); code != CloseTooLarge {
 		t.Fatalf("large frame: %d", code)
 	}
+	// Mucho más grande que el tope: también 4413 (no el 1009 de la biblioteca), sin leerlo entero.
+	mac = e.mac(acct, key)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = mac.ws.Write(ctx, websocket.MessageText, bytes.Repeat([]byte("A"), 1<<20))
+	}()
+	if code := mac.closedWith(); code != CloseTooLarge {
+		t.Fatalf("huge frame: %d", code)
+	}
 	// El reloj no avanza: 300 marcos "en el mismo instante" pasan la ráfaga de 200.
 	mac = e.mac(acct, key)
 	go func() {

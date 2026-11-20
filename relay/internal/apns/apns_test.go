@@ -169,6 +169,19 @@ func TestSendBuildsTheRequest(t *testing.T) {
 	}
 }
 
+func TestNetworkErrorsDontCarryTheToken(t *testing.T) {
+	server, _, _ := fakeAPNs(t, http.StatusOK, "")
+	url := server.URL
+	server.Close()
+	_, keyPEM := testKey(t)
+	c, _ := New(Options{KeyID: "k", TeamID: "t", Topic: "x", KeyPEM: keyPEM, Endpoint: url})
+	token := strings.Repeat("ef", 32)
+	_, err := c.Send(context.Background(), token, "sandbox", Notification{Envelope: []byte{1}})
+	if err == nil || strings.Contains(err.Error(), token) {
+		t.Fatalf("error leaks the token: %v", err)
+	}
+}
+
 func TestGoneTokenAndHosts(t *testing.T) {
 	server, _, _ := fakeAPNs(t, http.StatusGone, "Unregistered")
 	_, keyPEM := testKey(t)
