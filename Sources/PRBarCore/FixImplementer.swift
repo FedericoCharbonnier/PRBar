@@ -283,7 +283,8 @@ public struct FixImplementer: Sendable {
             throw PRBarError.respond("\(relative) is outside the worktree: not deleting it.")
         }
         let path = realParent + "/" + url.lastPathComponent
-        guard unlink(path) == 0 || errno == ENOENT else {
+        // Estaba en el snapshot: si ya no está, el árbol no es el que se inspeccionó.
+        guard unlink(path) == 0 else {
             throw PRBarError.respond("Couldn't delete \(relative), which Claude created: \(String(cString: strerror(errno))).")
         }
     }
@@ -306,7 +307,8 @@ public struct FixImplementer: Sendable {
                          snapshot: WorktreeIntegrity.Snapshot) async throws -> Inspection {
         try await checkGitUntouched(guarded, before: before, worktree: worktree)
         try await checkNoNestedGit(worktree, allowed: nestedBefore)
-        let changes = snapshot.changes(to: try await fs.snapshot(worktree.path))
+        let after = try await fs.snapshot(worktree.path)
+        let changes = snapshot.changes(to: after)
         let attributes = changes.all.filter { ["gitattributes", "lfsconfig"].contains(($0 as NSString).lastPathComponent.lowercased().dropFirst()) }
         guard attributes.isEmpty else {
             claude.appendLog("--- Claude changed \(attributes.joined(separator: ", ")) ---\n")
@@ -340,6 +342,8 @@ public struct FixImplementer: Sendable {
             invisibleModified.removeAll { tracked.contains($0) }
             invisibleAdded.removeAll { tracked.contains($0) }
         }
+        // Se comparan en NFC, pero se borran por su nombre real (en Linux, uno NFD es otro archivo).
+        invisibleAdded = invisibleAdded.map(after.rawPath)
         if !invisibleModified.isEmpty {
             claude.appendLog("--- Claude changed files ignored by git: \((invisibleModified + invisibleAdded).joined(separator: ", ")) ---\n")
             try await restore(worktree, removing: invisibleAdded)

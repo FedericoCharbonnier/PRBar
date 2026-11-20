@@ -94,5 +94,33 @@ enum WorkspaceFSParityTests {
                 _ = try await expectThrows { try await fs.neutralizeSymlinks(["../escape"], in: tree.path) }
             }
         },
+        TestCase("guardián perl: rutas en bytes; NFC solo para comparar; dos nombres que se normalizan igual cortan") {
+            func fs(_ records: [(String, String, String)]) -> RemoteWorkspaceFS {
+                let out = records.map { [$0.0, $0.1, $0.2].joined(separator: "\0") + "\0" }.joined()
+                return RemoteWorkspaceFS(home: "/home/u", label: "devbox") { _ in ProcessResult(status: 0, stdout: out, stderr: "") }
+            }
+            func hex(_ text: String) -> String { text.utf8.map { String(format: "%02x", $0) }.joined() }
+            let nfd = "dir/e\u{0301}.txt"
+            let one = try await fs([("S", hex(nfd), "32768 1 2 3"), ("S", hex("a.txt"), "32768 1 2 4")]).snapshot("/w")
+            try expectEqual(Set(one.entries.keys.map { Array($0.utf8) }), [Array("dir/\u{e9}.txt".utf8), Array("a.txt".utf8)])
+            try expectEqual(Array(one.rawPath("dir/\u{e9}.txt").utf8), Array(nfd.utf8))
+            try expectEqual(one.rawPath("a.txt"), "a.txt")
+            let clash = try await expectThrows {
+                _ = try await fs([("S", hex(nfd), "32768 1 2 3"), ("S", hex("dir/\u{e9}.txt"), "32768 1 2 4")]).snapshot("/w")
+            }
+            guard case .guardFailed? = clash as? RemoteRunnerError else { throw TestFailure(description: "\(clash)") }
+            let nested = try await fs([("N", hex("x/e\u{0301}/.git"), "")]).nestedGitEntries("/w")
+            try expectEqual(nested.map { Array($0.utf8) }, [Array("x/\u{e9}/.git".utf8)])
+            let bad = try await expectThrows { _ = try await fs([("S", "ff", "32768 1 2 3")]).snapshot("/w") }
+            try expect(bad is RemoteRunnerError, "\(bad)")
+        },
+        TestCase("guardián perl = guardián local: borrar un archivo creado que ya no existe es un error") {
+            let one = try makeTree()
+            defer { try? FileManager.default.removeItem(at: one.deletingLastPathComponent()) }
+            for fs: any WorkspaceFS in [LocalWorkspaceFS(), RemoteWorkspaceFS.local()] {
+                _ = try await expectThrows { try await fs.removeCreatedFile("dir/gone.tmp", in: one.path) }
+                _ = try await expectThrows { try await fs.removeCreatedFile("nodir/gone.tmp", in: one.path) }
+            }
+        },
     ]
 }

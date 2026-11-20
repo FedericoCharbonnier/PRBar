@@ -111,24 +111,41 @@ public struct RemoteWorkspaceFS: WorkspaceFS {
         return stride(from: 0, to: fields.count, by: 3).map { (fields[$0], fields[$0 + 1], fields[$0 + 2]) }
     }
 
+    /// Las rutas vienen en hex (los bytes tal cual, sin pasar por la decodificación de la salida): UTF-8 estricto.
+    func path(_ hex: String) throws -> String {
+        guard let data = Data(hex: hex), let text = String(data: data, encoding: .utf8), !text.utf8.contains(0) else {
+            throw RemoteRunnerError.malformedOutput(host: label, what: "file name")
+        }
+        return text
+    }
+
+    /// Las claves en NFC (como las de git en la Mac) y el nombre real aparte. Dos nombres que solo difieren en la
+    /// normalización (posible en Linux) no se pueden distinguir después: se corta.
     public func snapshot(_ root: String) async throws -> WorktreeIntegrity.Snapshot {
         var entries: [String: WorktreeIntegrity.Snapshot.Entry] = [:]
-        for (kind, path, value) in try await records(["snapshot", root]) where kind == "S" {
+        var raw: [String: String] = [:]
+        for (kind, hex, value) in try await records(["snapshot", root]) where kind == "S" {
             let parts = value.split(separator: " ")
             guard parts.count == 4, let type = UInt16(parts[0]), let size = Int64(parts[1]), let modified = Int64(parts[2]),
                   let inode = UInt64(parts[3]) else { throw RemoteRunnerError.malformedOutput(host: label, what: "file snapshot") }
-            entries[path.precomposedStringWithCanonicalMapping] = .init(type: type, size: size, modified: modified, inode: inode)
+            let path = try path(hex)
+            let key = path.precomposedStringWithCanonicalMapping
+            guard entries[key] == nil else {
+                throw RemoteRunnerError.guardFailed(host: label, detail: "two files are named \(key.debugDescription) with different Unicode forms.")
+            }
+            entries[key] = .init(type: type, size: size, modified: modified, inode: inode)
+            if !Array(key.utf8).elementsEqual(path.utf8) { raw[key] = path }
         }
-        return WorktreeIntegrity.Snapshot(entries: entries)
+        return WorktreeIntegrity.Snapshot(entries: entries, rawPaths: raw)
     }
 
     public func nestedGitEntries(_ root: String) async throws -> [String] {
-        try await records(["nested", root]).filter { $0.0 == "N" }.map { $0.1.precomposedStringWithCanonicalMapping }.sorted()
+        try await records(["nested", root]).filter { $0.0 == "N" }.map { try path($0.1).precomposedStringWithCanonicalMapping }.sorted()
     }
 
     private func pairs(_ arguments: [String]) async throws -> [String: String] {
         var result: [String: String] = [:]
-        for (kind, path, value) in try await records(arguments) where kind == "E" { result[path] = value }
+        for (kind, hex, value) in try await records(arguments) where kind == "E" { result[try path(hex)] = value }
         return result
     }
 
@@ -143,9 +160,9 @@ public struct RemoteWorkspaceFS: WorkspaceFS {
     public func modules(_ root: String) async throws -> (entries: [String: String], configs: [String]) {
         var entries: [String: String] = [:]
         var configs: [String] = []
-        for (kind, path, value) in try await records(["modules", root]) {
-            if kind == "E" { entries[path] = value }
-            if kind == "C" { configs.append(path) }
+        for (kind, hex, value) in try await records(["modules", root]) {
+            if kind == "E" { entries[try path(hex)] = value }
+            if kind == "C" { configs.append(try path(hex)) }
         }
         return (entries, configs)
     }
@@ -195,6 +212,8 @@ public enum RemoteGuard {
     binmode(STDOUT);
 
     sub out { print join("\0", $_[0], $_[1], defined $_[2] ? $_[2] : ''), "\0"; }
+    # Las rutas salen en hex: los bytes exactos, sin normalizar ni decodificar.
+    sub hx { return unpack('H*', $_[0]); }
     sub mac_meta { my ($n) = @_; return $n eq '.DS_Store' || substr($n, 0, 2) eq '._' || $n eq "Icon\r"; }
     sub utf8_ok { my ($s) = @_; my $c = $s; return utf8::decode($c); }
     # Como `FileManager.contentsOfDirectory` en la Mac, que nunca lista los nombres que empiezan con `._`.
@@ -228,7 +247,7 @@ public enum RemoteGuard {
     }
     sub tree {
         my ($root) = @_;
-        out('E', $root, describe($root));
+        out('E', hx($root), describe($root));
         my @stack = ($root);
         while (@stack) {
             my $dir = pop @stack;
@@ -236,7 +255,7 @@ public enum RemoteGuard {
                 next if mac_meta($name);
                 my $path = "$dir/$name";
                 my @st = lstat($path) or next;
-                out('E', $path, describe($path));
+                out('E', hx($path), describe($path));
                 push @stack, $path if S_ISDIR($st[2]);
             }
         }
@@ -254,8 +273,8 @@ public enum RemoteGuard {
                 my @st = Time::HiRes::lstat("$root/$child");
                 next unless @st;
                 my $is_dir = S_ISDIR($st[2]);
-                if ($mode eq 'nested') { out('N', $child, '') if $name eq '.git'; }
-                elsif (!$is_dir) { out('S', $child, join(' ', $st[2] & S_IFMT, $st[7], sprintf('%.0f', $st[9] * 1e9), $st[1])); }
+                if ($mode eq 'nested') { out('N', hx($child), '') if $name eq '.git'; }
+                elsif (!$is_dir) { out('S', hx($child), join(' ', $st[2] & S_IFMT, $st[7], sprintf('%.0f', $st[9] * 1e9), $st[1])); }
                 push @stack, $child if $is_dir;
             }
         }
@@ -275,7 +294,7 @@ public enum RemoteGuard {
                     push @stack, $path unless $skip{$name};
                     next;
                 }
-                if ($name eq 'config' || $name eq 'config.worktree') { out('E', $path, describe($path)); out('C', $path, ''); }
+                if ($name eq 'config' || $name eq 'config.worktree') { out('E', hx($path), describe($path)); out('C', hx($path), ''); }
             }
         }
     }
@@ -303,8 +322,9 @@ public enum RemoteGuard {
         my $real_root = Cwd::realpath($root) // die "can't resolve the worktree\n";
         my ($parent, $name) = inside($real_root, $rel, $root);
         die "$rel is outside the worktree: not deleting it.\n" unless defined $parent;
-        return if $parent eq 'missing';
-        unlink("$parent/$name") or $!{ENOENT} or die "Couldn't delete $rel, which Claude created: $!\n";
+        # Estaba en el snapshot: si ya no está, el árbol no es el que se inspeccionó.
+        die "Couldn't delete $rel, which Claude created: it's gone\n" if $parent eq 'missing';
+        unlink("$parent/$name") or die "Couldn't delete $rel, which Claude created: $!\n";
     }
     sub neutralize {
         my ($root, $template, @rels) = @_;
@@ -328,14 +348,14 @@ public enum RemoteGuard {
             binmode($fh);
             print {$fh} $text or die "couldn't write the replacement for $rel\n";
             close($fh) or die "couldn't write the replacement for $rel\n";
-            out('X', $rel, '');
+            out('X', hx($rel), '');
         }
     }
 
     my $cmd = shift(@ARGV) // '';
     my $ok = eval {
         if ($cmd eq 'snapshot' || $cmd eq 'nested') { walk_worktree($cmd, $ARGV[0]); }
-        elsif ($cmd eq 'describe') { out('E', $_, describe($_)) for @ARGV; }
+        elsif ($cmd eq 'describe') { out('E', hx($_), describe($_)) for @ARGV; }
         elsif ($cmd eq 'tree') { tree($_) for @ARGV; }
         elsif ($cmd eq 'modules') { modules($ARGV[0]); }
         elsif ($cmd eq 'read') { read_text(@ARGV); }

@@ -226,6 +226,27 @@ private final class FailingGitRunner: ProcessRunning, @unchecked Sendable {
     }
 }
 
+/// Un `WorkspaceFS` que delega y anota cada `removeCreatedFile`.
+private final class RecordingWorkspaceFS: WorkspaceFS, @unchecked Sendable {
+    let base: any WorkspaceFS
+    private let lock = NSLock()
+    private var recorded: [String] = []
+    var removed: [String] { lock.withLock { recorded } }
+    init(base: any WorkspaceFS) { self.base = base }
+    var home: String { base.home }
+    func snapshot(_ root: String) async throws -> WorktreeIntegrity.Snapshot { try await base.snapshot(root) }
+    func nestedGitEntries(_ root: String) async throws -> [String] { try await base.nestedGitEntries(root) }
+    func describe(_ paths: [String]) async throws -> [String: String] { try await base.describe(paths) }
+    func describeTrees(_ roots: [String]) async throws -> [String: String] { try await base.describeTrees(roots) }
+    func modules(_ root: String) async throws -> (entries: [String: String], configs: [String]) { try await base.modules(root) }
+    func readText(_ path: String, limit: Int) async throws -> String? { try await base.readText(path, limit: limit) }
+    func removeCreatedFile(_ relative: String, in root: String) async throws {
+        lock.withLock { recorded.append(relative) }
+        try await base.removeCreatedFile(relative, in: root)
+    }
+    func neutralizeSymlinks(_ relatives: [String], in root: String) async throws { try await base.neutralizeSymlinks(relatives, in: root) }
+}
+
 /// Runner que siempre lanza `error`.
 private struct ThrowingRunner: ProcessRunning {
     let error: Error
@@ -737,6 +758,23 @@ enum FixImplementerTests {
             try expectEqual(repo.read("README.md"), "hola\n")
             try expectEqual(repo.read("ignored.txt"), "secreto del usuario\n")
             try expectEqual(try repo.subjects(), ["B", "base"])
+        },
+        TestCase("fix implementer: un archivo ignorado nuevo con nombre NFD se borra por su nombre en bytes (guardián Perl)") {
+            let repo = try FixRepo.make()
+            defer { repo.remove() }
+            let recording = RecordingWorkspaceFS(base: RemoteWorkspaceFS.local())
+            fixImplementerFS = recording
+            defer { fixImplementerFS = LocalWorkspaceFS() }
+            let nfd = "build/e\u{0301}.js"
+            let items = [item("thread:A", marker: "MARK-A")]
+            let claude = fakeClaude([Script(marker: "MARK-A", action: { cwd in
+                try edit("README.md", "chau\n")(cwd)
+                try edit(nfd, "x\n")(cwd)
+            }, line: fixLine("done", message: "A"))])
+            let result = try await run(implementer(claude, log: try logURL()), try draft(repo, items: items), selections(items))
+            try expectEqual(result.items.map(\.status), [.failed])
+            try expectEqual(recording.removed.map { Array($0.utf8) }, [Array(nfd.utf8)])
+            try expect(try FileManager.default.contentsOfDirectory(atPath: repo.dir.appendingPathComponent("build").path).isEmpty)
         },
         TestCase("fix implementer: C3, reescribir un archivo trackeado con el mismo contenido no corta nada") {
             let repo = try FixRepo.make()

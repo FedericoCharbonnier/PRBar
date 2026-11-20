@@ -55,10 +55,17 @@ public enum WorktreeIntegrity {
         }
 
         public let entries: [String: Entry]
+        /// Las claves de `entries` van en NFC (para compararlas con lo que muestra git). En un disco que distingue
+        /// formas (Linux), el nombre real en bytes puede ser otro: acá, por clave, cuando difiere.
+        public let rawPaths: [String: String]
 
-        public init(entries: [String: Entry]) {
+        public init(entries: [String: Entry], rawPaths: [String: String] = [:]) {
             self.entries = entries
+            self.rawPaths = rawPaths
         }
+
+        /// El nombre real de `key` (para borrarlo), o la clave misma.
+        public func rawPath(_ key: String) -> String { rawPaths[key] ?? key }
 
         public static func take(_ root: URL) -> Snapshot {
             var entries: [String: Entry] = [:]
