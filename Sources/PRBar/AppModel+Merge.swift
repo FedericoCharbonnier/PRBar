@@ -127,7 +127,8 @@ extension AppModel {
     /// pone el banner con un head viejo). Un chat vacío que se abrió antes de cargar se rehace con el head cargado.
     private func loadMergeWindow(_ session: MergeSession, alreadyOpen: Bool) async {
         let firstLoad = session.window.shownHead == nil
-        await session.window.opened(alreadyOpen: alreadyOpen)
+        // Lo que lance la carga (p. ej. `gh auth token`) va en la fila "Merge <repo>#N" de PRBar Activity.
+        await ProcessActivity.$current.withValue(.merge(session.prID)) { await session.window.opened(alreadyOpen: alreadyOpen) }
         rebuildMergeChatIfOutdated(session)
         if firstLoad, let shown = session.window.shownHead, let listed = currentItem(session.prID)?.pr.headOid, listed != shown {
             await prStore.refreshNow()
@@ -213,7 +214,7 @@ extension AppModel {
         Task {
             await prStore.refreshNow()
             if let session = mergeSessions[prID] {
-                await session.window.refresh()
+                await ProcessActivity.$current.withValue(.merge(prID)) { await session.window.refresh() }
                 session.window.noteHead(currentItem(prID)?.pr.headOid)
             }
             switch MergeFlow.retry(failure, current: currentItem(prID)) {

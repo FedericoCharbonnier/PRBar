@@ -64,7 +64,7 @@ extension AppModel: ResourceActions {
         case .chat: activity.chatSessionID.map { id in { self.runningChats.first { $0.session.id == id }?.stop() } }
         case .instructions: { self.instructionsChat.stop() }
         case .update: updates.canCancelInstall ? { self.updates.cancelInstall() } : nil
-        case .slack: nil
+        case .slack, .merge: nil
         }
     }
 

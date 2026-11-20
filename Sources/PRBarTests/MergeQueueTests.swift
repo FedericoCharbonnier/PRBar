@@ -32,6 +32,16 @@ enum MergeQueueTests {
             try expectEqual(merged.value.map(\.item.id), ["o/r#7"])
             try expectEqual(merged.value.map(\.method), [.squash])
         },
+        TestCase("merge queue: lo que corre el merge queda anotado como \"Merge r#7\" (fila de PRBar Activity)") {
+            var api = FakeAPI()
+            let seen = Box<ProcessActivity?>(nil)
+            api.onMerge = { seen.value = ProcessActivity.current }
+            let q = await queue(api)
+            _ = await q.merge(ready(), method: .squash)
+            try expectEqual(seen.value?.kind, .merge)
+            try expectEqual(seen.value?.title, "Merge r#7")
+            try expectEqual(seen.value?.prID, "o/r#7")
+        },
         TestCase("merge queue: sin mergedAt usa la hora actual") {
             let q = await queue(FakeAPI())
             let result = await q.merge(ready(), method: .rebase)

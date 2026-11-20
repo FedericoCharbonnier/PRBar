@@ -92,9 +92,11 @@ public final class MergeQueue: ObservableObject {
         phases[prID] = .merging(method)
         failedItems[prID] = nil
         do {
-            let token = try await tokens.token(for: item.account)
-            let mergedAt = try await api.mergePullRequest(
-                id: nodeID, method: method, expectedHeadOid: item.pr.headOid, token: token)
+            // Lo que lance (p. ej. `gh auth token`) va en la fila "Merge <repo>#N" de PRBar Activity (sin Stop).
+            let mergedAt = try await ProcessActivity.$current.withValue(.merge(prID)) {
+                let token = try await tokens.token(for: item.account)
+                return try await api.mergePullRequest(id: nodeID, method: method, expectedHeadOid: item.pr.headOid, token: token)
+            }
             let completion = MergeCompletion(item: item, method: method, mergedAt: mergedAt ?? now())
             phases[prID] = .merged(method)
             AppLog.write("Merged \(prID) with \(method.rawValue) at \(item.pr.headOid)")
@@ -127,8 +129,10 @@ public final class MergeQueue: ObservableObject {
         let item = failure.item
         let method = failure.method ?? .merge
         do {
-            let token = try await tokens.token(for: item.account)
-            let details = try await api.pullRequestDetails(repo: item.pr.repo, number: item.pr.number, token: token)
+            let details = try await ProcessActivity.$current.withValue(.merge(item.id)) {
+                let token = try await tokens.token(for: item.account)
+                return try await api.pullRequestDetails(repo: item.pr.repo, number: item.pr.number, token: token)
+            }
             switch details.state {
             case .merged?:
                 switch phases[item.id] {

@@ -6,7 +6,7 @@ import os
 /// junto al pid de cada proceso que lanza.
 public struct ProcessActivity: Codable, Hashable, Sendable {
     public enum Kind: String, Codable, CaseIterable, Sendable {
-        case review, respond, chat, instructions, update, slack
+        case review, respond, chat, instructions, update, slack, merge
     }
 
     public var kind: Kind
@@ -33,6 +33,7 @@ public struct ProcessActivity: Codable, Hashable, Sendable {
     public static func chat(_ prID: String, sessionID: UUID? = nil) -> ProcessActivity {
         .init(kind: .chat, prID: prID, title: "Chat \(shortPR(prID))", chatSessionID: sessionID)
     }
+    public static func merge(_ prID: String) -> ProcessActivity { .init(kind: .merge, prID: prID, title: "Merge \(shortPR(prID))") }
     public static let instructions = ProcessActivity(kind: .instructions, title: "Instructions chat")
     public static let update = ProcessActivity(kind: .update, title: "Update build")
     public static let slack = ProcessActivity(kind: .slack, title: "Slack")
