@@ -146,6 +146,7 @@ let allTests: [TestCase] = []
     + SASTests.cases
     + PairingQRTests.cases
     + PresenceTests.cases
+    + FramingTests.cases
 
 let filter = CommandLine.arguments.dropFirst().first
 let selected = allTests.filter { test in
