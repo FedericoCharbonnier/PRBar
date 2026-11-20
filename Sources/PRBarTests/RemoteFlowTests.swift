@@ -347,6 +347,49 @@ enum RemoteFlowTests {
             await good.cleanup(session: session, subject: .respond(draft), localPath: nil)
             await pipeline.cleanup(draft: draft)
         },
+        TestCase("remote flow: si no se confirmó que Claude paró en un worktree, ni el chat ni los fixes vuelven a correr ahí") {
+            let repo = try TempGitRepo.make()
+            defer { repo.remove() }
+            let ssh = try FakeSSH.make()
+            defer { ssh.remove() }
+            try ssh.installFakeClaude()
+            let remote = try await placement(ssh, origin: repo.origin)
+            let pipeline = try respondPipeline(repo, ssh, remote)
+            let draft = try await pipeline.analyze(RespondRequest(item: respondItem(), localPath: repo.local.path, worktreeDir: nil),
+                                                   draftID: UUID()) { _ in }
+            try stream(ssh, ["reply": "Done", "actions": []])
+            let service = ChatService(processRunner: SystemProcessRunner(), streamingRunner: SystemProcessRunner(), tokens: FakeTokens(),
+                                      api: FakeAPI(), gitPath: "/usr/bin/git", ghPath: nil, claudePath: "/nonexistent/claude",
+                                      worktreeRoot: repo.base.appendingPathComponent("wt"), gitEnvironment: isolatedGit, placement: remote)
+            let session = ChatSession(prID: draft.prID, kind: .respond)
+            let workspace = try await service.workspace(ChatWorkspaceRequest(session: session, subject: .respond(draft), pr: makePR(number: 7),
+                                                                             localPath: nil))
+            RemoteUnstoppedJobs.shared.insert(host: "devbox", path: draft.worktree.path)
+            let input = ChatTurnInput(kind: .respond, claudeSessionID: nil, bootstrap: "B", message: "m", stateIfChanged: nil,
+                                      transcript: [], canEditFiles: true, workingDirectory: workspace.directory,
+                                      additionalDirectories: [workspace.contextDirectory], turn: 1, fence: .random())
+            let log = repo.base.appendingPathComponent("chat.log")
+            let before = RespondResult(items: [], diffStat: "", tests: nil)
+            let errors = [
+                try await expectThrows { _ = try await service.sendEditing(input, draft: draft, result: before, sessionID: session.id, logURL: log) { _ in } },
+                try await expectThrows { _ = try await service.send(input, subject: .respond(draft), logURL: log) { _ in } },
+                try await expectThrows {
+                    let snapshot = ChatFileSnapshot(ref: "refs/prbar/chat-x-1", tree: repo.prSHA, headBefore: repo.prSHA, headAfter: repo.prSHA,
+                                                    resultBefore: before)
+                    _ = try await service.undoFiles(draft: draft, snapshot: snapshot, logURL: log)
+                },
+                try await expectThrows { _ = try await pipeline.implement(draft: draft, selections: [draft.items[0].id: fixSelection]) { _, _ in } },
+            ]
+            for error in errors { try expect(RemoteUnstoppedJobs.isNotStopped(error), error.localizedDescription) }
+            // Solo corrió el Claude del análisis.
+            try expectEqual(try String(contentsOf: ssh.home.appendingPathComponent("claude-count"), encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines), "1")
+            let tests = await pipeline.runTests(draft: draft, testCommand: "true")
+            try expect(!tests.passed && tests.outputTail.contains("Claude may still be running"), tests.outputTail)
+            // La carpeta de contexto del chat (Claude la puede estar leyendo) queda.
+            await service.cleanup(session: session, subject: .respond(draft), localPath: nil)
+            try expect(FileManager.default.fileExists(atPath: workspace.contextDirectory.path))
+        },
         TestCase("remote flow: el chat de un review prepara su worktree en el host, lo reusa y lo limpia") {
             let repo = try TempGitRepo.make()
             defer { repo.remove() }

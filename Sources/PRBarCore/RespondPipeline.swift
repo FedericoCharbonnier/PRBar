@@ -321,6 +321,7 @@ public struct RespondPipeline: RespondPipelineRunning {
             throw PRBarError.respond("This analysis is from an older version of PRBar. Analyze the PR again.")
         }
         try checkRunner(draft)
+        try ensureStopped(draft)
         let token = try await tokens.token(for: draft.account)
         let pluginDirs: [String]
         if let remote = placement {
@@ -351,6 +352,12 @@ public struct RespondPipeline: RespondPipelineRunning {
     /// un `.git` anidado no corre ningún git: no se sabe cuántos commits quedaron y el árbol cuenta como sucio.
     /// Con el `WorkspaceFS` del trabajo; un draft de un host sin el `WorkspaceFS` de ese host (solo el de esta Mac)
     /// no se mira: cuenta como cambiado y sin commits conocidos.
+    /// En un host: nada nuevo corre en el worktree mientras Claude puede seguir ahí (J.7.15).
+    private func ensureStopped(_ draft: RespondDraft) throws {
+        guard let remote = placement else { return }
+        try RemoteUnstoppedJobs.shared.ensureStopped(host: remote.name, path: draft.worktree.path)
+    }
+
     public func cancellation(of draft: RespondDraft) async -> RespondCancellation {
         let worktree = URL(fileURLWithPath: draft.worktree.path, isDirectory: true)
         let unknown = RespondCancellation(unpushedCommits: nil, path: draft.worktree.path, dirty: true)
@@ -366,7 +373,10 @@ public struct RespondPipeline: RespondPipelineRunning {
     }
 
     public func runTests(draft: RespondDraft, testCommand: String) async -> TestRun {
-        do { try checkRunner(draft) } catch {
+        do {
+            try checkRunner(draft)
+            try ensureStopped(draft)
+        } catch {
             return TestRun(command: testCommand, passed: false, outputTail: error.localizedDescription)
         }
         // Sin plugins ni Claude: el runner solo se usa para escribir el log de la corrida.
@@ -382,6 +392,7 @@ public struct RespondPipeline: RespondPipelineRunning {
 
     public func push(draft: RespondDraft, result: RespondResult) async throws {
         try checkRunner(draft)
+        try ensureStopped(draft)
         if let importer, placement != nil {
             // Desde la Mac, después de verificar de nuevo lo traído del host (decisión J.7.9).
             try await importer.push(draft: draft, result: result, token: try await tokens.token(for: draft.account))

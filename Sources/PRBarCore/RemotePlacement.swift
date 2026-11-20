@@ -117,6 +117,12 @@ public final class RemoteUnstoppedJobs: Sendable {
         }
     }
 
+    /// Nada nuevo corre en `path` (un turno del chat, los fixes, los tests, un undo, el push) mientras Claude puede
+    /// seguir ahí: el mismo error que el trabajo que no se pudo parar (J.7.15).
+    public func ensureStopped(host: String, path: String) throws {
+        if contains(host: host, path: path) { throw RemoteRunnerError.jobNotStopped(host: host) }
+    }
+
     /// Un error de "no se pudo confirmar que Claude paró en el host".
     public static func isNotStopped(_ error: Error) -> Bool {
         if let failure = error as? ReviewFailure { return isNotStopped(failure.underlying) }

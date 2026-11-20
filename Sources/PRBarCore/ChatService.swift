@@ -278,12 +278,15 @@ public struct ChatService: ChatBackend {
 
     public func send(_ input: ChatTurnInput, subject: ChatSubject, logURL: URL,
                      onEvent: @escaping @Sendable (ClaudeStreamEvent) -> Void) async throws -> ChatTurnOutput {
-        try await ChatEngine(claude: try await claude(for: subject, logURL: logURL)).send(input, onEvent: onEvent)
+        try ensureStopped(input.workingDirectory.path)
+        if case .respond(let draft) = subject { try ensureStopped(draft.worktree.path) }
+        return try await ChatEngine(claude: try await claude(for: subject, logURL: logURL)).send(input, onEvent: onEvent)
     }
 
     public func sendEditing(_ input: ChatTurnInput, draft: RespondDraft, result: RespondResult, sessionID: UUID, logURL: URL,
                             onEvent: @escaping @Sendable (ClaudeStreamEvent) -> Void) async throws -> (ChatTurnOutput, ChatFilesOutcome) {
         try checkRunner(draft)
+        try ensureStopped(draft.worktree.path)
         let claude = try await claude(for: .respond(draft), logURL: logURL)
         let engine = ChatEngine(claude: claude)
         let implementer = await implementer(claude: claude, draft: draft)
@@ -332,6 +335,7 @@ public struct ChatService: ChatBackend {
 
     public func undoFiles(draft: RespondDraft, snapshot: ChatFileSnapshot, logURL: URL) async throws -> RespondResult {
         try checkRunner(draft)
+        try ensureStopped(draft.worktree.path)
         let implementer = await implementer(claude: gitOnlyClaude(logURL: logURL), draft: draft)
         let before = try await implementer.undoChatTurn(draft: draft, snapshot: snapshot)
         // The local copy of a host's commits goes back too (the push checks it's at the reviewed commit).
@@ -361,7 +365,7 @@ public struct ChatService: ChatBackend {
     }
 
     public func filesChangedSince(draft: RespondDraft, snapshot: ChatFileSnapshot) async -> Bool {
-        guard (try? checkRunner(draft)) != nil else { return true }
+        guard (try? checkRunner(draft)) != nil, (try? ensureStopped(draft.worktree.path)) != nil else { return true }
         return await implementer(claude: gitOnlyClaude(logURL: URL(fileURLWithPath: "/dev/null")), draft: draft)
             .chatFilesChangedSince(snapshot, draft: draft)
     }
@@ -373,6 +377,12 @@ public struct ChatService: ChatBackend {
         let token = try await tokens.token(for: draft.account)
         return try await importer.importFixes(draft: draft, localPath: draft.localPath, items: result.items,
                                               integrity: result.gitIntegrity, token: token)
+    }
+
+    /// On a host: nothing new runs in `path` while Claude may still be running there (J.7.15).
+    private func ensureStopped(_ path: String) throws {
+        guard let remote = placement else { return }
+        try RemoteUnstoppedJobs.shared.ensureStopped(host: remote.name, path: path)
     }
 
     /// A Respond chat runs where its analysis ran (never a host's worktree with this Mac's git, or the other way).
@@ -453,6 +463,11 @@ public struct ChatService: ChatBackend {
         case .respond(let draft):
             guard (try? checkRunner(draft)) != nil else {
                 AppLog.write("Chat: not cleaning up \(draft.worktree.path)’s chat: it ran on \(draft.runner ?? "this Mac").")
+                return
+            }
+            if (try? ensureStopped(draft.worktree.path)) == nil {
+                // Claude may still be running there, reading the context folder (`--add-dir`).
+                AppLog.write("Chat: Claude may still be running in \(draft.worktree.path); not cleaning up its chat.")
                 return
             }
             let name = Self.respondContextName(draft, sessionID: session.id)
