@@ -1,7 +1,8 @@
 import Foundation
 
 /// Revisa el `.app` recién compilado antes de instalarlo (spec D.3, paso 4): existe, su versión es la esperada, su
-/// bundle id es el de la app instalada y el binario arranca con `--version`.
+/// bundle id es el de la app instalada, trae la CLI (`Contents/Helpers/prbar`), la firma es válida (`codesign
+/// --verify`, que cubre también el helper) y el binario arranca con `--version`.
 public enum UpdateVerifier {
     public static let launchTimeout: TimeInterval = 15
 
@@ -23,6 +24,14 @@ public enum UpdateVerifier {
         let executable = app.appendingPathComponent("Contents/MacOS", isDirectory: true).appendingPathComponent(name)
         guard !name.isEmpty, !name.contains("/"), FileManager.default.isExecutableFile(atPath: executable.path) else {
             throw UpdateError.appMissing(executable.path)
+        }
+        let helper = app.appendingPathComponent("Contents/Helpers/prbar")
+        guard FileManager.default.isExecutableFile(atPath: helper.path) else { throw UpdateError.appMissing(helper.path) }
+        let signature = try await runner.run("/usr/bin/codesign", ["--verify", "--strict", app.path], environment: nil,
+                                             currentDirectory: nil, timeout: launchTimeout)
+        guard signature.status == 0 else {
+            let detail = signature.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            throw UpdateError.signatureInvalid(String(detail.prefix(200)))
         }
         let result = try await runner.run(executable.path, ["--version"], environment: nil, currentDirectory: nil, timeout: launchTimeout)
         let output = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)

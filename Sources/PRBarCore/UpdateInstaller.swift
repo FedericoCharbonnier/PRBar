@@ -40,6 +40,8 @@ public struct UpdateInstaller: Sendable {
     /// nada de tokens, `DYLD_*` ni variables de SwiftPM.
     public static let buildEnvironmentKeys: Set<String> = [
         "PATH", "HOME", "USER", "LOGNAME", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE", "DEVELOPER_DIR", "SDKROOT", "TOOLCHAINS",
+        // El build baja swift-argument-parser (Package.resolved): detrás de un proxy, sin esto no llega.
+        "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "https_proxy", "http_proxy", "no_proxy",
     ]
     static let defaultPath = "/usr/bin:/bin:/usr/sbin:/sbin"
 

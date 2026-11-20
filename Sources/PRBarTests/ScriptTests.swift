@@ -27,6 +27,12 @@ enum ScriptTests {
             try expect(text.contains("Contents/Helpers/prbar"))
             try expect(text.contains("PRBAR_BIN_DIR"))
         },
+        TestCase("scripts: bundle.sh compila con las versiones de Package.resolved (sin resolver de nuevo)") {
+            let text = try String(contentsOfFile: script("bundle.sh"), encoding: .utf8)
+            let builds = text.split(separator: "\n").filter { $0.contains("swift build") && !$0.hasPrefix("#") }
+            try expect(!builds.isEmpty)
+            for line in builds { try expect(line.contains("--force-resolved-versions"), String(line)) }
+        },
         TestCase("scripts: link-cli.sh crea el link y reemplaza uno viejo a PRBar") {
             let dir = try temporaryDirectory()
             defer { try? FileManager.default.removeItem(at: dir) }

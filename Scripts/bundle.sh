@@ -40,9 +40,10 @@ OUT_DIR="${OUT_DIR:-build}"
 
 # Por producto: `swift build` a secas también compila los plugins de swift-argument-parser, que no enlazan con
 # algunas Command Line Tools.
-swift build -c release --product PRBar
-swift build -c release --product PRBarCLI
-BIN_DIR="$(swift build -c release --show-bin-path)"
+# --force-resolved-versions: exactamente lo de Package.resolved (el actualizador nunca resuelve otra versión).
+swift build -c release --force-resolved-versions --product PRBar
+swift build -c release --force-resolved-versions --product PRBarCLI
+BIN_DIR="$(swift build -c release --force-resolved-versions --show-bin-path)"
 BIN="$BIN_DIR/PRBar"
 APP="$OUT_DIR/PRBar.app"
 

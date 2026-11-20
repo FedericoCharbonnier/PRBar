@@ -16,6 +16,8 @@ public enum UpdateError: Error, Equatable, Sendable, LocalizedError {
     case versionMismatch(expected: String, found: String)
     case bundleIdentifierMismatch(expected: String, found: String)
     case launchCheckFailed(String)
+    /// `codesign --verify` rechazó el `.app` nuevo (sin firma o modificado después de firmarlo).
+    case signatureInvalid(String)
     /// El texto ya dice qué pasó y en qué estado quedó la app.
     case replaceFailed(String)
     case relaunchFailed(String)
@@ -46,6 +48,8 @@ public enum UpdateError: Error, Equatable, Sendable, LocalizedError {
             "The new app's bundle identifier is \(found.isEmpty ? "missing" : found), not \(expected)."
         case .launchCheckFailed(let detail):
             "The new app didn't start correctly (\(detail))."
+        case .signatureInvalid(let detail):
+            "The new app's code signature isn't valid (\(detail))."
         case .replaceFailed(let message):
             message
         case .relaunchFailed(let version):

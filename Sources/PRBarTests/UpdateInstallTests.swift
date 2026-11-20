@@ -1,8 +1,10 @@
 import Foundation
 import PRBarCore
 
-/// Un `.app` mínimo: Info.plist, un ejecutable que imprime `PRBar <version>` y `Contents/marker.txt` para saber cuál es.
-func makeFakeApp(at app: URL, version: String, identifier: String = "com.federico.prbar", marker: String) throws {
+/// Un `.app` mínimo: Info.plist, un ejecutable que imprime `PRBar <version>`, `Contents/Helpers/prbar` y
+/// `Contents/Resources/marker.txt` para saber cuál es. `signed`: firmado ad-hoc como lo deja `bundle.sh`.
+func makeFakeApp(at app: URL, version: String, identifier: String = "com.federico.prbar", marker: String,
+                 helper: Bool = true, signed: Bool = false) throws {
     let contents = app.appendingPathComponent("Contents", isDirectory: true)
     let macOS = contents.appendingPathComponent("MacOS", isDirectory: true)
     try FileManager.default.createDirectory(at: macOS, withIntermediateDirectories: true)
@@ -12,11 +14,31 @@ func makeFakeApp(at app: URL, version: String, identifier: String = "com.federic
     let executable = macOS.appendingPathComponent("PRBar")
     try Data("#!/bin/sh\necho \"PRBar \(version)\"\n".utf8).write(to: executable)
     try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
-    try Data(marker.utf8).write(to: contents.appendingPathComponent("marker.txt"))
+    let resources = contents.appendingPathComponent("Resources", isDirectory: true)
+    try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
+    try Data(marker.utf8).write(to: resources.appendingPathComponent("marker.txt"))
+    if helper {
+        let helpers = contents.appendingPathComponent("Helpers", isDirectory: true)
+        try FileManager.default.createDirectory(at: helpers, withIntermediateDirectories: true)
+        let cli = helpers.appendingPathComponent("prbar")
+        try Data("#!/bin/sh\necho \"prbar \(version)\"\n".utf8).write(to: cli)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cli.path)
+    }
+    if signed {
+        for path in (helper ? [contents.appendingPathComponent("Helpers/prbar").path] : []) + [app.path] {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+            process.arguments = ["--force", "--sign", "-", path]
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+            try process.run()
+            process.waitUntilExit()
+        }
+    }
 }
 
 func marker(of app: URL) -> String? {
-    try? String(contentsOf: app.appendingPathComponent("Contents/marker.txt"), encoding: .utf8)
+    try? String(contentsOf: app.appendingPathComponent("Contents/Resources/marker.txt"), encoding: .utf8)
 }
 
 enum UpdateInstallTests {
@@ -25,9 +47,39 @@ enum UpdateInstallTests {
     static let verifierCases: [TestCase] = [
         TestCase("update verifier: versión, bundle id y --version correctos") {
             let app = try temporaryDirectory().appendingPathComponent("PRBar.app", isDirectory: true)
-            try makeFakeApp(at: app, version: "1.3.0", marker: "new")
+            try makeFakeApp(at: app, version: "1.3.0", marker: "new", signed: true)
             try await UpdateVerifier.verify(app: app, expectedVersion: SemanticVersion(1, 3, 0),
                                             bundleIdentifier: "com.federico.prbar", runner: SystemProcessRunner())
+        },
+        TestCase("update verifier: rechaza un .app sin prbar en Helpers o sin firma válida") {
+            let dir = try temporaryDirectory()
+            let noHelper = dir.appendingPathComponent("a/PRBar.app", isDirectory: true)
+            try makeFakeApp(at: noHelper, version: "1.3.0", marker: "x", helper: false, signed: true)
+            let e1 = try await expectThrows {
+                try await UpdateVerifier.verify(app: noHelper, expectedVersion: SemanticVersion(1, 3, 0),
+                                                bundleIdentifier: "com.federico.prbar", runner: SystemProcessRunner())
+            }
+            try expectEqual(e1 as? UpdateError, .appMissing(noHelper.appendingPathComponent("Contents/Helpers/prbar").path))
+
+            let unsigned = dir.appendingPathComponent("b/PRBar.app", isDirectory: true)
+            try makeFakeApp(at: unsigned, version: "1.3.0", marker: "x")
+            let e2 = try await expectThrows {
+                try await UpdateVerifier.verify(app: unsigned, expectedVersion: SemanticVersion(1, 3, 0),
+                                                bundleIdentifier: "com.federico.prbar", runner: SystemProcessRunner())
+            }
+            guard case .signatureInvalid? = e2 as? UpdateError else { throw TestFailure(description: "\(e2)") }
+
+            let tampered = dir.appendingPathComponent("c/PRBar.app", isDirectory: true)
+            try makeFakeApp(at: tampered, version: "1.3.0", marker: "x", signed: true)
+            let handle = try FileHandle(forWritingTo: tampered.appendingPathComponent("Contents/Helpers/prbar"))
+            try handle.seekToEnd()
+            try handle.write(contentsOf: Data("echo evil\n".utf8))
+            try handle.close()
+            let e3 = try await expectThrows {
+                try await UpdateVerifier.verify(app: tampered, expectedVersion: SemanticVersion(1, 3, 0),
+                                                bundleIdentifier: "com.federico.prbar", runner: SystemProcessRunner())
+            }
+            guard case .signatureInvalid? = e3 as? UpdateError else { throw TestFailure(description: "\(e3)") }
         },
         TestCase("update verifier: rechaza versión, bundle id, app faltante y --version distinto") {
             let dir = try temporaryDirectory()
@@ -62,7 +114,7 @@ enum UpdateInstallTests {
                                                 bundleIdentifier: "com.federico.prbar", runner: runner)
             }
             guard case .launchCheckFailed? = e4 as? UpdateError else { throw TestFailure(description: "\(e4)") }
-            try expectEqual(runner.calls.first?.arguments, ["--version"])
+            try expectEqual(runner.calls.last?.arguments, ["--version"])
         },
     ]
 
@@ -298,6 +350,14 @@ enum UpdateInstallTests {
             try expectEqual(built["DYLD_INSERT_LIBRARIES"], nil)
             try expectEqual(built["SWIFTPM_X"], nil)
             try expectEqual(UpdateInstaller.buildEnvironment(inherited: [:])["PATH"], "/usr/bin:/bin:/usr/sbin:/sbin")
+            // El build baja swift-argument-parser: detrás de un proxy lo necesita.
+            let proxied = UpdateInstaller.buildEnvironment(inherited: [
+                "HTTPS_PROXY": "http://proxy:3128", "http_proxy": "http://proxy:3128", "NO_PROXY": "localhost",
+                "https_proxy": "http://p", "HTTP_PROXY": "http://p", "no_proxy": "x", "ALL_PROXY": "socks5://evil",
+            ])
+            for key in ["HTTPS_PROXY", "http_proxy", "NO_PROXY", "https_proxy", "HTTP_PROXY", "no_proxy"] {
+                try expect(proxied[key] != nil, "falta \(key)")
+            }
         },
         TestCase("update installer: build que falla → no toca el .app") {
             let (base, installed) = try setUp()
