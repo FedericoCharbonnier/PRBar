@@ -34,7 +34,7 @@ es `DIGEST.md` (ver R.1); los ids de pantalla de este spec (`home`, `review:face
 6. **Alcance**: todo lo que hace la app de la Mac, en fases. Fase 1: relay + emparejamiento + listas en vivo (las dos
    pestañas) + notificaciones + offline. Fase 2: Review y publicar; Respond y Fix CI con diff/undo/push. Fase 3: Merge con
    Face ID, chat con Claude, Activity, Settings (el subconjunto del diseño).
-7. **VPS**: Hetzner ARM64 (2 vCPU, 4 GB), `docker compose` + Traefik (`/root/stack/proxy`), red externa `coolify`, host
+7. **VPS**: ARM64 (2 vCPU, 4 GB), `docker compose` + Traefik (`/root/stack/proxy`), red externa `coolify`, host
    `prbar.fcharbonnier.duckdns.org`. Guía del server: `/root/stack/LEEME.md`.
 8. La Mac tiene solo Command Line Tools; el usuario instala Xcode para la app de iOS. **El relay y todo lo de la Mac se
    construyen y testean sin Xcode.**
