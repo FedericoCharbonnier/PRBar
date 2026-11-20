@@ -127,6 +127,21 @@ final class FakeTransport: HTTPTransport, @unchecked Sendable {
         return (Data(next.body.utf8), response)
     }
 
+    /// `downloadTail` calls: what to keep and the hard cap.
+    private(set) var downloads: [(keep: Int, limit: Int)] = []
+
+    func sendWithoutRedirects(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        try await send(request)
+    }
+
+    func downloadTail(_ request: URLRequest, keepingLast keep: Int, maxBytes limit: Int) async throws -> (Data, HTTPURLResponse) {
+        downloads.append((keep, limit))
+        let (data, response) = try await send(request)
+        var buffer = TailBuffer(keep: keep, limit: limit)
+        try buffer.append(data)
+        return (buffer.tail, response)
+    }
+
     func bodyString(_ index: Int) -> String {
         String(decoding: requests[index].httpBody ?? Data(), as: UTF8.self)
     }

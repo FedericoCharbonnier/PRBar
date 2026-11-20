@@ -12,6 +12,15 @@ func ciRun(_ name: String, id: Int? = nil, conclusion: String? = "failure", acti
 
 private let prURL = URL(string: "https://github.com/acme/api/pull/12")!
 
+/// A transport that only implements `send` (like a future wrapper that forgets the others).
+private struct SendOnlyTransport: HTTPTransport {
+    let sent = Box<Int>(0)
+    func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        sent.value += 1
+        return (Data(), HTTPURLResponse(url: request.url!, statusCode: 302, httpVersion: nil, headerFields: ["Location": "https://x"])!)
+    }
+}
+
 enum CIFixTests {
     static let cases: [TestCase] = [
         TestCase("ci fix: un RespondDraft viejo se lee en modo feedback; el de CI conserva modo y checks") {
@@ -147,14 +156,17 @@ enum CIFixTests {
                 repo: RepoRef(owner: "acme", name: "api"), headOid: "main", token: "tok") }
         },
         TestCase("ci api: el log de Actions sigue el 302 sin el token y solo a https") {
-            let transport = FakeTransport([(302, ["Location": "https://results.example.net/log?sig=abc"], ""),
-                                           (200, [:], "line 1\nerror: boom\n")])
+            let signed = "https://productionresultssa3.blob.core.windows.net/actions-results/log?sig=abc"
+            let transport = FakeTransport([(302, ["Location": signed], ""), (200, [:], "line 1\nerror: boom\n")])
             let log = try await GitHubClient(transport: transport).actionsJobLog(repo: RepoRef(owner: "acme", name: "api"), jobID: 101, token: "tok")
             try expectEqual(log, "line 1\nerror: boom\n")
             try expectEqual(transport.requests[0].url?.path, "/repos/acme/api/actions/jobs/101/logs")
             try expectEqual(transport.requests[0].value(forHTTPHeaderField: "Authorization"), "bearer tok")
-            try expectEqual(transport.requests[1].url?.host, "results.example.net")
+            try expectEqual(transport.requests[1].url?.host, "productionresultssa3.blob.core.windows.net")
             try expectEqual(transport.requests[1].value(forHTTPHeaderField: "Authorization"), nil)
+            // Both go through the capped, streaming download (spec K.6.4), never through `send`.
+            try expectEqual(transport.downloads.map(\.keep), [CILogs.maxDownloadBytes, CILogs.maxDownloadBytes])
+            try expectEqual(transport.downloads.map(\.limit), [CILogs.maxReadBytes, CILogs.maxReadBytes])
             let insecure = FakeTransport([(302, ["Location": "http://results.example.net/log"], "")])
             _ = try await expectThrows { _ = try await GitHubClient(transport: insecure).actionsJobLog(
                 repo: RepoRef(owner: "acme", name: "api"), jobID: 1, token: "tok") }
@@ -163,6 +175,53 @@ enum CIFixTests {
             let error = try await expectThrows { _ = try await GitHubClient(transport: gone).actionsJobLog(
                 repo: RepoRef(owner: "acme", name: "api"), jobID: 1, token: "tok") }
             try expectEqual(error as? PRBarError, .http(status: 410, message: "Gone"))
+        },
+        TestCase("ci api: la URL firmada del log solo a los hosts de GitHub (allowlist)") {
+            for host in ["pipelines.actions.githubusercontent.com", "results-receiver.actions.githubusercontent.com",
+                         "productionresultssa0.blob.core.windows.net", "PRODUCTIONRESULTSSA1.BLOB.CORE.WINDOWS.NET"] {
+                try expect(CILogs.isAllowedLogHost(host), host)
+            }
+            for host in ["results.example.net", "blob.core.windows.net.evil.com", "evilblob.core.windows.net",
+                         "actions.githubusercontent.com.evil", "xactions.githubusercontent.com", "", "github.com"] {
+                try expect(!CILogs.isAllowedLogHost(host), host)
+            }
+            let elsewhere = FakeTransport([(302, ["Location": "https://results.example.net/log?sig=abc"], "")])
+            let error = try await expectThrows { _ = try await GitHubClient(transport: elsewhere).actionsJobLog(
+                repo: RepoRef(owner: "acme", name: "api"), jobID: 1, token: "tok") }
+            try expect("\(error)".contains("results.example.net"), "\(error)")
+            try expectEqual(elsewhere.requests.count, 1)
+        },
+        TestCase("ci api: el log se lee en streaming quedándose con la cola; pasado el tope se aborta") {
+            var buffer = TailBuffer(keep: 4, limit: 20)
+            try buffer.append(Data("abc".utf8))
+            try buffer.append(Data("defgh".utf8))
+            try buffer.append(Data("ij".utf8))
+            try expectEqual(String(decoding: buffer.tail, as: UTF8.self), "ghij")
+            try expectEqual(buffer.totalBytes, 10)
+            try expect(buffer.truncated)
+            _ = try await expectThrows { try buffer.append(Data(repeating: 65, count: 11)) }
+            var small = TailBuffer(keep: 10, limit: 20)
+            try small.append(Data("ab".utf8))
+            try expectEqual(String(decoding: small.tail, as: UTF8.self), "ab")
+            try expect(!small.truncated)
+            // A body larger than the hard cap is refused (the check then goes with its summary).
+            let huge = String(repeating: "x", count: CILogs.maxReadBytes + 1)
+            let transport = FakeTransport([(302, ["Location": "https://pipelines.actions.githubusercontent.com/l"], ""), (200, [:], huge)])
+            _ = try await expectThrows { _ = try await GitHubClient(transport: transport).actionsJobLog(
+                repo: RepoRef(owner: "acme", name: "api"), jobID: 1, token: "tok") }
+            // Just under the cap: only the tail is kept.
+            let big = String(repeating: "y", count: CILogs.maxDownloadBytes) + "\nerror: boom"
+            let ok = FakeTransport([(302, ["Location": "https://pipelines.actions.githubusercontent.com/l"], ""), (200, [:], big)])
+            let log = try await GitHubClient(transport: ok).actionsJobLog(repo: RepoRef(owner: "acme", name: "api"), jobID: 1, token: "tok")
+            try expectEqual(log.utf8.count, CILogs.maxDownloadBytes)
+            try expect(log.hasSuffix("\nerror: boom"))
+        },
+        TestCase("http transport: sin implementación propia, ni sendWithoutRedirects ni downloadTail siguen un 302 por send") {
+            let transport = SendOnlyTransport()
+            _ = try await expectThrows { _ = try await transport.sendWithoutRedirects(URLRequest(url: URL(string: "https://api.github.com/x")!)) }
+            _ = try await expectThrows { _ = try await transport.downloadTail(URLRequest(url: URL(string: "https://api.github.com/x")!),
+                                                                              keepingLast: 10, maxBytes: 100) }
+            try expectEqual(transport.sent.value, 0)
         },
         TestCase("ci fix prompt: etapa editable ci-fix (variables, reglas Fixes, sin obligatorias)") {
             let stage = PromptStage.ciFix

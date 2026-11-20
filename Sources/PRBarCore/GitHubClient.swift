@@ -392,23 +392,29 @@ public struct GitHubClient: GitHubAPI, CIChecksAPI {
     }
 
     /// El log de un job de Actions. GitHub contesta con un 302 a una URL firmada: se pide sin seguirla y se baja esa
-    /// URL **sin** el token, solo si es `https` (spec K.4). Solo la cola si es enorme.
+    /// URL **sin** el token, solo si es `https` y de un host de GitHub (`CILogs.signedLogHostSuffixes`; spec K.4). Se lee
+    /// en streaming quedándose con la cola (`CILogs.maxDownloadBytes`) y se abandona pasado `CILogs.maxReadBytes`.
     public func actionsJobLog(repo: RepoRef, jobID: Int, token: String) async throws -> String {
         var request = URLRequest(url: URL(string: "https://api.github.com/repos/\(repo.owner)/\(repo.name)/actions/jobs/\(jobID)/logs")!)
         applyHeaders(&request, token: token)
-        let (data, response) = try await transport.sendWithoutRedirects(request)
+        let (data, response) = try await transport.downloadTail(request, keepingLast: CILogs.maxDownloadBytes, maxBytes: CILogs.maxReadBytes)
         let body: Data
         switch response.statusCode {
         case 200..<300:
             body = data
         case 301, 302, 303, 307, 308:
             guard let location = response.value(forHTTPHeaderField: "Location").flatMap(URL.init(string:)),
-                  location.scheme?.lowercased() == "https", location.host != nil else {
+                  location.scheme?.lowercased() == "https", let host = location.host else {
                 throw PRBarError.invalidResponse("the job log redirected to an unexpected place")
+            }
+            guard CILogs.isAllowedLogHost(host) else {
+                AppLog.write("Fix CI: the job log of \(repo.fullName) redirected to an unexpected host (\(host)); not downloaded")
+                throw PRBarError.invalidResponse("the job log redirected to an unexpected host (\(host))")
             }
             var download = URLRequest(url: location)
             download.setValue("PRBar", forHTTPHeaderField: "User-Agent")
-            let (logData, logResponse) = try await transport.sendWithoutRedirects(download)
+            let (logData, logResponse) = try await transport.downloadTail(download, keepingLast: CILogs.maxDownloadBytes,
+                                                                          maxBytes: CILogs.maxReadBytes)
             guard (200..<300).contains(logResponse.statusCode) else {
                 throw PRBarError.http(status: logResponse.statusCode, message: "couldn't download the job log")
             }
@@ -416,7 +422,7 @@ public struct GitHubClient: GitHubAPI, CIChecksAPI {
         default:
             body = try validate(data, response).data
         }
-        return String(decoding: body.suffix(CILogs.maxDownloadBytes), as: UTF8.self)
+        return String(decoding: body, as: UTF8.self)
     }
 
     private static let maxCheckRunPages = 3

@@ -103,8 +103,23 @@ public enum CILogs {
     public static let maxLinesPerCheck = 300
     public static let maxCharsPerCheck = 12_000
     public static let maxTotalChars = 40_000
-    /// Lo que se lee de un log descargado: la cola (un log enorme no entra entero en memoria de más).
-    public static let maxDownloadBytes = 8_000_000
+    /// What is kept of a downloaded log: its last bytes, read in streaming (spec K.6.4). Sanitizing runs on this tail
+    /// only; the cleaned text is cut again to `maxCharsPerCheck`.
+    public static let maxDownloadBytes = 1_000_000
+    /// A log longer than this is not read to the end: the download is abandoned and the check goes with its summary.
+    public static let maxReadBytes = 50_000_000
+    /// Where GitHub's job-log redirect may point (spec K.4): the signed URL is downloaded only from these hosts or their
+    /// subdomains. GitHub documents them as the hosts for "job summaries, logs, workflow artifacts and caches"
+    /// (docs.github.com › Self-hosted runners › Communication requirements): `*.actions.githubusercontent.com` (e.g.
+    /// `pipelines.…`, `results-receiver.…`) and `*.blob.core.windows.net` (e.g. `productionresultssa0.…`). If GitHub
+    /// moves logs elsewhere, add the domain here.
+    public static let signedLogHostSuffixes = ["actions.githubusercontent.com", "blob.core.windows.net"]
+
+    /// `host` is one of `signedLogHostSuffixes`' subdomains (on a label boundary; case-insensitive).
+    public static func isAllowedLogHost(_ host: String) -> Bool {
+        let host = host.lowercased()
+        return signedLogHostSuffixes.contains { host.hasSuffix("." + $0) }
+    }
 
     private static let ansi = try! NSRegularExpression(pattern: "\u{1B}(?:\\[[0-?]*[ -/]*[@-~]|\\][^\u{07}\u{1B}]*(?:\u{07}|\u{1B}\\\\)|[@-Z\\\\-_])")
     private static let timestamp = try! NSRegularExpression(pattern: "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z ?", options: [.anchorsMatchLines])
