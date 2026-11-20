@@ -160,6 +160,8 @@ final class AppModel: ObservableObject {
     /// Publicaciones en GitHub (review) y Slack en curso: una actualización las espera (spec D.3). Las de Responder
     /// ya cuentan por su fase (`pushing`).
     let postings: InFlightCounter
+    /// Clean Up en curso (decisión I.1.19): una actualización lo espera antes de tocar `source/` o `update-staging/`.
+    let cleanups = InFlightCounter()
     /// Merges de Ready to Merge (spec F.3). `lazy` por lo mismo que `reviews`. Mientras se instala una actualización
     /// no empieza ninguno (`jobsBlockedReason`).
     private(set) lazy var merges = MergeQueue(

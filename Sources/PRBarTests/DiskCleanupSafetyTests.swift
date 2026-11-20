@@ -1,4 +1,5 @@
 import Foundation
+import os
 import PRBarCore
 
 /// Clean Up contra rutas con symlinks (revisión del plan 13): siempre en carpetas temporales y repos descartables.
@@ -175,6 +176,31 @@ enum DiskCleanupSafetyTests {
             ]))
             try expectEqual(result.removed, [])
             try expect(exists(elsewhere.appendingPathComponent("README.md")))
+        },
+        TestCase("cleanup: re-pregunta por una actualización justo antes de borrar cada carpeta del updater") {
+            let base = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: base) }
+            let build = base.appendingPathComponent("source/.build")
+            let staging = base.appendingPathComponent("update-staging")
+            for dir in [build, staging] { try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }
+            let installing = OSAllocatedUnfairLock(initialState: false)
+            let executor = DiskCleanupExecutor(runner: SystemProcessRunner(), gitPath: "/usr/bin/git", worktreeRoots: [], repos: [],
+                                               registry: WorkspaceRegistry(), updaterDirectories: [build, staging],
+                                               oldFileRoots: [], isUpdateInProgress: { installing.withLock { $0 } })
+            // El plan se armó sin actualización; cuando le toca a la carpeta, ya empezó una.
+            installing.withLock { $0 = true }
+            let result = await executor.run(CleanupPlan(candidates: [
+                CleanupCandidate(path: build.path, bytes: 1, kind: .updaterBuild, clone: nil, title: "Updater builds"),
+                CleanupCandidate(path: staging.path, bytes: 1, kind: .updaterStaging, clone: nil, title: "Update staging"),
+            ]))
+            try expectEqual(result.removed, [])
+            try expect(result.skipped.allSatisfy { $0.contains("update") } && result.skipped.count == 2, "\(result.skipped)")
+            try expect(exists(build) && exists(staging))
+            installing.withLock { $0 = false }
+            let later = await executor.run(CleanupPlan(candidates: [
+                CleanupCandidate(path: staging.path, bytes: 1, kind: .updaterStaging, clone: nil, title: "Update staging"),
+            ]))
+            try expectEqual(later.removed, [staging.path])
         },
     ]
 }

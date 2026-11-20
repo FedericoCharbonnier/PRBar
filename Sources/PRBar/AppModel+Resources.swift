@@ -86,10 +86,13 @@ extension AppModel: ResourceActions {
         guard !plan.isEmpty else { return CleanupResult() }
         guard confirmed else { throw CommandFailure(.confirmationRequired, "Clean Up needs confirmation: run it again with --yes.") }
         guard let git = tools.git else { throw CommandFailure(.failed, PRBarError.toolNotFound("git").localizedDescription) }
+        let session = updates.session
         let executor = DiskCleanupExecutor(runner: runner, gitPath: git,
                                            worktreeRoots: [AppPaths.worktreesDir, AppPaths.legacyWorktreesDir],
-                                           repos: diskScanInput().respondDirs)
-        let result = await executor.run(plan)
+                                           repos: diskScanInput().respondDirs,
+                                           isUpdateInProgress: { await MainActor.run { session.isInstalling } })
+        // Cuenta como trabajo: una actualización que empiece ahora espera a que termine (`activeJobCount`).
+        let result = await cleanups.track { await executor.run(plan) }
         AppLog.write("Clean Up freed \(result.freedBytes) bytes; skipped \(result.skipped.count); failed \(result.failed.count)")
         resources.jobFinished()
         return result

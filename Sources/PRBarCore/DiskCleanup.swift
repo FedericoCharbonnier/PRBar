@@ -102,17 +102,21 @@ public struct DiskCleanupExecutor: Sendable {
     let updaterDirectories: [URL]
     let oldFileRoots: [URL]
     let repos: [DiskScanInput.RespondDir]
+    /// Se pregunta justo antes de borrar cada carpeta del updater (decisión I.1.19).
+    let isUpdateInProgress: @Sendable () async -> Bool
 
     public init(runner: ProcessRunning, gitPath: String, worktreeRoots: [URL], repos: [DiskScanInput.RespondDir],
                 gitEnvironment: [String: String] = [:],
                 registry: WorkspaceRegistry = .shared,
                 updaterDirectories: [URL] = [AppPaths.updateSourceDir.appendingPathComponent(".build"), AppPaths.updateStagingDir],
-                oldFileRoots: [URL] = [AppPaths.historyDir, AppPaths.logFile.deletingLastPathComponent()]) {
+                oldFileRoots: [URL] = [AppPaths.historyDir, AppPaths.logFile.deletingLastPathComponent()],
+                isUpdateInProgress: @escaping @Sendable () async -> Bool = { false }) {
         self.runner = runner
         self.gitPath = gitPath
         self.worktreeRoots = worktreeRoots.map(\.standardizedFileURL)
         self.gitEnvironment = gitEnvironment
         self.repos = repos
+        self.isUpdateInProgress = isUpdateInProgress
         self.registry = registry
         self.updaterDirectories = updaterDirectories.map(\.standardizedFileURL)
         self.oldFileRoots = oldFileRoots.map(\.standardizedFileURL)
@@ -179,6 +183,10 @@ public struct DiskCleanupExecutor: Sendable {
             case .updaterBuild, .updaterStaging:
                 guard CanonicalPath.isDirectory(path), updaterDirectories.contains(where: { CanonicalPath.of($0.path) == path }) else {
                     result.skipped.append("\(candidate.title): not the updater’s folder")
+                    continue
+                }
+                guard await !isUpdateInProgress() else {
+                    result.skipped.append("\(candidate.title): an update is being installed")
                     continue
                 }
                 try? FileManager.default.removeItem(at: url)

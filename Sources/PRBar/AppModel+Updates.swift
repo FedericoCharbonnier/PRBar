@@ -59,6 +59,7 @@ extension AppModel {
             + runningChats.count
             + (instructionsChat.isRunning ? 1 : 0)
             + postings.count
+            + cleanups.count
     }
 
     /// "Cancel Jobs and Update": cancela todo salvo las publicaciones/pushes en curso (`RespondQueue.cancel` no las
