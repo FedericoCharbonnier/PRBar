@@ -38,7 +38,8 @@ de lectura al repo de prueba (clave de deploy o `gh auth login` **en el host**) 
 
 ## E. Limpieza
 - [ ] Salir de PRBar con un review a medias y volver a abrirla: en el host, los trabajos muertos de `~/.prbar/installs/<id>/work`, `jobs` y `tmp` se limpian (los de más de 12 h); `~/.prbar/installs/<id>/repos` sigue.
-- [ ] Remove… del destino: los repos que lo usaban dicen "Default"; `~/.prbar` sigue en el host (borrarlo a mano).
+- [ ] Remove… del destino: los repos que lo usaban dicen "Default" (también si el config tenía el nombre con otras mayúsculas); `~/.prbar` sigue en el host (borrarlo a mano).
+- [ ] Editar a mano el config para que un repo diga `"runOn": "<host que no existe>"` con otro host como default: Settings › Repos muestra "This Mac" y el review corre en esta Mac (nunca en el default).
 
 ## F. CLI (con `PRBAR_SOCKET` de la PRBar instalada)
 - [ ] `prbar runners add <host>`, `list`, `test <host>` (exit ≠ 0 si hay problemas), `set <host> --dir ~/prbar2`, `default <host>`, `default local`, `remove <host>`.

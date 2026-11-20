@@ -245,11 +245,11 @@ struct ReposTab: View {
         case .local: "This Mac"
         case .runner(let name): runners.destination(named: name)?.name ?? "This Mac"
         }
-        // Un nombre que ya no existe cuenta como Default (`RunTargetResolver`).
+        // Un nombre que ya no existe es This Mac (`RunTargetResolver`, J.7.18).
         let current: String = switch repo.runOn {
         case nil: "default"
         case .local?: "local"
-        case .runner(let name)?: runners.destination(named: name)?.name ?? "default"
+        case .runner(let name)?: runners.destination(named: name)?.name ?? "local"
         }
         return Section {
             Picker("Run Claude on", selection: Binding(

@@ -31,7 +31,7 @@ enum RunnerSettingsTests {
             let destination = RunnerDestination(name: "devbox", endpoint: SSHEndpoint(host: "devbox"))
             try expectEqual(try destination.remoteDirExpression(), #""$HOME"/'.prbar'"#)
         },
-        TestCase("runners: el destino se resuelve repo → global → This Mac; uno borrado cuenta como Default") {
+        TestCase("runners: el destino se resuelve repo → global → This Mac; uno borrado es This Mac (nunca otro host)") {
             var settings = RunnerSettings()
             let devbox = RunnerDestination(name: "devbox", endpoint: SSHEndpoint(host: "devbox"))
             let gpu = RunnerDestination(name: "gpu", endpoint: SSHEndpoint(host: "gpu"))
@@ -44,8 +44,12 @@ enum RunnerSettingsTests {
             try expectEqual(RunTargetResolver.destination(for: repo, settings: settings), gpu)
             repo.runOn = .local
             try expectEqual(RunTargetResolver.destination(for: repo, settings: settings), nil)
+            repo.runOn = .runner("GPU")
+            try expectEqual(RunTargetResolver.destination(for: repo, settings: settings), gpu)
+            // Un repo fijado a un host que ya no existe nunca corre en otro (el default es devbox): corre en esta Mac.
             repo.runOn = .runner("gone")
-            try expectEqual(RunTargetResolver.destination(for: repo, settings: settings), devbox)
+            try expectEqual(RunTargetResolver.destination(for: repo, settings: settings), nil)
+            repo.runOn = nil
             settings.defaultTarget = .runner("gone")
             try expectEqual(RunTargetResolver.destination(for: repo, settings: settings), nil)
         },
@@ -65,6 +69,13 @@ enum RunnerSettingsTests {
             try expectEqual(json, #""devbox""#)
             try config.removeRunner(named: "devbox")
             try expectEqual(config.runners.destinations, [])
+            try expectEqual(config.runners.defaultTarget, .local)
+            try expectEqual(config.repoConfig(account: "me", repo: RepoRef(owner: "acme", name: "api"))?.runOn, nil)
+            // Una config editada a mano con otras mayúsculas: sacar el destino igual limpia el repo y el default.
+            try config.addRunner(RunnerDestination(name: "devbox", endpoint: SSHEndpoint(host: "devbox")))
+            config.runners.defaultTarget = .runner("DevBox")
+            config.setRunOn(.runner("DEVBOX"), repoID: "acme/api", login: "me")
+            try config.removeRunner(named: "devbox")
             try expectEqual(config.runners.defaultTarget, .local)
             try expectEqual(config.repoConfig(account: "me", repo: RepoRef(owner: "acme", name: "api"))?.runOn, nil)
             let old = try JSONDecoder().decode(AppConfig.self, from: Data(#"{"refreshIntervalMinutes":5}"#.utf8))

@@ -203,12 +203,12 @@ public struct RunnerSettings: Codable, Hashable, Sendable {
 }
 
 public enum RunTargetResolver {
-    /// Repo → global → This Mac (spec J.1). `nil` = esta Mac. Un nombre que ya no existe cuenta como "Default"; un
-    /// default que ya no existe, como This Mac.
+    /// Repo → global → This Mac (spec J.1). `nil` = esta Mac. Un nombre que ya no existe (en el repo o como
+    /// default) es This Mac: un repo fijado a un host nunca corre en otro (decisión J.7.18).
     public static func destination(for repo: RepoConfig?, settings: RunnerSettings) -> RunnerDestination? {
         switch repo?.runOn {
         case .local?: return nil
-        case .runner(let name)?: if let found = settings.destination(named: name) { return found }
+        case .runner(let name)?: return settings.destination(named: name)
         case nil: break
         }
         if case .runner(let name) = settings.defaultTarget { return settings.destination(named: name) }
@@ -254,10 +254,15 @@ extension AppConfig {
     /// Saca el destino; los repos que lo usaban vuelven a "Default" y, si era el default, el default es This Mac.
     public mutating func removeRunner(named name: String) throws {
         guard let found = runners.destination(named: name) else { throw RunnerConfigError.notFound(name) }
+        // Sin distinguir mayúsculas, como todas las búsquedas de destinos (una config editada a mano).
+        func isFound(_ target: RunTarget?) -> Bool {
+            if case .runner(let name)? = target { return name.caseInsensitiveCompare(found.name) == .orderedSame }
+            return false
+        }
         runners.destinations.removeAll { $0.name == found.name }
-        if runners.defaultTarget == .runner(found.name) { runners.defaultTarget = .local }
+        if isFound(runners.defaultTarget) { runners.defaultTarget = .local }
         for a in accounts.indices {
-            for r in accounts[a].repos.indices where accounts[a].repos[r].runOn == .runner(found.name) {
+            for r in accounts[a].repos.indices where isFound(accounts[a].repos[r].runOn) {
                 accounts[a].repos[r].runOn = nil
             }
         }
