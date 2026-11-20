@@ -47,6 +47,8 @@ enum AppCommandTests {
                 .runnersList, .runnerAdd(host: "fede@devbox:2222", name: nil, dir: "/srv/prbar", fallback: false),
                 .runnerSet(name: "devbox", dir: nil, fallback: true), .runnerRemove(name: "devbox"), .runnerTest(name: "devbox"),
                 .runnerDefault(target: "local"),
+                .ciList, .ciFix(pr: "api#12", wait: true), .usage(month: nil), .usage(month: "2026-10"),
+                .history(repo: nil, kind: .ciFix, limit: nil, search: nil),
                 .repoSet(repo: "acme/api", account: nil, changes: RepoChanges(runOn: .set(value: "devbox"))),
                 .repoSet(repo: "acme/api", account: nil, changes: RepoChanges(runOn: .clear)),
             ]
@@ -56,7 +58,7 @@ enum AppCommandTests {
             }
         },
         TestCase("app command: Name tiene un caso por comando") {
-            try expectEqual(AppCommand.Name.allCases.count, 111)
+            try expectEqual(AppCommand.Name.allCases.count, 114)
             try expectEqual(AppCommand.slackTokenSet(token: "xoxp-secret").name, .slackTokenSet)
             try expectEqual(AppCommand.reviewCancel(pr: "x").name.rawValue, "reviewCancel")
             try expectEqual(AppCommand.claudePromptShow(stage: .review).name, .claudePromptShow)
