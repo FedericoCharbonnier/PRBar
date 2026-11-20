@@ -570,25 +570,13 @@ extension AppModel: RespondActions {
     private func pushAndReply(pr: String, anyway: Bool, wait: Bool, events: CommandEventSink) async throws -> RespondInfo {
         let id = try resolvePRID(pr)
         let record = try respondRecord(id)
-        guard record.result != nil else {
-            throw CommandFailure(.invalidState, "Nothing to push: \(id) has no implemented fixes. To post only replies use `prbar respond reply-only \(id)`.")
-        }
-        switch respond.phases[id] {
-        case .readyToPush?, .failed?: break
-        default: throw CommandFailure(.invalidState, "\(id) can’t be pushed now (\(respond.phases[id]?.cliName ?? "none")).")
-        }
-        guard !respond.runningTests.contains(id) else { throw CommandFailure(.invalidState, "Wait for the tests to finish.") }
-        if record.pushed && RespondCounts.pendingReplies(record) == 0 {
-            throw CommandFailure(.invalidState, "Everything was already pushed and posted.")
-        }
         let gate = respondPushGate(prID: id)
-        if anyway && !gate.isTestsFailed {
-            throw CommandFailure(.invalidState, "Nothing is blocked by failed tests: use `prbar respond push \(id)`.")
+        if let problem = RespondPushGate.commandCheck(
+            record, phase: respond.phases[id], runningTests: respond.runningTests.contains(id),
+            chatting: respond.chatting.contains(id), gate: gate, anyway: anyway
+        ) {
+            throw problem
         }
-        if !anyway, case .testsFailed(let run) = gate {
-            throw CommandFailure(.invalidState, "“\(run.command)” failed, so PRBar didn’t push. Push anyway with `prbar respond push \(id) --anyway`.")
-        }
-        try throwIfChatting(id)
         do {
             try pushRespond(prID: id, ignoringFailedTests: anyway)
         } catch {
@@ -687,12 +675,5 @@ extension AppModel: MergeActions {
             throw CommandFailure(.invalidState, "There’s no merge error to dismiss for \(id).")
         }
         dismissMergeError(prID: id)
-    }
-}
-
-extension RespondPushGate {
-    var isTestsFailed: Bool {
-        if case .testsFailed = self { return true }
-        return false
     }
 }

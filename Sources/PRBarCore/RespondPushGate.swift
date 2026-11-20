@@ -20,3 +20,40 @@ public enum RespondPushGate: Equatable, Sendable {
         return tests.passed ? .ready : .testsFailed(tests)
     }
 }
+
+extension RespondPushGate {
+    public var isTestsFailed: Bool {
+        if case .testsFailed = self { return true }
+        return false
+    }
+
+    /// Lo que impide "Push and Reply" / "Push Anyway" (`anyway`) desde `prbar respond push`: sin fixes, en una fase
+    /// que no lo permite, con tests corriendo, ya todo publicado, tests que fallaron (sin `--anyway`), nada bloqueado
+    /// por tests (con `--anyway`) o el chat contestando. `nil` = se puede.
+    public static func commandCheck(
+        _ record: RespondRecord, phase: RespondPhase?, runningTests: Bool, chatting: Bool, gate: RespondPushGate, anyway: Bool
+    ) -> CommandFailure? {
+        let id = record.draft.prID
+        guard record.result != nil else {
+            return CommandFailure(.invalidState, "Nothing to push: \(id) has no implemented fixes. To post only replies use `prbar respond reply-only \(id)`.")
+        }
+        switch phase {
+        case .readyToPush?, .failed?: break
+        default: return CommandFailure(.invalidState, "\(id) can’t be pushed now (\(phase?.cliName ?? "none")).")
+        }
+        if runningTests { return CommandFailure(.invalidState, "Wait for the tests to finish.") }
+        if record.pushed && RespondCounts.pendingReplies(record) == 0 {
+            return CommandFailure(.invalidState, "Everything was already pushed and posted.")
+        }
+        if anyway && !gate.isTestsFailed {
+            return CommandFailure(.invalidState, "Nothing is blocked by failed tests: use `prbar respond push \(id)`.")
+        }
+        if !anyway, case .testsFailed(let run) = gate {
+            return CommandFailure(.invalidState, "“\(run.command)” failed, so PRBar didn’t push. Push anyway with `prbar respond push \(id) --anyway`.")
+        }
+        if chatting {
+            return CommandFailure(.invalidState, "Wait for Claude to finish answering in the chat (`prbar chat \(id) --stop` stops it).")
+        }
+        return nil
+    }
+}
