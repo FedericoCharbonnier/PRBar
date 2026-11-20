@@ -270,7 +270,8 @@ public struct RespondPipeline: RespondPipelineRunning {
     /// un `.git` anidado no corre ningún git: no se sabe cuántos commits quedaron y el árbol cuenta como sucio.
     func cancellation(of draft: RespondDraft) async -> RespondCancellation {
         let worktree = URL(fileURLWithPath: draft.worktree.path, isDirectory: true)
-        guard WorktreeIntegrity.nestedGitEntries(in: worktree).isEmpty else {
+        // Hasta la Task 14 del Plan 14 el worktree está siempre en esta Mac.
+        guard ((try? await LocalWorkspaceFS().nestedGitEntries(worktree.path)) ?? ["?"]).isEmpty else {
             return RespondCancellation(unpushedCommits: nil, path: draft.worktree.path, dirty: true)
         }
         let count = try? await git(worktree, ["rev-list", "--count", "\(draft.startHeadOid)..HEAD"])

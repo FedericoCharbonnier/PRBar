@@ -1,6 +1,9 @@
 import Foundation
 import PRBarCore
 
+/// El guardián de los `FixImplementer` de esta suite; el último caso la repite con el guardián Perl.
+nonisolated(unsafe) var fixImplementerFS: any WorkspaceFS = LocalWorkspaceFS()
+
 /// Un repo git temporal con un commit (`README.md` y `.gitignore`) y un archivo ignorado (`ignored.txt`) que
 /// hace de "trabajo del usuario" que nunca se puede perder. Nunca toca los repos del usuario.
 private struct FixRepo {
@@ -176,7 +179,8 @@ private func implementer(_ claude: FakeStreamingRunner, log: URL, runner: Proces
         claude: ClaudeRunner(runner: claude, claudePath: "/usr/local/bin/claude", pluginDirs: [],
                              environment: ClaudeRunner.environment(toolPaths: ["/usr/local/bin/claude"]),
                              logURL: log, redacting: secrets),
-        runner: runner, gitPath: TempGitRepo.git, environment: environment, settings: settings, rules: rules)
+        runner: runner, gitPath: TempGitRepo.git, environment: environment, settings: settings, rules: rules,
+        fs: fixImplementerFS)
 }
 
 private func logURL() throws -> URL { try temporaryDirectory().appendingPathComponent("respond.log") }
@@ -1452,6 +1456,19 @@ enum FixImplementerTests {
             ])
             let result = try await run(implementer(claude, log: try logURL()), try draft(repo, items: items), selections(items))
             try expectEqual(result.dependencyChanges, ["go.mod"])
+        },
+        TestCase("fix implementer: la suite de integridad pasa igual con el guardián Perl") {
+            let integrity = ["C2", "C3", "I4", "I5", "toca .git", "config, hooks, info", "Finder", ".DS_Store", "symlink o un gitlink"]
+            let selected = FixImplementerTests.cases.filter { test in
+                test.name != "fix implementer: la suite de integridad pasa igual con el guardián Perl"
+                    && integrity.contains { test.name.contains($0) }
+            }
+            try expect(selected.count >= 9, "solo \(selected.count) casos")
+            fixImplementerFS = RemoteWorkspaceFS.local()
+            defer { fixImplementerFS = LocalWorkspaceFS() }
+            for test in selected {
+                do { try await test.body() } catch { throw TestFailure(description: "\(test.name) con el guardián Perl: \(error)") }
+            }
         },
     ]
 }
