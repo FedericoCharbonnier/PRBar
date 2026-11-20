@@ -10,6 +10,7 @@ Fecha: 2026-11-19. Extiende `2026-11-18-prbar-design.md` (en adelante "spec base
 | D. Actualizaciones desde el repo | `2026-11-19-prbar-plan-8-updates.md` |
 | E. Instrucciones y configuración completa del proceso | `2026-11-19-prbar-plan-9-instructions.md` |
 | F. Ready to Merge: PRs aprobados y botón Merge | `2026-11-19-prbar-plan-10-merge.md` |
+| G. Ventana de Merge con resumen del PR | `2026-11-19-prbar-plan-11-merge-window.md` |
 
 Orden de implementación: A+B → D → E → F → C. La CLI va al final porque tiene que cubrir también los comandos del chat, de las actualizaciones, de las instrucciones y del merge.
 
@@ -654,3 +655,60 @@ Además:
 - **F.2:** se agregan `viewerPermission` (repo) y `commits.totalCount` (PR); los datos del repo van en `Snapshot.repoMergeSettings` por cuenta y repo.
 - **F.3:** la referencia de GitHub recomienda la API REST asíncrona de merge; se usa la mutación porque soporta `expectedHeadOid` y PRBar no apila PRs.
 - **F.6:** la plantilla se llama `merged` en la CLI (como `new-pr`, `update`, `round`); `myPR.merged` queda como alias.
+
+---
+
+## G. Ventana de Merge con resumen del PR
+
+Plan: `2026-11-19-prbar-plan-11-merge-window.md`. Reemplaza el diálogo de confirmación de F.3: **mergear siempre pasa por esta ventana**, que muestra el resumen del PR y recién ahí ofrece el método y el botón Merge.
+
+### G.1 Entrada
+
+- En la fila de Ready to Merge, el botón pasa a ser **"Merge…"** (sin chevron) y abre la ventana `Merge · repo#N` (una por PR, como Review/Respond). Si ya está abierta, la trae al frente.
+- Menú contextual de la fila: "Merge…" (se quita "Merge With…": el método se elige en la ventana).
+- La notificación `readyToMerge` abre la ventana.
+- La opción "Confirm before merging" (`merge.confirm`, F.5) **se elimina**: la ventana es la confirmación. La clave vieja se ignora al decodificar. El comando `prbar config set confirm-merge` se elimina (bump del protocolo de la CLI).
+
+### G.2 Contenido
+
+Arriba, cabecera: `repo#N`, título, autor (avatar), `head → base`, "Open on GitHub". Debajo, secciones:
+
+1. **Descripción** del PR (markdown renderizado; colapsable si es larga; "No description" si está vacía).
+2. **Aprobaciones**: cada reviewer con su última review vigente (Approved / Changes requested / Commented), avatar y hace cuánto. Reviews requeridas pendientes, si GitHub lo informa.
+3. **Checks del CI**: cada check (nombre, estado con ícono, requerido sí/no, duración) con link a su página. Resumen arriba: "8 passed · 1 failed (not required) · 1 running".
+4. **Conversaciones sin resolver**: cantidad de hilos de review sin resolver (con link). Si hay, aviso amarillo.
+5. **Archivos cambiados**: lista con ruta, `+N −M` y estado (added/modified/removed/renamed); total de commits y de líneas. Los primeros 100 archivos; si hay más, "and N more on GitHub".
+
+Abajo, barra fija: nota de disponibilidad (la de `MergePolicy`, p. ej. "Some checks failed but aren't required" o el motivo de bloqueo), **popup de método** (solo los permitidos; por defecto el de F.3), el head que se va a mergear (`abc1234`, monoespaciado) y el botón principal **"Squash and Merge" / "Merge" / "Rebase and Merge"** (⌘↩). Mientras mergea: spinner y botones deshabilitados; al terminar: "Merged ✓" y la ventana se cierra a los 2 s. Errores en la barra con Retry (con la semántica de F.8.11/F.8.20: nunca mergea un head que no se mostró).
+
+### G.3 Datos
+
+Al abrir se pide a GitHub (token de la cuenta) una consulta GraphQL del PR: `body`, `files(first: 100)` (path, additions, deletions, changeType), `commits.totalCount`, `latestOpinionatedReviews` (author, state, submittedAt), `reviewDecision`, `reviewRequests`, `reviewThreads` (isResolved, cantidad), `statusCheckRollup.contexts` (CheckRun: name, status, conclusion, detailsUrl, isRequired(pullRequestNumber:), startedAt/completedAt; StatusContext: context, state, targetUrl, isRequired), `headRefOid`, `mergeable`, `mergeStateStatus`. Estado de carga con skeleton; error con Retry. Botón **Refresh** (⌘R) en la toolbar.
+
+**Head fijo**: la ventana guarda el `headRefOid` que mostró. Si un refresh (de la ventana o del popover) trae otro head, aparece un banner "New commits were pushed since you opened this — Reload" y el botón Merge se deshabilita hasta recargar. El merge usa siempre `expectedHeadOid` = el head mostrado.
+
+### G.4 Chat
+
+Botón **Chat** (⇧⌘C) como en Review/Respond: panel lateral con el mismo `ChatCoordinator`, tipo nuevo `merge`, **solo lectura** (Read/Grep/Glob, sin acciones estructuradas salvo `proposeRule`), con el mismo aislamiento de B.4. Contexto: `pr.md` (título, descripción, aprobaciones, checks) y el diff del PR; worktree del head mostrado si el repo tiene `localPath` (mismo mecanismo que el chat de review), si no, solo diff. La conversación se guarda en el historial del merge (nuevo registro `MergeRecord` en History: PR, método, head, fecha, resultado, chat).
+
+### G.5 CLI
+
+- `prbar merge <pr> --preview` muestra el mismo resumen (descripción, aprobaciones, checks, hilos sin resolver, archivos) y `--json` lo devuelve completo.
+- `prbar merge <pr>` interactivo muestra ese resumen antes de preguntar.
+- `prbar open <pr> --merge` abre la ventana.
+- `prbar chat <pr>` en un PR Ready to Merge usa el chat de tipo `merge`.
+- Se elimina `config set confirm-merge` y su `AppCommand`; `CommandProtocol.version` sube a 3.
+- El inventario de UI y los tests de paridad se actualizan.
+
+### G.6 Otros
+
+- `prbar update`: cuando la conexión se corta **después** de "Restarting PRBar", no se imprime "Error: Lost the connection…"; solo "Restarting PRBar…" y luego "PRBar X is running.".
+
+### G.7 Testing
+
+- Decodificación del query de detalle (con campos faltantes), resumen de checks (requeridos/no requeridos, CheckRun y StatusContext), aprobaciones vigentes, hilos sin resolver.
+- Head fijo: refresh con otro head deshabilita Merge; el merge manda el head mostrado.
+- Migración: config con `merge.confirm` carga sin error.
+- Chat `merge`: herramientas de solo lectura, sin acciones salvo `proposeRule`.
+- CLI: preview con el detalle, `open --merge`, paridad.
+- Snapshots: ventana de Merge (claro/oscuro), con y sin chat; popover con "Merge…".
