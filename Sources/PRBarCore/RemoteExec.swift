@@ -15,6 +15,8 @@ public enum RemoteRunnerError: Error, Equatable, LocalizedError {
     case importMismatch(String)
     case jobNotStopped(host: String)
     case unsupportedEnvironment(String)
+    /// Un `ssh` propio (no `/usr/bin/ssh`) que no es OpenSSH 8.7 o más nuevo; `version` es lo que dijo `ssh -V`.
+    case sshTooOld(path: String, version: String?)
 
     /// El host de un `.jobNotStopped`.
     public var jobHost: String? {
@@ -39,6 +41,8 @@ public enum RemoteRunnerError: Error, Equatable, LocalizedError {
         case .malformedOutput(let host, let what): "\(host) returned an unexpected \(what)."
         case .importMismatch(let detail): "The commits from the server don’t match what you reviewed: \(detail) Nothing was pushed."
         case .unsupportedEnvironment(let name): "Internal error: \(name) can’t be passed to git on a remote host."
+        case .sshTooOld(let path, let version?): "\(path) is \(version); PRBar needs OpenSSH 8.7 or later."
+        case .sshTooOld(let path, nil): "PRBar couldn’t tell which ssh \(path) is; it needs OpenSSH 8.7 or later."
         case .jobNotStopped(let host):
             "Claude may still be running on \(host); PRBar won’t touch that worktree. (PRBar couldn’t confirm Claude stopped there; it cleans up leftovers on \(host) later.)"
         }

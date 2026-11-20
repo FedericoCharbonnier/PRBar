@@ -6,6 +6,7 @@ import PRBarCore
 /// `-O` no hace nada; si no, corre el comando remoto con `/bin/sh -c` en `home`, con un entorno mínimo (`env -i`) y en una sesión nueva (`setsid` desde Perl), y devuelve su exit code.
 /// `FAKE_SSH_SHELL` es el shell de login del "host" (`/bin/sh`, `/bin/bash`, `/bin/zsh`: interpreta el comando
 /// como lo haría sshd) y `FAKE_SSH_NOISE_FILE` lo que imprime su rc antes del comando.
+/// `-V` imprime `FAKE_SSH_VERSION` (por defecto un OpenSSH 9.6) en stderr, como el `ssh` de verdad.
 /// `FAKE_SSH_UNREACHABLE=1` simula un host caído (exit 255). Si existe el archivo `dropNext`, la próxima invocación
 /// cuyo comando contiene su texto deja el comando corriendo en el "host" y sale con 255 (se cayó la conexión).
 struct FakeSSH {
@@ -25,6 +26,7 @@ struct FakeSSH {
         -o|-p|-l|-F) shift 2 ;;
         -O) mode=ctl; shift 2 ;;
         -G) mode=config; shift ;;
+        -V) echo "${FAKE_SSH_VERSION:-OpenSSH_9.6p1, LibreSSL 3.3.6}" >&2; exit 0 ;;
         -T) shift ;;
         --) shift; host="$1"; shift; cmd="$*"; break ;;
         *) host="$1"; shift; cmd="$*"; break ;;
@@ -76,9 +78,11 @@ struct FakeSSH {
     func remove() { try? FileManager.default.removeItem(at: base) }
 
     /// Entorno del `ssh` local (no global: cada test tiene el suyo).
-    func environment(unreachable: Bool = false, strict: String = "ask", shell: String = "/bin/sh", noise: Data? = nil) -> [String: String] {
+    func environment(unreachable: Bool = false, strict: String = "ask", shell: String = "/bin/sh", noise: Data? = nil,
+                     version: String? = nil) -> [String: String] {
         var env = ["FAKE_SSH_LOG": log.path, "FAKE_SSH_HOME": home.path, "FAKE_SSH_STRICT": strict, "FAKE_SSH_DROP": dropNext.path,
                    "FAKE_SSH_SHELL": shell]
+        if let version { env["FAKE_SSH_VERSION"] = version }
         if unreachable { env["FAKE_SSH_UNREACHABLE"] = "1" }
         if let noise {
             let file = base.appendingPathComponent("noise-\(UUID().uuidString)")
