@@ -219,28 +219,86 @@ public struct RemoteWorkspaces: Sendable {
 
     // MARK: Huérfanos
 
-    /// Al arrancar (decisión J.7.16). Nunca lanza.
-    public func cleanupOrphans() async {
-        guard let repos = try? ShellQuote.posix(root.repos) else { return }
+    /// Al arrancar (decisión J.7.16). Solo dentro de la raíz de esta instalación (`installs/<id>`: otra Mac con la
+    /// misma carpeta tiene la suya) y con un candado (`cleanup.lock`, un `mkdir` atómico: la app y la CLI de esta Mac
+    /// comparten la raíz). Aun así, solo lo que seguro no está en uso: los pid de grupos que ya no existen (y su
+    /// lápida), y en `work/` y `tmp/` lo que no cambió en `olderThan`. Las refs `refs/prbar/*` de un mirror se borran
+    /// solo si ya no le queda ningún worktree. Nunca lanza.
+    public func cleanupOrphans(olderThan age: TimeInterval = 12 * 3600) async {
+        guard let marker = try? ShellQuote.posix(root.markerPath), let lockPath = try? root.child(["cleanup.lock"]),
+              let lock = try? ShellQuote.posix(lockPath), let work = try? ShellQuote.posix(root.work),
+              let jobs = try? ShellQuote.posix(root.jobs), let tmp = try? ShellQuote.posix(root.tmp),
+              let repos = try? ShellQuote.posix(root.repos) else { return }
+        let minutes = max(1, Int((age / 60).rounded(.up)))
+        let acquire = """
+        [ -f \(marker) ] || exit 96
+        mkdir -- \(lock) 2>/dev/null && exit 0
+        [ -n "$(find \(lock) -maxdepth 0 -mmin +60 2>/dev/null)" ] && rmdir -- \(lock) 2>/dev/null && mkdir -- \(lock) 2>/dev/null && exit 0
+        exit 75
+        """
+        guard (try? await host.runScript(acquire, timeout: 30))?.status == 0 else {
+            AppLog.write("Remote (\(host.name)): another PRBar is cleaning \(root.path); skipping the orphan cleanup.")
+            return
+        }
+
+        // Trabajos: un pid cuyo grupo ya no existe (o inválido y viejo) se borra con su lápida; lápidas viejas sueltas.
+        let jobsScript = """
+        cd -- \(jobs) || exit 0
+        for f in *.pid; do
+          [ -f "$f" ] || continue
+          pgid=$(cat -- "$f" 2>/dev/null)
+          case $pgid in
+            ''|*[!0-9]*) [ -n "$(find "$f" -mmin +\(minutes) 2>/dev/null)" ] && rm -f -- "$f" "${f%.pid}.cancel" ;;
+            *) if [ "$pgid" -le 1 ] || ! kill -0 -- "-$pgid" 2>/dev/null; then rm -f -- "$f" "${f%.pid}.cancel"; fi ;;
+          esac
+        done
+        for f in *.cancel; do
+          [ -f "$f" ] && [ ! -e "${f%.cancel}.pid" ] && [ -n "$(find "$f" -mmin +\(minutes) 2>/dev/null)" ] && rm -f -- "$f"
+        done
+        exit 0
+        """
+        _ = try? await host.runScript("[ -f \(marker) ] || exit 96\n" + jobsScript, timeout: 60)
+
+        // `work/`: cada entrada, vieja (nada adentro cambió en `olderThan`) o no.
+        let workScript = """
+        cd -- \(work) || exit 0
+        for d in * .[!.]* ..?*; do
+          [ -e "$d" ] || [ -L "$d" ] || continue
+          if [ -z "$(find "$d" -mmin -\(minutes) -print 2>/dev/null | head -n 1)" ]; then printf 'old %s\\n' "$d"; else printf 'new %s\\n' "$d"; fi
+        done
+        exit 0
+        """
+        var stale: Set<String> = []
+        var present: Set<String> = []
+        for line in ((try? await host.runScript(workScript, timeout: 300))?.stdout ?? "").split(separator: "\n") {
+            let parts = line.split(separator: " ", maxSplits: 1).map(String.init)
+            guard parts.count == 2, let path = try? root.child(["work", parts[1]]) else { continue }
+            present.insert(path)
+            if parts[0] == "old" { stale.insert(path) }
+        }
+
         let listing = "for d in \(repos)/*/*.git; do [ -d \"$d/objects\" ] && printf '%s\\n' \"$d\"; done; exit 0"
         let mirrors = ((try? await host.runScript(listing, timeout: 60))?.stdout ?? "")
             .split(separator: "\n").map(String.init).filter(root.contains)
         for bare in mirrors {
-            if let list = await gitLogged(bare, ["worktree", "list", "--porcelain"]) {
-                for path in WorktreeManager.worktreePaths(fromPorcelain: list) where path.hasPrefix(root.work + "/") {
+            guard let list = await gitLogged(bare, ["worktree", "list", "--porcelain"]) else { continue }
+            var remaining = 0
+            for path in WorktreeManager.worktreePaths(fromPorcelain: list) where path.hasPrefix(root.work + "/") {
+                // Viejo, o perdido (registrado pero su carpeta ya no está).
+                if stale.contains(path) || !present.contains(path) {
                     await gitLogged(bare, ["worktree", "remove", "--force", path])
+                } else {
+                    remaining += 1
                 }
             }
-            if let refs = await gitLogged(bare, ["for-each-ref", "--format=%(refname)", "refs/prbar/"]) {
-                for ref in refs.split(separator: "\n").map(String.init) where ref.hasPrefix("refs/prbar/") && !ref.contains("..") {
-                    await gitLogged(bare, ["update-ref", "-d", ref])
-                }
+            guard remaining == 0, let refs = await gitLogged(bare, ["for-each-ref", "--format=%(refname)", "refs/prbar/"]) else { continue }
+            for ref in refs.split(separator: "\n").map(String.init) where ref.hasPrefix("refs/prbar/") && !ref.contains("..") {
+                await gitLogged(bare, ["update-ref", "-d", ref])
             }
         }
-        guard let marker = try? ShellQuote.posix(root.markerPath) else { return }
-        for dir in [root.work, root.jobs, root.tmp] {
-            guard let quoted = try? ShellQuote.posix(dir) else { continue }
-            _ = try? await host.runScript("[ -f \(marker) ] || exit 96\nfind \(quoted) -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +", timeout: 300)
-        }
+        for path in stale.sorted() { try? await host.removeTree(path, root: root) }
+        _ = try? await host.runScript("[ -f \(marker) ] || exit 96\nfind \(tmp) -mindepth 1 -maxdepth 1 -mmin +\(minutes) -exec rm -rf -- {} +",
+                                      timeout: 300)
+        _ = try? await host.runScript("rmdir -- \(lock)", timeout: 30)
     }
 }

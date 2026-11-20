@@ -7,6 +7,8 @@ public struct SSHHost: Sendable {
     public static let maxScriptBytes = 100_000
 
     public let destination: RunnerDestination
+    /// Esta instalación de PRBar (`RemoteInstallation.id`): su raíz es `<carpeta remota>/installs/<id>`.
+    public let installationID: String
     public let sshPath: String
     public let controlDirectory: String
     public let enforceHostKey: Bool
@@ -15,9 +17,11 @@ public struct SSHHost: Sendable {
     public let killGracePeriod: TimeInterval
     let local: SystemProcessRunner
 
-    public init(destination: RunnerDestination, sshPath: String = "/usr/bin/ssh", controlDirectory: String, enforceHostKey: Bool,
-                sshEnvironment: [String: String] = [:], killGracePeriod: TimeInterval = 5, local: SystemProcessRunner = SystemProcessRunner()) {
+    public init(destination: RunnerDestination, installationID: String, sshPath: String = "/usr/bin/ssh", controlDirectory: String,
+                enforceHostKey: Bool, sshEnvironment: [String: String] = [:], killGracePeriod: TimeInterval = 5,
+                local: SystemProcessRunner = SystemProcessRunner()) {
         self.destination = destination
+        self.installationID = installationID
         self.sshPath = sshPath
         self.controlDirectory = controlDirectory
         self.enforceHostKey = enforceHostKey
@@ -148,6 +152,47 @@ public struct SSHHost: Sendable {
                                                                 environment: sshEnvironment, currentDirectory: nil, timeout: 10),
               result.status == 0 else { return true }
         return SSHCommandBuilder.enforcesHostKey(fromConfig: result.stdout)
+    }
+}
+
+/// El id de esta instalación de PRBar: un UUID en minúscula guardado en un archivo 0600 de la Mac (lo comparten la
+/// app y la CLI de esta Mac; otra Mac tiene otro).
+public enum RemoteInstallation {
+    public static func isValidID(_ id: String) -> Bool {
+        guard id.utf8.count == 36, UUID(uuidString: id) != nil else { return false }
+        return id.utf8.allSatisfy { ($0 >= 0x30 && $0 <= 0x39) || ($0 >= 0x61 && $0 <= 0x66) || $0 == UInt8(ascii: "-") }
+    }
+
+    /// Lo lee; si no existe (o no es válido) lo crea. Dos procesos a la vez terminan con el mismo (`O_EXCL`).
+    public static func id(file: URL = AppPaths.installationIDFile) throws -> String {
+        func read() -> String? {
+            guard let data = FileManager.default.contents(atPath: file.path) else { return nil }
+            let text = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            return isValidID(text) ? text : nil
+        }
+        if let existing = read() { return existing }
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: 0o700])
+        let id = UUID().uuidString.lowercased()
+        let fd = open(file.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
+        if fd < 0 {
+            guard errno == EEXIST else { throw CocoaError(.fileWriteUnknown) }
+            if let existing = read() { return existing }
+            // Inválido: se reemplaza.
+            let temp = file.deletingLastPathComponent().appendingPathComponent(".installation-id-\(UUID().uuidString)")
+            guard FileManager.default.createFile(atPath: temp.path, contents: Data((id + "\n").utf8), attributes: [.posixPermissions: 0o600]) else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+            guard rename(temp.path, file.path) == 0 else {
+                try? FileManager.default.removeItem(at: temp)
+                throw CocoaError(.fileWriteUnknown)
+            }
+            return id
+        }
+        defer { close(fd) }
+        let bytes = Array((id + "\n").utf8)
+        guard write(fd, bytes, bytes.count) == bytes.count else { throw CocoaError(.fileWriteUnknown) }
+        return id
     }
 }
 

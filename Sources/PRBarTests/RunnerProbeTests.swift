@@ -13,10 +13,33 @@ enum RunnerProbeTests {
             try expectEqual(info.claudePath, ssh.home.appendingPathComponent("bin/claude").path)
             try expectEqual(info.claudeVersion, "2.1.400 (Claude Code)")
             try expect(info.quotingOK && info.perl)
-            let root = ssh.home.appendingPathComponent(".prbar").path
+            // Cada instalación de PRBar (esta Mac) tiene su subcarpeta: dos Macs con la misma carpeta no se pisan.
+            let base = ssh.home.appendingPathComponent(".prbar").path
+            let root = base + "/installs/" + FakeSSH.installationID
             try expectEqual(info.root, root)
+            try expect(FileManager.default.fileExists(atPath: base + "/" + RemoteRoot.marker))
             for sub in ["work", "repos", "jobs", "tmp", RemoteRoot.marker] {
                 try expect(FileManager.default.fileExists(atPath: root + "/" + sub), sub)
+            }
+            let other = try await RunnerProbe.check(try ssh.host(installationID: "00000000-0000-4000-8000-0000000000b2"))
+            try expectEqual(other.root, base + "/installs/00000000-0000-4000-8000-0000000000b2")
+            let mode = try FileManager.default.attributesOfItem(atPath: base + "/installs")[.posixPermissions] as? Int
+            try expectEqual(mode, 0o700)
+        },
+        TestCase("probe: el id de instalación se crea una vez (0600) y se reusa; uno inválido se rechaza") {
+            let dir = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: dir) }
+            let file = dir.appendingPathComponent("sub/installation-id")
+            let first = try RemoteInstallation.id(file: file)
+            try expect(RemoteInstallation.isValidID(first), first)
+            try expectEqual(try RemoteInstallation.id(file: file), first)
+            let mode = try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int
+            try expectEqual(mode, 0o600)
+            try Data("../../etc".utf8).write(to: file)
+            let replaced = try RemoteInstallation.id(file: file)
+            try expect(RemoteInstallation.isValidID(replaced) && replaced != first)
+            for bad in ["", "../x", "00000000-0000-4000-8000-0000000000A1", "x'; touch PWNED; '", "00000000-0000-4000-8000-0000000000a1/.."] {
+                try expect(!RemoteInstallation.isValidID(bad), bad)
             }
         },
         TestCase("probe: una carpeta existente ajena no se usa; sin claude, problema claro") {

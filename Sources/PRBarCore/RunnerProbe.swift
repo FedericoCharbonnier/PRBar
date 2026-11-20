@@ -57,8 +57,12 @@ public enum RunnerProbe {
     public static let minimumGit = (2, 31, 0)
 
     /// `uname; git --version; command -v claude; claude --version` (spec J.3), la sonda de comillas y la raíz.
-    public static func script(for destination: RunnerDestination) throws -> String {
-        """
+    /// La raíz de PRBar en el host es `<carpeta>/installs/<installationID>`: cada Mac (instalación) tiene la suya y
+    /// nunca limpia la de otra. La carpeta de arriba lleva la marca para no adueñarse de una carpeta ajena.
+    public static func script(for destination: RunnerDestination, installationID: String) throws -> String {
+        guard RemoteInstallation.isValidID(installationID) else { throw RemoteRunnerError.outsideRoot(installationID) }
+        let install = try ShellQuote.posix("installs/" + installationID)
+        return """
         printf 'os=%s\\n' "$(uname -s 2>/dev/null)"
         printf 'arch=%s\\n' "$(uname -m 2>/dev/null)"
         printf 'home=%s\\n' "$HOME"
@@ -74,13 +78,15 @@ public enum RunnerProbe {
         umask 077
         if mkdir -p -- "$d" 2>/dev/null && cd -- "$d"; then
           if [ ! -e \(RemoteRoot.marker) ] && [ -n "$(ls -A)" ]; then printf 'rootproblem=notempty\\n'
-          else : > \(RemoteRoot.marker) && mkdir -p work repos jobs tmp && chmod 700 . work repos jobs tmp && printf 'root=%s\\n' "$(pwd -P)"; fi
+          elif : > \(RemoteRoot.marker) && mkdir -p -- \(install) && chmod 700 . installs \(install) && cd -- \(install) \\
+            && : > \(RemoteRoot.marker) && mkdir -p work repos jobs tmp && chmod 700 work repos jobs tmp; then printf 'root=%s\\n' "$(pwd -P)"
+          else printf 'rootproblem=mkdir\\n'; fi
         else printf 'rootproblem=mkdir\\n'; fi
         """
     }
 
     public static func check(_ host: SSHHost, now: Date = Date()) async throws -> RunnerHostInfo {
-        let result = try host.checked(try await host.runScript(try script(for: host.destination), timeout: 60), "verification")
+        let result = try host.checked(try await host.runScript(try script(for: host.destination, installationID: host.installationID), timeout: 60), "verification")
         return parse(result.stdout, host: host.name, remoteDir: host.destination.remoteDir, now: now)
     }
 

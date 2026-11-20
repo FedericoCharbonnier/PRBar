@@ -106,10 +106,13 @@ struct FakeSSH {
         return text.split(separator: "\u{1E}").map { line in line.split(separator: "\u{1F}", omittingEmptySubsequences: false).map(String.init).dropLast().map { $0 } }
     }
 
+    static let installationID = "00000000-0000-4000-8000-0000000000a1"
+
     func host(name: String = "devbox", remoteDir: String = "~/.prbar", unreachable: Bool = false,
-              killGracePeriod: TimeInterval = 1) throws -> SSHHost {
+              killGracePeriod: TimeInterval = 1, installationID: String = FakeSSH.installationID) throws -> SSHHost {
         _ = try ControlSocketDirectory.ensure(controlDirectory)
         return SSHHost(destination: RunnerDestination(name: name, endpoint: SSHEndpoint(host: name), remoteDir: remoteDir),
+                       installationID: installationID,
                        sshPath: executable.path, controlDirectory: controlDirectory, enforceHostKey: true,
                        sshEnvironment: environment(unreachable: unreachable), killGracePeriod: killGracePeriod)
     }
