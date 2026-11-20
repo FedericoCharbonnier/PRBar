@@ -35,7 +35,7 @@ shows the help of `review start`, the group’s default subcommand).
 | Command | Does |
 |---|---|
 | `prbar status [--json]` | What the menu bar shows: counts (with the popover tabs’ totals, “To Review N · My PRs N”), running jobs, issues |
-| `prbar prs [--tab to-review\|mine] [--list to-review\|updated\|mine\|ready-to-merge\|other] [--account L]` | The PRs; `--tab` keeps one of the popover’s tabs and combines with `--list` (`--list other --tab mine` is Waiting for Review; a section from the other tab is a usage error). The Section column shows the popover’s section |
+| `prbar prs [--tab to-review\|mine] [--list to-review\|updated\|mine\|ready-to-merge\|other] [--account L]` | The PRs; `--tab` keeps one of the popover’s tabs and combines with `--list` (`--list other --tab mine` is Waiting for Review; a section from the other tab is a usage error). The Section column shows the popover’s section (in `--json`, `section` is `toReview`, `updatedSinceMyReview`, `otherToReview`, `myFeedback`, `readyToMerge` or `waitingForReview`, and `tab` is `to-review` or `mine`) |
 | `prbar refresh` | Refresh now |
 | `prbar open <pr> [--review\|--respond\|--merge\|--posted\|--worktree] [--copy]` | Open the PR, its window (`--merge`: the Merge window of a PR of yours that’s Ready to Merge), the posted review or the worktree; `--copy` copies the link |
 | `prbar history [--repo R] [--kind review\|respond\|merge] [--search Q] [--limit N]` | History |

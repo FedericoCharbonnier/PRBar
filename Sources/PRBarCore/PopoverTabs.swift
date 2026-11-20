@@ -21,10 +21,10 @@ public enum PopoverTab: String, Codable, CaseIterable, Sendable, Identifiable {
 public enum PopoverSection: String, Codable, CaseIterable, Sendable, Identifiable {
     case toReview
     case updatedSinceMyReview
-    case otherToReview = "other"
+    case otherToReview
     case myFeedback
     case readyToMerge
-    case waitingForReview = "waiting"
+    case waitingForReview
 
     public var id: String { rawValue }
 

@@ -113,6 +113,13 @@ enum CommandResultsTests {
             let info = PRInfo(item: mine, review: nil, respond: nil)
             try expectEqual(info.tab, .mine)
             try expectEqual(info.section, .waitingForReview)
+            let json = try CommandProtocol.line(info)
+            try expect(json.contains(#""section":"waitingForReview""#), json)
+            let theirs = PRInfo(item: ClassifiedPR(pr: makePR(number: 5, author: "ana"), category: .other, account: "me"),
+                                review: nil, respond: nil)
+            try expect(try CommandProtocol.line(theirs).contains(#""section":"otherToReview""#))
+            try expectEqual(PopoverSection.allCases.map(\.rawValue),
+                            ["toReview", "updatedSinceMyReview", "otherToReview", "myFeedback", "readyToMerge", "waitingForReview"])
             let old = #"{"appVersion":"1.0.0","refreshing":false,"offline":false,"badgeCount":0,"counts":{},"issues":[],"slackIssues":[],"jobs":[],"accounts":[],"tools":[]}"#
             let status = try CommandProtocol.decoder.decode(StatusInfo.self, from: Data(old.utf8))
             try expectEqual(status.tabCounts, nil)
