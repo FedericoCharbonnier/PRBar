@@ -21,7 +21,15 @@ public enum ShellQuote {
 
     public static func posix(_ value: String) throws -> String {
         guard !value.utf8.contains(0) else { throw Failure.nulByte }
-        return "'" + value.replacingOccurrences(of: "'", with: #"'\''"#) + "'"
+        // Escalar por escalar, nunca por `Character`: `'` seguido de una marca combinante (U+0301, U+200D, …) es un
+        // solo grafema para `String` y `replacingOccurrences` no lo ve, pero su primer byte cierra la comilla.
+        var quoted = String.UnicodeScalarView()
+        quoted.append("'")
+        for scalar in value.unicodeScalars {
+            if scalar == "'" { quoted.append(contentsOf: #"'\''"#.unicodeScalars) } else { quoted.append(scalar) }
+        }
+        quoted.append("'")
+        return String(quoted)
     }
 
     public static func command(_ argv: [String]) throws -> String {
