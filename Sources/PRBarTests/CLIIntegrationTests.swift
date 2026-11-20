@@ -65,7 +65,57 @@ enum CLIIntegrationTests {
         TestCase("integración: merge sin --yes y sin terminal → exit 4; --dismiss no pregunta") { try await mergeNeedsYes() },
         TestCase("integración: update --check sale con 10 si hay versión nueva, también con --json") { try await updateCheckExit() },
         TestCase("integración: update espera a la versión nueva solo si la app se estaba reiniciando") { try await updateRelaunch() },
+        TestCase("integración: chat --json sin mensaje en una terminal no se queda leyendo la terminal") { try await chatJSONWithoutMessage() },
+        TestCase("chat: el mensaje sale de stdin solo si no es una terminal; no vacío") {
+            let tty = Terminal(stdinIsTTY: true, stdoutIsTTY: false, colors: false)
+            let error = try await expectThrows { _ = try ChatInput.readMessage(terminal: tty) { "never read" } }
+            try expectEqual((error as? CommandFailure)?.code, .invalidUsage)
+            try expectEqual(try ChatInput.readMessage(terminal: .plain) { "hola\n" }, "hola\n")
+            let empty = try await expectThrows { _ = try ChatInput.readMessage(terminal: .plain) { " \n" } }
+            try expectEqual((empty as? CommandFailure)?.code, .invalidUsage)
+        },
+        TestCase("version: distingue la app que no corre de la que corre con otro protocolo") {
+            let url = try shortSocketURL()
+            defer { removeSocketDirectory(url) }
+            let missing = VersionReport.versions(cli: "1.0.0") { try AppConnection.connect(socketURL: url) }
+            try expectEqual(VersionReport.lines(missing).last, "PRBar.app isn’t running")
+            let listening = try RawSocket.listen(url)
+            defer { close(listening) }
+            let fake = Thread {
+                let peer = RawSocket(fd: accept(listening, nil, nil))
+                _ = peer.readLine()
+                peer.writeLine(try! CommandProtocol.line(CommandResponse.failure(id: 0, .protocolMismatch(cli: "1.0.0", app: "0.9.0"))))
+                peer.close()
+            }
+            fake.start()
+            let mismatch = try await Task.detached {
+                VersionReport.versions(cli: "1.0.0") { try AppConnection.connect(socketURL: url) }
+            }.value
+            try expectEqual(mismatch.app, nil)
+            let line = VersionReport.lines(mismatch).last ?? ""
+            try expect(line.contains("is running but") && line.contains("PRBar 0.9.0"), line)
+            let running = VersionReport.Versions(cli: "1.0.0", app: "1.0.0", error: nil)
+            try expectEqual(VersionReport.lines(running), ["prbar 1.0.0", "PRBar.app 1.0.0 (running)"])
+        },
+        TestCase("chat: “Undo anyway?” solo en una terminal y sin --json") {
+            let tty = Terminal(stdinIsTTY: true, stdoutIsTTY: true, colors: false)
+            try expect(ChatInput.asksUndoAnyway(terminal: tty, json: false))
+            try expect(!ChatInput.asksUndoAnyway(terminal: tty, json: true))
+            try expect(!ChatInput.asksUndoAnyway(terminal: .plain, json: false))
+        },
     ]
+
+    @MainActor
+    private static func chatJSONWithoutMessage() async throws {
+        let harness = try Harness()
+        defer { harness.server.stop() }
+        for arguments in [["chat", "acme/api#1", "--json"], ["rules", "chat", "--json"]] {
+            let result = try await runCLI(arguments, socket: harness.url, interactive: true)
+            try expectEqual(result.code, CLIExit.usage)
+            try expect(result.err.contains("Pass the message"), result.err)
+        }
+        try expect(!harness.fake.calls.contains { $0.hasPrefix("chatSend") || $0.hasPrefix("rulesChatSend") }, "\(harness.fake.calls)")
+    }
 
     /// Corre `prbar update --yes` con `UpdateInstallRunner` (lo que hace `run()`), con plazos cortos.
     private static func runUpdate(socket: URL, timeout: TimeInterval) async throws -> (code: Int32, out: String, err: String) {

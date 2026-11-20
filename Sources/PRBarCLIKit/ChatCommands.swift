@@ -50,6 +50,29 @@ enum ChatRender {
     }
 }
 
+/// `prbar chat` y `prbar rules chat` sin chat interactivo (`--json` o sin terminal).
+public enum ChatInput {
+    /// El mensaje que no vino como argumento sale de stdin, pero nunca de una terminal (se quedaría esperando en
+    /// silencio: con `--json` no hay chat interactivo).
+    public static func readMessage(terminal: Terminal,
+                                   read: () -> String = { String(decoding: FileHandle.standardInput.readDataToEndOfFile(), as: UTF8.self) })
+        throws -> String {
+        guard !terminal.stdinIsTTY else {
+            throw CommandFailure(.invalidUsage, "Pass the message as an argument (or pipe it on stdin).")
+        }
+        let text = read()
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw CommandFailure(.invalidUsage, "The message is empty.")
+        }
+        return text
+    }
+
+    /// Si la app pide confirmar el undo (pisaría ediciones manuales): se pregunta solo en una terminal y sin `--json`.
+    public static func asksUndoAnyway(terminal: Terminal, json: Bool) -> Bool {
+        terminal.isInteractive && !json
+    }
+}
+
 struct ChatCommand: RemoteCommand {
     static let configuration = CommandConfiguration(
         commandName: "chat", abstract: "Chat with Claude about a review or a Respond analysis.",
@@ -69,7 +92,7 @@ struct ChatCommand: RemoteCommand {
 
     mutating func prepare(_ connection: AppConnection, _ output: Output) throws {
         guard message == nil, !undo, !show, !stop else { return }
-        message = String(decoding: FileHandle.standardInput.readDataToEndOfFile(), as: UTF8.self)
+        message = try ChatInput.readMessage(terminal: output.terminal)
     }
 
     func appCommand(confirmed: Bool) -> AppCommand {
@@ -95,7 +118,8 @@ struct ChatCommand: RemoteCommand {
         }
         do {
             try CLIRunner.run(self)
-        } catch let exit as ExitCode where exit.rawValue == CLIExit.confirmationRequired && undo && terminal.isInteractive {
+        } catch let exit as ExitCode where exit.rawValue == CLIExit.confirmationRequired && undo
+                    && ChatInput.asksUndoAnyway(terminal: terminal, json: global.json) {
             // B.6: deshacer pisaría ediciones manuales; la app lo dijo y acá se pregunta.
             guard Prompt.confirm("Undo anyway?") else { throw ExitCode(CLIExit.cancelled) }
             var confirmed = self

@@ -148,7 +148,7 @@ struct RulesChat: RemoteCommand {
 
     mutating func prepare(_ connection: AppConnection, _ output: Output) throws {
         guard message == nil, !undo, !show, !stop else { return }
-        message = String(decoding: FileHandle.standardInput.readDataToEndOfFile(), as: UTF8.self)
+        message = try ChatInput.readMessage(terminal: output.terminal)
     }
 
     func appCommand(confirmed: Bool) -> AppCommand {
@@ -175,7 +175,8 @@ struct RulesChat: RemoteCommand {
         }
         do {
             try CLIRunner.run(self)
-        } catch let exit as ExitCode where exit.rawValue == CLIExit.confirmationRequired && undo && terminal.isInteractive {
+        } catch let exit as ExitCode where exit.rawValue == CLIExit.confirmationRequired && undo
+                    && ChatInput.asksUndoAnyway(terminal: terminal, json: global.json) {
             guard Prompt.confirm("Undo anyway?") else { throw ExitCode(CLIExit.cancelled) }
             var confirmed = self
             confirmed.global.yes = true

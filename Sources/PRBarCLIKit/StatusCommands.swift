@@ -270,16 +270,50 @@ struct VersionCommand: LocalCommand {
     static let configuration = CommandConfiguration(commandName: "version", abstract: "prbar’s and PRBar.app’s versions (About PRBar).")
     @Flag(help: "Machine-readable output.") var json = false
 
-    struct Versions: Codable { let cli: String; let app: String? }
-
     func run() throws {
-        let app = try? AppConnection.connect()
-        let versions = Versions(cli: AppConnection.cliVersion, app: app?.appVersion)
-        app?.close()
+        let versions = VersionReport.versions(cli: AppConnection.cliVersion) { try AppConnection.connect() }
         let output = Output(terminal: .current(), json: json)
         if json { return try output.printJSON(versions) }
-        output.line("prbar \(versions.cli)")
-        output.line(versions.app.map { "PRBar.app \($0) (running)" } ?? "PRBar.app isn’t running")
+        VersionReport.lines(versions).forEach { output.line($0) }
+    }
+}
+
+/// `prbar version`: distingue "la app no corre" de "corre pero no puede hablar con este prbar".
+public enum VersionReport {
+    public struct Versions: Codable, Equatable {
+        public let cli: String
+        public let app: String?
+        /// Por qué no se pudo hablar con la app que está corriendo (p. ej. versiones de protocolo distintas).
+        public let error: String?
+
+        public init(cli: String, app: String?, error: String?) {
+            self.cli = cli
+            self.app = app
+            self.error = error
+        }
+    }
+
+    public static func versions(cli: String, connect: () throws -> AppConnection) -> Versions {
+        do {
+            let connection = try connect()
+            defer { connection.close() }
+            return Versions(cli: cli, app: connection.appVersion, error: nil)
+        } catch let failure as CommandFailure {
+            return Versions(cli: cli, app: nil, error: failure.message)
+        } catch {
+            return Versions(cli: cli, app: nil, error: nil)
+        }
+    }
+
+    public static func lines(_ versions: Versions) -> [String] {
+        let app = if let version = versions.app {
+            "PRBar.app \(version) (running)"
+        } else if let error = versions.error {
+            "PRBar.app is running but this prbar can’t talk to it: \(error)"
+        } else {
+            "PRBar.app isn’t running"
+        }
+        return ["prbar \(versions.cli)", app]
     }
 }
 
