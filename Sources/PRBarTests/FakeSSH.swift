@@ -4,13 +4,15 @@ import PRBarCore
 /// Un `ssh` de mentira para los tests: nunca conecta a nada. Anota cada invocación (argumentos separados por 0x1F,
 /// invocaciones por 0x1E: los scripts remotos tienen saltos de línea) en `log`; con `-G` imprime una config; con
 /// `-O` no hace nada; si no, corre el comando remoto con `/bin/sh -c` en `home`, con un entorno mínimo (`env -i`) y en una sesión nueva (`setsid` desde Perl), y devuelve su exit code.
-/// `FAKE_SSH_UNREACHABLE=1` simula un host caído (exit 255).
+/// `FAKE_SSH_UNREACHABLE=1` simula un host caído (exit 255). Si existe el archivo `dropNext`, la próxima invocación
+/// cuyo comando contiene su texto deja el comando corriendo en el "host" y sale con 255 (se cayó la conexión).
 struct FakeSSH {
     let base: URL
     var executable: URL { base.appendingPathComponent("bin/ssh") }
     var home: URL { base.appendingPathComponent("remote-home") }
     var log: URL { base.appendingPathComponent("ssh.log") }
     var controlDirectory: String { base.appendingPathComponent("sock").path }
+    var dropNext: URL { base.appendingPathComponent("drop-next") }
 
     static let script = #"""
     #!/bin/sh
@@ -32,6 +34,17 @@ struct FakeSSH {
       ctl) exit 0 ;;
     esac
     cd "$FAKE_SSH_HOME" || exit 255
+    if [ -n "$FAKE_SSH_DROP" ] && [ -f "$FAKE_SSH_DROP" ] && case "$cmd" in *"$(cat "$FAKE_SSH_DROP")"*) true;; *) false;; esac; then
+      # Se cae la conexión: el comando remoto sigue corriendo, el ssh local sale con 255.
+      rm -f "$FAKE_SSH_DROP"
+      /usr/bin/perl -e 'use POSIX (); my $pid = fork(); die "fork" unless defined $pid;
+        if ($pid == 0) { POSIX::setsid(); exec @ARGV or exit 127 } waitpid($pid, 0); exit($? >> 8)' -- \
+        /usr/bin/env -i HOME="$FAKE_SSH_HOME" USER=tester LOGNAME=tester LANG=en_US.UTF-8 SHELL=/bin/sh PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+        SSH_AUTH_SOCK=/remote/agent.sock /bin/sh -c "$cmd" < /dev/null > /dev/null 2>&1 &
+      sleep 1
+      echo "Connection to $host closed by remote host." >&2
+      exit 255
+    fi
     exec /usr/bin/perl -e 'use POSIX (); my $pid = fork(); die "fork" unless defined $pid;
       if ($pid == 0) { POSIX::setsid(); exec @ARGV or exit 127 } waitpid($pid, 0); exit($? >> 8)' -- \
       /usr/bin/env -i HOME="$FAKE_SSH_HOME" USER=tester LOGNAME=tester LANG=en_US.UTF-8 SHELL=/bin/sh PATH=/usr/bin:/bin:/usr/sbin:/sbin \
@@ -59,7 +72,7 @@ struct FakeSSH {
 
     /// Entorno del `ssh` local (no global: cada test tiene el suyo).
     func environment(unreachable: Bool = false, strict: String = "ask") -> [String: String] {
-        var env = ["FAKE_SSH_LOG": log.path, "FAKE_SSH_HOME": home.path, "FAKE_SSH_STRICT": strict]
+        var env = ["FAKE_SSH_LOG": log.path, "FAKE_SSH_HOME": home.path, "FAKE_SSH_STRICT": strict, "FAKE_SSH_DROP": dropNext.path]
         if unreachable { env["FAKE_SSH_UNREACHABLE"] = "1" }
         return env
     }

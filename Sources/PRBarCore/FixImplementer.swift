@@ -207,6 +207,8 @@ public struct FixImplementer: Sendable {
             output = try await claude.run(invocation, as: FixOutput.self, onAgent: { _ in })
         } catch let error as ClaudeRunnerError {
             throw error  // Invocación insegura: no se lanzó nada.
+        } catch let error as RemoteRunnerError where error.jobHost != nil {
+            throw error  // Claude puede seguir corriendo en el host: ni el guardián ni git hasta que pare.
         } catch {
             // Timeout, crash o cancelación: Claude pudo dejar cambios a medias. Como el árbol estaba limpio, se
             // descartan igual que en un `failed`. La restauración corre fuera de esta tarea para que una
@@ -440,6 +442,8 @@ public struct FixImplementer: Sendable {
         } catch let error as ClaudeRunnerError {
             _ = try? await git(worktree, ["update-ref", "-d", ref])   // Nothing was launched: git is safe.
             throw error
+        } catch let error as RemoteRunnerError where error.jobHost != nil {
+            throw error  // Claude may still be running on the host: no guard, no git until it stops.
         } catch {
             // Timeout, invalid answer, Stop: the files Claude touched in this turn are reverted (spec B.9), outside
             // this task so a cancellation doesn't cut the restore. The original error goes to the log first: if

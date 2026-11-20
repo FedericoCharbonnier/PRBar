@@ -62,20 +62,24 @@ public struct RemoteProcessRunner: ProcessRunning, StandardInputStreamingRunning
                               standardInput: stdinPath.map { .remoteFile($0) } ?? .null, pidFile: pidFile)
         let host = self.host
         let root = self.root
-        let leftovers = [pidFile] + (stdinPath.map { [$0] } ?? [])
+        let leftovers = [pidFile, RemoteExec.cancelFile(forPidFile: pidFile)] + (stdinPath.map { [$0] } ?? [])
         do {
-            let result = try await withTaskCancellationHandler {
-                try await host.run(exec, timeout: timeout, onStdoutLine: onStdoutLine)
-            } onCancel: {
-                Task.detached { await host.killGroup(pidFile: pidFile, root: root) }
-            }
+            let result = try await host.run(exec, timeout: timeout, onStdoutLine: onStdoutLine)
             Task.detached { await host.removeFiles(leftovers, root: root) }
             return result
         } catch {
-            if let prbar = error as? PRBarError, case .timedOut = prbar {
-                await Task.detached { await host.killGroup(pidFile: pidFile, root: root) }.value
+            // Stop, timeout, conexión caída o cualquier otro error: el grupo remoto puede seguir vivo. Se mata (fuera
+            // de esta tarea, para que la cancelación no lo corte) y se espera la confirmación antes de devolver: quien
+            // llama corre el guardián recién después. Sin confirmación, los restos quedan para los huérfanos.
+            let stopped = await Task.detached { () -> Bool in
+                guard await host.killGroup(pidFile: pidFile, root: root) else { return false }
+                await host.removeFiles(leftovers, root: root)
+                return true
+            }.value
+            guard stopped else {
+                AppLog.write("Remote (\(host.name)): couldn’t confirm the job stopped after: \((error as? LocalizedError)?.errorDescription ?? "\(error)")")
+                throw RemoteRunnerError.jobNotStopped(host: host.name)
             }
-            if !(error is CancellationError) { Task.detached { await host.removeFiles(leftovers, root: root) } }
             throw error
         }
     }

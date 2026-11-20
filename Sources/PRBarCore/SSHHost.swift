@@ -89,23 +89,50 @@ public struct SSHHost: Sendable {
         _ = try? await runScript("rm -f -- \(quoted)", timeout: 30)
     }
 
-    /// Stop (decisión J.7.15): SIGTERM al grupo remoto guardado en `pidFile`, y SIGKILL a los `killGracePeriod`
-    /// segundos. Nunca lanza.
-    public func killGroup(pidFile: String, root: RemoteRoot) async {
-        guard root.isRemovable(pidFile), let file = try? ShellQuote.posix(pidFile) else { return }
+    /// Stop (decisión J.7.15). Primero deja la lápida `<trabajo>.cancel` (un trabajo que todavía no escribió su pid
+    /// la ve y sale con 99 sin arrancar), después lee el pgid, SIGTERM al grupo remoto y SIGKILL a los
+    /// `killGracePeriod` segundos, y espera a que el grupo ya no exista. `true` solo si eso quedó confirmado (o el
+    /// trabajo no arrancó / ya había terminado). Reintenta si no llega al host. Nunca lanza.
+    @discardableResult
+    public func killGroup(pidFile: String, root: RemoteRoot, attempts: Int = 3) async -> Bool {
+        let cancel = RemoteExec.cancelFile(forPidFile: pidFile)
+        guard root.isRemovable(pidFile), root.isRemovable(cancel), let file = try? ShellQuote.posix(pidFile),
+              let tombstone = try? ShellQuote.posix(cancel) else { return false }
         let grace = max(1, Int(killGracePeriod.rounded(.up)))
         let script = """
-        [ -f \(file) ] || exit 0
-        pgid=$(cat -- \(file))
-        case $pgid in ''|*[!0-9]*) exit 3;; esac
+        umask 077
+        : > \(tombstone) || exit 4
+        pgid=''
+        i=0
+        while :; do
+          [ -f \(file) ] || exit 0
+          pgid=$(cat -- \(file))
+          case $pgid in ''|*[!0-9]*) ;; *) break;; esac
+          [ "$i" -ge 3 ] && exit 0
+          sleep 1; i=$((i+1))
+        done
         [ "$pgid" -gt 1 ] || exit 3
-        kill -TERM -- "-$pgid" 2>/dev/null
-        sleep \(grace)
-        kill -KILL -- "-$pgid" 2>/dev/null
+        kill -TERM -- "-$pgid" 2>/dev/null || { rm -f -- \(file); exit 0; }
+        i=0
+        while kill -0 -- "-$pgid" 2>/dev/null; do
+          [ "$i" -ge \(grace) ] && kill -KILL -- "-$pgid" 2>/dev/null
+          [ "$i" -ge \(grace + 10) ] && exit 5
+          sleep 1; i=$((i+1))
+        done
         rm -f -- \(file)
         exit 0
         """
-        _ = try? await runScript(script, timeout: killGracePeriod + 30)
+        for attempt in 0..<max(1, attempts) {
+            if attempt > 0 { try? await Task.sleep(for: .seconds(1)) }
+            do {
+                return try await runScript(script, timeout: killGracePeriod + 30).status == 0
+            } catch RemoteRunnerError.unreachable {
+                continue
+            } catch {
+                return false
+            }
+        }
+        return false
     }
 
     /// `ssh -O exit` (al sacar el destino). Nunca lanza.

@@ -105,5 +105,53 @@ enum RemoteProcessRunnerTests {
             }
             try expect(!alive)
         },
+        TestCase("remote runner: Stop antes de que el trabajo escriba su pid: el trabajo no arranca") {
+            let (ssh, host, _, root) = try await verifiedFake()
+            defer { ssh.remove() }
+            let pidFile = try root.child(["jobs", "early.pid"])
+            let stopped = await host.killGroup(pidFile: pidFile, root: root)
+            try expect(stopped, "sin pid, la lápida alcanza para confirmar")
+            let marker = ssh.home.appendingPathComponent("ran")
+            let result = try await host.run(RemoteExec(argv: ["/usr/bin/touch", marker.path], environment: [.literal("PATH", "/usr/bin:/bin")],
+                                                       pidFile: pidFile), timeout: 10)
+            try expectEqual(result.status, 99)
+            try expect(!FileManager.default.fileExists(atPath: marker.path), "el trabajo corrió después del Stop")
+        },
+        TestCase("remote runner: si se cae la conexión, el grupo remoto muere antes de devolver y no quedan restos") {
+            let (ssh, host, info, root) = try await verifiedFake()
+            defer { ssh.remove() }
+            try ssh.installTool("slow", "#!/bin/sh\nprintf '%s\\n' \"$$\" > \"$HOME/slow.pid\"\nexec sleep 60\n")
+            let runner = RemoteProcessRunner(host: host, root: root, toolDirectories: info.toolDirectories)
+            try Data("bin/slow".utf8).write(to: ssh.dropNext)
+            let error = try await expectThrows {
+                _ = try await runner.runStreamingIsolated(ssh.home.appendingPathComponent("bin/slow").path, [], environment: [:],
+                                                          currentDirectory: nil, timeout: 30, standardInput: Data("prompt".utf8)) { _ in }
+            }
+            guard case .unreachable? = error as? RemoteRunnerError else { throw TestFailure(description: "\(error)") }
+            let pid = Int32(try String(contentsOf: ssh.home.appendingPathComponent("slow.pid"), encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines))!
+            var alive = kill(pid, 0) == 0
+            for _ in 0..<10 where alive {   // Solo lo que tarda el padre de mentira en cosechar al hijo.
+                try await Task.sleep(for: .milliseconds(100))
+                alive = kill(pid, 0) == 0
+            }
+            try expect(!alive, "el proceso remoto \(pid) sigue vivo después de devolver")
+            var leftovers = ["?"]
+            for _ in 0..<30 where !leftovers.isEmpty {
+                try await Task.sleep(for: .milliseconds(100))
+                leftovers = try FileManager.default.contentsOfDirectory(atPath: root.tmp).filter { $0.hasSuffix(".stdin") }
+                    + FileManager.default.contentsOfDirectory(atPath: root.jobs)
+            }
+            try expectEqual(leftovers, [])
+        },
+        TestCase("remote runner: si no se puede confirmar el Stop, el error lo dice (y el guardián no debe correr)") {
+            let (ssh, _, info, root) = try await verifiedFake()
+            defer { ssh.remove() }
+            let runner = RemoteProcessRunner(host: try ssh.host(unreachable: true), root: root, toolDirectories: info.toolDirectories)
+            let error = try await expectThrows {
+                _ = try await runner.runStreamingIsolated("/bin/true", [], environment: [:], currentDirectory: nil, timeout: 30) { _ in }
+            }
+            guard case .jobNotStopped? = error as? RemoteRunnerError else { throw TestFailure(description: "\(error)") }
+        },
     ]
 }

@@ -486,6 +486,34 @@ enum FixImplementerTests {
             try expectEqual(repo.read("README.md"), "hola\n")
             try expectEqual(try repo.status(), "")
         },
+        TestCase("fix implementer: si no se confirmó que Claude paró en el host, no se restaura nada (ni corre el guardián) y se corta") {
+            let repo = try FixRepo.make()
+            defer { repo.remove() }
+            let items = [item("thread:A", marker: "MARK-A"), item("thread:B", marker: "MARK-B")]
+            let claude = fakeClaude([
+                Script(marker: "MARK-A", action: { cwd in
+                    try edit("README.md", "a medias\n")(cwd)
+                    throw RemoteRunnerError.jobNotStopped(host: "devbox")
+                }, line: ""),
+                Script(marker: "MARK-B", action: edit("b.txt", "b\n"), line: fixLine("done", message: "B")),
+            ])
+            let error = try await expectThrows {
+                _ = try await run(implementer(claude, log: try logURL()), try draft(repo, items: items), selections(items))
+            }
+            try expectEqual(error as? RemoteRunnerError, .jobNotStopped(host: "devbox"))
+            try expectEqual(repo.read("README.md"), "a medias\n")
+            try expectEqual(repo.read("b.txt"), nil)
+            _ = try repo.git(["checkout", "--", "."])
+
+            let chat = try await expectThrows {
+                _ = try await implementer(fakeClaude([]), log: try logURL())
+                    .chatTurn(draft: try draft(repo, items: []), current: RespondResult(items: [], diffStat: "", tests: nil),
+                              sessionID: UUID(), turn: 1) { () async throws -> String in
+                        throw RemoteRunnerError.jobNotStopped(host: "devbox")
+                    }
+            }
+            try expectEqual(chat as? RemoteRunnerError, .jobNotStopped(host: "devbox"))
+        },
         TestCase("fix implementer: si Claude toca .git (config o hooks) se corta sin correr git ni sus hooks") {
             for target in [".git/hooks/pre-commit", ".git/config"] {
                 let repo = try FixRepo.make()

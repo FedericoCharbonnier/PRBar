@@ -13,6 +13,13 @@ public enum RemoteRunnerError: Error, Equatable, LocalizedError {
     case guardFailed(host: String, detail: String)
     case malformedOutput(host: String, what: String)
     case importMismatch(String)
+    case jobNotStopped(host: String)
+
+    /// El host de un `.jobNotStopped`.
+    public var jobHost: String? {
+        if case .jobNotStopped(let host) = self { return host }
+        return nil
+    }
 
     public var errorDescription: String? {
         switch self {
@@ -30,6 +37,8 @@ public enum RemoteRunnerError: Error, Equatable, LocalizedError {
         case .guardFailed(let host, let detail): "PRBar’s integrity check failed on \(host): \(detail)"
         case .malformedOutput(let host, let what): "\(host) returned an unexpected \(what)."
         case .importMismatch(let detail): "The commits from the server don’t match what you reviewed: \(detail) Nothing was pushed."
+        case .jobNotStopped(let host):
+            "PRBar lost the connection to \(host) and couldn’t confirm Claude stopped there. The worktree was left as is; PRBar will clean it up when it can reach \(host) again."
         }
     }
 }
@@ -92,6 +101,11 @@ public struct RemoteExec: Sendable {
         return !path.contains("/")
     }
 
+    /// La lápida de Stop de un trabajo: `<trabajo>.cancel` al lado de `<trabajo>.pid`.
+    public static func cancelFile(forPidFile pidFile: String) -> String {
+        (pidFile.hasSuffix(".pid") ? String(pidFile.dropLast(4)) : pidFile) + ".cancel"
+    }
+
     public func script() throws -> String {
         guard let program = argv.first, Self.isValidExecutable(program) else {
             throw ShellQuote.Failure.invalidExecutable(argv.first ?? "")
@@ -102,6 +116,8 @@ public struct RemoteExec: Sendable {
             lines.append("pgid=$(ps -o pgid= -p $$ | tr -d ' ')")
             lines.append("case $pgid in ''|*[!0-9]*) exit 98;; esac")
             lines.append("printf '%s\\n' \"$pgid\" > \(try ShellQuote.posix(pidFile)) || exit 98")
+            // Después de escribir el pid: un Stop que llegó antes (y no pudo leerlo) dejó la lápida.
+            lines.append("[ -e \(try ShellQuote.posix(Self.cancelFile(forPidFile: pidFile))) ] && exit 99")
         }
         var command = "exec "
         if let environment {
