@@ -67,7 +67,15 @@ extension StreamingProcessRunning {
     }
 }
 
-public struct SystemProcessRunner: ProcessRunning, StreamingProcessRunning {
+/// stdin desde un archivo y/o stdout a un archivo (binario). Con `standardOutput`, `ProcessResult.stdout` queda vacío
+/// y `onStdoutLine` tiene que ser nil.
+public protocol FileIOProcessRunning: Sendable {
+    func runWithFiles(_ executable: String, _ arguments: [String], environment: [String: String]?, currentDirectory: URL?,
+                      timeout: TimeInterval?, standardInput: URL?, standardOutput: URL?,
+                      onStdoutLine: (@Sendable (String) -> Void)?) async throws -> ProcessResult
+}
+
+public struct SystemProcessRunner: ProcessRunning, StreamingProcessRunning, FileIOProcessRunning {
     /// Tokens de GitHub que nunca se heredan del entorno de la app: solo llegan a un proceso si se pasan
     /// explícitamente en `environment` (p. ej. `GH_TOKEN` para `gh pr diff`).
     public static let unheritedVariables = ["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"]
@@ -106,6 +114,14 @@ public struct SystemProcessRunner: ProcessRunning, StreamingProcessRunning {
                           currentDirectory: currentDirectory, timeout: timeout, onStdoutLine: onStdoutLine)
     }
 
+    public func runWithFiles(_ executable: String, _ arguments: [String], environment: [String: String]?, currentDirectory: URL?,
+                             timeout: TimeInterval?, standardInput: URL?, standardOutput: URL?,
+                             onStdoutLine: (@Sendable (String) -> Void)?) async throws -> ProcessResult {
+        precondition(standardOutput == nil || onStdoutLine == nil, "stdout goes to a file or to lines, not both")
+        return try await execute(executable, arguments, environment: environment, currentDirectory: currentDirectory, timeout: timeout,
+                                 onStdoutLine: onStdoutLine, standardInput: standardInput, standardOutput: standardOutput)
+    }
+
     /// Camino único de `run` y `runStreaming`: sin callback no se arma el separador de líneas.
     /// `inherit == false`: el proceso recibe solo `environment` (nada del entorno de la app).
     private func execute(
@@ -115,7 +131,9 @@ public struct SystemProcessRunner: ProcessRunning, StreamingProcessRunning {
         inherit: Bool = true,
         currentDirectory: URL?,
         timeout: TimeInterval?,
-        onStdoutLine: (@Sendable (String) -> Void)?
+        onStdoutLine: (@Sendable (String) -> Void)?,
+        standardInput: URL? = nil,
+        standardOutput: URL? = nil
     ) async throws -> ProcessResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
@@ -124,11 +142,21 @@ public struct SystemProcessRunner: ProcessRunning, StreamingProcessRunning {
         for key in Self.unheritedVariables { inherited[key] = nil }
         process.environment = inherited.merging(environment ?? [:]) { _, new in new }
         if let currentDirectory { process.currentDirectoryURL = currentDirectory }
-        let out = Pipe()
+        let out: Pipe? = standardOutput == nil ? Pipe() : nil
         let err = Pipe()
-        process.standardOutput = out
+        var outputHandle: FileHandle?
+        if let standardOutput {
+            guard FileManager.default.createFile(atPath: standardOutput.path, contents: nil, attributes: [.posixPermissions: 0o600]) else {
+                throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: standardOutput.path])
+            }
+            outputHandle = try FileHandle(forWritingTo: standardOutput)
+            process.standardOutput = outputHandle
+        } else {
+            process.standardOutput = out
+        }
         process.standardError = err
-        process.standardInput = FileHandle.nullDevice
+        let inputHandle = try standardInput.map { try FileHandle(forReadingFrom: $0) }
+        process.standardInput = inputHandle ?? FileHandle.nullDevice
 
         let control = ProcessControl(grace: killGracePeriod)
         let command = ([URL(fileURLWithPath: executable).lastPathComponent] + arguments).joined(separator: " ")
@@ -149,12 +177,14 @@ public struct SystemProcessRunner: ProcessRunning, StreamingProcessRunning {
                 DispatchQueue.global().async {
                     var splitter = onStdoutLine.map { LineSplitter(emit: $0) }
                     let (stdout, stderr) = PipeDrainer.drain(
-                        out.fileHandleForReading.fileDescriptor,
+                        out?.fileHandleForReading.fileDescriptor,
                         err.fileHandleForReading.fileDescriptor,
                         hasExited: { control.hasExited },
                         onStdout: splitter == nil ? nil : { splitter?.append($0) }
                     )
                     control.waitUntilExited()
+                    try? inputHandle?.close()
+                    try? outputHandle?.close()
                     // La última línea sin `\n` se entrega solo si el proceso terminó solo: tras un timeout
                     // o una cancelación quedaría cortada a la mitad.
                     if control.stopReason == nil { splitter?.finish() }
@@ -252,9 +282,13 @@ private final class ProcessControl: @unchecked Sendable {
 /// heredó el pipe, se vacía lo que haya y se sigue.
 private enum PipeDrainer {
     /// `onStdout` recibe cada bloque de bytes de stdout apenas se lee.
-    static func drain(_ outFD: Int32, _ errFD: Int32, hasExited: () -> Bool, onStdout: ((ArraySlice<UInt8>) -> Void)? = nil) -> (Data, Data) {
-        var buffers: [Int32: Data] = [outFD: Data(), errFD: Data()]
-        var open: Set<Int32> = [outFD, errFD]
+    static func drain(_ outFD: Int32?, _ errFD: Int32, hasExited: () -> Bool, onStdout: ((ArraySlice<UInt8>) -> Void)? = nil) -> (Data, Data) {
+        var buffers: [Int32: Data] = [errFD: Data()]
+        var open: Set<Int32> = [errFD]
+        if let outFD {
+            buffers[outFD] = Data()
+            open.insert(outFD)
+        }
         for fd in open { _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK) }
 
         var chunk = [UInt8](repeating: 0, count: 64 * 1024)
@@ -285,7 +319,7 @@ private enum PipeDrainer {
             for fd in open { readAvailable(fd) }
             if exited { break }
         }
-        return (buffers[outFD] ?? Data(), buffers[errFD] ?? Data())
+        return (outFD.flatMap { buffers[$0] } ?? Data(), buffers[errFD] ?? Data())
     }
 }
 
