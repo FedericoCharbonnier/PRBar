@@ -766,7 +766,7 @@ Plan: `2026-11-19-prbar-plan-12-popover-tabs.md`. Va después de G.
 - Las secciones vacías no se muestran (como hoy). Si una pestaña queda vacía: estado vacío propio ("Nothing to review 🎉" / "No PRs of yours need anything").
 - La pestaña elegida se recuerda entre aperturas (`UserDefaults`, `popoverTab`). ⌘1 / ⌘2 cambian de pestaña con el popover abierto.
 - El badge de la barra de menú no cambia (suma las dos pestañas).
-- Las notificaciones que abren el popover seleccionan la pestaña del PR.
+- Las notificaciones que abren el popover seleccionan la pestaña del PR (solo para la próxima apertura, sin guardarla: H.4.7).
 
 ### H.2 CLI
 

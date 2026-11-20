@@ -10,22 +10,24 @@ Con PRBar instalada (`Scripts/bundle.sh --install`) y al menos una cuenta con PR
 - [ ] Con algo pendiente en la pestaña no elegida, su etiqueta termina en "•"; al elegirla, el punto desaparece.
 - [ ] Sin nada para revisar: "Nothing to review 🎉" (y Other debajo si hay). Sin nada en mis PRs: "No PRs of yours need anything".
 - [ ] Sin cuenta configurada, sin `gh` u offline sin datos: el control no aparece.
-- [ ] VoiceOver lee "My PRs, 2 need your action".
+- [ ] VoiceOver lee "My PRs, 2 need your action, has pending items" en la pestaña no elegida con algo pendiente, y el valor del control describe las dos ("To Review selected, …; My PRs, …").
+- [ ] Waiting for Review dice "nothing to do right now".
 
 ## B. Recordar y teclado
 - [ ] Elegir My PRs, cerrar y abrir el popover: sigue en My PRs. Salir de PRBar y volver a abrirla: sigue en My PRs (`defaults read <bundle id> popoverTab` dice `mine`).
-- [ ] Con el popover abierto, ⌘1 va a To Review y ⌘2 a My PRs.
+- [ ] Con el popover abierto, ⌘1 va a To Review y ⌘2 a My PRs. Con "Set Up an Account" / "Loading PRs…" no hacen nada.
 - [ ] Colapsar/expandir Other y Waiting for Review funciona en cada pestaña.
 
 ## C. Notificaciones
-- [ ] Con To Review elegida, hacer clic en una notificación de un PR propio (p. ej. "ready to merge" o "Responder"): hace lo de siempre (abre la ventana o GitHub) y, al abrir el popover, está en My PRs.
+- [ ] Con To Review elegida, hacer clic en una notificación de un PR propio (p. ej. "ready to merge" o "Responder"): hace lo de siempre (abre la ventana o GitHub) y, al abrir el popover, está en My PRs. Al cerrarlo y volver a abrirlo, vuelve a To Review (`defaults read <bundle id> popoverTab` sigue en `to-review`).
 - [ ] Una notificación agrupada ("3 PRs to review") no cambia la pestaña.
 
 ## D. CLI (con `PRBAR_SOCKET` de la PRBar instalada; nunca contra otra)
 - [ ] `prbar prs --tab mine` lista solo mis PRs; la columna Section dice "Waiting for Review" para los que esperan review.
 - [ ] `prbar prs --tab to-review --list mine` sale con error de uso ("--list mine isn’t in the To Review tab.").
-- [ ] `prbar status` muestra "To Review N · My PRs N".
-- [ ] `prbar app popover --tab mine` abre el popover en My PRs. Con el popover ya abierto, no lo cierra.
+- [ ] `prbar status` muestra "To Review N · My PRs N" y las filas Other y Waiting for Review por separado.
+- [ ] `prbar prs --json` trae `section` `otherToReview` / `waitingForReview`.
+- [ ] `prbar app popover --tab mine` abre el popover en My PRs y dice "Showing My PRs."; después ⌘1/⌘2 funcionan. Con el popover ya abierto, no lo cierra.
 - [ ] `prbar` de antes de este plan contra la app nueva (o al revés) dice que hay que actualizar (protocolo 4).
 
 ## E. Capturas
