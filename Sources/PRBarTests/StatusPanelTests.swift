@@ -99,5 +99,12 @@ enum StatusPanelTests {
             try expectEqual(PopoverRowNavigation.keep("b", in: ["a"]), nil)
             try expectEqual(PopoverRowNavigation.keep(nil, in: ["a"]), nil)
         },
+        TestCase("quit: pregunta solo con trabajos corriendo y si lo pidió el usuario") {
+            try expect(QuitConfirmation.shouldAsk(activeJobs: 2, programmatic: false))
+            try expect(!QuitConfirmation.shouldAsk(activeJobs: 0, programmatic: false))
+            try expect(!QuitConfirmation.shouldAsk(activeJobs: 3, programmatic: true))
+            try expectEqual(QuitConfirmation.title(activeJobs: 1), "Quit PRBar while a job is running?")
+            try expectEqual(QuitConfirmation.title(activeJobs: 3), "Quit PRBar while 3 jobs are running?")
+        },
     ]
 }

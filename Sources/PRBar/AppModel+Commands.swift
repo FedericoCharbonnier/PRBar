@@ -255,7 +255,7 @@ extension AppModel: StatusActions {
 
     /// Contesta antes de salir.
     func quit() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { NSApp.terminate(nil) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { QuitRequest.terminateWithoutAsking() }
     }
 }
 

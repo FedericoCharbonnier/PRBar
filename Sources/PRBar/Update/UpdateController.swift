@@ -218,7 +218,7 @@ final class UpdateController: ObservableObject {
         } catch {
             throw UpdateError.relaunchFailed(release.version.description)
         }
-        NSApp.terminate(nil)
+        QuitRequest.terminateWithoutAsking()
     }
 
     // MARK: Arranque

@@ -32,4 +32,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         WindowPresenter.shared.installMainMenu()
         model.showPopover = { [weak statusItem] in statusItem?.show() ?? false }
     }
+
+    /// ⌘Q (menu, popover, Dock) while jobs are running asks first: quitting cancels them. `prbar app quit`, the
+    /// updater's relaunch and a logout/restart don't ask.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let model else { return .terminateNow }
+        let systemQuit = NSAppleEventManager.shared().currentAppleEvent?
+            .attributeDescriptor(forKeyword: AEKeyword(kAEQuitReason)) != nil
+        let activeJobs = model.activeJobCount
+        guard QuitConfirmation.shouldAsk(activeJobs: activeJobs, programmatic: QuitRequest.skipsConfirmation || systemQuit)
+        else { return .terminateNow }
+        // From the menu bar panel the app isn't active: the alert needs it, on the Space the user is on.
+        NSApp.activate()
+        let alert = ConfirmAlert.make(title: QuitConfirmation.title(activeJobs: activeJobs),
+                                      message: QuitConfirmation.message, action: "Quit")
+        alert.window.collectionBehavior.insert([.moveToActiveSpace, .fullScreenAuxiliary])
+        return ConfirmAlert.confirmed(alert.runModal()) ? .terminateNow : .terminateCancel
+    }
+}
+
+/// Quits that don't ask even with jobs running (`QuitConfirmation`).
+@MainActor
+enum QuitRequest {
+    static var skipsConfirmation = false
+
+    /// `prbar app quit` and the updater's relaunch.
+    static func terminateWithoutAsking() {
+        skipsConfirmation = true
+        NSApp.terminate(nil)
+    }
 }
