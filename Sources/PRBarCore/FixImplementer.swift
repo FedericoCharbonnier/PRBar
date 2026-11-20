@@ -742,6 +742,11 @@ public struct FixImplementer: Sendable {
             let roots = [commonDir] + (adminDir.map { [$0] } ?? [])
             var seen = Set(configs)
             while let config = configs.popLast() {
+                // Límite conocido (aceptado en la revisión de seguridad del Plan 14): un config de más de 1 MiB no se
+                // lee, así que sus includes no se siguen. El config mismo sí queda en la huella (cualquier cambio
+                // corta), y un config así de grande no lo arma PRBar ni git; solo quedaría sin cubrir un include,
+                // ya presente antes de Claude, a un archivo dentro de las carpetas de git fuera de los árboles que
+                // ya se describen.
                 let text = try await fs.readText(config, limit: 1 << 20)
                 for target in Self.includedPaths(text: text, configPath: config, home: fs.home) where !seen.contains(target) {
                     seen.insert(target)
