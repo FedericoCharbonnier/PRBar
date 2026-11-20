@@ -20,12 +20,14 @@ public struct RepoConfig: Hashable, Codable, Sendable, Identifiable {
     public var ignorePaths: [String]
     /// Método de merge fijado para el repo (spec F.5); `nil` = el de GitHub (`viewerDefaultMergeMethod`).
     public var mergeMethod: MergeMethod?
+    /// Dónde corre Claude para este repo (spec J.1); nil = "Default".
+    public var runOn: RunTarget?
 
     public init(
         owner: String, name: String, localPath: String? = nil, baseBranches: [String] = [],
         slackChannelID: String? = nil, slackChannelName: String? = nil, slackEnabledAt: Date? = nil,
         watchedUsers: [String] = [], worktreeDir: String? = nil, testCommand: String? = nil,
-        ignorePaths: [String] = [], mergeMethod: MergeMethod? = nil
+        ignorePaths: [String] = [], mergeMethod: MergeMethod? = nil, runOn: RunTarget? = nil
     ) {
         self.owner = owner
         self.name = name
@@ -39,6 +41,7 @@ public struct RepoConfig: Hashable, Codable, Sendable, Identifiable {
         self.testCommand = testCommand
         self.ignorePaths = ignorePaths
         self.mergeMethod = mergeMethod
+        self.runOn = runOn
     }
 
     public var repo: RepoRef { RepoRef(owner: owner, name: name) }
@@ -48,6 +51,7 @@ public struct RepoConfig: Hashable, Codable, Sendable, Identifiable {
         case owner, name, localPath, baseBranches, slackChannelID, slackChannelName, slackEnabledAt, watchedUsers
         case worktreeDir, testCommand, ignorePaths
         case mergeMethod
+        case runOn
     }
 
     public init(from decoder: Decoder) throws {
@@ -65,6 +69,7 @@ public struct RepoConfig: Hashable, Codable, Sendable, Identifiable {
         ignorePaths = (try? c.decodeIfPresent([String].self, forKey: .ignorePaths)) ?? []
         // Un valor desconocido (p. ej. de una versión más nueva) cuenta como "el de GitHub".
         mergeMethod = try? c.decodeIfPresent(MergeMethod.self, forKey: .mergeMethod)
+        runOn = try? c.decodeIfPresent(RunTarget.self, forKey: .runOn)
     }
 }
 
@@ -473,12 +478,14 @@ public struct AppConfig: Hashable, Codable, Sendable {
     public var slack = SlackSettings()
     public var claude = ClaudeSettings()
     public var updates = UpdateSettings()
+    public var runners = RunnerSettings()
 
     public init() {}
 
     enum CodingKeys: String, CodingKey {
         // `merge` (`{"confirm": …}`, F.5) se quitó en el Plan 11 (spec G.1): la clave vieja se ignora al leer.
         case accounts, refreshIntervalMinutes, launchAtLogin, notifications, toolPaths, slack, claude, updates
+        case runners
     }
 
     public init(from decoder: Decoder) throws {
@@ -491,6 +498,7 @@ public struct AppConfig: Hashable, Codable, Sendable {
         slack = try c.decodeIfPresent(SlackSettings.self, forKey: .slack) ?? SlackSettings()
         claude = (try? c.decodeIfPresent(ClaudeSettings.self, forKey: .claude)) ?? ClaudeSettings()
         updates = (try? c.decodeIfPresent(UpdateSettings.self, forKey: .updates)) ?? UpdateSettings()
+        runners = (try? c.decodeIfPresent(RunnerSettings.self, forKey: .runners)) ?? RunnerSettings()
     }
 }
 
