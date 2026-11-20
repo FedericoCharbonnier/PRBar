@@ -60,6 +60,9 @@ enum UIActionInventory {
         .init("Popover/PopoverView.swift", "Button", "Settings…", 2, .cli(["app settings"])),
         .init("Popover/PopoverView.swift", "Button", "Quit PRBar", 2, .cli(["app quit"])),
         .init("Popover/PopoverView.swift", "IconButton", "-", 1, .cli(["refresh"])),
+        .init("Popover/PopoverView.swift", "Picker", "Tab", 1, .cli(["app popover", "prs"])),   // --tab
+        .init("Popover/PopoverView.swift", "Button", "To Review", 1, .cli(["app popover"])),   // ⌘1
+        .init("Popover/PopoverView.swift", "Button", "My PRs", 1, .cli(["app popover"])),   // ⌘2
         .init("Popover/PRRowView.swift", "Button", "-", 1, .cli(["open"])),   // la fila
         .init("Popover/PRRowView.swift", "Button", "Merge…", 1, .cli(["open", "merge"])),   // abre la ventana de Merge (open --merge)
         .init("Popover/PRRowView.swift", "Button", "Open on GitHub", 1, .cli(["open"])),
@@ -304,7 +307,9 @@ enum UIActionInventory {
         .init("Popover/PRRowView.swift", "Component:RespondButtonActions", "-", 2,
               .cli(["respond start", "respond cancel", "open", "respond dismiss"])),
         .init("Popover/PRRowView.swift", "Component:MergeButtonActions", "-", 2, .cli(["merge"])),   // merge, retry, --dismiss
-        .init("Popover/PopoverView.swift", "Component:MessageView", "-", 4, .cli(["app settings", "refresh"])),   // Open Settings, Try Again
+        .init("Popover/PopoverView.swift", "Component:MessageView", "-", 3, .cli(["app settings", "refresh"])),   // Open Settings, Try Again
+        .init("Popover/PopoverView.swift", "Component:MessageView", "checkmark.seal", 1, .viewOnly("a tab’s empty state, no action")),
+        .init("Popover/PopoverView.swift", "Component:WindowAccessor", "-", 1, .viewOnly("tracks the popover’s window")),
         .init("Popover/PopoverView.swift", "Component:SectionHeader", "-", 1, .viewOnly("collapses a section")),
         .init("Popover/PopoverView.swift", "Component:UpdateRow", "-", 1, .cli(["update"])),
         .init("Chat/ChatPanel.swift", "Component:ChatMessageRow", "-", 2, .cli(["chat", "rules chat"])),   // Undo (--undo)

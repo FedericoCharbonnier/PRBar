@@ -6,7 +6,8 @@ struct PRBarApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            PopoverView(model: model, prStore: model.prStore, configStore: model.configStore, slack: model.slack)
+            PopoverView(model: model, prStore: model.prStore, configStore: model.configStore, slack: model.slack,
+                        tabs: model.popoverTab)
         } label: {
             MenuBarLabel(prStore: model.prStore)
         }

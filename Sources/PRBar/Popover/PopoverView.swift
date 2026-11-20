@@ -7,18 +7,24 @@ struct PopoverView: View {
     @ObservedObject var prStore: PRStore
     @ObservedObject var configStore: ConfigStore
     @ObservedObject var slack: SlackAnnouncer
-    @State private var collapsed: Set<PRCategory> = [.other]
-
-    private let actionable: [PRCategory] = [.toReview, .updatedSinceMyReview, .myFeedback, .readyToMerge]
+    @ObservedObject var tabs: PopoverTabState
+    @State private var collapsed: Set<PopoverSection> = [.otherToReview, .waitingForReview]
 
     var body: some View {
         VStack(spacing: 0) {
             header
+            if showsTabs {
+                tabPicker
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 8)
+            }
             Divider().padding(.bottom, 4)
             content
+            // Acá, debajo del contenido y visible en las dos pestañas, va el pie de recursos (Plan 13, spec I).
             UpdateRow(updates: model.updates) { model.openUpdateWindow() }
         }
         .frame(width: Theme.popoverWidth)
+        .background(WindowAccessor { window in model.popoverWindow = window })
     }
 
     // MARK: Header
@@ -70,6 +76,29 @@ struct PopoverView: View {
         .background { keyboardShortcuts }
     }
 
+    /// El control solo tiene sentido con la lista de PRs (decisión H.4.6): no con "Set Up an Account", "GitHub CLI
+    /// not found", "Offline" sin datos ni "Loading PRs…".
+    private var showsTabs: Bool {
+        guard let snapshot = prStore.snapshot else { return false }
+        return configStore.config.accounts.contains(where: \.enabled)
+            && !(model.toolsResolved && model.tools.gh == nil)
+            && !(snapshot.failedCompletely && snapshot.items.isEmpty)
+    }
+
+    private var tabPicker: some View {
+        let counts = PopoverTabs.counts(in: prStore.snapshot)
+        return Picker("Tab", selection: $tabs.selected) {
+            ForEach(PopoverTab.allCases) { tab in
+                Text(PopoverTabs.label(tab, count: counts[tab] ?? 0, selected: tab == tabs.selected))
+                    .accessibilityLabel(PopoverTabs.accessibilityLabel(tab, count: counts[tab] ?? 0))
+                    .tag(tab)
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .help("⌘1 To Review · ⌘2 My PRs")
+    }
+
     /// Los atajos del menú ⚙︎ también tienen que andar con el menú cerrado: un `Menu` solo atiende los de sus
     /// ítems mientras está abierto, así que se repiten en botones invisibles.
     private var keyboardShortcuts: some View {
@@ -80,6 +109,10 @@ struct PopoverView: View {
                 .keyboardShortcut(",", modifiers: .command)
             Button("Quit PRBar") { NSApp.terminate(nil) }
                 .keyboardShortcut("q", modifiers: .command)
+            Button("To Review") { tabs.selected = .toReview }
+                .keyboardShortcut("1", modifiers: .command)
+            Button("My PRs") { tabs.selected = .mine }
+                .keyboardShortcut("2", modifiers: .command)
         }
         .opacity(0)
         .allowsHitTesting(false)
@@ -156,7 +189,11 @@ struct PopoverView: View {
     }
 
     private func list(_ snapshot: Snapshot) -> some View {
-        ScrollView {
+        let tab = tabs.selected
+        let sections = PopoverTabs.sections(tab).filter { !PopoverTabs.items($0, in: snapshot).isEmpty }
+        let loud = sections.filter { !$0.isQuiet }
+        let quiet = sections.filter(\.isQuiet)
+        return ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 if snapshot.failedCompletely {
                     ErrorBanner(messages: ["Offline. Showing data from \(RelativeAge.short(from: snapshot.fetchedAt)) ago."])
@@ -167,23 +204,16 @@ struct PopoverView: View {
                 if !slack.issues.isEmpty {
                     IssuesBanner(groups: [(account: "Slack", issues: slack.issues)])
                 }
-
-                let sections = actionable.filter { !snapshot.items(in: $0).isEmpty }
-                if sections.isEmpty {
-                    MessageView(
-                        icon: "checkmark.seal", iconColor: Theme.green,
-                        title: "All Caught Up",
-                        text: "No PRs are waiting for your review and there’s no new feedback on yours."
-                    )
+                if loud.isEmpty {
+                    let empty = PopoverTabs.emptyState(tab)
+                    MessageView(icon: "checkmark.seal", iconColor: Theme.green, title: empty.title, text: empty.text)
                 }
-                ForEach(sections) { category in
-                    section(category, items: snapshot.items(in: category))
+                ForEach(loud) { section in
+                    self.section(section, items: PopoverTabs.items(section, in: snapshot))
                 }
-
-                let others = snapshot.items(in: .other)
-                if !others.isEmpty {
+                ForEach(quiet) { section in
                     Divider().padding(.vertical, 4)
-                    section(.other, items: others, dimmed: true)
+                    self.section(section, items: PopoverTabs.items(section, in: snapshot))
                 }
             }
             .padding(.bottom, 6)
@@ -193,19 +223,19 @@ struct PopoverView: View {
     }
 
     @ViewBuilder
-    private func section(_ category: PRCategory, items: [ClassifiedPR], dimmed: Bool = false) -> some View {
+    private func section(_ section: PopoverSection, items: [ClassifiedPR]) -> some View {
         SectionHeader(
-            title: category == .other ? "Other" : category.title,
-            subtitle: category == .other ? "drafts and nothing to do" : nil,
+            title: section.title,
+            subtitle: section.subtitle,
             count: items.count,
-            collapsed: collapsed.contains(category),
-            dimmed: dimmed
+            collapsed: collapsed.contains(section),
+            dimmed: section.isQuiet
         ) {
-            if collapsed.contains(category) { collapsed.remove(category) } else { collapsed.insert(category) }
+            if collapsed.contains(section) { collapsed.remove(section) } else { collapsed.insert(section) }
         }
-        if !collapsed.contains(category) {
+        if !collapsed.contains(section) {
             ForEach(items) { item in
-                PRRowView(item: item, dimmed: dimmed, model: model, reviews: model.reviews, respond: model.respond,
+                PRRowView(item: item, dimmed: section.isQuiet, model: model, reviews: model.reviews, respond: model.respond,
                           merges: model.merges, updateSession: model.updates.session)
             }
         }
