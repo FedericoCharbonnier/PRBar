@@ -70,9 +70,12 @@ struct ReviewWindow: View {
         return pr.pr.headOid != draft.headOid
     }
 
+    /// Publicado desde esta ventana o desde la CLI (`prbar review publish`).
+    private var shownResult: PublishedReview? { result ?? model.publishedReviews[draft.id] }
+
     /// Something would be lost if the window is replaced: nothing was posted and the edits aren't the initial ones.
     private var hasUnsavedChanges: Bool {
-        result == nil && chat.reviewEdits != initialEdits
+        shownResult == nil && chat.reviewEdits != initialEdits
     }
 
     private var items: [ReviewItem] { chat.reviewEdits.items(of: draft) }
@@ -95,7 +98,7 @@ struct ReviewWindow: View {
                 .background(RoundedRectangle(cornerRadius: Theme.Radius.card).fill(Theme.tint(Theme.violet)))
                 .padding(.horizontal, 20)
                 .padding(.bottom, 12)
-            if let result {
+            if let result = shownResult {
                 ReviewPublishedView(result: result, close: close, model: model, repo: draft.repo)
             } else {
                 editor
@@ -103,9 +106,9 @@ struct ReviewWindow: View {
         }
         .frame(minWidth: 600, maxWidth: .infinity, minHeight: 480, maxHeight: .infinity, alignment: .top)
         .onChange(of: hasUnsavedChanges, initial: true) { _, unsaved in reportUnsaved(unsaved) }
-        // Spec B.2: the chat waits while posting; after posting it stays read only and its worktree goes away.
-        .onChange(of: publishing, initial: true) { _, busy in chat.setLock(busy ? "Posting the review…" : nil) }
-        .onChange(of: result != nil, initial: true) { _, posted in if posted { chat.markReadOnly() } }
+        // Spec B.2: the chat waits while posting (`AppModel.publishReview` locks it); after posting it stays read only
+        // and its worktree goes away.
+        .onChange(of: shownResult != nil, initial: true) { _, posted in if posted { chat.markReadOnly() } }
         .inspector(isPresented: Binding(get: { showsChat && model.chatEnabled }, set: { showsChat = $0 })) {
             ChatPanel(chat: chat, unavailableReason: model.chatUnavailableReason,
                       notice: isOutdated ? "This review is for an older commit." : nil,
@@ -340,22 +343,16 @@ struct ReviewWindow: View {
 
     /// Si falla, el error se muestra y la selección y lo editado quedan como estaban (spec §8.7).
     /// `withComments: false` publica solo el veredicto (sin comentarios inline ni cuerpo) y deja la selección y
-    /// los textos de la ventana como están.
+    /// los textos de la ventana como están. `AppModel.publishReview` arma lo publicado (lo mismo que usa la CLI).
     private func publish(_ event: ReviewEvent, allInBody: Bool = false, withComments: Bool = true) {
         guard !publishing else { return }
         publishing = true
         error = nil
         inlineRejected = nil
-        let comments = withComments ? chat.reviewEdits.selectedComments(of: draft) : []
-        let general = withComments ? self.general : ""
-        // "Approve Without Comments" isn't an opinion on the findings: nothing is recorded (plan decision 10).
-        let discarded = withComments ? chat.reviewEdits.userDiscarded(of: draft) : []
         Task { @MainActor in
             do {
-                result = try await model.publish(
-                    draft: draft, selected: comments, general: general, event: event, allInBody: allInBody || isOutdated,
-                    userDiscarded: discarded
-                )
+                result = try await model.publishReview(draft: draft, event: event, withComments: withComments,
+                                                       allInBody: allInBody)
             } catch {
                 self.error = error.localizedDescription
                 if error is InlineCommentsRejected { inlineRejected = event }

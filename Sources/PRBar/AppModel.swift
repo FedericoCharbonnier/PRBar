@@ -189,6 +189,8 @@ final class AppModel: ObservableObject {
     /// Registro que la ventana de Historial tiene que elegir al abrirse (p. ej. desde la notificación de un
     /// review que falló). La ventana lo consume con `consumeHistorySelection()`.
     @Published private(set) var historySelectionRequest: UUID?
+    /// Reviews publicados desde la ventana o la CLI, por id de draft: una ventana abierta pasa a "publicado".
+    @Published private(set) var publishedReviews: [UUID: PublishedReview] = [:]
 
     /// La app real: arranca la búsqueda de herramientas, las cuentas, las notificaciones y el refresco.
     convenience init() {
@@ -481,8 +483,18 @@ final class AppModel: ObservableObject {
         reviewStarts[prID] = nil
     }
 
+    /// Descarta el review del PR. Uno listo sin publicar queda `abandoned` en el historial (como al reemplazarlo en
+    /// `startReview`): ahora también lo puede descartar la CLI (`prbar review dismiss`).
     func dismissReview(prID: String) {
-        if case .ready(let draft)? = reviews.phases[prID] { discardChat(draftID: draft.id) }
+        if case .ready(let draft)? = reviews.phases[prID] {
+            discardChat(draftID: draft.id)
+            do {
+                try history.markAbandoned(id: draft.id)
+            } catch {
+                AppLog.write("History: couldn't mark the review of \(prID) as abandoned: \(error)")
+            }
+            historyRevision += 1
+        }
         reviews.dismiss(prID: prID)
     }
 
@@ -556,13 +568,8 @@ final class AppModel: ObservableObject {
         let windowID = Self.reviewWindowID(prID)
         WindowPresenter.shared.show(
             id: windowID, title: "Review · \(draft.repo.name)#\(draft.number)", size: ReviewWindow.size,
-            options: WindowOptions(
-                sharedFrameKey: "ReviewWindowFrame",
-                bridgesToolbar: true, toolbarStyle: .unified,
-                closeConfirmation: CloseConfirmation(
-                    message: "Close without posting?", info: "Your selected comments and edited text will be lost."
-                )
-            ),
+            // Sin confirmación al cerrar: lo elegido vive en el coordinador del draft y no se pierde (plan 7, decisión 3).
+            options: WindowOptions(sharedFrameKey: "ReviewWindowFrame", bridgesToolbar: true, toolbarStyle: .unified),
             contentID: draft.id.uuidString,
             replaceConfirmation: "The previous review has unposted changes. Replace it?"
         ) {
@@ -590,6 +597,36 @@ final class AppModel: ObservableObject {
             try await publishNow(draft: draft, selected: selected, general: general, event: event, allInBody: allInBody,
                                  userDiscarded: userDiscarded)
         }
+    }
+
+    /// Publica lo elegido en la ventana de Review (o con `prbar review …`): el `reviewEdits` del coordinador del draft.
+    /// `only`: ids de hallazgos a publicar en vez de la selección (sin cambiarla); `withComments: false` publica solo
+    /// el veredicto (y no cuenta como descartar hallazgos, spec E.4). Si el PR cambió desde la review, todo va al
+    /// cuerpo. Mientras publica, el chat queda bloqueado; después, de solo lectura (spec B.2). La publicación corre en
+    /// su propia `Task`: si quien la pidió se va (la CLI se desconecta), no se corta a la mitad.
+    func publishReview(draft: ReviewDraft, event: ReviewEvent, only: Set<String>? = nil, withComments: Bool = true,
+                       allInBody: Bool = false) async throws -> PublishedReview {
+        let chat = reviewChat(for: draft)
+        let edits = chat.reviewEdits
+        let comments = withComments ? edits.comments(of: draft, only: only) : []
+        let general = withComments ? edits.generalComment : ""
+        // Lo que el usuario eligió no publicar: los que mantuvo el filtro, no ocultos y fuera de lo publicado.
+        let discarded: [ReviewItem] = if !withComments {
+            []
+        } else if let only {
+            draft.items.filter { $0.keep && !$0.isHidden && !only.contains($0.id) }
+        } else {
+            edits.userDiscarded(of: draft)
+        }
+        chat.setLock("Posting the review…")
+        defer { chat.setLock(nil) }
+        let result = try await Task { @MainActor in
+            try await self.publish(draft: draft, selected: comments, general: general, event: event,
+                                   allInBody: allInBody || self.isOutdated(draft), userDiscarded: discarded)
+        }.value
+        publishedReviews[draft.id] = result
+        chat.markReadOnly()
+        return result
     }
 
     private func publishNow(
