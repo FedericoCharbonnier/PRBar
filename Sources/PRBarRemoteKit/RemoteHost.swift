@@ -1,0 +1,578 @@
+import CryptoKit
+import Foundation
+import PRBarWire
+
+/// Lo que pasa en el host, para la UI de la Mac (Plan 18) y los tests.
+public enum RemoteHostEvent: Equatable, Sendable {
+    public enum Status: Equatable, Sendable {
+        case disconnected
+        case connecting
+        case connected
+        /// Se cortó; reintenta en `retryIn` segundos.
+        case offline(retryIn: Int)
+    }
+
+    case status(Status)
+    /// Un teléfono se unió con el QR: la Mac muestra el código y espera "Codes Match".
+    case pairingJoined(sas: String, deviceName: String, model: String)
+    /// La ranura se quemó (vencida, cancelada, un segundo teléfono…).
+    case pairingEnded(reason: String)
+    case devicesChanged([PairedDevice])
+    case deviceOnline(String, Bool)
+    /// Un handshake o un marco rechazado (estática desconocida, marco que no autentica). Solo el id, nunca el contenido.
+    case sessionRejected(device: String)
+    /// Comando denegado o sin Face ID: se loguea el nombre, nunca los argumentos (spec P.7).
+    case commandRefused(device: String, name: AppCommand.Name)
+}
+
+/// La máquina de estado de la Mac (spec P y Q.1): una conexión con el relay, una sesión de Noise KK por teléfono,
+/// el emparejamiento, y cada `req` pasa por `RemotePolicy` → presencia → `handler` (el `CommandDispatcher` de la app).
+public actor RemoteHost {
+    public typealias Handler = @Sendable (AppCommand, @escaping CommandEventSink) async -> Result<JSONValue, CommandFailure>
+
+    public struct Configuration: Sendable {
+        public var accountId: String
+        /// El host del relay que va en el QR (y que firma el desafío).
+        public var relayHost: String
+        public var macName: String
+        public var appVersion: String
+        public var keys: MacKeys
+        /// Rango de `commandProtocol` del teléfono que se acepta (spec P.6).
+        public var commandProtocol: Int
+        public var minimumRemoteVersion: Int
+        public var pairingLifetime: TimeInterval
+        public var pushTimeout: Duration
+        /// Espera antes de reconectar con el relay (intento 1, 2, …).
+        public var backoff: @Sendable (Int) -> Duration
+
+        public init(accountId: String, relayHost: String, macName: String, appVersion: String, keys: MacKeys,
+                    commandProtocol: Int = CommandProtocol.version,
+                    minimumRemoteVersion: Int = CommandProtocol.minimumRemoteVersion,
+                    pairingLifetime: TimeInterval = 300, pushTimeout: Duration = .seconds(10),
+                    backoff: @escaping @Sendable (Int) -> Duration = RemoteBackoff.standard) {
+            self.accountId = accountId
+            self.relayHost = relayHost
+            self.macName = macName
+            self.appVersion = appVersion
+            self.keys = keys
+            self.commandProtocol = commandProtocol
+            self.minimumRemoteVersion = minimumRemoteVersion
+            self.pairingLifetime = pairingLifetime
+            self.pushTimeout = pushTimeout
+            self.backoff = backoff
+        }
+    }
+
+    private struct Session {
+        var channel: SecureChannel
+        var lastRequestId = 0
+        var topics: Set<String> = []
+        var helloDone = false
+        var incompatible = false
+        var replayGuard = PresenceReplayGuard()
+        var sentRevs: [String: Int] = [:]
+    }
+
+    private struct PairingSlot {
+        let pairingId: String
+        let secret: Data
+        let secrets: PairingSecrets
+        let expires: Date
+        var sid: String?
+        var transport: NoiseTransport?
+        var handshakeHash: Data?
+        var deviceStatic: Data?
+        var join: PairingJoin?
+        var confirmed = false
+    }
+
+    private let config: Configuration
+    private let linkFactory: RelayLinkFactory
+    private let handler: Handler
+    private let clock: @Sendable () -> Date
+    private var link: RelayLink?
+    private var receiveTask: Task<Void, Never>?
+    private var wantsConnection = false
+    private var devices: [String: PairedDevice]
+    private var sessions: [String: Session] = [:]
+    private var online: Set<String> = []
+    private var pairing: PairingSlot?
+    private var latest: [String: (rev: Int, data: JSONValue)] = [:]
+    private var mailboxRev = 0
+    private var pushWaiters: [String: CheckedContinuation<Int, Error>] = [:]
+    /// El último alta por emparejamiento, hasta saber si el resultado le llegó al teléfono.
+    private var justPaired: (pairing: String, device: String)?
+
+    public nonisolated let events: AsyncStream<RemoteHostEvent>
+    private let eventSink: AsyncStream<RemoteHostEvent>.Continuation
+
+    static let maxTopics = 32
+    static let maxTopicLength = 256
+    /// `sentAt` aceptado (spec P.6).
+    static let maxRequestAge: TimeInterval = 120
+    static let maxRequestFuture: TimeInterval = 30
+
+    public init(configuration: Configuration, devices: [PairedDevice], linkFactory: @escaping RelayLinkFactory,
+                clock: @escaping @Sendable () -> Date = { Date() }, handler: @escaping Handler) {
+        config = configuration
+        self.linkFactory = linkFactory
+        self.handler = handler
+        self.clock = clock
+        self.devices = Dictionary(uniqueKeysWithValues: devices.map { ($0.deviceId, $0) })
+        (events, eventSink) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(256))
+    }
+
+    // MARK: - Conexión
+
+    public var pairedDevices: [PairedDevice] { devices.values.sorted { $0.pairedAt < $1.pairedAt } }
+    public var onlineDevices: Set<String> { online }
+    public var isConnected: Bool { link != nil }
+
+    /// Conecta y se queda conectado (reconecta con `backoff`) hasta `disconnect()`.
+    public func connect() async throws {
+        wantsConnection = true
+        try await openLink()
+    }
+
+    private func openLink() async throws {
+        eventSink.yield(.status(.connecting))
+        let link = linkFactory(.signed(account: config.accountId, client: "mac", key: config.keys.relay))
+        _ = try await link.connect()
+        self.link = link
+        eventSink.yield(.status(.connected))
+        receiveTask = Task { [weak self] in
+            do {
+                for try await message in link.incoming {
+                    await self?.handle(message)
+                }
+            } catch {}
+            await self?.linkEnded(link)
+        }
+    }
+
+    private func linkEnded(_ ended: RelayLink) async {
+        guard link === ended else { return }
+        dropAll()
+        guard wantsConnection else { return }
+        var attempt = 1
+        while wantsConnection {
+            let delay = config.backoff(attempt)
+            eventSink.yield(.status(.offline(retryIn: Int(delay.components.seconds))))
+            try? await Task.sleep(for: delay)
+            guard wantsConnection, link == nil else { return }
+            do {
+                try await openLink()
+                return
+            } catch {
+                attempt += 1
+            }
+        }
+    }
+
+    private func dropAll() {
+        link = nil
+        sessions = [:]
+        online = []
+        for (_, waiter) in pushWaiters { waiter.resume(throwing: RelayClosed(code: nil, reason: "Disconnected")) }
+        pushWaiters = [:]
+    }
+
+    public func disconnect() async {
+        wantsConnection = false
+        let current = link
+        receiveTask?.cancel()
+        dropAll()
+        await current?.close()
+        eventSink.yield(.status(.disconnected))
+    }
+
+    private func send(_ message: RelayMessage) {
+        guard let link else { return }
+        do {
+            try link.send(message)
+        } catch {
+            // Cola llena o conexión caída: la sesión se rehace al reconectar.
+            Task { await link.close() }
+        }
+    }
+
+    // MARK: - Mensajes del relay
+
+    private func handle(_ message: RelayMessage) {
+        switch message {
+        case .recv(let from, let sid, let b):
+            if from.hasPrefix("pair:") {
+                handlePairing(from: from, sid: sid, b: b)
+            } else {
+                handleDevice(from, sid: sid, b: b)
+            }
+        case .presence(_, _, let device?, let state?):
+            if state == "online" { online.insert(device) } else { online.remove(device); sessions[device] = nil }
+            eventSink.yield(.deviceOnline(device, state == "online"))
+        case .pushResult(let id, let status, _):
+            pushWaiters.removeValue(forKey: id)?.resume(returning: status)
+        case .pairClose(let pairingId):
+            // El relay quemó la ranura (un segundo teléfono, proofs fallidos o vencida).
+            endPairing(pairingId, reason: "closed by the relay", notifyPhone: true)
+        case .undeliverable(let to, _) where to.hasPrefix("pair:"):
+            // El resultado del emparejamiento no llegó (la ranura se quemó en el relay justo antes): el teléfono no
+            // sabe su `deviceId`, así que el alta se deshace.
+            if let pending = justPaired, "pair:\(pending.pairing)" == to {
+                justPaired = nil
+                revoke(pending.device)
+            }
+        case .undeliverable(let to, let sid):
+            // El teléfono se fue: su sesión ya no sirve.
+            if sessions[to]?.channel.sid == sid { sessions[to] = nil }
+        default:
+            break
+        }
+    }
+
+    private func handleDevice(_ deviceId: String, sid: String, b: Data) {
+        guard RemoteSID.isValid(sid) else { return }
+        if var session = sessions[deviceId], session.channel.sid == sid {
+            do {
+                guard let frame = try session.channel.open(b) else {
+                    sessions[deviceId] = session
+                    return
+                }
+                sessions[deviceId] = session
+                handleFrame(frame, from: deviceId, sid: sid)
+            } catch {
+                // Repetido, fuera de orden, cambiado o malformado: la sesión se cierra (spec P.5).
+                closeSession(deviceId, reason: "desync")
+                eventSink.yield(.sessionRejected(device: deviceId))
+            }
+            return
+        }
+        acceptHandshake(from: deviceId, sid: sid, message: b)
+    }
+
+    /// Un `sid` nuevo es el primer mensaje de un KK. Solo con un dispositivo emparejado (la revocación la hace cumplir
+    /// la Mac aunque el relay no obedezca, spec P.12).
+    private func acceptHandshake(from deviceId: String, sid: String, message: Data) {
+        guard let device = devices[deviceId],
+              let deviceStatic = try? Curve25519.KeyAgreement.PublicKey(rawRepresentation: device.noise) else {
+            eventSink.yield(.sessionRejected(device: deviceId))
+            return
+        }
+        do {
+            var handshake = try NoiseHandshake(
+                pattern: .kk, initiator: false,
+                prologue: RemotePrologue.session(account: config.accountId, device: deviceId),
+                localStatic: config.keys.noise, remoteStatic: deviceStatic, psk: nil)
+            // El primer mensaje no lleva comandos (spec P.5): se ignora su payload.
+            _ = try handshake.readMessage(message)
+            let reply = try handshake.writeMessage()
+            // Una sesión nueva del mismo dispositivo reemplaza a la anterior.
+            sessions[deviceId] = Session(channel: try SecureChannel(sid: sid, handshake: handshake, startedAt: clock()))
+            send(.send(to: deviceId, sid: sid, b: reply))
+        } catch {
+            eventSink.yield(.sessionRejected(device: deviceId))
+        }
+    }
+
+    private func closeSession(_ deviceId: String, reason: String) {
+        sendFrame(.bye(reason: reason), to: deviceId)
+        sessions[deviceId] = nil
+    }
+
+    private func sendFrame(_ frame: RemoteFrame, to deviceId: String, sid expected: String? = nil) {
+        guard var session = sessions[deviceId] else { return }
+        if let expected, session.channel.sid != expected { return }
+        do {
+            let chunks = try session.channel.seal(frame)
+            let sid = session.channel.sid
+            sessions[deviceId] = session
+            for chunk in chunks { send(.send(to: deviceId, sid: sid, b: chunk)) }
+            if case .bye = frame { return }
+            // A las 24 h o 2²⁰ mensajes: el teléfono hace otro handshake (spec P.5).
+            if session.channel.needsRotation(now: clock()) { closeSession(deviceId, reason: "rotate") }
+        } catch {
+            sessions[deviceId] = nil
+        }
+    }
+
+    // MARK: - Marcos de aplicación
+
+    private func handleFrame(_ frame: RemoteFrame, from deviceId: String, sid: String) {
+        guard var session = sessions[deviceId] else { return }
+        switch frame {
+        case .hello(let hello):
+            let incompatible: RemoteHello.Incompatibility? =
+                hello.commandProtocol < config.minimumRemoteVersion ? .updateIPhone
+                : hello.commandProtocol > config.commandProtocol ? .updateMac
+                : hello.remoteProtocol != RemoteProtocol.version ? (hello.remoteProtocol < RemoteProtocol.version ? .updateIPhone : .updateMac)
+                : nil
+            session.helloDone = true
+            session.incompatible = incompatible != nil
+            sessions[deviceId] = session
+            // La política va antes del `hello`: cuando el teléfono termina de conectar ya la tiene.
+            if incompatible == nil, let device = devices[deviceId] {
+                sendFrame(.presencePolicy(requirePresence: device.requirePresence, gated: RemotePolicy.gatedNames),
+                          to: deviceId, sid: sid)
+            }
+            sendFrame(.hello(RemoteHello(commandProtocol: config.commandProtocol, appVersion: config.appVersion,
+                                         macName: config.macName, incompatible: incompatible)), to: deviceId, sid: sid)
+        case .req(let request):
+            guard session.helloDone else { return closeSession(deviceId, reason: "protocol") }
+            // Ids crecientes por sesión: uno repetido o menor se rechaza (spec P.6).
+            guard request.id > session.lastRequestId else {
+                return sendFrame(.res(.failure(id: request.id, CommandFailure(.invalidState, "Duplicate request."))),
+                                 to: deviceId, sid: sid)
+            }
+            session.lastRequestId = request.id
+            sessions[deviceId] = session
+            Task { await self.execute(request, from: deviceId, sid: sid) }
+        case .sub(let topics):
+            let accepted = Set(topics.prefix(Self.maxTopics).filter { $0.count <= Self.maxTopicLength })
+            session.topics = accepted
+            session.sentRevs = session.sentRevs.filter { accepted.contains($0.key) }
+            sessions[deviceId] = session
+            for topic in accepted.sorted() { sendState(topic, to: deviceId) }
+        case .unpair:
+            revoke(deviceId)
+        case .bye:
+            sessions[deviceId] = nil
+        case .res, .state, .chatDelta, .presencePolicy, .unknown:
+            break
+        }
+    }
+
+    private func execute(_ request: RemoteRequest, from deviceId: String, sid: String) async {
+        let now = clock()
+        func reply(_ failure: CommandFailure) {
+            sendFrame(.res(.failure(id: request.id, failure)), to: deviceId, sid: sid)
+        }
+        guard let session = sessions[deviceId], session.channel.sid == sid else { return }
+        guard !session.incompatible else {
+            return reply(CommandFailure(.protocolMismatch, "Update PRBar on your Mac and iPhone."))
+        }
+        // El relay no puede retener un comando y soltarlo después (spec P.6).
+        let age = now.timeIntervalSince(request.sentAt)
+        guard age <= Self.maxRequestAge, age >= -Self.maxRequestFuture else {
+            return reply(CommandFailure(.invalidState, "This request expired. Try again."))
+        }
+        guard let command = try? request.command() else {
+            return reply(CommandFailure.unknownCommand(app: config.appVersion))
+        }
+        switch RemotePolicy.decide(command) {
+        case .denied:
+            eventSink.yield(.commandRefused(device: deviceId, name: command.name))
+            return reply(CommandFailure(.unauthorized, RemotePolicy.deniedMessage))
+        case .gated where devices[deviceId]?.requirePresence ?? true:
+            guard let device = devices[deviceId], let proof = request.presence,
+                  (try? PresenceVerifier.verify(proof, publicKey: device.presence, sessionHash: session.channel.handshakeHash,
+                                                reqId: UInt64(max(request.id, 0)), commandBytes: request.cmd, now: now)) != nil,
+                  checkReplay(deviceId: deviceId, sid: sid, reqId: request.id, now: now) else {
+                eventSink.yield(.commandRefused(device: deviceId, name: command.name))
+                return reply(CommandFailure(.unauthorized, RemotePolicy.presenceRequiredMessage))
+            }
+        case .gated, .allowed:
+            break
+        }
+        // Los eventos salen en orden y antes de la respuesta final.
+        let (stream, continuation) = AsyncStream<CommandEvent>.makeStream()
+        let pump = Task {
+            for await event in stream { self.sendFrame(.res(.event(id: request.id, event)), to: deviceId, sid: sid) }
+        }
+        let result = await handler(command) { continuation.yield($0) }
+        continuation.finish()
+        await pump.value
+        switch result {
+        case .success(let value): sendFrame(.res(.success(id: request.id, value)), to: deviceId, sid: sid)
+        case .failure(let failure): reply(failure)
+        }
+    }
+
+    private func checkReplay(deviceId: String, sid: String, reqId: Int, now: Date) -> Bool {
+        guard var session = sessions[deviceId], session.channel.sid == sid else { return false }
+        do {
+            try session.replayGuard.check(sessionHash: session.channel.handshakeHash, reqId: UInt64(reqId), now: now)
+            sessions[deviceId] = session
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    // MARK: - Estado, buzón y pushes
+
+    /// Guarda el último valor de un tópico y lo manda a las sesiones suscritas si cambió (`rev` creciente).
+    public func publish(topic: String, data: JSONValue) {
+        if let current = latest[topic], current.data == data { return }
+        latest[topic] = ((latest[topic]?.rev ?? 0) + 1, data)
+        for (deviceId, session) in sessions where session.topics.contains(topic) { sendState(topic, to: deviceId) }
+    }
+
+    private func sendState(_ topic: String, to deviceId: String) {
+        guard var session = sessions[deviceId], let current = latest[topic],
+              session.sentRevs[topic] != current.rev else { return }
+        session.sentRevs[topic] = current.rev
+        sessions[deviceId] = session
+        sendFrame(.state(RemoteStateUpdate(topic: topic, rev: current.rev, data: current.data)), to: deviceId)
+    }
+
+    /// Guarda `data` cifrado para cada dispositivo en la ranura `slot` del buzón del relay.
+    public func putMailbox(slot: String, data: Data) {
+        let now = clock()
+        mailboxRev = max(mailboxRev + 1, Int(now.timeIntervalSince1970 * 1000))
+        let blob = MailboxBlob(slot: slot, rev: mailboxRev, createdAt: now, data: data)
+        for device in devices.values {
+            guard let push = try? Curve25519.KeyAgreement.PublicKey(rawRepresentation: device.push),
+                  let sealed = try? blob.seal(from: config.keys.seal, to: push, account: config.accountId,
+                                              device: device.deviceId) else { continue }
+            send(.mboxPut(to: device.deviceId, slot: slot, b: sealed))
+        }
+    }
+
+    /// Manda un push cifrado; devuelve el status HTTP de APNs que informa el relay.
+    public func push(_ payload: PushPayload, to deviceId: String) async throws -> Int {
+        guard let device = devices[deviceId], link != nil else { throw RelayClosed(code: nil, reason: "Not connected") }
+        let push = try Curve25519.KeyAgreement.PublicKey(rawRepresentation: device.push)
+        let field = try payload.sealedForAPNs(from: config.keys.seal, to: push,
+                                              info: SealedInfo.push(account: config.accountId, device: deviceId))
+        guard let envelope = Data(base64Encoded: field) else { throw SealedError.malformed }
+        let ids = try PushIdentifiers(macSeal: config.keys.seal, devicePush: push)
+        let id = UUID().uuidString.lowercased()
+        let pr = payload.pr ?? payload.threadId
+        send(.push(id: id, to: deviceId, collapse: ids.collapse(kind: payload.kind, pr: pr), thread: ids.thread(pr: pr),
+                   b: envelope))
+        let timeout = config.pushTimeout
+        let timer = Task {
+            try? await Task.sleep(for: timeout)
+            self.pushTimedOut(id)
+        }
+        defer { timer.cancel() }
+        return try await withCheckedThrowingContinuation { pushWaiters[id] = $0 }
+    }
+
+    private func pushTimedOut(_ id: String) {
+        pushWaiters.removeValue(forKey: id)?.resume(throwing: RelayClosed(code: nil, reason: "No answer from the relay"))
+    }
+
+    // MARK: - Dispositivos
+
+    /// Revoke (spec P.12): la Mac lo olvida (deja de aceptar su estática) y le pide al relay que lo dé de baja.
+    public func revoke(_ deviceId: String) {
+        guard devices.removeValue(forKey: deviceId) != nil else { return }
+        if sessions[deviceId] != nil { closeSession(deviceId, reason: "revoked") }
+        send(.deviceRemove(device: deviceId))
+        eventSink.yield(.devicesChanged(pairedDevices))
+    }
+
+    /// Prende o apaga Face ID para un dispositivo y se lo avisa (`presencePolicy`).
+    public func setRequirePresence(_ deviceId: String, _ required: Bool) {
+        guard devices[deviceId] != nil else { return }
+        devices[deviceId]?.requirePresence = required
+        sendFrame(.presencePolicy(requirePresence: required, gated: RemotePolicy.gatedNames), to: deviceId)
+        eventSink.yield(.devicesChanged(pairedDevices))
+    }
+
+    // MARK: - Emparejamiento (spec P.11)
+
+    /// Abre una ranura (una por cuenta, 5 min) y devuelve el QR. Reemplaza a una ranura anterior.
+    public func startPairing() throws -> PairingQR {
+        guard link != nil else { throw RelayClosed(code: nil, reason: "Not connected") }
+        if let old = pairing { endPairing(old.pairingId, reason: "replaced", notifyPhone: true) }
+        let secret = randomBytes(32)
+        let slot = PairingSlot(pairingId: RemoteIDs.newPairingId(), secret: secret, secrets: PairingSecrets(secret: secret),
+                               expires: clock().addingTimeInterval(config.pairingLifetime))
+        pairing = slot
+        send(.pairOpen(pairing: slot.pairingId, authKey: slot.secrets.authKey,
+                       expires: Int(slot.expires.timeIntervalSince1970)))
+        return PairingQR(relayHost: config.relayHost, accountId: config.accountId, pairingId: slot.pairingId,
+                         secret: secret, macStatic: config.keys.noise.publicKey.rawRepresentation, macName: config.macName)
+    }
+
+    private func endPairing(_ pairingId: String, reason: String, notifyPhone: Bool) {
+        guard let slot = pairing, slot.pairingId == pairingId else { return }
+        if notifyPhone, var transport = slot.transport, let sid = slot.sid,
+           let message = try? transport.send.encrypt(try PairingMessage.cancelled.encoded()) {
+            send(.send(to: "pair:\(pairingId)", sid: sid, b: message))
+        }
+        send(.pairClose(pairing: pairingId))
+        pairing = nil
+        eventSink.yield(.pairingEnded(reason: reason))
+    }
+
+    public func cancelPairing() {
+        if let slot = pairing { endPairing(slot.pairingId, reason: "cancelled", notifyPhone: true) }
+    }
+
+    private func handlePairing(from: String, sid: String, b: Data) {
+        guard var slot = pairing, from == "pair:\(slot.pairingId)", RemoteSID.isValid(sid) else { return }
+        guard clock() < slot.expires else { return endPairing(slot.pairingId, reason: "expired", notifyPhone: true) }
+        if let current = slot.sid, current != sid {
+            // Un segundo teléfono en la misma ranura: se quema (spec P.11).
+            return endPairing(slot.pairingId, reason: "another device", notifyPhone: true)
+        }
+        do {
+            if slot.sid == nil {
+                var handshake = try NoiseHandshake(
+                    pattern: .ikpsk2, initiator: false,
+                    prologue: RemotePrologue.pairing(account: config.accountId, pairing: slot.pairingId),
+                    localStatic: config.keys.noise, remoteStatic: nil, psk: slot.secrets.psk)
+                guard case .join(let join) = try PairingMessage.decode(try handshake.readMessage(b)), join.isValid else {
+                    throw NoiseError.malformed
+                }
+                let reply = try handshake.writeMessage()
+                slot.sid = sid
+                slot.join = join
+                slot.deviceStatic = handshake.remoteStaticKey?.rawRepresentation
+                slot.handshakeHash = handshake.handshakeHash
+                slot.transport = try handshake.split()
+                pairing = slot
+                send(.send(to: from, sid: sid, b: reply))
+            } else if !slot.confirmed, var transport = slot.transport {
+                guard case .confirm = try PairingMessage.decode(try transport.receive.decrypt(b)),
+                      let hash = slot.handshakeHash, let join = slot.join else { throw NoiseError.malformed }
+                slot.transport = transport
+                slot.confirmed = true
+                pairing = slot
+                eventSink.yield(.pairingJoined(sas: SAS.code(handshakeHash: hash), deviceName: join.deviceName,
+                                               model: join.model))
+            }
+        } catch {
+            endPairing(slot.pairingId, reason: "failed", notifyPhone: false)
+        }
+    }
+
+    /// "Codes Match" (`true`) o "Cancel" (`false`). Con `true` devuelve el dispositivo nuevo.
+    @discardableResult
+    public func confirmPairing(_ accepted: Bool) throws -> PairedDevice? {
+        guard let slot = pairing, slot.confirmed, var transport = slot.transport, let sid = slot.sid,
+              let join = slot.join, let deviceStatic = slot.deviceStatic else {
+            throw CommandFailure(.invalidState, "No iPhone is waiting to pair.")
+        }
+        guard accepted else {
+            endPairing(slot.pairingId, reason: "cancelled", notifyPhone: true)
+            return nil
+        }
+        let device = PairedDevice(deviceId: RemoteIDs.newDeviceId(), name: join.deviceName, model: join.model,
+                                  noise: deviceStatic, push: join.push, presence: join.presence, pairedAt: clock())
+        let result = PairingMessage.result(PairingResult(deviceId: device.deviceId, macName: config.macName,
+                                                         macSeal: config.keys.seal.publicKey.rawRepresentation,
+                                                         relayHost: config.relayHost))
+        let message = try transport.send.encrypt(try result.encoded())
+        // El alta en el relay va antes que la respuesta: cuando el teléfono conecte como dispositivo, ya existe.
+        send(.deviceAdd(device: device.deviceId, relayKey: join.relayKey))
+        send(.send(to: "pair:\(slot.pairingId)", sid: sid, b: message))
+        send(.pairClose(pairing: slot.pairingId))
+        pairing = nil
+        devices[device.deviceId] = device
+        justPaired = (slot.pairingId, device.deviceId)
+        eventSink.yield(.pairingEnded(reason: "paired"))
+        eventSink.yield(.devicesChanged(pairedDevices))
+        return device
+    }
+}
+
+public enum RemoteBackoff {
+    /// 1 s, 2 s, 4 s … hasta 60 s, ±20 % (spec Q.1).
+    public static let standard: @Sendable (Int) -> Duration = { attempt in
+        let base = min(60.0, pow(2.0, Double(max(attempt - 1, 0))))
+        return .milliseconds(Int(base * Double.random(in: 0.8...1.2) * 1000))
+    }
+}

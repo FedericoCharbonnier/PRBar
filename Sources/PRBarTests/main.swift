@@ -148,6 +148,7 @@ let allTests: [TestCase] = []
     + PresenceTests.cases
     + FramingTests.cases
     + RemotePolicyTests.cases
+    + RemoteEndToEndTests.cases
 
 let filter = CommandLine.arguments.dropFirst().first
 let selected = allTests.filter { test in

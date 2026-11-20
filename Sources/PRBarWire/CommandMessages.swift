@@ -13,6 +13,9 @@ public enum CommandProtocol {
     /// 4: `listPRs` lleva la pestaña del popover (`--tab`) y existe `openPopover`.
     /// 5: `RepoChanges.runOn` y los comandos de destinos SSH (`prbar runners`).
     public static let version = 5
+    /// El `commandProtocol` más viejo que la Mac acepta de un iPhone (spec P.6): los casos de `AppCommand` solo se
+    /// agregan, así que una app de iPhone un poco más vieja sigue andando; un cambio que rompe sube este número.
+    public static let minimumRemoteVersion = 5
 
     public static var encoder: JSONEncoder {
         let encoder = JSONEncoder()
