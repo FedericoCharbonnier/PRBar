@@ -64,8 +64,13 @@ struct RunnersAdd: RemoteCommand {
     @OptionGroup var global: GlobalOptions
 
     func validate() throws {
-        do { _ = try SSHEndpoint.parse(host) } catch { throw ValidationError(error.localizedDescription) }
-        if let name { try RunnerValidation.name(name) }
+        let endpoint: SSHEndpoint
+        do { endpoint = try SSHEndpoint.parse(host) } catch { throw ValidationError(error.localizedDescription) }
+        if let name {
+            try RunnerValidation.name(name)
+        } else if !RunnerDestination.isValidName(endpoint.host) {
+            throw ValidationError(RunnerConfigError.needsName(endpoint.host).localizedDescription)
+        }
         if let dir { try RunnerValidation.dir(dir) }
     }
 

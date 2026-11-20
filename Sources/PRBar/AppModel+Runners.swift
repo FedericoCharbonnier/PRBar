@@ -16,6 +16,9 @@ extension AppModel: RunnerActions {
     func runnerAdd(host: String, name: String?, dir: String?, fallback: Bool) async throws -> RunnerInfo {
         let endpoint: SSHEndpoint
         do { endpoint = try SSHEndpoint.parse(host) } catch { throw CommandFailure(.invalidUsage, error.localizedDescription) }
+        if name == nil && !RunnerDestination.isValidName(endpoint.host) {
+            throw CommandFailure(.invalidUsage, RunnerConfigError.needsName(endpoint.host).localizedDescription)
+        }
         let destination = RunnerDestination(name: name ?? endpoint.host, endpoint: endpoint,
                                             remoteDir: dir ?? RunnerDestination.defaultRemoteDir, fallbackToLocal: fallback)
         try updateRunners { try $0.addRunner(destination) }
@@ -77,7 +80,7 @@ extension AppModel: RunnerActions {
             let code: CommandFailure.Code = switch error {
             case .notFound: .notFound
             case .duplicate: .invalidState
-            case .invalidName, .invalidRemoteDir: .invalidUsage
+            case .invalidName, .needsName, .invalidRemoteDir: .invalidUsage
             }
             throw CommandFailure(code, error.localizedDescription)
         }

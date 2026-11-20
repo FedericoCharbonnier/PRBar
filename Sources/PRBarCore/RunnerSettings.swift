@@ -220,6 +220,8 @@ public enum RunnerConfigError: Error, Equatable, LocalizedError {
     case duplicate(String)
     case notFound(String)
     case invalidName(String)
+    /// No se dio nombre y el host no sirve como uno (un IPv6, más de 40 caracteres).
+    case needsName(String)
     case invalidRemoteDir(String)
 
     public var errorDescription: String? {
@@ -227,6 +229,7 @@ public enum RunnerConfigError: Error, Equatable, LocalizedError {
         case .duplicate(let name): "There’s already a runner named \(name)."
         case .notFound(let name): "There’s no runner named \(name). Run `prbar runners list`."
         case .invalidName(let name): "“\(name)” can’t be a runner name: use letters, numbers, . _ and - (not “local” or “default”)."
+        case .needsName(let host): "“\(host)” can’t be a runner name: give it one with letters, numbers, . _ and - (Name, or --name in prbar)."
         case .invalidRemoteDir(let dir): "“\(dir)” can’t be the remote folder: use ~/<folder> or an absolute path with at least two parts, outside ~/.ssh, ~/.aws, ~/.config, ~/Library and ~/.gnupg."
         }
     }

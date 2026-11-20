@@ -347,6 +347,22 @@ enum CLIParsingTests {
                 try expect(rejects(["runners", "add", "devbox", "--dir", "~/.ssh/prbar"]))
                 try expect(rejects(["runners", "add", "devbox", "--name", "local"]))
                 try expect(rejects(["runners", "add", "devbox", "--name", "default"]))
+                // Un host que no sirve de nombre (IPv6, más de 40 caracteres): el error sugiere --name, y con --name anda.
+                for host in ["[fe80::1]", "user@" + String(repeating: "a", count: 41)] {
+                    do {
+                        _ = try PRBarCommand.parseAsRoot(["runners", "add", host])
+                        throw TestFailure(description: "\(host) was accepted")
+                    } catch let error as TestFailure {
+                        throw error
+                    } catch {
+                        let message = PRBarCommand.message(for: error)
+                        try expect(message.contains("--name"), message)
+                    }
+                    try expectEqual(try parsed(["runners", "add", host, "--name", "gpu"]),
+                                    .runnerAdd(host: host, name: "gpu", dir: nil, fallback: true))
+                }
+                try expectEqual(RunnerConfigError.needsName("fe80::1").localizedDescription,
+                                "“fe80::1” can’t be a runner name: give it one with letters, numbers, . _ and - (Name, or --name in prbar).")
                 try expectEqual(try parsed(["runners", "set", "devbox", "--fallback", "off"]), .runnerSet(name: "devbox", dir: nil, fallback: false))
                 try expectEqual(try parsed(["runners", "set", "devbox", "--dir", "~/prbar"]), .runnerSet(name: "devbox", dir: "~/prbar", fallback: nil))
                 try expect(rejects(["runners", "set", "devbox"]))
