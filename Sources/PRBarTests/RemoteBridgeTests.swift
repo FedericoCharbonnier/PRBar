@@ -134,6 +134,7 @@ enum RemoteBridgeTests {
             try await bridgeNoTestsWithoutPresence()
         },
         TestCase("remote bridge: ni rutas locales ni herramientas llegan al teléfono") { try await bridgeRedaction() },
+        TestCase("remote feed: un cambio durante el tick de activity igual recalcula home (M4)") { try await feedCoalesces() },
         TestCase("remote feed: home al suscribirse, rev nuevo al cambiar la app, nada si no cambió; pr:<id> y activity") {
             try await feed()
         },
@@ -394,6 +395,31 @@ enum RemoteBridgeTests {
         let decoded: StatusInfo = try RemoteRedaction.scrub(try JSONValue(encoding: StatusInfo(
             appVersion: "1", tools: [ToolInfo(name: "git", path: "/usr/bin/git", custom: false)]))).decode()
         try expect(decoded.tools.isEmpty)
+    }
+
+    /// M4: un cambio de la app mientras corre el tick de `activity` (lento) igual recalcula `home` y `pr:`.
+    @MainActor
+    static func feedCoalesces() async throws {
+        let h = try await ServiceHarness.make()
+        let client = try await h.pair()
+        let states = client.states
+        try await client.subscribe(["home", "activity"])
+        _ = try await within(5) {
+            for await update in states where update.topic == "home" { return update }
+            throw TestFailure(description: "sin home")
+        }
+        h.actions.resourcesDelay = .milliseconds(400)
+        h.actions.calls = []
+        // Espera a que el timer de activity esté adentro de `resources()`.
+        let actions = h.actions
+        try await eventually(3, "tick de activity") { await actions.calls.contains("resources") }
+        h.actions.statusVersion = "during-activity"
+        await h.service.recomputeState()
+        let next = try await within(5) {
+            for await update in states where update.topic == "home" { return update }
+            throw TestFailure(description: "sin home")
+        }
+        try expectEqual((try next.data.decode() as RemoteHome).status.appVersion, "during-activity")
     }
 
     @MainActor

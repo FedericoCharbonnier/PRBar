@@ -297,8 +297,11 @@ final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActi
     }
 
     // MARK: ResourceActions
+    /// Si no es nil, `resources()` tarda esto (como el muestreo real cuando está viejo).
+    var resourcesDelay: Duration?
     func resources() async -> ResourcesInfo {
         calls.append("resources")
+        if let resourcesDelay { try? await Task.sleep(for: resourcesDelay) }
         return ResourcesInfo(usage: ResourceUsage(cpuPercent: 0, memoryBytes: 0, processes: [], sampledAt: t0),
                              disk: DiskUsage(items: [], scannedAt: t0))
     }

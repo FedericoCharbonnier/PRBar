@@ -17,7 +17,9 @@ final class RemoteStateFeed {
     private var pending: Task<Void, Never>?
     private var activityTimer: Task<Void, Never>?
     private var computing = false
-    private var again = false
+    /// Lo que se pidió mientras se calculaba (M4): un pedido completo no se pierde detrás de un tick de `activity`.
+    private var pendingAll = false
+    private var pendingOnly: Set<RemoteTopic> = []
 
     init(host: RemoteHost, actions: @escaping () -> (any PRBarActions)?, debounce: Duration, activityInterval: Duration) {
         self.host = host
@@ -65,18 +67,20 @@ final class RemoteStateFeed {
     }
 
     /// Calcula y publica. `home` se calcula siempre (lo usa el buzón aunque nadie esté conectado).
+    /// Si ya está calculando, el pedido se junta con los demás (la unión de los tópicos; uno completo gana) y se
+    /// calcula en la vuelta siguiente.
     func recompute(only: [RemoteTopic]? = nil) async {
         if computing {
-            again = true
+            if let only { pendingOnly.formUnion(only) } else { pendingAll = true }
             return
         }
         computing = true
         defer { computing = false }
-        repeat {
-            again = false
+        var request: [RemoteTopic]? = only
+        while true {
             guard let actions = actions() else { return }
-            var list = only ?? topics
-            if only == nil, !list.contains(.home) { list.insert(.home, at: 0) }
+            var list = request ?? topics
+            if request == nil, !list.contains(.home) { list.insert(.home, at: 0) }
             for topic in list {
                 do {
                     let value = try await RemoteStateTopics.compute(topic, actions, system: { MacSystemSampler.sample() })
@@ -86,7 +90,16 @@ final class RemoteStateFeed {
                     AppLog.write("iPhone access: couldn’t compute \(topic == .home ? "home" : topic == .activity ? "activity" : "a PR"): \(error.localizedDescription)")
                 }
             }
-        } while again
+            if pendingAll {
+                request = nil
+            } else if !pendingOnly.isEmpty {
+                request = pendingOnly.sorted { $0.name < $1.name }
+            } else {
+                return
+            }
+            pendingAll = false
+            pendingOnly = []
+        }
     }
 }
 
