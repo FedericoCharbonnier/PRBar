@@ -522,12 +522,15 @@ Lo que muestre el diseño, con esta regla: lo que es de la Mac va por `AppComman
 9. iOS 26 mínimo; XcodeGen; bundle ids `com.federico.prbar.ios[.notifications]`.
 10. `CommandProtocol.version` 7 y `minimumRemoteVersion` para tolerar una app de iPhone un poco más vieja.
 
-## V. Preguntas abiertas
+## V. Preguntas abiertas (respondidas por el usuario, 2026-11-20)
 
-1. ¿"Request changes" y "Comment" al publicar un review también deberían pedir Face ID? (Por defecto no: el diseño dice
-   merge, push y approve.)
-2. Traefik v3 tiene por defecto `readTimeout` de 60 s en los entrypoints; si corta los WebSocket largos (se prueba en la
-   task de despliegue), ¿se puede agregar `--entrypoints.https.transport.respondingTimeouts.readTimeout=0` al
-   `proxy/docker-compose.yml`? Si no, el relay sigue funcionando con reconexiones cada minuto.
-3. ¿Está bien guardar en el VPS el último estado cifrado (`home`) por 7 días para mostrarlo con la Mac apagada? (Por
-   defecto sí; se puede apagar con un ajuste.)
+1. **Face ID solo para merge, push / push anyway y approve.** "Comment" y "Request changes" al publicar un review **no**
+   piden Face ID (confirmado; es la tabla de P.7).
+2. **WebSockets largos y el `readTimeout` de 60 s de Traefik v3: se resuelve en el VPS sin afectar a otros servicios.**
+   La task de despliegue primero prueba una conexión de 5 min (inactiva + `ping`) por el entrypoint existente. Si se
+   corta: se agrega un **entrypoint de Traefik dedicado**, usado solo por el router de PRBar (p. ej. `:8443`, con
+   `readTimeout` 0 o largo, y pings de aplicación cada 25 s); si eso no se puede, el relay termina TLS él mismo en su
+   propio puerto. **Nunca** se cambian los timeouts del entrypoint compartido (`https`/`websecure`). Abrir un puerto
+   extra en el firewall del VPS está bien, pero es parte del despliegue con compuerta (OK del usuario en ese momento).
+3. **Buzón**: la Mac guarda su último estado cifrado (`home`) en el buzón del relay hasta 7 días, con un ajuste en la Mac
+   para apagarlo (confirmado).

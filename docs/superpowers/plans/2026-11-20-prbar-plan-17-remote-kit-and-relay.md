@@ -691,9 +691,14 @@ networks:
   `RELAY_ENROLL_TOKEN=$(openssl rand -hex 32)` (generado **en el server**; se le muestra al usuario una vez para el
   Plan 18), `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC=com.federico.prbar.ios`.
 - [ ] **Step 3:** `free -h` (que queden > 300 MB), `relay/deploy/deploy.sh`, `curl -sI https://prbar.fcharbonnier.duckdns.org/healthz` → 200, `docker logs prbar-relay | tail`.
-- [ ] **Step 4: Prueba de WebSocket largo**: desde la Mac, un cliente de prueba (`go run ./cmd/wsprobe` en `relay/`, que
-  hace `challenge` y se queda 5 min con `ping` cada 20 s) — si se corta a los ~60 s, es el `readTimeout` de Traefik v3:
-  **no tocar Traefik**; anotar y preguntar al usuario (pregunta abierta 2 del spec).
+- [ ] **Step 4: Prueba de WebSocket largo** (spec V.2): desde la Mac, un cliente de prueba (`go run ./cmd/wsprobe` en
+  `relay/`, que hace `challenge` y se queda 5 min inactivo con `ping` cada 20–25 s) por el entrypoint existente. Si
+  aguanta los 5 min, listo. Si se corta (~60 s, el `readTimeout` de Traefik v3): **nunca** tocar los timeouts del
+  entrypoint compartido. En su lugar, **con OK del usuario**: (a) agregar un entrypoint dedicado de Traefik solo para el
+  router de PRBar (p. ej. `prbar` en `:8443`, `respondingTimeouts.readTimeout=0` o largo), mover a él el router
+  `prbar-relay` y abrir ese puerto en el firewall del VPS; los clientes usan `host:8443` y mandan pings de aplicación
+  cada 25 s; o (b) si (a) no se puede, que el relay termine TLS él mismo en su propio puerto publicado. Repetir la
+  prueba de 5 min.
 - [ ] **Step 5:** Agregar el relay al panel (`/root/stack/panel/config.json`, `"prbar-relay": {"nombre": "PRBar relay",
   "orden": 80}`) y una sección corta en `/root/stack/LEEME.md` ("Apps actuales" + secretos) — **solo con OK**.
 
