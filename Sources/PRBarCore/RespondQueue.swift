@@ -315,7 +315,7 @@ public final class RespondQueue: ObservableObject {
         let slot = Slot<T>()
         jobs[prID] = Job(id: jobID, kind: kind, previous: previous ?? phases[prID])
         if let phase { phases[prID] = phase }
-        scheduler.enqueue(prID, onStart: { [weak self] in
+        scheduler.enqueue(prID, activity: .respond(prID), onStart: { [weak self] in
             if let onStart, self?.jobs[prID]?.id == jobID { self?.phases[prID] = onStart }
         }, work: {
             slot.value = try await work(jobID)

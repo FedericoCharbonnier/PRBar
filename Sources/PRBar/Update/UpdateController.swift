@@ -123,8 +123,18 @@ final class UpdateController: ObservableObject {
     func startInstall(_ release: ReleaseInfo, whenBusy: UpdateBusyPolicy) {
         guard (try? beginInstall(release)) != nil else { return }
         installTask = Task { [weak self] in
-            try? await self?.runInstall(release, whenBusy: whenBusy, onEvent: nil)
+            // Los procesos del build salen en la ventana Activity como "Update build" (spec I).
+            try? await ProcessActivity.$current.withValue(.update) {
+                try await self?.runInstall(release, whenBusy: whenBusy, onEvent: nil)
+            }
         }
+    }
+
+    /// Hay una instalación que todavía se puede cancelar: no en `installing`/`relaunching`, cuando ya se está
+    /// reemplazando la app (Stop de la ventana Activity, spec I).
+    var canCancelInstall: Bool {
+        guard case .running(let phase) = session.state else { return false }
+        return phase != .installing && phase != .relaunching
     }
 
     /// Solo antes de instalar (la ventana no ofrece Cancel en `installing`/`relaunching`).
@@ -138,7 +148,11 @@ final class UpdateController: ObservableObject {
     /// canceló) y se relanza el error (la CLI lo reporta).
     func install(_ release: ReleaseInfo, whenBusy: UpdateBusyPolicy, onEvent: ((UpdateEvent) -> Void)? = nil) async throws {
         try beginInstall(release)
-        let task = Task { try await self.runInstall(release, whenBusy: whenBusy, onEvent: onEvent) }
+        let task = Task {
+            try await ProcessActivity.$current.withValue(.update) {
+                try await self.runInstall(release, whenBusy: whenBusy, onEvent: onEvent)
+            }
+        }
         requestedInstall = task
         defer { requestedInstall = nil }
         try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }

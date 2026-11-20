@@ -1,18 +1,99 @@
+import AppKit
 import PRBarCore
-import Foundation
+import SwiftUI
 
-// Provisorio: la conexión con el monitor, la limpieza y el umbral llegan en el commit siguiente (Plan 13, Task 9).
 extension AppModel: ResourceActions {
-    func resources() async -> ResourcesInfo {
-        ResourcesInfo(usage: ResourceUsage(cpuPercent: 0, memoryBytes: 0, processes: [], sampledAt: Date()),
-                      disk: DiskUsage(items: [], scannedAt: Date()))
+    static let activityWindowID = "activity"
+
+    func makeResourceMonitor() -> ResourceMonitor {
+        // Lo que se mide se lee en el main actor; el escaneo corre fuera (lo lanza `ResourceMonitor` en segundo plano).
+        let readInput: @MainActor @Sendable () -> DiskScanInput? = { [weak self] in self?.diskScanInput() }
+        let monitor = ResourceMonitor(sampler: ProcessSampler(provider: LiveProcessInfoProvider()),
+                                      diskScan: {
+                                          guard let input = await readInput() else { return DiskUsage(items: [], scannedAt: Date()) }
+                                          return DiskScanner.scan(input)
+                                      })
+        monitor.onDisk = { [weak self] disk in self?.checkDiskWarning(disk) }
+        return monitor
     }
 
-    func cleanupPreview(olderThanDays: Int?) async -> CleanupPlan { CleanupPlan(candidates: []) }
+    /// Las carpetas a medir y lo que está en uso, leído en el main actor.
+    func diskScanInput() -> DiskScanInput {
+        var respondDirs: [DiskScanInput.RespondDir] = []
+        var repoByClone: [String: String] = [:]
+        for account in configStore.config.accounts {
+            for repo in account.repos {
+                guard let localPath = repo.localPath else { continue }
+                repoByClone[localPath] = repo.id
+                respondDirs.append(.init(repo: repo.id, path: repo.worktreeDir ?? WorktreeResolver.defaultWorktreeDir(localPath: localPath),
+                                         localPath: localPath))
+            }
+        }
+        var active = WorkspaceRegistry.shared.all()
+        for record in respond.records.values { active.insert(record.draft.worktree.path) }
+        return .live(respondDirs: respondDirs, activePaths: active, repoByClone: repoByClone)
+    }
 
-    func cleanup(olderThanDays: Int?, confirmed: Bool) async throws -> CleanupResult { CleanupResult() }
+    func checkDiskWarning(_ disk: DiskUsage) {
+        let limit = configStore.config.resources.diskWarningGB
+        guard diskWarning.update(total: disk.total, limitGB: limit), let limit,
+              let planned = NotificationPlanner.diskWarning(totalBytes: disk.total, limitGB: limit,
+                                                            settings: configStore.config.notifications) else { return }
+        notifications?.deliver([planned])
+    }
+
+    func openActivityWindow() {
+        WindowPresenter.shared.show(
+            id: Self.activityWindowID, title: "PRBar Activity", size: ActivityWindow.size,
+            options: WindowOptions(autosaveName: "ActivityWindow", miniaturizable: true, resizable: true, allowsTabbing: false),
+            contentID: "activity"
+        ) {
+            ActivityWindow(model: self, monitor: self.resources)
+        }
+    }
+
+    /// Stop de una tarea de la ventana Activity (decisión I.1.10). `nil` = no se puede parar.
+    func stopAction(for activity: ProcessActivity) -> (() -> Void)? {
+        switch activity.kind {
+        case .review: activity.prID.map { prID in { self.cancelReview(prID: prID) } }
+        case .respond: activity.prID.map { prID in { self.cancelRespond(prID: prID) } }
+        case .chat: activity.prID.flatMap { prID in (try? self.chatCoordinator(prID)).map { chat in { chat.stop() } } }
+        case .instructions: { self.instructionsChat.stop() }
+        case .update: updates.canCancelInstall ? { self.updates.cancelInstall() } : nil
+        case .slack: nil
+        }
+    }
+
+    // MARK: ResourceActions (CLI)
+
+    func resources() async -> ResourcesInfo {
+        let usage = await resources.freshUsage()
+        let disk = await resources.freshDisk()
+        return ResourcesInfo(usage: usage, disk: disk)
+    }
+
+    func cleanupPreview(olderThanDays: Int?) async -> CleanupPlan {
+        let input = diskScanInput()
+        let disk = await Task.detached(priority: .utility) { DiskScanner.scan(input) }.value
+        let old = olderThanDays.map { DiskCleanup.oldFiles(in: [AppPaths.historyDir, AppPaths.logFile.deletingLastPathComponent()],
+                                                            olderThanDays: $0) } ?? []
+        return DiskCleanup.plan(usage: disk, oldFiles: old, updateInProgress: updates.session.isInstalling)
+    }
+
+    func cleanup(olderThanDays: Int?, confirmed: Bool) async throws -> CleanupResult {
+        let plan = await cleanupPreview(olderThanDays: olderThanDays)
+        guard !plan.isEmpty else { return CleanupResult() }
+        guard confirmed else { throw CommandFailure(.confirmationRequired, "Clean Up needs confirmation: run it again with --yes.") }
+        guard let git = tools.git else { throw CommandFailure(.failed, PRBarError.toolNotFound("git").localizedDescription) }
+        let executor = DiskCleanupExecutor(runner: runner, gitPath: git,
+                                           worktreeRoots: [AppPaths.worktreesDir, AppPaths.legacyWorktreesDir])
+        let result = await executor.run(plan)
+        AppLog.write("Clean Up freed \(result.freedBytes) bytes; skipped \(result.skipped.count); failed \(result.failed.count)")
+        resources.jobFinished()
+        return result
+    }
 
     func configSetDiskWarning(gigabytes: Int?) throws {
-        throw CommandFailure(.failed, "Not available yet.")
+        try applyConfig { $0.resources.setDiskWarning(gigabytes: gigabytes) }
     }
 }
