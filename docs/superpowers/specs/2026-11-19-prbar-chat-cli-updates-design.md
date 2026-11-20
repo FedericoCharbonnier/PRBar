@@ -11,6 +11,9 @@ Fecha: 2026-11-19. Extiende `2026-11-18-prbar-design.md` (en adelante "spec base
 | E. Instrucciones y configuración completa del proceso | `2026-11-19-prbar-plan-9-instructions.md` |
 | F. Ready to Merge: PRs aprobados y botón Merge | `2026-11-19-prbar-plan-10-merge.md` |
 | G. Ventana de Merge con resumen del PR | `2026-11-19-prbar-plan-11-merge-window.md` |
+| H. Pestañas To Review / My PRs en el popover | `2026-11-19-prbar-plan-12-popover-tabs.md` |
+| I. Recursos que consume PRBar | `2026-11-19-prbar-plan-13-resources.md` |
+| J. Dónde corre Claude: esta Mac o un servidor por SSH | `2026-11-19-prbar-plan-14-remote-runners.md` |
 
 Orden de implementación: A+B → D → E → F → C. La CLI va al final porque tiene que cubrir también los comandos del chat, de las actualizaciones, de las instrucciones y del merge.
 
@@ -735,3 +738,91 @@ Puntos del spec que no se cumplen tal cual:
 
 - **G.2 "markdown renderizado":** se usa el Markdown en línea de SwiftUI (negrita, código, links) respetando los saltos de línea, como el chat y las notas de versión; listas y títulos se ven como texto.
 - **F.8.22** queda reemplazado por G.8.2 (la ventana no se cierra sola).
+
+---
+
+## H. Pestañas en el popover: To Review / My PRs
+
+Plan: `2026-11-19-prbar-plan-12-popover-tabs.md`. Va después de G.
+
+### H.1 Diseño (opción A elegida por el usuario)
+
+- Debajo de la cabecera del popover, un **control segmentado nativo** (`Picker(.segmented)`) con dos pestañas: **To Review N** y **My PRs N**, donde N es la cantidad de PRs accionables de esa pestaña (lo mismo que suma el badge). Si una pestaña tiene algo pendiente y no está seleccionada, su número va con un punto de acento.
+- **To Review**: secciones To Review y Updated Since My Review, más "Other" (PRs ajenos sin acción: drafts, ya revisados, etc.) colapsada.
+- **My PRs**: secciones My PRs with Feedback y Ready to Merge, más **"Waiting for Review"** (mis PRs abiertos sin nada que hacer: sin feedback nuevo y no listos para mergear) colapsada.
+- Las secciones vacías no se muestran (como hoy). Si una pestaña queda vacía: estado vacío propio ("Nothing to review 🎉" / "No PRs of yours need anything").
+- La pestaña elegida se recuerda entre aperturas (`UserDefaults`, `popoverTab`). ⌘1 / ⌘2 cambian de pestaña con el popover abierto.
+- El badge de la barra de menú no cambia (suma las dos pestañas).
+- Las notificaciones que abren el popover seleccionan la pestaña del PR.
+
+### H.2 CLI
+
+- `prbar prs --tab to-review|mine` (alias de los filtros por sección existentes) y `prbar status` muestra los totales por pestaña.
+- `prbar app popover --tab to-review|mine` (o el equivalente en el comando que abre el popover) para paridad con el control segmentado; el inventario de UI incluye el segmentado.
+
+### H.3 Testing
+
+- Asignación de categorías a pestañas (incluido "Waiting for Review" = mis PRs `.other`), contadores por pestaña, estados vacíos.
+- Snapshots: popover en cada pestaña (claro/oscuro), y estados vacíos.
+
+---
+
+## I. Recursos que consume PRBar
+
+Plan: `2026-11-19-prbar-plan-13-resources.md`. Opción A elegida por el usuario: **pie del popover**.
+
+- Línea fija al pie del popover (visible en las dos pestañas): `◔ CPU 12%  ▤ RAM 640 MB  ⛁ Disk 2.3 GB  ›`.
+  - **CPU y RAM**: de la app y de todos sus procesos hijos (claude, git, swift build del updater, gh), sumados. Se muestrean cada 2 s **solo mientras el popover o la ventana de detalle están abiertos** (con `proc_pidinfo`/`proc_listchildpids` o `libproc`; sin `ps` en loop). CPU en % de un núcleo como Activity Monitor.
+  - **Disco**: lo que PRBar ocupa en `~/Library/Application Support/PRBar` (worktrees, carpetas de contexto, clone del updater, staging, historial, logs) + los worktrees de PRBar que viven dentro de los clones del usuario (`<worktreesDir>`). Se calcula en segundo plano, cacheado, a lo sumo cada 60 s, y al terminar un trabajo.
+- Clic en la línea → ventana **"PRBar Activity"**:
+  - **Ahora**: cada proceso vivo con su tarea ("Review api#317 · claude", "Update build · swift"), CPU, RAM y tiempo corriendo; botón Stop por tarea (usa el cancel de cada cola).
+  - **Disco** por categoría y por repo (worktrees activos vs huérfanos, clone del updater, builds, logs, historial) con **Clean Up**: borra worktrees huérfanos (con el mismo mecanismo seguro de §8.5: nunca `git worktree prune`), el staging del updater y builds viejos, y opcionalmente logs/historial de más de N días (confirmación con el total a liberar). Nunca toca worktrees con trabajo en curso ni con fixes sin pushear.
+  - Si hay trabajos corriendo en un servidor remoto (parte J), aparecen con "on <host>" y sin CPU/RAM locales.
+- Umbral opcional (Settings › General): avisar si PRBar ocupa más de X GB (por defecto apagado).
+- CLI: `prbar resources [--json]` (CPU, RAM, disco por categoría, procesos), `prbar cleanup [--older-than 30d] [--yes]`.
+- Tests: suma de árbol de procesos con un proveedor falso, cálculo de disco en carpetas temporales, Clean Up nunca borra worktrees activos/con fixes sin pushear, muestreo solo con la UI abierta.
+
+---
+
+## J. Dónde corre Claude: esta Mac o un servidor por SSH
+
+Plan: `2026-11-19-prbar-plan-14-remote-runners.md`.
+
+### J.1 Destinos
+
+- **This Mac** (por defecto, comportamiento actual).
+- **SSH hosts**: el usuario agrega uno o más destinos en Settings › Claude › **Run On** eligiendo un host de `~/.ssh/config` (o `user@host[:port]`), con carpeta de trabajo remota (por defecto `~/.prbar`). PRBar usa el `ssh` del sistema con `BatchMode=yes`, `ConnectTimeout=10`, multiplexado (`ControlMaster=auto`, `ControlPersist=60s`, socket en una carpeta 0700 propia) y **nunca** guarda contraseñas: requiere clave/agent ya configurados.
+- **Por repo**: cada repo elige "Default" (el global), "This Mac" o un host. El destino global por defecto es This Mac.
+- **Fallback a local** (switch por destino, por defecto encendido): si el host no responde o falla la preparación, el trabajo corre en la Mac y la fila/ventana lo dice ("Ran on this Mac — devbox unreachable"). Si está apagado, el trabajo falla con el error.
+
+### J.2 Qué corre remoto
+
+- **Review, filtro, análisis de respond, implementación de fixes y los chats de PR** (review, respond, merge). Se mueven: el worktree y el `claude -p`.
+- **Queda siempre local**: GitHub API (tokens), publicar reviews, push, respuestas en hilos, merge, Slack (incluido el conector de Claude), el chat de instrucciones, el updater.
+
+### J.3 Cómo
+
+- **Verificación del host** ("Test Connection" y antes de cada trabajo, cacheado 5 min): `ssh host 'uname; git --version; command -v claude; claude --version'`; muestra SO, versiones y si claude está logueado (`claude -p` mínimo con `--model haiku`, solo en Test Connection). Las versiones mínimas de git y claude son las mismas que en local.
+- **Repo remoto**: clone espejo propio de PRBar en `<carpeta remota>/repos/<owner>/<name>.git` (bare), actualizado con `git fetch` **desde GitHub en el host** usando las credenciales del host (PRBar no envía tokens). Si el host no puede leer el repo, el error lo dice ("devbox can't fetch acme/api — set up git access on the server"). Los worktrees remotos se crean desde ese bare con los mismos refs `refs/prbar/*` y el mismo endurecimiento de git (§8, B, D) por `ssh host -- git -c …`.
+- **Contexto** (`pr.diff`, `pr.md`, `feedback.json`, etc.): PRBar los genera local (igual que hoy, con los mismos fences/neutralización) y los copia con `scp`/`ssh 'cat >'` a la carpeta de contexto remota.
+- **Claude remoto**: el mismo argv de aislamiento de §8.3/B.4 (settings, deny rules, tools, dontAsk, strict MCP, --json-schema), ejecutado como `ssh host -- env -i <allowlist> claude …` con argumentos escapados (sin interpolar en shell: cada argumento con quoting POSIX estricto y test de inyección). Los `--plugin-dir` apuntan a los plugins **del host** (se resuelven allá con la misma regla de §8.0; si falta un plugin, error con el comando para instalarlo en el server). El `stream-json` vuelve por stdout del ssh y se parsea igual; Stop mata el proceso remoto (`ssh -O` / kill del grupo remoto por PID guardado).
+- **Fixes**: la implementación commitea en el worktree remoto (mismo guardián de integridad, corrido allá). Para pushear, PRBar trae los commits a la Mac con `ssh host -- git -C <wt> bundle create - <base>..HEAD` → `git bundle unbundle` en el clone local del usuario bajo `refs/prbar/…`, **verifica** que el árbol traído coincide con el diff que vio el usuario, y pushea **desde la Mac** con el token local, como hoy. Si el repo no tiene `localPath`, el push usa un clone temporal mínimo propio.
+- **Limpieza**: los worktrees/refs/carpetas de contexto remotos se borran al terminar como en local; al arrancar, limpieza de huérfanos remotos solo dentro de `<carpeta remota>` de PRBar.
+
+### J.4 UI y CLI
+
+- Settings › Claude › Run On: lista de destinos (host, carpeta, fallback, estado de la última verificación, Test Connection, Remove), destino global por defecto; Settings › Repos: "Run Claude on". Filas y ventanas muestran "on devbox" cuando corre remoto. La ventana de Activity (parte I) lista los trabajos remotos.
+- CLI: `prbar runners list|add <host> [--dir D] [--no-fallback]|remove|test|default <name|local>`, `prbar repo set <repo> --run-on <name|local|default>`; inventario de UI y paridad actualizados.
+
+### J.5 Seguridad
+
+- Ningún token de GitHub ni Slack sale de la Mac. El host necesita su propio acceso de lectura al repo y su login de Claude.
+- Quoting estricto de todos los argumentos remotos (test con nombres de rama/paths/prompts hostiles). La carpeta remota es la única que PRBar crea o borra en el host.
+- Lo que vuelve del host (stream-json, bundles, diffs) se trata como no confiable igual que la salida local de Claude (redacción, guardianes, verificación del árbol antes de pushear).
+- `known_hosts` se respeta (`StrictHostKeyChecking=yes` salvo que el usuario haya configurado otra cosa en su ssh config).
+
+### J.6 Testing
+
+- Constructor de comandos ssh con quoting (fuzz de argumentos hostiles), resolución de destino (repo → global → local), fallback, parseo de la verificación del host.
+- Flujo remoto completo contra un "host" falso (un `ssh` stub que ejecuta localmente en una carpeta temporal), incluido el bundle de vuelta y la verificación del árbol antes del push.
+- Stop y limpieza remota; error claro cuando el host no puede fetchear o falta claude/plugin.
