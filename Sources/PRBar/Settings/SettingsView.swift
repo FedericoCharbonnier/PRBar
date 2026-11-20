@@ -52,6 +52,16 @@ enum SettingsWindow {
     }
 
     /// La pestaña que se eligió la última vez (General si no hay ninguna guardada).
+    /// La ventana de Settings abierta (para cambiar de pestaña desde la CLI).
+    @MainActor private static weak var current: NSTabViewController?
+
+    /// Elige `tab`: la recuerda para la próxima vez y, si la ventana está abierta, cambia a esa pestaña.
+    @MainActor
+    static func select(_ tab: Tab) {
+        UserDefaults.standard.set(tab.rawValue, forKey: selectedTabKey)
+        current?.selectedTabViewItemIndex = Tab.allCases.firstIndex(of: tab) ?? 0
+    }
+
     static var savedTab: Tab {
         UserDefaults.standard.string(forKey: selectedTabKey).flatMap(Tab.init(rawValue:)) ?? .general
     }
@@ -86,6 +96,7 @@ enum SettingsWindow {
         }
         tabs.selectedTabViewItemIndex = Tab.allCases.firstIndex(of: initialTab ?? savedTab) ?? 0
         guard initialTab == nil else { return tabs }
+        current = tabs
         tabs.onSelect = { index in
             guard Tab.allCases.indices.contains(index) else { return }
             UserDefaults.standard.set(Tab.allCases[index].rawValue, forKey: selectedTabKey)

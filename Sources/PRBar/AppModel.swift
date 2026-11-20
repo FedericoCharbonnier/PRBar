@@ -499,7 +499,7 @@ final class AppModel: ObservableObject {
     }
 
     /// `localPath` del repo del item en la config de su cuenta (`nil` = review solo con el diff).
-    private func localPath(for item: ClassifiedPR) -> String? {
+    func localPath(for item: ClassifiedPR) -> String? {
         localPath(account: item.account, repo: item.pr.repo)
     }
 
@@ -508,7 +508,7 @@ final class AppModel: ObservableObject {
         return path
     }
 
-    private func repoConfig(account: String, repo: RepoRef) -> RepoConfig? {
+    func repoConfig(account: String, repo: RepoRef) -> RepoConfig? {
         configStore.config.repoConfig(account: account, repo: repo)
     }
 
