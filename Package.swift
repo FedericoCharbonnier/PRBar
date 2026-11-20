@@ -11,6 +11,9 @@ let package = Package(
         .executable(name: "PRBarCLI", targets: ["PRBarCLI"]),
         // La app de iOS (Plan 19) consume este producto como paquete local.
         .library(name: "PRBarRemoteKit", targets: ["PRBarRemoteKit"]),
+        // The Mac side plus a fixture dispatcher: the iPhone's end-to-end test (macOS only) runs a real
+        // `RemoteAccessService` with it through the local relay.
+        .library(name: "PRBarRemoteFixtures", targets: ["PRBarRemoteFixtures", "PRBarRemoteMac", "PRBarCore"]),
     ],
     dependencies: [
         // Primera y única dependencia externa (spec C.3). Versión exacta: subirla es un cambio explícito.
@@ -26,6 +29,7 @@ let package = Package(
         // `CommandDispatcher`, el feed de estado, el buzón y los pushes. Aparte de la app para poder testearlo, y de
         // Core para que `prbar` no cargue CryptoKit ni el protocolo del relay.
         .target(name: "PRBarRemoteMac", dependencies: ["PRBarCore", "PRBarRemoteKit"]),
+        .target(name: "PRBarRemoteFixtures", dependencies: ["PRBarCore", "PRBarRemoteMac"]),
         .executableTarget(name: "PRBar", dependencies: ["PRBarCore", "PRBarRemoteKit", "PRBarRemoteMac"]),
         .target(name: "PRBarCLIKit", dependencies: [
             "PRBarCore",

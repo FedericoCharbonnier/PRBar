@@ -20,5 +20,11 @@ let package = Package(
         // macOS-only: renders screens with fixtures to PNG for visual checks.
         .executableTarget(name: "PRBarMobileSnapshots", dependencies: ["PRBarMobileUI"]),
         .testTarget(name: "PRBarMobileCoreTests", dependencies: ["PRBarMobileCore"]),
+        // macOS only, and only with PRBAR_RELAY_BIN: the view models over `LiveTransport` against a real
+        // `RemoteAccessService` (fixture PRs) through the Go relay on 127.0.0.1 (`Scripts/ios-e2e.sh`).
+        .testTarget(name: "PRBarMobileEndToEndTests", dependencies: [
+            "PRBarMobileCore",
+            .product(name: "PRBarRemoteFixtures", package: "PRBar", condition: .when(platforms: [.macOS])),
+        ]),
     ]
 )
