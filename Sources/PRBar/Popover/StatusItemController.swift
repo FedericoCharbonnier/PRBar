@@ -33,6 +33,8 @@ final class StatusItemController: NSObject, NSWindowDelegate {
     private var eventMonitors: [Any] = []
     private var observers: [(NotificationCenter, NSObjectProtocol)] = []
     private var badgeObserver: AnyCancellable?
+    private var updateObserver: AnyCancellable?
+    private let updateDot = UpdateDotView()
 
     init(model: AppModel) {
         self.model = model
@@ -47,9 +49,16 @@ final class StatusItemController: NSObject, NSWindowDelegate {
             button.target = self
             button.action = #selector(togglePanel(_:))
             button.sendAction(on: [.leftMouseDown, .rightMouseDown])
+            updateDot.frame = button.bounds
+            button.addSubview(updateDot)
         }
         updateButton(model.prStore.snapshot)
         badgeObserver = model.prStore.$snapshot.sink { [weak self] snapshot in self?.updateButton(snapshot) }
+        // `objectWillChange` fires before the change: read the new state on the next turn of the run loop.
+        updateObserver = model.updates.objectWillChange.receive(on: RunLoop.main).sink { [weak self] _ in
+            guard let self else { return }
+            self.updateButton(self.model.prStore.snapshot)
+        }
     }
 
     var isShown: Bool { panel.isVisible }
@@ -77,9 +86,15 @@ final class StatusItemController: NSObject, NSWindowDelegate {
 
     private func updateButton(_ snapshot: Snapshot?) {
         guard let button = statusItem.button else { return }
-        button.image = BadgeIcon.image(for: Self.iconState(snapshot))
-        button.setAccessibilityLabel("PRBar, \(Self.accessibilityState(snapshot))")
-        button.toolTip = "PRBar"
+        let state = Self.iconState(snapshot)
+        let prompt = UpdatePrompt(availableVersion: model.updates.available?.version.description,
+                                  isInstalling: model.updates.isInstalling)
+        let image = BadgeIcon.image(for: state, updateDot: prompt != nil)
+        button.image = image
+        updateDot.dot = prompt == nil ? nil : (BadgeIcon.updateDotRect(imageSize: image.size), image.size)
+        button.setAccessibilityLabel(UpdatePrompt.statusItemAccessibilityLabel(state: Self.accessibilityState(snapshot),
+                                                                               prompt: prompt))
+        button.toolTip = prompt?.help ?? "PRBar"
     }
 
     static func iconState(_ snapshot: Snapshot?) -> MenuBarIconState {
