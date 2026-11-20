@@ -24,7 +24,7 @@ struct PopoverView: View {
             UpdateRow(updates: model.updates) { model.openUpdateWindow() }
         }
         .frame(width: Theme.popoverWidth)
-        .background(WindowAccessor { window in model.popoverWindow = window })
+        .background(WindowAccessor { window in model.setPopoverWindow(window) })
     }
 
     // MARK: Header

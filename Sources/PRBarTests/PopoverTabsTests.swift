@@ -14,6 +14,12 @@ private let mixed = Snapshot(items: [
     item(.other, author: "Me", number: 6),
 ], fetchedAt: t0)
 
+private final class MemoryTabStore: PopoverTabStore {
+    var values: [String: String] = [:]
+    func string(forKey key: String) -> String? { values[key] }
+    func set(_ value: Any?, forKey key: String) { values[key] = value as? String }
+}
+
 enum PopoverTabsTests {
     static let cases: [TestCase] = [
         TestCase("popover tabs: cada categoría va a su pestaña; Other mío es Waiting for Review") {
@@ -72,35 +78,90 @@ enum PopoverTabsTests {
             try expectEqual(PopoverTabs.accessibilityValue(counts: [:], selected: .toReview),
                             "To Review selected, 0 need your action; My PRs, 0 need your action")
         },
-        TestCase("popover tabs: la pestaña elegida se guarda en UserDefaults (popoverTab)") {
+        TestCase("popover tabs: la pestaña elegida se guarda (popoverTab)") {
             try await MainActor.run {
-                let suite = "prbar-tests-\(UUID().uuidString)"
-                let defaults = UserDefaults(suiteName: suite)!
-                defer { defaults.removePersistentDomain(forName: suite) }
-                let first = PopoverTabState(defaults: defaults)
+                let store = MemoryTabStore()
+                let first = PopoverTabState(store: store)
                 try expectEqual(first.selected, .toReview)
                 first.selected = .mine
-                try expectEqual(defaults.string(forKey: "popoverTab"), "mine")
-                let second = PopoverTabState(defaults: defaults)
+                try expectEqual(store.values["popoverTab"], "mine")
+                let second = PopoverTabState(store: store)
                 try expectEqual(second.selected, .mine)
             }
         },
         TestCase("popover tabs: un valor guardado desconocido vuelve a To Review") {
             try await MainActor.run {
+                let store = MemoryTabStore()
+                store.values[PopoverTabState.defaultsKey] = "everything"
+                try expectEqual(PopoverTabState(store: store).selected, .toReview)
+            }
+        },
+        TestCase("popover tabs: UserDefaults guarda la pestaña y el test no deja su plist") {
+            try await MainActor.run {
                 let suite = "prbar-tests-\(UUID().uuidString)"
                 let defaults = UserDefaults(suiteName: suite)!
-                defer { defaults.removePersistentDomain(forName: suite) }
-                defaults.set("everything", forKey: PopoverTabState.defaultsKey)
-                try expectEqual(PopoverTabState(defaults: defaults).selected, .toReview)
+                defer {
+                    defaults.removePersistentDomain(forName: suite)
+                    let plist = FileManager.default.homeDirectoryForCurrentUser
+                        .appendingPathComponent("Library/Preferences/\(suite).plist")
+                    try? FileManager.default.removeItem(at: plist)
+                }
+                PopoverTabState(store: defaults).selected = .mine
+                try expectEqual(defaults.string(forKey: PopoverTabState.defaultsKey), "mine")
+                try expectEqual(PopoverTabState(store: defaults).selected, .mine)
+            }
+        },
+        TestCase("popover tabs: el clic en una notificación elige la pestaña solo para la próxima apertura") {
+            try await MainActor.run {
+                let store = MemoryTabStore()
+                let state = PopoverTabState(store: store)
+                state.selected = .toReview
+                state.selectForNextOpening(.mine)
+                try expectEqual(state.selected, .mine)
+                try expectEqual(store.values["popoverTab"], "to-review")
+                // Un cierre sin haberse abierto (la ventana oculta avisa cambios) no la deshace.
+                state.popoverDidClose()
+                try expectEqual(state.selected, .mine)
+                state.popoverDidOpen()
+                try expectEqual(state.selected, .mine)
+                state.popoverDidClose()
+                try expectEqual(state.selected, .toReview)
+                try expectEqual(store.values["popoverTab"], "to-review")
+                state.popoverDidOpen()
+                state.popoverDidClose()
+                try expectEqual(state.selected, .toReview)
+            }
+        },
+        TestCase("popover tabs: si el usuario cambia de pestaña después de la notificación, esa se guarda") {
+            try await MainActor.run {
+                let store = MemoryTabStore()
+                let state = PopoverTabState(store: store)
+                state.selectForNextOpening(.mine)
+                state.popoverDidOpen()
+                state.selected = .toReview
+                state.selected = .mine
+                state.popoverDidClose()
+                try expectEqual(state.selected, .mine)
+                try expectEqual(store.values["popoverTab"], "mine")
+            }
+        },
+        TestCase("popover tabs: con el popover abierto la notificación cambia la pestaña hasta que se cierra") {
+            try await MainActor.run {
+                let state = PopoverTabState(store: MemoryTabStore())
+                state.popoverDidOpen()
+                state.selectForNextOpening(.mine)
+                try expectEqual(state.selected, .mine)
+                state.popoverDidClose()
+                try expectEqual(state.selected, .toReview)
             }
         },
         TestCase("popover tabs: sin UserDefaults la pestaña se recuerda solo en memoria") {
             try await MainActor.run {
-                let state = PopoverTabState(defaults: nil)
+                let state = PopoverTabState(store: nil)
                 try expectEqual(state.selected, .toReview)
                 state.selected = .mine
                 try expectEqual(state.selected, .mine)
-                try expectEqual(PopoverTabState(defaults: nil).selected, .toReview)
+                try expectEqual(PopoverTabState(store: nil).selected, .toReview)
             }
         },
     ]

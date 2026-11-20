@@ -191,6 +191,8 @@ final class AppModel: ObservableObject {
     /// La ventana del popover cuando está en pantalla (la pone `WindowAccessor`): `prbar app popover` no la vuelve a
     /// abrir (un clic en el botón la cerraría).
     weak var popoverWindow: NSWindow?
+    /// Observadores de la ventana del popover para saber cuándo se abre y se cierra (`PopoverTabState`).
+    var popoverWindowObservers: [NSObjectProtocol] = []
 
     @Published private(set) var tools = ResolvedTools()
     @Published private(set) var toolsResolved = false
@@ -239,7 +241,7 @@ final class AppModel: ObservableObject {
         self.chatBackendOverride = services.chatBackend
         self.instructionsChatBackendOverride = services.instructionsChatBackend
         self.updateTransport = services.updateTransport
-        self.popoverTab = PopoverTabState(defaults: services.popoverDefaults)
+        self.popoverTab = PopoverTabState(store: services.popoverDefaults)
         self.prStore = PRStore(
             builder: SnapshotBuilder(api: services.api, tokens: services.accounts),
             configStore: configStore,
