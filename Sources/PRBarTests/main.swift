@@ -112,6 +112,7 @@ let allTests: [TestCase] = []
     + MergeChatTests.cases
     + PopoverTabsTests.cases
     + ProcessActivityTests.cases
+    + ProcessSamplingTests.cases
 
 let filter = CommandLine.arguments.dropFirst().first
 let selected = allTests.filter { test in
