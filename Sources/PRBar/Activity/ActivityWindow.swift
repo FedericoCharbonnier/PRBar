@@ -42,6 +42,23 @@ struct ActivityWindow: View {
         // (`WindowPresenter` guarda el contenido; decisión I.1.7).
         .background(WindowAccessor { window in visibility.tracker(monitor).track(window) })
         .onDisappear { monitor.setVisible("activity", false) }
+        // Same unified toolbar as Review, Respond, Merge and History.
+        .navigationSubtitle(subtitle)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button { monitor.refreshDisk(force: true) } label: { Label("Refresh", systemImage: "arrow.clockwise") }
+                    .help("Measure the disk again (⌘R)")
+                    .disabled(monitor.scanningDisk)
+            }
+        }
+        // View › Refresh (⌘R).
+        .windowCommand(.refresh, enabled: !monitor.scanningDisk) { monitor.refreshDisk(force: true) }
+    }
+
+    /// "CPU 3% · RAM 180 MB" under the title.
+    private var subtitle: String {
+        guard let usage = monitor.usage else { return "" }
+        return "CPU \(String(format: "%.0f%%", usage.cpuPercent)) · RAM \(ResourceFooter.memory(usage.memoryBytes))"
     }
 
     // MARK: Totales
@@ -225,7 +242,6 @@ struct ActivityWindow: View {
                 Text("Disk").font(.headline)
                 if monitor.scanningDisk { ProgressView().controlSize(.small) }
                 Spacer()
-                Button("Refresh") { monitor.refreshDisk(force: true) }.controlSize(.small)
             }
             if let usage = monitor.disk {
                 VStack(spacing: 0) {

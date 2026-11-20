@@ -48,7 +48,7 @@ extension AppModel: ResourceActions {
         WindowPresenter.shared.show(
             id: Self.activityWindowID, title: "PRBar Activity", size: ActivityWindow.size,
             options: WindowOptions(autosaveName: "ActivityWindow", miniaturizable: true, resizable: true, allowsTabbing: false,
-                                   kind: .utility),
+                                   kind: .utility, bridgesToolbar: true, toolbarStyle: .unified),
             contentID: "activity"
         ) {
             ActivityWindow(model: self, monitor: self.resources)
