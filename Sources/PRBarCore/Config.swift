@@ -485,6 +485,8 @@ public struct AppConfig: Hashable, Codable, Sendable {
     public var updates = UpdateSettings()
     public var resources = ResourceSettings()
     public var runners = RunnerSettings()
+    /// El acceso desde el iPhone (spec Q).
+    public var remote = RemoteSettings.default
 
     public init() {}
 
@@ -493,6 +495,7 @@ public struct AppConfig: Hashable, Codable, Sendable {
         case accounts, refreshIntervalMinutes, launchAtLogin, notifications, toolPaths, slack, claude, updates
         case resources
         case runners
+        case remote
     }
 
     public init(from decoder: Decoder) throws {
@@ -507,6 +510,7 @@ public struct AppConfig: Hashable, Codable, Sendable {
         updates = (try? c.decodeIfPresent(UpdateSettings.self, forKey: .updates)) ?? UpdateSettings()
         resources = (try? c.decodeIfPresent(ResourceSettings.self, forKey: .resources)) ?? ResourceSettings()
         runners = (try? c.decodeIfPresent(RunnerSettings.self, forKey: .runners)) ?? RunnerSettings()
+        remote = (try? c.decodeIfPresent(RemoteSettings.self, forKey: .remote)) ?? .default
     }
 }
 

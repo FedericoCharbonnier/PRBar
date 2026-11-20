@@ -26,6 +26,10 @@ struct ResourcesCommand: RemoteCommand {
         })
         output.line()
         output.table(["Disk", "Size"], DiskCategoryKind.allCases.map { [$0.title, Bytes.text(info.disk.bytes($0))] })
+        if let claude = info.claudeThisMonth {
+            output.line()
+            output.line("Claude this month: \(UsageFormat.summary(claude)) — see `prbar usage`")
+        }
         let orphans = info.disk.items.filter { $0.state == .orphan }
         if !orphans.isEmpty {
             output.line(output.paint("\(orphans.count) leftover worktree\(orphans.count == 1 ? "" : "s") (\(Bytes.text(orphans.map(\.bytes).reduce(0, +)))). Run `prbar cleanup`.", .yellow))

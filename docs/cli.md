@@ -37,11 +37,12 @@ shows the help of `review start`, the group’s default subcommand).
 | `prbar status [--json]` | What the menu bar shows: the popover tabs’ totals (“To Review N · My PRs N”), the PRs in each of the popover’s sections (Other and Waiting for Review apart; `sectionCounts` in `--json`, keyed like `section` in `prbar prs`), running jobs, issues |
 | `prbar prs [--tab to-review\|mine] [--list to-review\|updated\|mine\|ready-to-merge\|other] [--account L]` | The PRs; `--tab` keeps one of the popover’s tabs and combines with `--list` (`--list other --tab mine` is Waiting for Review; a section from the other tab is a usage error). The Section column shows the popover’s section (in `--json`, `section` is `toReview`, `updatedSinceMyReview`, `otherToReview`, `myFeedback`, `readyToMerge` or `waitingForReview`, and `tab` is `to-review` or `mine`) |
 | `prbar refresh` | Refresh now |
-| `prbar resources [--json]` | CPU, memory and disk PRBar is using (the popover’s footer and the PRBar Activity window): CPU and memory of the app and every process it launched, with its task; disk by category (worktrees, updater, history, logs, app data). Says how many leftover worktrees `prbar cleanup` would remove |
+| `prbar resources [--json]` | CPU, memory and disk PRBar is using (the popover’s footer and the PRBar Activity window): CPU and memory of the app and every process it launched, with its task; disk by category (worktrees, updater, history, logs, app data). Says how many leftover worktrees `prbar cleanup` would remove, and Claude’s estimated cost this month (`claudeThisMonth`) |
 | `prbar cleanup [--older-than 30d] [--preview] [--yes]` | Clean Up: delete leftover worktrees and the updater’s builds (and, with `--older-than`, history and log files older than that many days). Shows what it would delete and asks; without a terminal it needs `--yes`. Only deletes what it showed (with `--yes`, what the preview listed at that moment) and that is still deletable. Never touches a worktree with a job running or with fixes not pushed yet (those are listed as skipped). `--preview` only lists. “Nothing to clean up.” exits 0 |
 | `prbar open <pr> [--review\|--respond\|--merge\|--posted\|--worktree] [--copy]` | Open the PR, its window (`--merge`: the Merge window of a PR of yours that’s Ready to Merge), the posted review or the worktree; `--copy` copies the link |
-| `prbar history [--repo R] [--kind review\|respond\|merge] [--search Q] [--limit N]` | History |
-| `prbar history show <id> [--open-log\|--reveal-log]` | One record (id or its first 4+ characters), with its chat |
+| `prbar history [--repo R] [--kind review\|respond\|ci-fix\|merge] [--search Q] [--limit N]` | History, with each job’s estimated Claude cost (`usage` in `--json`; older records have none) |
+| `prbar history show <id> [--open-log\|--reveal-log]` | One record (id or its first 4+ characters), with its chat and Claude’s time, tokens and estimated cost |
+| `prbar usage [--month YYYY-MM]` | Claude’s time, tokens and **estimated** cost: the month’s total (by kind) and its tasks (one per job: a review, an analysis, the fixes, a Fix CI, a chat message…). Estimated from what Claude Code reports; on a Claude subscription you may not be billed per token. Runs PRBar couldn’t measure (stopped, timed out) count their time only |
 | `prbar history reopen <id>` | Open to Post |
 | `prbar app start\|quit\|settings [tab]\|history [id]` | The app (tabs: `general`, `claude`, `instructions`, `accounts`, `repos`, `slack`) |
 | `prbar app popover [--tab to-review\|mine]` | Open the menu bar popover, on that tab if given (the popover remembers it; ⌘1 / ⌘2). If PRBar can’t open it, the tab stays selected for the next time you click the menu bar icon |
@@ -68,6 +69,13 @@ shows the help of `review start`, the group’s default subcommand).
 | `prbar respond push <pr> --anyway [--yes]` | Push Anyway: the tests before the push failed and you push anyway |
 | `prbar respond reply-only <pr> [--wait] [--yes]` | Only replies |
 | `prbar respond cancel\|dismiss <pr>` | Cancel / dismiss |
+| `prbar ci [list]` | Your PRs whose CI failed, with their Fix CI |
+| `prbar ci fix <pr> [--wait]` | Fix CI (manual only): PRBar reads the failing checks and their logs on this Mac, Claude fixes the code in PRBar’s worktree (here or on the repo’s host). Nothing is pushed; no comment is posted |
+| `prbar ci show <pr> [--full]` | The failing checks, Claude’s summary and its commit (`--full`: the CI output Claude saw) |
+| `prbar ci diff <pr> [--stat]`, `prbar ci test <pr> [--wait]` | The diff that would be pushed / run the repo’s tests in the worktree |
+| `prbar ci push <pr> [--wait] [--yes]` | Push the fix from this Mac, after checking on GitHub that the PR is still at the commit whose checks failed and that they still don’t pass |
+| `prbar ci push <pr> --anyway [--yes]` | Push Anyway: the tests failed, or the failing checks pass now (a new head is never pushed) |
+| `prbar ci cancel\|dismiss <pr>` | Cancel / dismiss (the chat works as in Respond: `prbar chat <pr>`) |
 | `prbar chat <pr> ["message"]` | Chat with Claude about the review, the Respond analysis or, for a PR that’s Ready to Merge, the PR before merging (read only, like the Merge window’s chat); without a message in a terminal, an interactive chat (`/undo`, `/show`, `/stop`, `/quit`); without a terminal the message comes from stdin |
 | `prbar chat <pr> --undo [--yes]\|--show\|--stop` | Undo Claude’s last change (asks if it would discard your manual edits), print the conversation, stop the answer |
 | `prbar merge <pr> [--method squash\|merge\|rebase] [--yes]` | Merge a PR of yours that’s Ready to Merge (the repo’s method unless `--method`) |
@@ -86,6 +94,15 @@ shows the help of `review start`, the group’s default subcommand).
 | `prbar slack emoji eyes\|comment\|approved <name>`, `prbar slack search-days <7–90>` | Reactions |
 | `prbar slack template list\|show\|set\|reset <new-pr\|update\|round\|merged> [text\|--editor]` | Templates (`myPR.merged` is an alias of `merged`) |
 | `prbar slack test [--yes]` | Test message to your DM |
+| `prbar remote [status]` | iPhone access: on or off, the relay, the connection, paired iPhones, keep awake, mailbox and the install link |
+| `prbar remote enable [--relay HOST] [--enroll-token-stdin]` | Allow iPhone remote control (default relay `prbar.fcharbonnier.duckdns.org`). The first time it asks for the relay’s enrollment token without echo (or reads it from stdin) and never stores it; enabling the same relay again doesn’t need it |
+| `prbar remote disable` | Turn it off (paired iPhones stay paired) |
+| `prbar remote pair` | Pair an iPhone: QR code in the terminal (needs a terminal), waits for the phone, then asks “Does your iPhone show 123 456?” |
+| `prbar remote devices [--json]`, `prbar remote devices --require-face-id <iphone> on\|off` | Paired iPhones / whether merge, push and approve need Face ID on one |
+| `prbar remote revoke <iphone> [--yes]` | Remove an iPhone (id, id prefix or name) |
+| `prbar remote keep-awake on\|off`, `prbar remote mailbox on\|off` | Keep this Mac awake while charging / leave the last encrypted state on the relay (7 days) |
+| `prbar remote app-link set <url>\|clear` | The TestFlight or App Store link Settings › iPhone shows as a QR (https, `testflight.apple.com` or `apps.apple.com`) |
+| `prbar remote reset [--yes]` | New keys and relay account; every iPhone has to be paired again |
 
 ## Where Claude runs
 
@@ -126,7 +143,7 @@ Editing a prompt never changes Claude’s tools, permissions or output schema.
 | `prbar claude review set [--min-severity low\|medium\|high] [--max-findings N\|none] [--ignore G]… [--unignore G]… [--category C=on\|off]… [--tone direct\|friendly\|with-suggestions]` | What the review reports (categories: `bug`, `security`, `performance`, `tests`, `style`, `docs`, `other`) |
 | `prbar claude respond set [--tests-before-push on\|off] [--commit-mode per-comment\|single] [--commit-template T\|default] [--allow-tests on\|off] [--allow-deps on\|off] [--reply-template T\|default]` | How the fixes are made |
 | `prbar claude stage <review\|filter\|analysis\|implementation> --skill S\|--prompt-file F\|--default` | Run a stage with a skill, your own prompt, or the defaults (`--skill none`: implementation without a skill) |
-| `prbar claude prompt show\|edit\|reset <stage> [--file F]` | A stage’s prompt (stages above plus `chat-review`, `chat-respond`, `chat-instructions`); `edit` opens `$EDITOR` or reads `--file` and rejects a prompt without the stage’s required variables |
+| `prbar claude prompt show\|edit\|reset <stage> [--file F]` | A stage’s prompt (stages above plus `chat-review`, `chat-respond`, `chat-merge`, `chat-instructions` and `ci-fix`, Fix CI’s: variables `{pr}`, `{repo}`, `{title}`, `{checks}`, `{rules}`; the CI logs always go in PRBar’s fixed part, fenced as untrusted); `edit` opens `$EDITOR` or reads `--file` and rejects a prompt without the stage’s required variables |
 
 ## Interactive and scripts
 
@@ -145,7 +162,7 @@ In a terminal (stdin and stdout are a TTY, no `--json`): colored tables (`NO_COL
 - `repo remove`, `slack token clear`: a confirmation (only in a terminal).
 
 Without a terminal (a script, a pipe, `--json`) `prbar` never asks. Commands that post, push or approve
-(`review publish`, `respond push`, `respond reply-only`, `merge`, `slack test`, `update`) **need `--yes`**; without it they exit with 4.
+(`review publish`, `respond push`, `ci push`, `respond reply-only`, `merge`, `slack test`, `update`) **need `--yes`**; without it they exit with 4.
 
 `--wait` prints progress to stderr. Ctrl-C cancels the job in the app too and exits with 130.
 
@@ -156,8 +173,15 @@ Without a terminal (a script, a pipe, `--json`) `prbar` never asks. Commands tha
 ```
 
 Keys are sorted; dates are ISO 8601. `data` is the command’s result: `StatusInfo`, `[PRInfo]`, `ReviewInfo`,
-`RespondInfo`, `[HistoryEntryInfo]`, `HistoryDetail`, … (see `Sources/PRBarCore/CommandResults.swift`). Commands with
-nothing to return give `{"ok": true}`. New optional keys may appear; renaming or removing one bumps `schemaVersion`.
+`RespondInfo`, `[HistoryEntryInfo]`, `HistoryDetail`, `[CIListEntry]`, `UsageInfo`, … (see
+`Sources/PRBarCore/CommandResults.swift`). Commands with nothing to return give `{"ok": true}`. New optional keys may
+appear; renaming or removing one bumps `schemaVersion`.
+
+Claude’s usage (`usage` in `history`, `review show`, `respond show`/`ci show`, `usage`; `claudeThisMonth` in
+`resources`) is `{"runs", "unknownRuns", "durationSeconds", "inputTokens", "outputTokens", "cacheCreationTokens",
+"cacheReadTokens", "costUSD"}`. `costUSD` is the sum of what Claude Code reported (`total_cost_usd`), an estimate; it’s
+absent when no run reported it. `unknownRuns` are runs without usage data (they add their time only). `respond show`
+also has `mode` (`feedback` or `ciFix`), `ciChecks` and `pushBlockedByCI`.
 
 ## Exit codes
 
@@ -178,10 +202,11 @@ nothing to return give `{"ok": true}`. New optional keys may appear; renaming or
 The socket is `~/Library/Application Support/PRBar/prbar.sock`, created with permissions 0600 in a 0700 folder. The
 app checks each connection’s user (`getpeereid`) and rejects anyone else, and `prbar` checks that the socket belongs
 to you before sending anything; there’s no network. A second PRBar doesn’t take over the socket of one that’s running. The first message is a
-handshake with the protocol version (5 since `prbar runners`): if `prbar` and the app don’t match, you get
+handshake with the protocol version (7 since `prbar remote`): if `prbar` and the app don’t match, you get
 “prbar X can’t talk to PRBar Y — run `prbar update` or reinstall”. Tokens never travel from the app to the CLI;
 `prbar slack token set` sends the token you type to the app (never on the command line: it asks without echo or reads
-`--stdin`).
+`--stdin`). The relay’s enrollment token (`prbar remote enable`) travels the same way and the app doesn’t keep it. iPhone access
+is described in [iphone.md](iphone.md).
 
 ## Environment
 

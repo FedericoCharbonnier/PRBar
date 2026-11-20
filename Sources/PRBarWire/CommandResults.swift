@@ -192,10 +192,12 @@ public struct ReviewInfo: Codable, Equatable, Sendable {
     public var generalComment: String?
     public var reviewURL: URL?
     public var logPath: String?
+    /// Claude's usage for the review and its chat (spec O); nil if unknown.
+    public var usage: ClaudeUsage?
 
     public init(pr: String, phase: String, detail: String? = nil, title: String? = nil, summary: String? = nil,
                 language: String? = nil, account: String? = nil, outdated: Bool, findings: [FindingInfo],
-                generalComment: String? = nil, reviewURL: URL? = nil, logPath: String? = nil) {
+                generalComment: String? = nil, reviewURL: URL? = nil, logPath: String? = nil, usage: ClaudeUsage? = nil) {
         self.pr = pr
         self.phase = phase
         self.detail = detail
@@ -208,6 +210,7 @@ public struct ReviewInfo: Codable, Equatable, Sendable {
         self.generalComment = generalComment
         self.reviewURL = reviewURL
         self.logPath = logPath
+        self.usage = usage
     }
 }
 
@@ -320,13 +323,22 @@ public struct RespondInfo: Codable, Equatable, Sendable {
     public var logPath: String?
     /// Los tests de antes del push fallaron: no se pusheó ("Push Anyway" = `prbar respond push --anyway`).
     public var pushBlockedByTests: Bool
+    /// `feedback` o `ciFix` (spec K); nil = `feedback`.
+    public var mode: RespondMode?
+    /// Fix CI: los checks que fallaron.
+    public var ciChecks: [CICheckFailure]?
+    /// Fix CI: por qué no se pusheó (los checks pasan ahora); "Push Anyway" = `prbar ci push --anyway`.
+    public var pushBlockedByCI: String?
+    /// Claude's usage for the run and its chat (spec O); nil if unknown.
+    public var usage: ClaudeUsage?
 
     public init(pr: String, phase: String, detail: String? = nil, runningTests: Bool, title: String? = nil,
                 account: String? = nil, headRef: String? = nil, worktree: String? = nil, language: String? = nil,
                 items: [RespondItemInfo], fixes: Int, replies: Int, commits: [CommitDTO], diffStat: String? = nil,
                 sensitiveChanges: [String], tests: TestInfo? = nil, pushed: Bool, pendingReplies: Int,
                 testCommand: String? = nil, errorMessage: String? = nil, logPath: String? = nil,
-                pushBlockedByTests: Bool) {
+                pushBlockedByTests: Bool, mode: RespondMode? = nil, ciChecks: [CICheckFailure]? = nil,
+                pushBlockedByCI: String? = nil, usage: ClaudeUsage? = nil) {
         self.pr = pr
         self.phase = phase
         self.detail = detail
@@ -349,6 +361,10 @@ public struct RespondInfo: Codable, Equatable, Sendable {
         self.errorMessage = errorMessage
         self.logPath = logPath
         self.pushBlockedByTests = pushBlockedByTests
+        self.mode = mode
+        self.ciChecks = ciChecks
+        self.pushBlockedByCI = pushBlockedByCI
+        self.usage = usage
     }
 }
 
@@ -381,9 +397,11 @@ public struct HistoryEntryInfo: Codable, Equatable, Sendable {
     public var status: String
     public var startedAt: Date
     public var finishedAt: Date?
+    /// Claude's usage for the whole job and its chat (spec O); nil in older records ("—").
+    public var usage: ClaudeUsage?
 
     public init(id: UUID, kind: HistoryKind, pr: String, repo: String, number: Int, title: String, status: String,
-                startedAt: Date, finishedAt: Date? = nil) {
+                startedAt: Date, finishedAt: Date? = nil, usage: ClaudeUsage? = nil) {
         self.id = id
         self.kind = kind
         self.pr = pr
@@ -393,6 +411,19 @@ public struct HistoryEntryInfo: Codable, Equatable, Sendable {
         self.status = status
         self.startedAt = startedAt
         self.finishedAt = finishedAt
+        self.usage = usage
+    }
+
+    /// `prbar history`: filters by repo, kind (a Fix CI is `.ciFix`, never `.respond`; spec K.6.8) and search, newest
+    /// first, at most `limit` (50 by default).
+    public static func listing(_ entries: [HistoryEntryInfo], repo: String?, kind: HistoryKind?, limit: Int?,
+                               search: String?) -> [HistoryEntryInfo] {
+        let filtered = entries
+            .filter { kind == nil || $0.kind == kind }
+            .filter { entry in repo.map { entry.repo.caseInsensitiveCompare($0) == .orderedSame } ?? true }
+            .filter { $0.matches(search ?? "") }
+            .sorted { $0.startedAt > $1.startedAt }
+        return Array(filtered.prefix(max(limit ?? 50, 1)))
     }
 
     /// Búsqueda de la ventana de Historial: título, repo o número ("482" o "#482"). `query` ya en minúsculas.
@@ -921,9 +952,145 @@ public struct PromptInfo: Codable, Equatable, Sendable {
 public struct ResourcesInfo: Codable, Equatable, Sendable {
     public var usage: ResourceUsage
     public var disk: DiskUsage
+    /// Claude's estimated usage this month (spec O.2); nil from an older app.
+    public var claudeThisMonth: ClaudeUsage?
 
-    public init(usage: ResourceUsage, disk: DiskUsage) {
+    public init(usage: ResourceUsage, disk: DiskUsage, claudeThisMonth: ClaudeUsage? = nil) {
         self.usage = usage
         self.disk = disk
+        self.claudeThisMonth = claudeThisMonth
+    }
+}
+
+// MARK: - Fix CI y uso de Claude (specs K y O)
+
+/// Un PR mío con el CI fallido (`prbar ci list`).
+public struct CIListEntry: Codable, Equatable, Sendable {
+    public var pr: String
+    public var title: String
+    public var url: URL
+    public var account: String
+    /// La fase del Fix CI (`RespondPhase.cliName`), o nil si no hay ninguno.
+    public var phase: String?
+    /// Un Respond (no un Fix CI) ocupa el PR.
+    public var respondInProgress: Bool
+    /// Por qué no se puede arrancar ahora (sin carpeta local, una actualización en curso…).
+    public var unavailableReason: String?
+
+    public init(pr: String, title: String, url: URL, account: String, phase: String?, respondInProgress: Bool,
+                unavailableReason: String?) {
+        self.pr = pr
+        self.title = title
+        self.url = url
+        self.account = account
+        self.phase = phase
+        self.respondInProgress = respondInProgress
+        self.unavailableReason = unavailableReason
+    }
+}
+
+/// `prbar usage` (spec O.3).
+public struct UsageInfo: Codable, Equatable, Sendable {
+    public var month: UsageMonth
+    /// Las tareas recientes del mes, de la más nueva a la más vieja.
+    public var tasks: [UsageTask]
+    public var note: String
+
+    public init(month: UsageMonth, tasks: [UsageTask], note: String = UsageFormat.note) {
+        self.month = month
+        self.tasks = tasks
+        self.note = note
+    }
+}
+
+// MARK: - Acceso desde el iPhone (spec Q)
+
+/// `prbar remote status` y el encabezado de Settings › iPhone.
+public struct RemoteStatusInfo: Codable, Equatable, Sendable {
+    public var enabled: Bool
+    public var relayHost: String?
+    /// `disabled`, `connecting`, `connected`, `offline` o `failed`.
+    public var state: String
+    /// "Offline — retrying in 30 s", el error de inscripción…
+    public var detail: String?
+    public var devices: Int
+    public var devicesOnline: Int
+    public var keepAwake: Bool
+    /// La aserción que impide dormir está tomada ahora (en corriente).
+    public var keepingAwake: Bool
+    public var mailbox: Bool
+    public var appInstallURL: URL?
+    /// Los primeros 4 caracteres de la cuenta en el relay.
+    public var accountPrefix: String?
+
+    public init(enabled: Bool, relayHost: String?, state: String, detail: String? = nil, devices: Int, devicesOnline: Int,
+                keepAwake: Bool, keepingAwake: Bool, mailbox: Bool, appInstallURL: URL?, accountPrefix: String?) {
+        self.enabled = enabled
+        self.relayHost = relayHost
+        self.state = state
+        self.detail = detail
+        self.devices = devices
+        self.devicesOnline = devicesOnline
+        self.keepAwake = keepAwake
+        self.keepingAwake = keepingAwake
+        self.mailbox = mailbox
+        self.appInstallURL = appInstallURL
+        self.accountPrefix = accountPrefix
+    }
+}
+
+/// Un iPhone emparejado (`prbar remote devices`).
+public struct RemoteDeviceInfo: Codable, Equatable, Sendable {
+    public var id: String
+    public var name: String
+    public var model: String
+    public var pairedAt: Date
+    public var lastSeen: Date?
+    public var online: Bool
+    public var requirePresence: Bool
+    /// `false` si APNs dijo que el token ya no sirve.
+    public var notifications: Bool
+
+    public init(id: String, name: String, model: String, pairedAt: Date, lastSeen: Date?, online: Bool,
+                requirePresence: Bool, notifications: Bool) {
+        self.id = id
+        self.name = name
+        self.model = model
+        self.pairedAt = pairedAt
+        self.lastSeen = lastSeen
+        self.online = online
+        self.requirePresence = requirePresence
+        self.notifications = notifications
+    }
+}
+
+/// Una ranura de emparejamiento (`prbar remote pair`): el QR y, cuando un teléfono se une, su código.
+public struct RemotePairingInfo: Codable, Equatable, Sendable {
+    public var pairing: String
+    /// `prbar://pair?…` (secreto: vence a los 5 min y sirve una sola vez).
+    public var qr: String
+    public var expiresAt: Date
+    /// "123 456" cuando un teléfono se unió.
+    public var code: String?
+    public var deviceName: String?
+    public var model: String?
+
+    public init(pairing: String, qr: String, expiresAt: Date, code: String? = nil, deviceName: String? = nil,
+                model: String? = nil) {
+        self.pairing = pairing
+        self.qr = qr
+        self.expiresAt = expiresAt
+        self.code = code
+        self.deviceName = deviceName
+        self.model = model
+    }
+}
+
+/// `remotePairConfirm`: el dispositivo nuevo, o nil si se canceló.
+public struct RemotePairResult: Codable, Equatable, Sendable {
+    public var device: RemoteDeviceInfo?
+
+    public init(device: RemoteDeviceInfo?) {
+        self.device = device
     }
 }

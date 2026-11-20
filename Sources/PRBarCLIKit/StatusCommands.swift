@@ -135,7 +135,7 @@ struct HistoryGroup: ParsableCommand {
 struct HistoryList: RemoteCommand {
     static let configuration = CommandConfiguration(commandName: "list", abstract: "List the history (also: prbar history).")
     @Option(help: "Only this repo (owner/repo).") var repo: String?
-    @Option(help: "review, respond or merge.") var kind: HistoryKind?
+    @Option(help: "review, respond, ci-fix or merge.") var kind: HistoryKind?
     @Option(help: "Title, repo or number (like the window’s search).") var search: String?
     @Option(help: "At most this many records (default 50).") var limit: Int?
     @OptionGroup var global: GlobalOptions
@@ -145,10 +145,11 @@ struct HistoryList: RemoteCommand {
     func render(_ result: JSONValue, _ output: Output) throws {
         let entries: [HistoryEntryInfo] = try result.decode()
         guard !entries.isEmpty else { return output.line("No history.") }
-        output.table(["ID", "Kind", "PR", "Title", "Status", "Started"], entries.map {
+        output.table(["ID", "Kind", "PR", "Title", "Status", "Started", "Claude"], entries.map {
             [String($0.id.uuidString.prefix(8)).lowercased(), $0.kind.rawValue, $0.pr, Render.truncate($0.title, 40), $0.status,
-             Render.date($0.startedAt)]
+             Render.date($0.startedAt), UsageFormat.cost($0.usage)]
         })
+        if entries.contains(where: { $0.usage?.hasData == true }) { output.line(output.paint("Claude: estimated cost. \(UsageFormat.note)", .dim)) }
     }
 }
 
@@ -172,6 +173,7 @@ struct HistoryShow: RemoteCommand {
         if let head = detail.headOid { pairs.append(("Head", String(head.prefix(7)))) }
         if let url = detail.reviewURL { pairs.append(("Review", url.absoluteString)) }
         if let error = detail.errorMessage { pairs.append(("Error", error)) }
+        pairs.append(("Claude", UsageFormat.summary(entry.usage)))
         if let log = detail.logPath { pairs.append(("Log", log)) }
         if detail.canReopen { pairs.append(("Open to post", "prbar history reopen \(id)")) }
         if detail.canOpen { pairs.append(("Response", "prbar open \(entry.pr) --respond")) }

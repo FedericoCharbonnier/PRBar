@@ -21,7 +21,7 @@ public struct PostedReply: Codable, Equatable, Sendable {
 /// - El push corre **con los hooks del usuario** (pre-push), dentro del worktree de PRBar y sobre el código que
 ///   escribió Claude: solo después de que el usuario vio el diff completo y confirmó. Es el único `git` de
 ///   Responder sin `core.hooksPath=/dev/null` (sí lleva el resto de `GitHardening`). Nunca lleva `--force` ni
-///   `--no-verify`, y git nunca pide credenciales (`GIT_TERMINAL_PROMPT=0`). El token de GitHub no se usa para
+///   `--no-verify`; sí `--force-with-lease` en `startHeadOid` (solo restringe: ver `pushArguments`), y git nunca pide credenciales (`GIT_TERMINAL_PROMPT=0`). El token de GitHub no se usa para
 ///   git: solo para la API.
 /// - Las respuestas se publican de a una; cada una que sale bien se avisa con `onPosted` (para guardarla en el
 ///   registro en el acto) y nunca se vuelve a publicar si está en `alreadyPosted`.
@@ -81,12 +81,21 @@ public struct RespondPublisher: Sendable {
             throw PRBarError.respond("\(reviewed.prefix(12)) doesn't descend from \(draft.startHeadOid), the base of the analysis. Not pushing.")
         }
 
-        let pushed = try await run(["-C", path] + Self.pushHardening + ["push", "origin", "\(reviewed):refs/heads/\(headRef)"],
+        let pushed = try await run(["-C", path] + Self.pushHardening
+                                   + Self.pushArguments(reviewed: reviewed, headRef: headRef, startHeadOid: draft.startHeadOid),
                                    timeout: Self.pushTimeout)
         guard pushed.status == 0 else {
             let stderr = [pushed.stderr, pushed.stdout].joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
             throw PRBarError.respond(Self.pushFailureMessage(stderr: stderr))
         }
+    }
+
+    /// `push --force-with-lease=refs/heads/<headRef>:<startHeadOid> origin <reviewed>:refs/heads/<headRef>`. The lease
+    /// pins the remote branch to exactly the commit the run started from: together with `reviewed` descending from it,
+    /// the push is a fast-forward from `startHeadOid` or nothing. Without it, a branch that was rewound to an ancestor
+    /// (or deleted) after PRBar checked GitHub would get the dropped commits back. Never a `+` refspec or `--force`.
+    public static func pushArguments(reviewed: String, headRef: String, startHeadOid: String) -> [String] {
+        ["push", "--force-with-lease=refs/heads/\(headRef):\(startHeadOid)", "origin", "\(reviewed):refs/heads/\(headRef)"]
     }
 
     /// La huella de git del worktree (`GitPaths.securityDigest`), como la deja `FixImplementer` en `gitIntegrity`.
@@ -131,7 +140,9 @@ public struct RespondPublisher: Sendable {
         async -> (posted: [String: PostedReply], error: Error?) {
         var posted = alreadyPosted
         for item in draft.items {
-            guard let selection = selections[item.id], selection.reply, posted[item.id] == nil else { continue }
+            // Un Fix CI no responde nada (spec K.6.5), aunque la selección lo diga.
+            guard item.feedback.kind != .ciChecks,
+                  let selection = selections[item.id], selection.reply, posted[item.id] == nil else { continue }
             let fix = result?.items.first { $0.id == item.id && $0.status == .committed }
             let values = FixTemplates.values(draft: draft, item: item, count: 1, summary: fix?.summary)
             guard let text = Self.replyText(selection: selection, commit: fix?.commit, repo: draft.repo, language: draft.language,
@@ -150,6 +161,8 @@ public struct RespondPublisher: Sendable {
                 case .reviewBody:
                     url = try await api.addIssueComment(repo: draft.repo, number: draft.number,
                                                         body: Self.reviewBodyReply(item.feedback, text: text), token: token)
+                case .ciChecks:
+                    continue
                 }
                 let reply = PostedReply(id: item.id, url: url)
                 posted[item.id] = reply

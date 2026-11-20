@@ -15,7 +15,7 @@ struct TestEnv {
     let authorizer: SoftwarePresenceAuthorizer
     let runner: ActionRunner
 
-    init(online: Bool = true, home: RemoteHome? = Sample.home, details: [String: RemotePRDetail] = Sample.details,
+    init(online: Bool = true, home: PRBarMobileCore.RemoteHome? = Sample.home, details: [String: PRBarMobileCore.RemotePRDetail] = Sample.details,
          cache: Cache? = nil) async {
         transport = FakeTransport()
         store = cache.map { AppStore(cache: $0, now: { Sample.now }) } ?? AppStore(cache: nil, now: { Sample.now })

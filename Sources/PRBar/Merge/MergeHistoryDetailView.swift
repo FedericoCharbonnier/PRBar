@@ -24,6 +24,7 @@ struct MergeHistoryDetailView: View {
                         StatusPill.merge(record)
                     }
                     .font(.callout)
+                    if record.chat?.usage != nil { ClaudeUsageLine(usage: record.chat?.usage) }
                 }
                 if let error = record.errorMessage, record.status == .failed {
                     ErrorBanner(messages: [error]).padding(.horizontal, -10)

@@ -174,7 +174,7 @@ enum RespondPublisherTests {
             try expectEqual(RespondPublisher.replyText(selection: thanks, commit: sha1, repo: repoRef, language: PRLanguage(code: "pt")),
                             "Corrigido em https://github.com/o/r/commit/\(sha1). Obrigado.")
         },
-        TestCase("respond publisher: push del sha revisado con los argumentos exactos: sin --force, --no-verify ni hooksPath") {
+        TestCase("respond publisher: push del sha revisado con los argumentos exactos: lease en startHeadOid, sin --force, --no-verify ni hooksPath") {
             let reviewed = String(repeating: "a", count: 40)
             let handler: (String, [String]) -> ProcessResult = { _, args in
                 if args.contains("check-ref-format") { return ok("feature/7\n") }
@@ -190,7 +190,8 @@ enum RespondPublisherTests {
             let calls = runner.calls
             let push = try calls.last ?? { throw TestFailure(description: "sin llamadas") }()
             try expectEqual(push.arguments, ["-C", "/tmp/wt", "-c", "core.fsmonitor=false", "-c", "submodule.recurse=false",
-                                             "-c", "core.untrackedCache=false", "push", "origin", "\(reviewed):refs/heads/feature/7"])
+                                             "-c", "core.untrackedCache=false", "push",
+                                             "--force-with-lease=refs/heads/feature/7:\(String(repeating: "0", count: 40))", "origin", "\(reviewed):refs/heads/feature/7"])
             try expectEqual(push.timeout, 120)
             try expect(calls.allSatisfy { $0.executable == TempGitRepo.git })
             try expect(calls.allSatisfy { $0.environment?["GIT_TERMINAL_PROMPT"] == "0" })
@@ -203,7 +204,9 @@ enum RespondPublisherTests {
                 try expectEqual(Array(call.arguments.dropFirst(2).prefix(GitHardening.arguments.count)), GitHardening.arguments)
             }
             let flat = push.arguments
-            try expect(!flat.contains { $0.hasPrefix("--force") || $0 == "-f" || $0 == "--no-verify" || $0.contains("hooksPath") }, "\(flat)")
+            // The lease is the only "force": the push still has to be a fast-forward from exactly `startHeadOid`.
+            try expect(!flat.contains { ($0.hasPrefix("--force") && !$0.hasPrefix("--force-with-lease=")) || $0 == "-f"
+                || $0 == "--no-verify" || $0.contains("hooksPath") }, "\(flat)")
             try expect(!flat.contains { $0.hasPrefix("+") || $0.contains(":+") || $0.hasPrefix("HEAD") })
         },
         TestCase("respond publisher: una rama inválida, un worktree que no es de PRBar o un resultado sin sha no llegan al push") {
@@ -233,6 +236,17 @@ enum RespondPublisherTests {
             try await publisher().push(draft: repo.draft(), result: result)
             try expectEqual(try repo.remoteHead(), result.headOid)
             try expect(FileManager.default.fileExists(atPath: marker.path), "el pre-push del usuario tiene que correr")
+        },
+        TestCase("respond publisher: si la rama del remoto ya no está en startHeadOid (rebobinada o borrada), no se pushea") {
+            let repo = try PushRepo.make()
+            defer { repo.remove() }
+            let result = try await repo.result()
+            // A plain fast-forward push would recreate (resurrect) the branch; the lease on startHeadOid refuses it.
+            try TempGitRepo.run(repo.remote, ["update-ref", "-d", "refs/heads/feature/7"])
+            let error = try await expectThrows { try await publisher().push(draft: repo.draft(), result: result) }
+            try expect(try respondMessage(error).contains(RespondPublisher.rejectedMessage), "\(error)")
+            let left = try? TempGitRepo.run(repo.remote, ["rev-parse", "--verify", "-q", "refs/heads/feature/7"])
+            try expectEqual(left, nil)
         },
         TestCase("respond publisher: si HEAD cambió desde que el usuario vio el diff, no se pushea") {
             let repo = try PushRepo.make()

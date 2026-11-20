@@ -185,42 +185,49 @@ public final class ChatCoordinator: ObservableObject {
         let capabilitiesChanged = claudeSessionID != nil && session.canEditFiles != canEdit
         let relay = MainActorRelay<ClaudeStreamEvent> { [weak self] event in self?.handle(event, turn: id) }
         let outcome = JobOutcomeSlot<Result<TurnResult, Error>>()
+        // Claude's usage for this turn (spec O): saved in the session even if the turn failed or was stopped.
+        let usage = JobOutcomeSlot<ClaudeUsage>()
         // The turn ends only once the scheduler freed its slot (`onComplete`), or once a stopped turn's work really
         // ended (`onCancelledEnd`, in Respond after the files were restored): when `isRunning` goes false a new
         // message is always accepted.
         let ended: @MainActor (Result<Void, Error>) -> Void = { [weak self] _ in
+            if let spent = usage.value, spent.runs > 0, let self { self.session.usage = (self.session.usage ?? .zero) + spent }
             self?.finishTurn(id, outcome.value ?? .failure(CancellationError()))
         }
         let accepted = scheduler.enqueue(key, activity: .chat(subject.prID, sessionID: session.id), onStart: { [weak self] in
             if self?.turnID == id { self?.activity = "Preparing the code…" }
         }, work: { [weak self] in
-            do {
-                let workspace = try await backend.workspace(request)
-                await self?.workspaceReady(workspace, turn: id)
-                let input = ChatTurnInput(
-                    kind: subject.kind, claudeSessionID: claudeSessionID,
-                    bootstrap: ChatPrompts.bootstrap(subject: subject, files: workspace.files, isDiffOnly: workspace.isDiffOnly,
-                                                     canEditFiles: canEdit, state: state, rules: rules,
-                                                     body: context.promptBody, fence: fence),
-                    message: text, stateIfChanged: stateChanged ? state : nil, transcript: transcript,
-                    canEditFiles: canEdit, workingDirectory: workspace.directory,
-                    additionalDirectories: [workspace.contextDirectory], turn: turn,
-                    capabilitiesChanged: capabilitiesChanged, rulesIfChanged: rulesChanged ? rulesText : nil, fence: fence,
-                    runner: workspace.runner)
-                if case .respond(let draft) = subject, let result = editingResult {
-                    let (output, files) = try await backend.sendEditing(input, draft: draft, result: result,
-                                                                        sessionID: request.session.id, logURL: context.logURL) { relay.send($0) }
-                    outcome.value = .success(TurnResult(output: output, files: files, workspace: workspace, canSetImplement: false,
-                                                        canEditFiles: true, state: state, rulesText: rulesText))
-                } else {
-                    let output = try await backend.send(input, subject: subject, logURL: context.logURL) { relay.send($0) }
-                    outcome.value = .success(TurnResult(output: output, files: nil, workspace: workspace,
-                                                        canSetImplement: context.respondResult == nil, canEditFiles: false,
-                                                        state: state, rulesText: rulesText))
+            let sink = ClaudeUsageSink()
+            await sink.measure {
+                do {
+                    let workspace = try await backend.workspace(request)
+                    await self?.workspaceReady(workspace, turn: id)
+                    let input = ChatTurnInput(
+                        kind: subject.kind, claudeSessionID: claudeSessionID,
+                        bootstrap: ChatPrompts.bootstrap(subject: subject, files: workspace.files, isDiffOnly: workspace.isDiffOnly,
+                                                         canEditFiles: canEdit, state: state, rules: rules,
+                                                         body: context.promptBody, fence: fence),
+                        message: text, stateIfChanged: stateChanged ? state : nil, transcript: transcript,
+                        canEditFiles: canEdit, workingDirectory: workspace.directory,
+                        additionalDirectories: [workspace.contextDirectory], turn: turn,
+                        capabilitiesChanged: capabilitiesChanged, rulesIfChanged: rulesChanged ? rulesText : nil, fence: fence,
+                        runner: workspace.runner)
+                    if case .respond(let draft) = subject, let result = editingResult {
+                        let (output, files) = try await backend.sendEditing(input, draft: draft, result: result,
+                                                                            sessionID: request.session.id, logURL: context.logURL) { relay.send($0) }
+                        outcome.value = .success(TurnResult(output: output, files: files, workspace: workspace, canSetImplement: false,
+                                                            canEditFiles: true, state: state, rulesText: rulesText))
+                    } else {
+                        let output = try await backend.send(input, subject: subject, logURL: context.logURL) { relay.send($0) }
+                        outcome.value = .success(TurnResult(output: output, files: nil, workspace: workspace,
+                                                            canSetImplement: context.respondResult == nil, canEditFiles: false,
+                                                            state: state, rulesText: rulesText))
+                    }
+                } catch {
+                    outcome.value = .failure(error)
                 }
-            } catch {
-                outcome.value = .failure(error)
             }
+            usage.value = sink.total
             await relay.finish()
         }, onComplete: ended, onCancelledEnd: ended)
         if !accepted { finishTurn(id, .failure(ChatTurnNotStarted(errorDescription: Self.busyText))) }

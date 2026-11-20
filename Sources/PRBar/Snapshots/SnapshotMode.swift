@@ -102,8 +102,10 @@ private final class SnapshotSession {
         try await settings()
         try await notification()
         try await updateWindow()
+        try await ciFixWindows()
         let activity = try makeModel("activity", snapshot: fixtures.snapshot)
-        try await window("activity", title: "PRBar Activity", size: NSSize(width: 720, height: 640)) {
+        activity.snapshotLiveUsage = fixtures.liveUsage
+        try await window("activity", title: "PRBar Activity", size: NSSize(width: 760, height: 1050)) {
             ActivityWindow(model: activity, monitor: activity.resources)
         }
         return written
@@ -122,6 +124,9 @@ private final class SnapshotSession {
         let respondHistory = RespondHistory(historyDir: historyDir)
         try JSONCoding.encoder.encode(fixtures.instructions).write(to: dir.appendingPathComponent("instructions.json"))
         try DiscardStatsStore(fileURL: dir.appendingPathComponent("discard-stats.json")).record(fixtures.discards, now: fixtures.date())
+        // Claude's usage (spec O): the ledger of PRBar Activity, in this model's folder.
+        let ledger = UsageLedger(url: dir.appendingPathComponent("usage.json"))
+        for entry in fixtures.usageEntries { ledger.append(entry, now: fixtures.date()) }
         let services = AppModelServices(
             configStore: ConfigStore(fileURL: configURL),
             stateStore: SnapshotStore(url: stateURL),
@@ -138,13 +143,15 @@ private final class SnapshotSession {
             reviewPipeline: SnapshotReviewPipeline(drafts: [fixtures.reactQuery.id: fixtures.reactQueryDraft],
                                                    inProgress: [fixtures.loginRedirect.id]),
             respondPipeline: SnapshotRespondPipeline(draft: fixtures.csvDraft, result: fixtures.csvResult, tests: fixtures.csvTests,
-                                                     logDirectory: respondHistory.directory.appendingPathComponent("logs")),
+                                                     logDirectory: respondHistory.directory.appendingPathComponent("logs"),
+                                                     ciDraft: fixtures.ciFixDraft, ciResult: fixtures.ciFixResult),
             chatBackend: SnapshotChatBackend(),
             instructionsStore: InstructionsStore(fileURL: dir.appendingPathComponent("instructions.json")),
             instructionsChatBackend: SnapshotInstructionsChatBackend(),
             discardStats: DiscardStatsStore(fileURL: dir.appendingPathComponent("discard-stats.json")),
             mergeHistory: MergeHistory(historyDir: historyDir),
-            popoverDefaults: nil   // the popover's tab only in memory: the user's UserDefaults aren't touched
+            popoverDefaults: nil,   // the popover's tab only in memory: the user's UserDefaults aren't touched
+            usageLedger: ledger
         )
         let model = AppModel(services: services, startsServices: false)
         model.applySnapshotState(tools: SnapshotFixtures.tools, ghAccounts: SnapshotFixtures.ghAccounts, launchAtLogin: true)
@@ -297,6 +304,24 @@ private final class SnapshotSession {
         }
     }
 
+    /// Fix CI (spec K) of web-app#475: the popover row while the fix waits to be pushed, and its window.
+    private func ciFixWindows() async throws {
+        let model = try makeModel("ci-fix", snapshot: fixtures.snapshot)
+        let item = fixtures.csvExport
+        let prID = item.id
+        model.respond.analyze(item, localPath: "/Users/sam/Code/web-app", worktreeDir: "/Users/sam/Code/worktrees", mode: .ciFix)
+        try await waitUntil("the CI fix") {
+            if case .readyToPush? = model.respond.phases[prID] { return true }
+            return false
+        }
+        guard let draft = model.respond.records[prID]?.draft else { throw SnapshotError(message: "No CI fix draft") }
+        model.popoverTab.selected = .mine
+        try await popover("popover-mine-ci-fix", model: model)
+        try await window("ci-fix-ready-to-push", title: model.respondWindowTitle(draft), size: NSSize(width: 760, height: 1320)) {
+            RespondWindow(model: model, prID: prID, draft: draft, chat: model.respondChat(for: draft), close: {})
+        }
+    }
+
     /// The Merge window of api#322 (spec G.2), with its summary loaded, without and with the chat (spec G.4).
     private func mergeWindows(model: AppModel) async throws {
         let item = fixtures.idempotencyKeys
@@ -323,7 +348,8 @@ private final class SnapshotSession {
     private func history() async throws {
         let model = try makeModel("history", snapshot: fixtures.snapshot)
         for record in fixtures.historyReviews { try model.history.save(record) }
-        for record in fixtures.historyResponds { try model.respondHistory.save(record) }
+        let responds = fixtures.historyResponds
+        for record in responds { try model.respondHistory.save(record) }
         for appearance in options.appearances {
             let controller = NSHostingController(rootView: HistoryWindow(model: model).environment(\.controlActiveState, .key))
             controller.sceneBridgingOptions = [.toolbars, .title]
@@ -335,17 +361,33 @@ private final class SnapshotSession {
             await SnapshotRenderer.settle(window, seconds: 1)
             try write(SnapshotRenderer.capture(window, includeFrame: true, cornerRadius: 16), "history", appearance)
         }
+        // The Fix CI entry selected: its checks, commit and Claude's estimated cost (specs K and O).
+        for appearance in options.appearances {
+            model.requestHistorySelection(responds[0].id)
+            let controller = NSHostingController(rootView: HistoryWindow(model: model).environment(\.controlActiveState, .key))
+            controller.sceneBridgingOptions = [.toolbars, .title]
+            let window = SnapshotRenderer.makeWindow(
+                controller: controller, size: NSSize(width: 900, height: 600),
+                style: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], title: "History",
+                toolbarStyle: .unified, appearance: SnapshotRenderer.appearance(appearance)
+            )
+            await SnapshotRenderer.settle(window, seconds: 1)
+            try write(SnapshotRenderer.capture(window, includeFrame: true, cornerRadius: 16), "history-ci-fix", appearance)
+        }
     }
 
     private func settings() async throws {
         let model = try makeModel("settings", snapshot: fixtures.snapshot)
         model.updates.applySnapshotState(available: SnapshotFixtures.updateRelease)
+        // Settings › iPhone: conectado, con dos iPhones y el link de instalación (spec Q.2).
+        try SnapshotFixtures.applyIPhone(model, .connected)
         let sizes: [SettingsWindow.Tab: NSSize] = [
             .general: NSSize(width: 700, height: 905),
-            .claude: NSSize(width: 700, height: 2420),
+            .claude: NSSize(width: 700, height: 2470),
             .instructions: NSSize(width: 700, height: 1330),
             .repos: NSSize(width: 700, height: 1330),
             .slack: NSSize(width: 700, height: 1260),
+            .iphone: NSSize(width: 700, height: 880),
         ]
         for tab in SettingsWindow.Tab.allCases {
             for appearance in options.appearances {
@@ -368,6 +410,61 @@ private final class SnapshotSession {
                 }
                 try write(SnapshotRenderer.capture(window, includeFrame: true, cornerRadius: 16), "settings-\(tab.rawValue)", appearance)
             }
+        }
+        try await iphoneSettings(model)
+    }
+
+    /// Los otros estados de Settings › iPhone y las dos caras de "Pair iPhone…" (spec Q.2).
+    private func iphoneSettings(_ model: AppModel) async throws {
+        for (state, name) in [(SnapshotFixtures.IPhoneState.off, "settings-iphone-off"),
+                              (.offWithLink, "settings-iphone-off-link")] {
+            try SnapshotFixtures.applyIPhone(model, state)
+            for appearance in options.appearances {
+                let tab = SettingsWindow.Tab.iphone
+                let size = NSSize(width: 700, height: 720)
+                let controller = SettingsWindow.makeController(model: model, tab: tab)
+                if let tabs = controller as? NSTabViewController {
+                    for item in tabs.tabViewItems { item.viewController?.preferredContentSize = size }
+                }
+                let window = SnapshotRenderer.makeWindow(
+                    controller: controller, size: size,
+                    style: [.titled, .closable], title: tab.title, toolbarStyle: .preference,
+                    appearance: SnapshotRenderer.appearance(appearance)
+                )
+                window.setContentSize(size)
+                await SnapshotRenderer.settle(window, seconds: 1)
+                if appearance == .dark {
+                    window.toolbar?.selectedItemIdentifier = nil
+                    await SnapshotRenderer.settle(window, seconds: 0.2)
+                }
+                try write(SnapshotRenderer.capture(window, includeFrame: true, cornerRadius: 16), name, appearance)
+            }
+        }
+        for (state, name) in [(SnapshotFixtures.IPhoneState.pairingQR, "iphone-pair-qr"), (.pairingCode, "iphone-pair-code")] {
+            try SnapshotFixtures.applyIPhone(model, state)
+            try await sheet(name, size: NSSize(width: 420, height: 400)) {
+                PairIPhoneSheet(model: model, remote: model.remoteAccess, startsPairing: false) {}
+            }
+        }
+        try await sheet("iphone-enable", size: NSSize(width: 460, height: 300)) {
+            EnableRemoteSheet(model: model, initialHost: RemoteSettings.defaultRelayHost) {}
+        }
+    }
+
+    /// Una hoja sola, como se ve sobre su ventana (sin barra de título).
+    private func sheet<Content: View>(_ name: String, size: NSSize, content: @escaping () -> Content) async throws {
+        for appearance in options.appearances {
+            let controller = NSHostingController(rootView: content()
+                .background(Color(nsColor: .windowBackgroundColor))
+                .environment(\.controlActiveState, .key))
+            let window = SnapshotRenderer.makeWindow(
+                controller: controller, size: size, style: [.titled], title: "",
+                appearance: SnapshotRenderer.appearance(appearance)
+            )
+            await SnapshotRenderer.settle(window, seconds: 0.5)
+            window.setContentSize(controller.view.fittingSize)
+            await SnapshotRenderer.settle(window, seconds: 0.3)
+            try write(SnapshotRenderer.capture(window, includeFrame: false), name, appearance)
         }
     }
 

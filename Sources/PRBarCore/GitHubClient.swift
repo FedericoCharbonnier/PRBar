@@ -116,7 +116,7 @@ public protocol GitHubAPI: Sendable {
     func mergeDetail(repo: RepoRef, number: Int, token: String) async throws -> MergeDetail
 }
 
-public struct GitHubClient: GitHubAPI {
+public struct GitHubClient: GitHubAPI, CIChecksAPI {
     private let transport: HTTPTransport
     private let now: @Sendable () -> Date
     private static let maxPRPages = 4
@@ -343,6 +343,90 @@ public struct GitHubClient: GitHubAPI {
         return detail
     }
 
+    // MARK: - CI (spec K)
+
+    /// Hasta 3 páginas de check runs de `headOid` y su status combinado.
+    public func checkRuns(repo: RepoRef, headOid: String, token: String) async throws -> [CICheckRun] {
+        struct App: Decodable { let slug: String?; let name: String? }
+        struct Output: Decodable { let title: String?; let summary: String?; let text: String? }
+        struct Run: Decodable {
+            let id: Int
+            let name: String
+            let status: String?
+            let conclusion: String?
+            let details_url: String?
+            let html_url: String?
+            let app: App?
+            let output: Output?
+        }
+        struct Page: Decodable { let total_count: Int?; let check_runs: [Run] }
+        struct Status: Decodable { let context: String; let state: String; let target_url: String?; let description: String? }
+        struct Combined: Decodable { let statuses: [Status]? }
+        guard FixImplementer.isFullSHA(headOid) else { throw PRBarError.invalidResponse("not a commit: \(headOid)") }
+        let base = "/repos/\(repo.owner)/\(repo.name)/commits/\(headOid)"
+        var runs: [CICheckRun] = []
+        for page in 1...Self.maxCheckRunPages {
+            let data = try await restGET("\(base)/check-runs?per_page=100&page=\(page)", token: token)
+            let decoded: Page
+            do {
+                decoded = try JSONCoding.decoder.decode(Page.self, from: data)
+            } catch {
+                throw PRBarError.invalidResponse("check runs: \(error)")
+            }
+            runs += decoded.check_runs.map { run in
+                CICheckRun(source: .checkRun, id: run.id, name: run.name, status: run.status ?? "completed",
+                           conclusion: run.conclusion, appSlug: run.app?.slug, appName: run.app?.name,
+                           detailsURL: (run.details_url ?? run.html_url).flatMap(URL.init(string:)),
+                           outputTitle: run.output?.title, outputSummary: run.output?.summary, outputText: run.output?.text)
+            }
+            if decoded.check_runs.count < 100 { break }
+        }
+        let statusData = try await restGET("\(base)/status?per_page=100", token: token)
+        let combined = (try? JSONCoding.decoder.decode(Combined.self, from: statusData))?.statuses ?? []
+        runs += combined.map { status in
+            CICheckRun(source: .status, name: status.context, status: status.state == "pending" ? "in_progress" : "completed",
+                       conclusion: status.state == "pending" ? nil : status.state,
+                       detailsURL: status.target_url.flatMap(URL.init(string:)), outputSummary: status.description)
+        }
+        return runs
+    }
+
+    /// El log de un job de Actions. GitHub contesta con un 302 a una URL firmada: se pide sin seguirla y se baja esa
+    /// URL **sin** el token, solo si es `https` y de un host de GitHub (`CILogs.signedLogHostSuffixes`; spec K.4). Se lee
+    /// en streaming quedándose con la cola (`CILogs.maxDownloadBytes`) y se abandona pasado `CILogs.maxReadBytes`.
+    public func actionsJobLog(repo: RepoRef, jobID: Int, token: String) async throws -> String {
+        var request = URLRequest(url: URL(string: "https://api.github.com/repos/\(repo.owner)/\(repo.name)/actions/jobs/\(jobID)/logs")!)
+        applyHeaders(&request, token: token)
+        let (data, response) = try await transport.downloadTail(request, keepingLast: CILogs.maxDownloadBytes, maxBytes: CILogs.maxReadBytes)
+        let body: Data
+        switch response.statusCode {
+        case 200..<300:
+            body = data
+        case 301, 302, 303, 307, 308:
+            guard let location = response.value(forHTTPHeaderField: "Location").flatMap(URL.init(string:)),
+                  location.scheme?.lowercased() == "https", let host = location.host else {
+                throw PRBarError.invalidResponse("the job log redirected to an unexpected place")
+            }
+            guard CILogs.isAllowedLogHost(host) else {
+                AppLog.write("Fix CI: the job log of \(repo.fullName) redirected to an unexpected host (\(host)); not downloaded")
+                throw PRBarError.invalidResponse("the job log redirected to an unexpected host (\(host))")
+            }
+            var download = URLRequest(url: location)
+            download.setValue("PRBar", forHTTPHeaderField: "User-Agent")
+            let (logData, logResponse) = try await transport.downloadTail(download, keepingLast: CILogs.maxDownloadBytes,
+                                                                          maxBytes: CILogs.maxReadBytes)
+            guard (200..<300).contains(logResponse.statusCode) else {
+                throw PRBarError.http(status: logResponse.statusCode, message: "couldn't download the job log")
+            }
+            body = logData
+        default:
+            body = try validate(data, response).data
+        }
+        return String(decoding: body, as: UTF8.self)
+    }
+
+    private static let maxCheckRunPages = 3
+
     /// POST de JSON que devuelve el `html_url` de lo creado. `perform` solo vuelve con un 2xx: lo publicado ya está
     /// en GitHub. Si la respuesta no trae `html_url` (o no se puede leer) igual cuenta como publicado, con la URL del
     /// PR: un error invitaría a publicarlo de nuevo y duplicarlo.
@@ -419,6 +503,11 @@ public struct GitHubClient: GitHubAPI {
 
     private func perform(_ request: URLRequest) async throws -> (data: Data, response: HTTPURLResponse) {
         let (data, response) = try await transport.send(request)
+        return try validate(data, response)
+    }
+
+    /// 2xx → tal cual; si no, el error de GitHub (401, rate limit, …).
+    private func validate(_ data: Data, _ response: HTTPURLResponse) throws -> (data: Data, response: HTTPURLResponse) {
         switch response.statusCode {
         case 200..<300:
             return (data, response)

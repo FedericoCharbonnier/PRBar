@@ -155,8 +155,11 @@ mismo cliente se conectó de nuevo: gana el último) · 4413 marco demasiado gra
   plano de cada trozo es `flags(u8) ‖ len(u16 BE) ‖ datos ‖ ceros` hasta un múltiplo de 256 bytes (máximo 65 280 de
   texto plano por trozo). `flags`: bit 0 = siguen más trozos, bit 1 = datos comprimidos (zlib de Foundation). Un marco
   armado mide ≤ 16 MiB; más → se cierra la sesión.
-- **Compresión**: solo marcos `state` y resultados > 4 KiB. No llevan secretos (los tokens nunca salen de la Mac), así
-  que la fuga por tamaño comprimido (estilo CRIME) no expone nada que no sea ya del PR; el relleno a 256 achica la señal.
+- **Compresión**: **ninguna al mandar** (corregido tras la revisión de cifrado, P.15 M2). `home` y muchas respuestas
+  mezclan datos privados (PRs de repos privados, código, salida de Claude) con texto que escribe cualquiera (títulos y
+  comentarios de PRs de repos públicos): comprimir antes de cifrar dejaría que quien mide los marcos (el relay, o la red
+  por el tamaño de los registros TLS) adivine lo privado inyectando texto, al estilo CRIME. El bit 1 del trozo se sigue
+  aceptando al recibir, por compatibilidad; los marcos son más grandes pero el tope de 16 MiB sobra.
 - **Emparejamiento: `Noise_IKpsk2_25519_ChaChaPoly_SHA256`** (P.11): el teléfono conoce la estática de la Mac por el QR;
   el PSK sale del secreto del QR.
 
@@ -325,8 +328,12 @@ compila hasta que alguien decide. Clases: `.allowed`, `.gated` (Face ID, P.8), `
 
 - **Revoke** (Settings › iPhone, `prbar remote revoke <device>`, o "Unpair this iPhone" desde el teléfono): la Mac borra
   el dispositivo (claves públicas incluidas), corta sus sesiones, deja de mandarle pushes y buzón, y manda
-  `device.remove`. El relay cierra su conexión con 4403; el teléfono borra sus claves y su caché y vuelve a
-  `pair:welcome` ("This iPhone was removed from <Mac>"). **Aunque el relay no obedezca**, la Mac ya no acepta su estática
+  `device.remove`. A una sesión abierta le manda `bye(revoked)` (autenticado por Noise): **solo eso** hace que el
+  teléfono borre sus claves y su caché y vuelva a `pair:welcome` ("This iPhone was removed from <Mac>"). El 4403 (o un
+  4401 al conectar) del relay no está autenticado (un relay malicioso, o uno que perdió su base, lo puede mandar): el
+  teléfono lo muestra como `relayRejected` ("The relay server didn’t accept this iPhone. Check iPhone access in PRBar on
+  your Mac."), no borra nada y reintenta en la próxima operación (P.15 M3). Si la Mac lo revocó mientras el teléfono no
+  estaba conectado, al conectar no llega el `bye`: el usuario lo confirma con "Unpair this iPhone". **Aunque el relay no obedezca**, la Mac ya no acepta su estática
   en Noise: la revocación la hace cumplir la Mac.
 - **Rotación**: sesiones con secreto hacia adelante (P.5). Las claves de largo plazo se rotan re-emparejando.
   **"Reset iPhone Access…"** en la Mac genera claves y cuenta nuevas (borra todos los dispositivos); para un relay
@@ -347,6 +354,111 @@ compila hasta que alguien decide. Clases: `.allowed`, `.gated` (Face ID, P.8), `
 | Apple (APNs) | Ver tokens, horarios, colapso/hilo opacos | Leer contenido |
 
 Fuera de alcance: una Mac comprometida (ya controla todo), malware en el teléfono con root.
+
+### P.14 Decisiones de implementación (Plan 17)
+
+**Tipos movidos a `PRBarWire`** (solo la declaración y lo que no depende de Core): `AppCommand` (+ `AppCommand.Name`,
+ahora `Codable`), `AppCommandTypes`, `JSONValue`, `CommandProtocol` y sus mensajes (`CommandMessages.swift`), los
+structs de `CommandResults`, y las hojas `CommitMode`, `DiskUsage`, `DiskItem`, `DiskItemState`, `DiskCategoryKind`,
+`MergeDetail` (+ `Section`), `MergeReviewSummary`, `MergeCheck`, `MergeChangedFile`, `MergeableState`,
+`MergeStateStatus`, `ReviewDecision`, `MergeMethod`, `PopoverSection`, `PopoverTab`, `PRCategory`, `PromptStage`,
+`PromptVariable`, `PromptIssue`, `ResourceUsage`, `ProcessUsage`, `ProcessActivity`, `ReviewEvent`, `ReviewTone`,
+`RuleScope`, `RuleStage`, `RunnerHostInfo`, `Severity`, `SlackProvider` y `LossyArray` (ahora `public`). Quedan en Core
+como `extension` (`WireLeaves+Core.swift`, `CommandResults+Core.swift`): `PromptStage.validate/isUsable`,
+`RuleScope.covers`, `RunnerHostInfo.statusSummary`, los `keyPath`/`toggle`/`kind` de los nombres de la CLI,
+`RespondSelectionChange.apply`, `PRListing`, las fases (`cliName`/`cliDetail`) y las 21 conversiones de modelos de Core
+a resultados. Las que asignaban campo por campo ahora delegan en un `init` memberwise público nuevo de cada struct
+(Swift no deja asignar campos de un struct de otro módulo desde una extensión sin warning).
+
+**`feat/ci-cost` no está mergeada en esta rama** (protocolo 5): `RemotePolicy` no tiene `usage`, `ciList` ni `ciFix`.
+Al mergear, el `switch` exhaustivo no compila hasta clasificarlos (`usage` y `ciList` lectura, `ciFix` acción: los tres
+`.allowed`, como en P.7) y se agregan al test. `CommandProtocol.minimumRemoteVersion` existe y vale lo mismo que
+`version` (5); el Plan 18 los sube a 7.
+
+**Vectores**:
+- Noise: cacophony (`vectors/cacophony.txt`, commit `8ee9d41e34a1a596cfa3ab12aa4069ff87dc1247`) para
+  `Noise_KK_25519_ChaChaPoly_SHA256` e `Noise_IKpsk2_25519_ChaChaPoly_SHA256`, más snow (`tests/vectors/snow.txt`,
+  commit `8ac60f51cfe3e010c84f0a454cc575ad9204fa12`) para KK como segunda fuente. Los dos pasan byte a byte (mensajes de
+  handshake, transporte y hash final), y un cambio de una constante del HKDF los rompe.
+- HPKE: RFC 9180 A.2.3 (DHKEM(X25519), HKDF-SHA256, ChaCha20Poly1305, modo Auth), tomado de `test-vectors.json` del
+  repo `cfrg/draft-irtf-cfrg-hpke`: `HPKE.Recipient` de CryptoKit abre las tres primeras encriptaciones. CryptoKit no deja
+  fijar la efímera del remitente, así que el lado que sella se prueba por ida y vuelta.
+- SAS: `SAS.code(32 × 0x00) = "745502"` y `SAS.code(0x00…0x1f) = "425641"`, calculados aparte con
+  `openssl kdf -keylen 4 -kdfopt digest:SHA256 -kdfopt hexkey:<hash> -kdfopt info:"PRBar SAS v1" HKDF`.
+
+**Desvíos y precisiones del protocolo**:
+- Prólogos: `"PRBar Remote v1" ‖ accountId ‖ 0x00 ‖ deviceId` y `"PRBar Pair v1" ‖ accountId ‖ 0x00 ‖ pairingId` (un
+  separador para que dos pares de ids distintos no den el mismo prólogo).
+- `collapse` = HMAC(`pushIdKey`, `"collapse" 0x00 kind 0x00 pr`) y `thread` = HMAC(`pushIdKey`, `"thread" 0x00 pr`)
+  truncado a 16 (separadores por la misma razón).
+- Push: el sobre en base64 se limita a 3 072 caracteres; con el relleno a 256 eso deja ~2 040 bytes de JSON (no 2 816):
+  `PushPayload.sealedForAPNs` corta `body` (y si hace falta `title`) con "…" hasta que entra. El relay recibe el sobre
+  crudo en `b` y lo pone en base64 estándar en `e`.
+- `PresenceProof.ts` viaja como milisegundos enteros (`"ts": 1800000000123`), los mismos que se firmaron (las fechas
+  ISO 8601 de `CommandProtocol.encoder` no tienen milisegundos).
+- El relay le avisa a la Mac cuando quema o vence una ranura: `{"t":"pair.close","pairing":…}` en sentido relay → Mac
+  (antes solo existía Mac → relay). Si el resultado de "Codes Match" no llega al teléfono (`undeliverable` a `pair:…`),
+  la Mac deshace el alta.
+- Nuevo marco `{"t":"error","reason":…}` del relay para pedidos rechazados sin cerrar la conexión (p. ej. un teléfono
+  que manda a otro teléfono). `{"t":"devices"}` sin `items` es el pedido; con `items`, la respuesta.
+- La Mac manda `presencePolicy` **antes** del `hello`: cuando `connect()` del teléfono termina, ya la tiene.
+- `relayHost` acepta `host:puerto` siempre (para el entrypoint dedicado de V.2); una IP literal solo con
+  `allowInsecureTransportForTests`. La firma del desafío usa el host **sin** puerto (`RELAY_PUBLIC_HOST`).
+- Buzón: un blob viaja en un solo marco del relay (≤ 128 KiB), así que el tope práctico es ~90 KiB cifrados
+  (`RemoteHost.maxMailboxBlob`), no 512 KiB; si `home` no entra, no se guarda (el estado en vivo igual llega).
+- Seguridad extra: un `CipherState` que falla al descifrar queda inutilizable (no se puede seguir con el mensaje bueno);
+  las colas del `WebSocketRelayLink` son acotadas y una cola llena corta la conexión en vez de perder marcos; los
+  timeouts del cliente quedan atados a la espera que los creó.
+- Eventos del host: en vez de callbacks sueltos, `RemoteHost.events` (`AsyncStream<RemoteHostEvent>`: estado,
+  `pairingJoined`, `pairingEnded`, `devicesChanged`, `deviceOnline`, `sessionRejected`, `commandRefused`).
+- Relay: el límite de pushes cuenta solo los que irían a Apple (no los rechazados por falta de token); el `auth` sin
+  respuesta se corta con un timer (cancelar el contexto de lectura cerraría sin el código 4408).
+
+**Go**: módulo `prbar-relay`, `go 1.26`; `github.com/coder/websocket v1.8.15`, `go.etcd.io/bbolt v1.5.0`
+(`golang.org/x/sys v0.45.0` indirecta), Go 1.27.4 de Homebrew. `go vet` y `gofmt -l` limpios, `go test -race
+-count=3 ./...` verde, y la integración Swift ↔ Go (`PRBAR_RELAY_BIN`) pasa contra el binario real. La integración no
+usa un APNs falso: sin APNs configurado el relay contesta el push con 410/503 y el test verifica que el pedido llega y
+vuelve (el pedido HTTP/2 a APNs se prueba en Go contra `httptest` con TLS y HTTP/2).
+
+### P.15 Revisión de cifrado del Plan 17 y topes de la Mac
+
+Una revisión independiente de `PRBarRemoteKit` (en 93c9080) no encontró nada crítico ni alto. Lo que se cambió:
+
+- **M1 — el relay podía deshacer un emparejamiento terminado.** Antes, la Mac guardaba el dispositivo en "Codes Match" y
+  lo borraba si después llegaba un `undeliverable` a `pair:<id>` (un marco que el relay puede inventar cuando quiera).
+  Ahora el teléfono contesta el resultado con un acuse cifrado (`PairingMessage.ack`, por la sesión IKpsk2) y **la Mac
+  guarda el dispositivo recién al recibirlo**; `confirmPairing` espera ese acuse (20 s; sin él manda `device.remove`, no
+  guarda nada y falla con "Your iPhone didn’t confirm the pairing. Try again."). Un `undeliverable` a `pair:` solo
+  cuenta durante esa espera. Lo peor que puede hacer el relay es que un emparejamiento no termine (temporal).
+- **M2 — compresión antes de cifrar.** Ya no se comprime nada al mandar (P.5).
+- **M3 — códigos de cierre del relay como revocación.** Solo `bye(revoked)` dentro de la sesión revoca (P.12); 4403 y
+  4401 son `relayRejected` (`RemoteClientStatus` y `RemoteError` nuevos) y no borran nada.
+- **L1 — `rev` hacia atrás después de reiniciar la Mac.** El teléfono olvida los `rev` vistos al abrir cada sesión: el
+  orden de `state` vale dentro de una sesión (Noise ya lo garantiza ahí).
+- **L2 — un primer mensaje de KK repetido tiraba la sesión viva.** El handshake nuevo queda pendiente y reemplaza a la
+  sesión viva recién cuando su primer marco (`hello`) descifra.
+- **L3 — la Mac podía ejecutar un pedido que el teléfono ya había dado por vencido.** `req` lleva `deadline` (= `sentAt`
+  + el timeout del teléfono, 60 s); la Mac rechaza un pedido pasado ese plazo ("This request expired. Try again."),
+  además del tope de 120 s de antigüedad. En el teléfono un timeout dice "Your Mac didn’t answer in time. Refresh to see
+  whether it ran."
+- **L4 (Plan 19)** — un link `prbar://pair` no puede reemplazar en silencio un emparejamiento: lo resuelve la app del
+  iPhone. Del lado Mac no cambia nada (cada emparejamiento lo aprueba el usuario con el código).
+- **L5 (Plan 18)** — `remoteSetPresenceRequirement(enabled: false)` pasa por `RemotePolicy` como gated (y está en
+  `gatedNames`); las claves de la Mac viven solo en el llavero (Q.4).
+- **L6** — los demás cortes que puede provocar el relay (cerrar una ranura, marcar un teléfono offline) son temporales y
+  los acepta el modelo de amenazas.
+
+**Topes de la Mac** (`RemoteLimits.standard`, en `RemoteHost`; un teléfono emparejado o robado y desbloqueado no puede
+inundar la Mac, y un relay malicioso no puede hacerla trabajar):
+
+| Qué | Tope | Al pasarlo |
+|---|---|---|
+| Pedidos ejecutándose a la vez por sesión (un `--wait` ocupa uno hasta terminar) | 8 | `CommandFailure(.invalidState, "Too many requests from this iPhone. Wait a moment and try again.")` |
+| `req` + `sub` por dispositivo | ráfaga 30, 5/s sostenido | igual (un `sub` de más se ignora) |
+| Handshakes KK por dispositivo (cuatro Diffie-Hellman cada uno) | ráfaga 6, 6/min sostenido | se ignora el mensaje sin hacer ningún DH |
+
+Un `deviceId` desconocido o revocado se rechaza antes de cualquier DH, y el emparejamiento ya era una ranura con un
+solo teléfono. Cada tope frenado emite `RemoteHostEvent.rateLimited(device:)` (la app lo loguea con el prefijo del id).
 
 ---
 
@@ -401,6 +513,101 @@ teléfono y es gated al apagar): `remoteStatus`, `remoteEnable(relay:enrollToken
 dispositivo cuando se une), `remotePairConfirm(pairing:confirmed:)`, `remoteDevices`, `remoteRevoke(device:confirmed:)`,
 `remoteSetKeepAwake(enabled:)`, `remoteReset(confirmed:)`, `remoteSetPresenceRequirement(device:enabled:)`.
 `CommandProtocol.version` → 7. El token de inscripción viaja de la CLI a la app (como `slack token set`), nunca al revés.
+
+### Q.4 Decisiones de implementación (Plan 18)
+
+**Merge de `main` (plan 15, protocolo 6) antes del Plan 18.** `ClaudeUsage`, `UsageTask`, `UsageMonth`, `UsageFormat`,
+`RespondMode` y `CICheckFailure` pasaron a `PRBarWire` (los usan `ReviewInfo`, `RespondInfo`, `HistoryEntryInfo`,
+`ResourcesInfo` y `UsageInfo`); `ClaudeUsage.run(duration:tokens:cost:)` (usa `ClaudeTokenUsage`, que queda en Core) y
+las conversiones de registros (`HistoryEntryInfo(review:/respond:/merge:)`, los `init` de `ReviewInfo`/`RespondInfo`)
+quedan en Core como extensiones; los `clamped*`/`plus` de `ClaudeUsage` son públicos para que Core los use.
+`HistoryEntryInfo.listing` es puro y quedó en Wire. `RemotePolicy`: `usage` y `ciList` lectura, `ciFix` acción (los tres
+allowed); `prbar ci show/diff/test/push` son los comandos de Respond (`ci push` = `respondPush`/`respondPushAnyway`,
+gated). El merge dejó protocolo 6 y `minimumRemoteVersion` 6; el Plan 18 los sube a **7 y 7**.
+
+**Dónde vive el código.** Un target nuevo, **`PRBarRemoteMac`** (Core + RemoteKit), con `RemoteKeyStore`,
+`RemoteDeviceStore`, `RemoteAccessService` (conexión, emparejamiento, puente, feed, buzón, pushes, keep awake),
+`RemotePushPlanner`, `KeepAwake` y `RelayEnroller`. No en la app (los tests no pueden importar un ejecutable) ni en Core
+(así `prbar` no carga CryptoKit ni el protocolo del relay). En Core: `RemoteSettings`, `RemoteStateTopics`,
+`RemoteActions` y `QRCodeMatrix` (CoreImage, lo usan la app y la CLI). En Wire: los resultados `remote*` y los tipos de
+los tópicos (`RemoteTopic`, `RemoteHome`, `RemotePRDetail`, `RemoteActivity`) y `RemoteRedaction`, que la app de iOS
+decodifica. En la app: `AppModel+Remote` (adaptador de config, comandos, avisos del sistema y chats) y Settings › iPhone.
+
+**Config y claves.** `AppConfig.remote`: `enabled`, `relayHost` (`host[:puerto]` normalizado: acepta `https://`/`wss://`
+y barra final, nunca `http://`, rutas, usuarios ni IP salvo en tests), `accountId`, `keepAwakeWhileCharging`,
+`mailboxEnabled` (por defecto **sí**, V.3) y `appInstallURL`. El relay por defecto es
+`prbar.fcharbonnier.duckdns.org` (configurable en la hoja y con `--relay`). Decodificación tolerante; sin host o cuenta
+válidos, `enabled` queda en `false`. Las claves de la Mac, solo en el llavero (servicio `PRBar Remote`, cuentas
+`mac-relay`, `mac-noise`, `mac-seal`, `rawRepresentation` en base64); una clave rota falla (no se reemplaza en silencio).
+`remote/devices.json` guarda `StoredDevice {device, lastSeen, notificationsOff}`; se escribe ya con 0600 (archivo
+temporal + reemplazo) en una carpeta 0700; uno roto se aparta como `devices.json.broken-<fecha>`.
+
+**Habilitar.** `POST https://<host>/v1/accounts` con `URLSession` (15 s): 403 → "The relay refused the enrollment
+token.", 429 → "Too many attempts. Try again in 15 minutes.", 409 → "The relay has no room for another Mac.", red →
+"Couldn’t reach <host>.". El token no se guarda; volver a habilitar el mismo relay con la cuenta guardada no lo pide (la
+UI y `prbar remote enable` mandan el token vacío). Otra cuenta u otro relay borra los dispositivos de la anterior.
+
+**Conexión.** El primer `connect` lo reintenta el servicio (backoff 1 → 60 s); después reconecta `RemoteHost`. Al
+despertar y cuando vuelve la red (`NWPathMonitor`), si no está conectado se rehace la conexión sin esperar el backoff;
+antes de dormir y al salir se corta ordenado (el relay marca la Mac offline enseguida).
+
+**Emparejamiento.** `remotePairStart` → `{pairing, qr, expiresAt}`; `remotePairWait` devuelve la misma info con `code`
+("123 456"), `deviceName` y `model` cuando el teléfono se une (evento `progress` "Waiting for your iPhone…"), o falla si
+vence (5 min, timer del servicio además del relay), se cancela o se abre otra ranura. `remotePairConfirm(confirmed:
+false)` también cierra una ranura a la que nadie se unió. "Codes Match" espera el acuse del teléfono (P.15 M1).
+
+**El puente.** `RemoteHost` le pasa al handler el `PairedDevice` (`DeviceHandler`, agregado en RemoteKit); el puente
+loguea `iPhone <4>: <comando>`, vuelve a mirar `RemotePolicy` (defensa en profundidad), reemplaza el `device` de
+`remoteSetPresenceRequirement` por el del teléfono que lo pidió y llama a `CommandDispatcher.run` sobre el mismo
+`AppModel`. **Redacción**: a todo resultado y tópico que va al teléfono se le aplica `RemoteRedaction.scrub`: `logPath`,
+`worktree` y `path` quedan en su último componente y `tools` vacío (P.7: ni rutas locales ni herramientas; `status`
+traía las rutas de `gh`/`git`/`claude` y `resources` las carpetas del disco). Los tipos se siguen decodificando.
+
+**Feed.** `AppModel` es `ObservableObject` (Combine), no `@Observable`: en vez de `withObservationTracking`, el servicio
+recibe los `objectWillChange` de `AppModel`, `PRStore`, las colas de review/respond y `MergeQueue`, agrupados cada 300 ms.
+Se calculan solo los tópicos suscritos (como mucho 20 válidos por suscripción, `RemoteTopic.parse`) más `home` (lo usa
+el buzón); `RemoteHost.publish` manda solo lo que cambió. `activity` además cada 5 s mientras esté suscrito.
+`RemotePRDetail` no trae `merge`: `mergePreview` va a GitHub y no se recalcula en cada cambio (el teléfono lo pide al
+abrir Merge). `chatDelta`: la app mira el `partialText` de cada chat (Review, Respond, Merge) y manda lo nuevo a quien
+mire `pr:<id>`; también para chats que inició el teléfono (el teléfono ignora `chatDelta` de un PR con un `chatSend`
+propio en curso: Plan 19).
+
+**Buzón.** Cada 60 s, si `home` cambió, un `mbox.put` por dispositivo (HPKE, P.9). El `rev` lo pone `RemoteHost` como
+`max(rev + 1, milisegundos de reloj)`: crece aunque la app reinicie sin guardar nada (el plan proponía
+`RemoteSettings.mailboxRev`; no hace falta salvo que el reloj vuelva atrás). Apagado: el protocolo del relay no tiene
+"borrar", así que se pisa el slot con un estado vacío (el teléfono lo trata como "nada"; vence a los 7 días). Un
+dispositivo nuevo recibe el próximo aunque no haya cambiado.
+
+**Pushes.** `NotificationDelivery.onDeliver` (corre aunque no haya bundle) → `RemotePushPlanner`: mismo título y
+cuerpo, `kind` = `NotificationKind.rawValue`, `threadId` = el de la Mac, `badge` = `StatusInfo.badgeCount`, y
+`deepLink`: `newToReview`/`reviewedPRUpdated` → `?screen=review`, `myPRFeedback` → `respond`, `readyToMerge` → `merge`,
+`reviewFinished` → `respond` si es de Respond o Fix CI y `review` si no, `myPRApprovedOrCIFailed` → el PR sin
+pantalla, `updateAvailable`/`diskUsage` → `prbar://activity`, sin PR → `prbar://home`. 410/400 marcan el dispositivo
+"Notifications off"; un 200 lo vuelve a prender.
+
+**Comandos y CLI.** Además de los de Q.3: `remoteSetMailbox(enabled:)` (`prbar remote mailbox on|off`) y
+`remoteSetAppLink(url:)` (`prbar remote app-link set <url>|clear`); los dos denegados desde el teléfono.
+`remoteSetPresenceRequirement` es `dependsOnArguments` en `RemotePolicy` (`true` allowed, `false` gated) y está en
+`gatedNames`. `prbar remote pair` corre `remotePairStart` y `remotePairWait` en `prepare` y pregunta con la confirmación
+de siempre; contestar que no manda `remotePairConfirm(false)` (`RemoteCommand.declinedCommand`, nuevo); en la tabla de
+paridad, `CLICommandSpec.prepares` cuenta los comandos que manda antes. El QR de la terminal dibuja los módulos claros
+con medios bloques; con colores fuerza blanco sobre negro (se lee en temas claros y oscuros). `prbar remote enable`
+lee el token sin eco (vacío = reusar la cuenta) o con `--enroll-token-stdin`.
+
+**Settings › iPhone** (700 × 520): arriba **Get PRBar for iPhone** (QR del link de instalación con Copy Link y Open
+Link, o el texto de Xcode sin link); el QR de instalación se oculta mientras la hoja de emparejar está abierta (nunca
+los dos QR juntos). Después Remote Control (toggle, estado, Pair iPhone…), iPhones (nombre, modelo, "Paired …", "Online"
+o "Last seen …", "Require Face ID", Revoke…, aviso de notificaciones apagadas) y Options (keep awake, buzón, Reset
+iPhone Access…). Capturas: `settings-iphone` (conectado, dos iPhones, con link), `settings-iphone-off`,
+`settings-iphone-off-link`, `iphone-pair-qr`, `iphone-pair-code`, `iphone-enable`.
+
+**Revocar con el acceso apagado** solo borra el dispositivo en la Mac (no hay conexión para mandar `device.remove`);
+la Mac igual rechaza su estática, y un relay que lo siga conociendo solo le deja llegar al `challenge`/handshake fallido.
+
+**Tests.** `RemoteSettingsTests`, `RemoteBridgeTests` (servicio + `InMemoryRelay` + `FakeActions` + `RemoteClient`),
+`RemoteCLITests`, `RemoteHardeningTests` (P.15), y `RemoteMacIntegrationTests` contra el binario del relay en
+`127.0.0.1` (solo con `PRBAR_RELAY_BIN`). `RemoteSmokeTests` (solo con `PRBAR_PAIR_URL`) es el iPhone simulado de la QA
+manual. Nada habla con el relay desplegado (todavía no existe).
 
 ---
 

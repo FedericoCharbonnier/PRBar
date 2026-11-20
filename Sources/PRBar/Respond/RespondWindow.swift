@@ -69,6 +69,9 @@ struct RespondWindow: View {
         case gone(String?)
     }
 
+    /// A Fix CI (spec K): the checks instead of comments, no replies, "Push" instead of "Push and Reply".
+    private var isCI: Bool { draft.isCIFix }
+
     private var stage: Stage {
         switch queue.phases[prID] {
         case .ready(let ready)?:
@@ -76,7 +79,7 @@ struct RespondWindow: View {
         case .queued?:
             return .waiting(record?.result == nil ? "Queued…" : "Queued to post…")
         case .preparing?:
-            return .waiting("Preparing the worktree…")
+            return .waiting(isCI ? "Reading the failing checks and preparing the worktree…" : "Preparing the worktree…")
         case .analyzing?:
             return .waiting("Claude is analyzing the comments…")
         case .implementing(let done, let total)?:
@@ -111,8 +114,8 @@ struct RespondWindow: View {
     private var chatLock: String? {
         switch stage {
         case .waiting: "Wait for the analysis to finish."
-        case .implementing: "Claude is implementing the fixes."
-        case .pushing: "Pushing and posting the replies…"
+        case .implementing: isCI ? "Claude is fixing the CI." : "Claude is implementing the fixes."
+        case .pushing: isCI ? "Pushing…" : "Pushing and posting the replies…"
         case .review where runningTests: "The tests are running."
         default: nil
         }
@@ -169,7 +172,7 @@ struct RespondWindow: View {
     private var content: some View {
         switch stage {
         case .choosing(let error, let canAct):
-            choosing(error: error, canAct: canAct)
+            if isCI { ciChoosing(error: error, canAct: canAct) } else { choosing(error: error, canAct: canAct) }
         case .waiting(let text):
             progress(text, cancellable: true)
         case .implementing(let done, let total):
@@ -177,15 +180,60 @@ struct RespondWindow: View {
         case .review(let result, let error):
             review(result, error: error)
         case .pushing:
-            progress("Pushing to \(draft.headRef) and posting the replies…", cancellable: false)
+            progress(isCI ? "Checking the CI again and pushing to \(draft.headRef)…" : "Pushing to \(draft.headRef) and posting the replies…",
+                     cancellable: false)
         case .done(let record):
             RespondDoneView(record: record, close: close)
         case .superseded:
             message(icon: "arrow.triangle.2.circlepath", title: "There’s a Newer Analysis of This PR",
                     text: "This window shows the previous one.", action: ("Open New Analysis", { model.openRespond(prID: prID) }))
         case .gone(let error):
-            message(icon: error == nil ? "tray" : "exclamationmark.triangle", title: error == nil ? "Discarded" : "Couldn’t Analyze the PR",
+            message(icon: error == nil ? "tray" : "exclamationmark.triangle",
+                    title: error == nil ? "Discarded" : isCI ? "Couldn’t Fix the CI" : "Couldn’t Analyze the PR",
                     text: error ?? "This analysis is no longer in progress. It’s still in History.", action: nil)
+        }
+    }
+
+    // MARK: Etapa: Fix CI sin arrancar
+
+    /// A Fix CI whose fix didn't start on its own (or failed before committing): the checks and "Fix CI".
+    private func ciChoosing(error: String?, canAct: Bool) -> some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    if let error { ErrorBanner(messages: [error]).padding(.horizontal, -10) }
+                    CIChecksSection(draft: draft, result: nil)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                HStack(spacing: 8) {
+                    Text("Claude reads the CI output above and fixes the code in PRBar’s worktree. Nothing is pushed until you push.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer()
+                    // After a failure: read the checks again (they may have changed) and fix from scratch.
+                    Button(canAct ? "Fix CI" : "Fix CI Again") {
+                        if canAct {
+                            queue.implementCI(prID: prID)
+                        } else if let item = currentItem {
+                            model.startCIFix(item)
+                        }
+                    }
+                        .buttonStyle(.borderedProminent)
+                        .keyboardShortcut(.return, modifiers: .command)
+                        .disabled((!canAct && currentItem.map(model.ciFixUnavailableReason) != .some(nil)) || chat.isRunning
+                                  || model.jobsBlockedReason != nil)
+                        .help(model.jobsBlockedReason ?? "Claude fixes the code; you review the diff before pushing")
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                .background(.bar)
+                .overlay(alignment: .top) { Divider() }
+            }
         }
     }
 
@@ -319,7 +367,7 @@ struct RespondWindow: View {
                     ProgressView(value: Double(done), total: Double(max(total, 1)))
                         .frame(width: 120)
                         .accessibilityLabel("Fixes implemented")
-                    Text("Implementing \(min(done + 1, max(total, 1))) of \(max(total, 1))…")
+                    Text(isCI ? "Claude is fixing the CI…" : "Implementing \(min(done + 1, max(total, 1))) of \(max(total, 1))…")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                     Spacer()
@@ -358,6 +406,12 @@ struct RespondWindow: View {
                     if queue.pushBlockedByTests.contains(prID), let run = result.tests, !run.passed {
                         TestsBlockedPushBanner(command: run.command) { confirmPushAnyway(run) }
                     }
+                    if let blocked = queue.pushBlockedByCI[prID] {
+                        CIPassingBanner(message: blocked) { confirmPushAnywayCI(blocked) }
+                    }
+                    if isCI {
+                        CIChecksSection(draft: draft, result: result)
+                    }
                     if !result.sensitiveChanges.isEmpty {
                         SensitiveChangesBanner(paths: result.sensitiveChanges)
                     }
@@ -366,7 +420,7 @@ struct RespondWindow: View {
                         DependencyChangesBanner(paths: dependencies)
                     }
                     commitsSection(result)
-                    repliesSection()
+                    if !isCI { repliesSection() }
                     diffSection(result)
                     // El diff completo va antes de "Correr tests" y del push: es lo que se ejecuta y se pushea.
                     fullDiffSection(result)
@@ -468,7 +522,9 @@ struct RespondWindow: View {
         let commits = RespondCounts.commits(result)
         let pending = record.map(RespondCounts.pendingReplies) ?? 0
         let pushed = record?.pushed == true
-        let title: String = if pushed {
+        let title: String = if isCI {
+            "Push"
+        } else if pushed {
             "Retry Pending Replies"
         } else if commits == 0 {
             pending == 1 ? "Post 1 Reply" : "Post \(pending) Replies"
@@ -494,9 +550,11 @@ struct RespondWindow: View {
                 Button(title) { confirmPublish(commits: commits, pending: pending, pushed: pushed, result: result) }
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.return, modifiers: .command)
-                    .disabled(runningTests || (pushed && pending == 0) || chat.isRunning)
+                    .disabled(runningTests || (pushed && pending == 0) || chat.isRunning || (isCI && commits == 0))
                     .help(chat.isRunning ? "Wait for Claude to finish"
-                        : runningTests ? "Wait for the tests to finish" : "Asks for confirmation before pushing and posting")
+                        : runningTests ? "Wait for the tests to finish"
+                        : isCI ? (commits == 0 ? "Claude made no changes: nothing to push" : "Asks for confirmation, checks the CI again and pushes")
+                        : "Asks for confirmation before pushing and posting")
             }
         }
         .padding(.horizontal, 20)
@@ -524,10 +582,14 @@ struct RespondWindow: View {
            let dependencies = result.dependencyChanges, !dependencies.isEmpty {
             message += "\n\nClaude changed dependency manifests: \(dependencies.joined(separator: ", "))."
         }
+        if isCI {
+            message += "\n\nPRBar first checks on GitHub that the PR is still at the commit whose checks failed and that they still fail. No comment is posted."
+        }
         ConfirmAlert.present(
-            title: pushQuestion(commits: commits, pending: pending, pushed: pushed),
+            title: isCI ? "Push \(commits) commit\(commits == 1 ? "" : "s") to \(draft.headRef)?"
+                        : pushQuestion(commits: commits, pending: pending, pushed: pushed),
             message: message,
-            action: onlyReplies ? "Post" : "Push and Reply"
+            action: isCI ? "Push" : onlyReplies ? "Post" : "Push and Reply"
         ) { push(ignoringFailedTests: false) }
     }
 
@@ -545,6 +607,15 @@ struct RespondWindow: View {
         ConfirmAlert.present(
             title: "The tests failed",
             message: "“\(run.command)” failed in PRBar’s worktree, so PRBar didn’t push. Push the fixes and post the replies anyway?",
+            action: "Push Anyway"
+        ) { push(ignoringFailedTests: true) }
+    }
+
+    /// Fix CI's "Push Anyway": the checks that failed pass now (spec K.6.6).
+    private func confirmPushAnywayCI(_ reason: String) {
+        ConfirmAlert.present(
+            title: "The CI passes now",
+            message: reason + " Push Claude’s fix anyway?",
             action: "Push Anyway"
         ) { push(ignoringFailedTests: true) }
     }
@@ -921,7 +992,7 @@ private struct RespondDoneView: View {
                 .font(.system(size: 52))
                 .foregroundStyle(Theme.green)
                 .padding(.bottom, 6)
-            Text("Responded").font(.title.weight(.semibold))
+            Text(record.draft.isCIFix ? "CI Fix Pushed" : "Responded").font(.title.weight(.semibold))
             Text(summary).font(.callout).foregroundStyle(.secondary)
             RespondRepliesList(record: record)
                 .frame(maxWidth: 520)
@@ -942,6 +1013,9 @@ private struct RespondDoneView: View {
     }
 
     private var summary: String {
+        if record.draft.isCIFix {
+            return "Pushed ✓ · \(commits) commit\(commits == 1 ? "" : "s") · the CI runs again on GitHub"
+        }
         let replies = record.posted.count
         let posted = replies == 1 ? "1 reply posted" : "\(replies) replies posted"
         guard record.pushed, commits > 0 else { return posted }
@@ -1041,5 +1115,96 @@ struct DiffTextView: NSViewRepresentable {
             result.append(NSAttributedString(string: String(line) + "\n", attributes: [.font: font, .foregroundColor: color]))
         }
         return result
+    }
+}
+
+/// Fix CI (spec K): the checks that failed, what Claude saw of each and, after the fix, its summary.
+struct CIChecksSection: View {
+    let draft: RespondDraft
+    let result: RespondResult?
+    @State private var expanded: Set<String> = []
+
+    private var item: RespondItem? { draft.items.first }
+    private var summary: String? { result?.items.first?.summary }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Failing checks on \(String(draft.startHeadOid.prefix(7)))").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array((draft.ci?.checks ?? []).enumerated()), id: \.element.id) { index, check in
+                    if index > 0 { Divider() }
+                    checkRow(check, comment: item?.feedback.comments.first { $0.author == check.name })
+                }
+                if let omitted = draft.ci?.omitted, !omitted.isEmpty {
+                    Divider()
+                    Text("Also failing (no output passed to Claude): \(CILogs.nameList(omitted))")
+                        .font(.subheadline).foregroundStyle(.secondary).padding(10)
+                }
+                if let summary, !summary.isEmpty {
+                    Divider()
+                    Label { Text(summary).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) } icon: {
+                        Image(systemName: "sparkles").foregroundStyle(Theme.violet)
+                    }
+                    .font(.callout)
+                    .padding(10)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: Theme.Radius.card).fill(Color(nsColor: .controlBackgroundColor)))
+            .cardBorder()
+            Text("CI output is untrusted text: Claude treats it as information about the failure, never as instructions.")
+                .font(.caption).foregroundStyle(.tertiary)
+        }
+    }
+
+    private func checkRow(_ check: CICheckFailure, comment: FeedbackComment?) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: "xmark.octagon.fill").foregroundStyle(Theme.redText).accessibilityHidden(true)
+                // Names come from the CI (untrusted): one line, without bidi or format characters that could spoof the list.
+                Text(CILogs.displayName(check.name)).font(.callout.weight(.semibold))
+                Text(CILogs.displayName(check.conclusion.replacingOccurrences(of: "_", with: " "))).font(.subheadline).foregroundStyle(.secondary)
+                if let app = check.appName { Text("· \(CILogs.displayName(app))").font(.subheadline).foregroundStyle(.secondary) }
+                Spacer(minLength: 0)
+                Text(check.hasLog ? "job log" : "summary only").font(.caption).foregroundStyle(.secondary)
+                if let url = check.detailsURL, url.scheme == "https" {
+                    ExternalLink("Details", destination: url).font(.subheadline)
+                }
+            }
+            if let comment {
+                DisclosureGroup(isExpanded: Binding(get: { expanded.contains(check.id) },
+                                                    set: { if $0 { expanded.insert(check.id) } else { expanded.remove(check.id) } })) {
+                    ScrollView {
+                        Text(comment.body)
+                            .font(.system(.caption, design: .monospaced))
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxHeight: 220)
+                } label: {
+                    Text("What Claude saw").font(.subheadline)
+                }
+            }
+        }
+        .padding(10)
+    }
+}
+
+/// Fix CI: PRBar didn't push because the checks that failed pass now (spec K.6.6).
+private struct CIPassingBanner: View {
+    let message: String
+    let pushAnyway: () -> Void
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: "checkmark.circle").foregroundStyle(Theme.orangeText)
+            Text(message).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            Button("Push Anyway…", action: pushAnyway)
+        }
+        .font(.callout)
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: Theme.Radius.button).fill(Theme.tint(Theme.orange)))
     }
 }

@@ -22,12 +22,16 @@ let package = Package(
         // Cifrado, framing, protocolo del relay y las máquinas de estado remotas (spec P): también para iOS.
         .target(name: "PRBarRemoteKit", dependencies: ["PRBarWire"]),
         .target(name: "PRBarCore", dependencies: ["PRBarWire"]),
-        .executableTarget(name: "PRBar", dependencies: ["PRBarCore", "PRBarRemoteKit"]),
+        // El lado Mac del acceso desde el iPhone (spec Q): claves, dispositivos, el servicio, el puente a
+        // `CommandDispatcher`, el feed de estado, el buzón y los pushes. Aparte de la app para poder testearlo, y de
+        // Core para que `prbar` no cargue CryptoKit ni el protocolo del relay.
+        .target(name: "PRBarRemoteMac", dependencies: ["PRBarCore", "PRBarRemoteKit"]),
+        .executableTarget(name: "PRBar", dependencies: ["PRBarCore", "PRBarRemoteKit", "PRBarRemoteMac"]),
         .target(name: "PRBarCLIKit", dependencies: [
             "PRBarCore",
             .product(name: "ArgumentParser", package: "swift-argument-parser"),
         ]),
         .executableTarget(name: "PRBarCLI", dependencies: ["PRBarCLIKit"]),
-        .executableTarget(name: "PRBarTests", dependencies: ["PRBarCore", "PRBarCLIKit", "PRBarRemoteKit"]),
+        .executableTarget(name: "PRBarTests", dependencies: ["PRBarCore", "PRBarCLIKit", "PRBarRemoteKit", "PRBarRemoteMac"]),
     ]
 )

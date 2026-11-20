@@ -255,7 +255,7 @@ public struct RemoteFixImport: Sendable {
         }
         let pushed = try await withCredentials(token, temporary: objects.temporary) { credentials in
             let args = ["-C", repository] + RespondPublisher.pushHardening + credentials
-                + ["push", "origin", "\(reviewed):refs/heads/\(draft.headRef)"]
+                + RespondPublisher.pushArguments(reviewed: reviewed, headRef: draft.headRef, startHeadOid: draft.startHeadOid)
             return try await localRunner.run(localGit, args, environment: gitEnvironment, currentDirectory: nil,
                                              timeout: RespondPublisher.pushTimeout)
         }

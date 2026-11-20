@@ -112,7 +112,7 @@ extension HistoryEntryInfo {
     public init(review record: ReviewRecord) {
         self.init(id: record.id, kind: .review, pr: record.draft.prID, repo: record.draft.repo.fullName,
                   number: record.draft.number, title: record.draft.title, status: record.status.rawValue,
-                  startedAt: record.startedAt, finishedAt: record.finishedAt)
+                  startedAt: record.startedAt, finishedAt: record.finishedAt, usage: record.draft.totalUsage)
     }
 
     public init(respond record: RespondRecord) {
@@ -125,16 +125,16 @@ extension HistoryEntryInfo {
         } else {
             "ready"
         }
-        self.init(id: record.id, kind: .respond, pr: record.draft.prID, repo: record.draft.repo.fullName,
-                  number: record.draft.number, title: record.draft.title, status: status,
-                  startedAt: record.startedAt, finishedAt: record.finishedAt)
+        self.init(id: record.id, kind: record.draft.isCIFix ? .ciFix : .respond, pr: record.draft.prID,
+                  repo: record.draft.repo.fullName, number: record.draft.number, title: record.draft.title, status: status,
+                  startedAt: record.startedAt, finishedAt: record.finishedAt, usage: record.totalUsage)
     }
 
     /// Un merge desde PRBar (spec G.4): `merged`, `failed` u `open` (no se mergeó).
     public init(merge record: MergeRecord) {
         self.init(id: record.id, kind: .merge, pr: record.prID, repo: record.repo.fullName, number: record.number,
                   title: record.title, status: record.status.rawValue, startedAt: record.startedAt,
-                  finishedAt: record.finishedAt)
+                  finishedAt: record.finishedAt, usage: record.chat?.usage)
     }
 }
 
@@ -260,6 +260,7 @@ extension ReviewInfo {
             // #N = posición en `draft.items + edits.added` (plan 6), la misma de la ventana y del chat.
             findings = edits.items(of: draft).enumerated().map { FindingInfo(number: $0.offset + 1, item: $0.element, edits: edits) }
             generalComment = edits.generalComment.isEmpty ? nil : edits.generalComment
+            usage = draft.totalUsage
         default:
             break
         }
@@ -305,6 +306,9 @@ extension RespondInfo {
         pushed = record.pushed
         pendingReplies = RespondCounts.pendingReplies(record)
         errorMessage = record.errorMessage
+        mode = draft.mode
+        ciChecks = draft.ci?.checks
+        usage = record.totalUsage
     }
 }
 

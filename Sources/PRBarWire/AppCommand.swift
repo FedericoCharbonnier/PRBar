@@ -45,6 +45,14 @@ public enum AppCommand: Codable, Equatable, Sendable {
     case respondReplyOnly(pr: String, confirmed: Bool, wait: Bool)
     case respondCancel(pr: String)
     case respondDismiss(pr: String)
+    // Fix CI (spec K). Show, diff, test, push, cancel and dismiss are the Respond commands.
+    /// Mis PRs con el CI fallido y su Fix CI.
+    case ciList
+    /// "Fix CI" en la fila: lee los checks, prepara el worktree e implementa.
+    case ciFix(pr: String, wait: Bool)
+    // Uso de Claude (spec O)
+    /// `YYYY-MM`; nil = este mes.
+    case usage(month: String?)
     // Ready to Merge (spec F)
     /// `method == nil` = el método por defecto del repo. Mergea sin diálogo: la CLI ya confirmó (`--yes`).
     /// `expectedHeadOid`: el head que la CLI mostró (`mergePreview`); si el PR cambió, la app no mergea.
@@ -152,13 +160,37 @@ public enum AppCommand: Codable, Equatable, Sendable {
     case runnerTest(name: String)
     /// `local` o el nombre de un destino.
     case runnerDefault(target: String)
+    // Acceso desde el iPhone (spec Q.3). Todos denegados desde el teléfono salvo `remoteSetPresenceRequirement`.
+    case remoteStatus
+    /// `relay`: `host[:puerto]`. `enrollToken` es un secreto (como `slackTokenSet`): viaja de la CLI a la app y no se
+    /// guarda; solo se loguea el nombre del comando.
+    case remoteEnable(relay: String, enrollToken: String)
+    case remoteDisable
+    /// Abre una ranura de emparejamiento y devuelve el texto del QR y su vencimiento.
+    case remotePairStart
+    /// Espera a que un teléfono se una a la ranura (con su código de 6 dígitos) o a que venza.
+    case remotePairWait(pairing: String)
+    /// "Codes Match" (`confirmed`) o "Cancel".
+    case remotePairConfirm(pairing: String, confirmed: Bool)
+    case remoteDevices
+    /// `device`: id, prefijo del id o nombre.
+    case remoteRevoke(device: String, confirmed: Bool)
+    case remoteSetKeepAwake(enabled: Bool)
+    /// "Reset iPhone Access…": claves y cuenta nuevas, sin dispositivos.
+    case remoteReset(confirmed: Bool)
+    /// Desde el teléfono solo cambia al propio dispositivo; apagarlo pide Face ID (spec P.8).
+    case remoteSetPresenceRequirement(device: String, enabled: Bool)
+    /// Dejar el último estado cifrado en el buzón del relay (spec V.3).
+    case remoteSetMailbox(enabled: Bool)
+    /// El link de instalación de la app del iPhone ("Get PRBar for iPhone"); nil lo borra.
+    case remoteSetAppLink(url: String?)
 
     /// Lo que cambia algo en GitHub o Slack con una sola llamada: si la CLI se va a mitad (Ctrl-C), la llamada sigue
     /// hasta el final (cortarla dejaría el merge, el review o el token en un estado desconocido). Lo demás se cancela
     /// con la conexión (las esperas de `--wait`, el chat).
     public var runsToCompletion: Bool {
         switch self {
-        case .merge, .reviewPublish, .slackSelfTest, .slackTokenSet: true
+        case .merge, .reviewPublish, .slackSelfTest, .slackTokenSet, .remoteEnable: true
         default: false
         }
     }
@@ -183,6 +215,10 @@ public enum AppCommand: Codable, Equatable, Sendable {
         case openPopover
         case resources, cleanupPreview, cleanup, setDiskWarning
         case runnersList, runnerAdd, runnerSet, runnerRemove, runnerTest, runnerDefault
+        case ciList, ciFix, usage
+        case remoteStatus, remoteEnable, remoteDisable, remotePairStart, remotePairWait, remotePairConfirm, remoteDevices
+        case remoteRevoke, remoteSetKeepAwake, remoteReset, remoteSetPresenceRequirement, remoteSetMailbox
+        case remoteSetAppLink
     }
 
     public var name: Name {
@@ -219,6 +255,9 @@ public enum AppCommand: Codable, Equatable, Sendable {
         case .respondReplyOnly: .respondReplyOnly
         case .respondCancel: .respondCancel
         case .respondDismiss: .respondDismiss
+        case .ciList: .ciList
+        case .ciFix: .ciFix
+        case .usage: .usage
         case .merge: .merge
         case .mergePreview: .mergePreview
         case .mergeDismiss: .mergeDismiss
@@ -298,6 +337,19 @@ public enum AppCommand: Codable, Equatable, Sendable {
         case .runnerRemove: .runnerRemove
         case .runnerTest: .runnerTest
         case .runnerDefault: .runnerDefault
+        case .remoteStatus: .remoteStatus
+        case .remoteEnable: .remoteEnable
+        case .remoteDisable: .remoteDisable
+        case .remotePairStart: .remotePairStart
+        case .remotePairWait: .remotePairWait
+        case .remotePairConfirm: .remotePairConfirm
+        case .remoteDevices: .remoteDevices
+        case .remoteRevoke: .remoteRevoke
+        case .remoteSetKeepAwake: .remoteSetKeepAwake
+        case .remoteReset: .remoteReset
+        case .remoteSetPresenceRequirement: .remoteSetPresenceRequirement
+        case .remoteSetMailbox: .remoteSetMailbox
+        case .remoteSetAppLink: .remoteSetAppLink
         }
     }
 }

@@ -47,6 +47,8 @@ final class FakeChatBackend: ChatBackend, @unchecked Sendable {
     var cancelError: Error?
     /// The host `workspace` says it prepared the workspace on.
     var runner: String?
+    /// What each turn "spends" in Claude (spec O).
+    var spend: ClaudeUsage?
 
     var inputs: [ChatTurnInput] { lock.withLock { _inputs } }
     var editing: Int { lock.withLock { _editing } }
@@ -72,6 +74,7 @@ final class FakeChatBackend: ChatBackend, @unchecked Sendable {
     func send(_ input: ChatTurnInput, subject: ChatSubject, logURL: URL,
               onEvent: @escaping @Sendable (ClaudeStreamEvent) -> Void) async throws -> ChatTurnOutput {
         lock.withLock { _inputs.append(input) }
+        if let spend = lock.withLock({ self.spend }) { ClaudeUsageCenter.shared.record(spend, stage: "chat") }
         onEvent(.toolUse(name: "Read", detail: "/tmp/wt/chat/src/a.ts"))
         do {
             while held {
@@ -148,6 +151,21 @@ private final class Harness {
 
 enum ChatCoordinatorTests {
     static let cases: [TestCase] = [
+        TestCase("chat coordinator: cada turno suma su uso de Claude en la sesión, también uno fallido (spec O)") { @MainActor in
+            let h = Harness()
+            let chat = h.review()
+            h.backend.spend = .run(duration: 3, tokens: ClaudeTokenUsage(inputTokens: 10, outputTokens: 2), cost: 0.05)
+            try expect(chat.send("hola"))
+            try await h.finish(chat)
+            h.backend.reply(.failure(ClaudeError.failed("no")))
+            try expect(chat.send("otra"))
+            try await h.finish(chat)
+            try expectEqual(chat.session.usage?.runs, 2)
+            try expect(abs((chat.session.usage?.costUSD ?? 0) - 0.1) < 1e-9)
+            var draft = reviewDraft()
+            draft.chat = chat.session
+            try expectEqual(draft.totalUsage?.inputTokens, 20)
+        },
         TestCase("chat coordinator: el primer mensaje de Review aplica las acciones, resalta y guarda") { @MainActor in
             let h = Harness()
             let chat = h.review()

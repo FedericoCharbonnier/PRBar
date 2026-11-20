@@ -28,6 +28,8 @@ public struct ClaudeResult: Equatable, Sendable {
     /// JSON crudo de `structured_output`, si vino.
     public let structuredJSON: Data?
     public let costUSD: Double?
+    /// Los tokens de la corrida (`usage`), si vinieron (spec O).
+    public var usage: ClaudeTokenUsage? = nil
 }
 
 /// Lee el `--output-format stream-json` de `claude -p`, línea por línea.
@@ -91,7 +93,8 @@ public struct ClaudeStreamParser: Sendable {
                 isError: object["is_error"] as? Bool ?? false,
                 text: (object["result"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? errors,
                 structuredJSON: structured,
-                costUSD: object["total_cost_usd"] as? Double
+                costUSD: (object["total_cost_usd"] as? NSNumber)?.doubleValue,
+                usage: ClaudeTokenUsage.parse(object["usage"])
             )
             return []
         default:

@@ -1,0 +1,40 @@
+# /root/stack/prbar-relay/docker-compose.yml en el VPS (lo copia deploy.sh). Sin `ports:`: entra solo por Traefik.
+services:
+  prbar-relay:
+    image: prbar-relay:vps
+    container_name: prbar-relay
+    restart: unless-stopped
+    env_file: /root/stack/env/prbar-relay.env
+    mem_limit: 128m
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    secrets:
+      - source: apns_p8
+        target: apns.p8
+    volumes:
+      - prbar-relay-data:/data
+    networks: [coolify]
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: coolify
+      traefik.http.routers.prbar-relay.rule: Host(`prbar.fcharbonnier.duckdns.org`)
+      traefik.http.routers.prbar-relay.entrypoints: https
+      traefik.http.routers.prbar-relay.tls: "true"
+      traefik.http.routers.prbar-relay.tls.certresolver: letsencrypt
+      traefik.http.services.prbar-relay.loadbalancer.server.port: "8080"
+      traefik.http.routers.prbar-relay-http.rule: Host(`prbar.fcharbonnier.duckdns.org`)
+      traefik.http.routers.prbar-relay-http.entrypoints: http
+      traefik.http.routers.prbar-relay-http.middlewares: redirect-https@file
+      # Si la prueba de 5 min (wsprobe) muestra que el entrypoint compartido corta los WebSocket a los ~60 s, NO se
+      # tocan sus timeouts (spec V.2): con OK del usuario se agrega un entrypoint propio (p. ej. `prbar`, :8443, con
+      # readTimeout 0) en el compose de Traefik y este router pasa a usarlo:
+      #   traefik.http.routers.prbar-relay.entrypoints: prbar
+secrets:
+  apns_p8:
+    file: /root/stack/env/prbar-relay.p8
+volumes:
+  prbar-relay-data:
+networks:
+  coolify:
+    external: true

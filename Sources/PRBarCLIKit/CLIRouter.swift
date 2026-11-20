@@ -7,11 +7,21 @@ public struct CLICommandSpec: Sendable {
     public let path: String
     public let produces: [AppCommand.Name]
     public let samples: [[String]]
+    /// Lo que el comando manda antes de su comando final (`remote pair`: abrir la ranura y esperar al teléfono).
+    public let prepares: [AppCommand.Name]
 
     init(_ path: String, _ produces: [AppCommand.Name], _ samples: [String]...) {
         self.path = path
         self.produces = produces
         self.samples = samples
+        prepares = []
+    }
+
+    init(_ path: String, _ produces: [AppCommand.Name], prepares: [AppCommand.Name], _ samples: [String]...) {
+        self.path = path
+        self.produces = produces
+        self.samples = samples
+        self.prepares = prepares
     }
 }
 
@@ -27,7 +37,7 @@ public enum CLIRouter {
         .init("cleanup", [.cleanup, .cleanupPreview], ["cleanup", "--older-than", "30d", "--yes"], ["cleanup", "--preview"]),
         .init("open", [.open, .resolvePR], ["open", "api#1", "--posted"], ["open", "api#1", "--copy"],
               ["open", "api#1", "--merge"]),
-        .init("history list", [.history], ["history", "--kind", "respond"], ["history", "list"]),
+        .init("history list", [.history], ["history", "--kind", "respond"], ["history", "list"], ["history", "--kind", "ci-fix"]),
         .init("history show", [.historyShow], ["history", "show", "1a2b3c4d"]),
         .init("history reopen", [.historyReopen], ["history", "reopen", "1a2b3c4d"]),
         .init("app start", [], ["app", "start"]),
@@ -62,6 +72,31 @@ public enum CLIRouter {
         .init("respond reply-only", [.respondReplyOnly], ["respond", "reply-only", "web#2", "--yes"]),
         .init("respond cancel", [.respondCancel], ["respond", "cancel", "web#2"]),
         .init("respond dismiss", [.respondDismiss], ["respond", "dismiss", "web#2"]),
+        // Fix CI (spec K): show, diff, test, push, cancel y dismiss son los de Respond.
+        .init("ci list", [.ciList], ["ci"], ["ci", "list"]),
+        .init("ci fix", [.ciFix], ["ci", "fix", "web#2"], ["ci", "fix", "web#2", "--wait"]),
+        .init("ci show", [.respondShow], ["ci", "show", "web#2", "--full"]),
+        .init("ci diff", [.respondDiff], ["ci", "diff", "web#2", "--stat"]),
+        .init("ci test", [.respondTest], ["ci", "test", "web#2"]),
+        .init("ci push", [.respondPush, .respondPushAnyway],
+              ["ci", "push", "web#2", "--yes"], ["ci", "push", "web#2", "--anyway", "--yes"]),
+        .init("ci cancel", [.respondCancel], ["ci", "cancel", "web#2"]),
+        .init("ci dismiss", [.respondDismiss], ["ci", "dismiss", "web#2"]),
+        // Uso de Claude (spec O)
+        .init("usage", [.usage], ["usage"], ["usage", "--month", "2026-10"]),
+        // Acceso desde el iPhone (spec Q.3)
+        .init("remote status", [.remoteStatus], ["remote"], ["remote", "status", "--json"]),
+        .init("remote enable", [.remoteEnable], ["remote", "enable", "--relay", "relay.example.com", "--enroll-token-stdin"]),
+        .init("remote disable", [.remoteDisable], ["remote", "disable"]),
+        .init("remote pair", [.remotePairConfirm], prepares: [.remotePairStart, .remotePairWait], ["remote", "pair"]),
+        .init("remote devices", [.remoteDevices, .remoteSetPresenceRequirement],
+              ["remote", "devices", "--json"], ["remote", "devices", "--require-face-id", "dev1", "off"]),
+        .init("remote revoke", [.remoteRevoke], ["remote", "revoke", "dev1", "--yes"]),
+        .init("remote keep-awake", [.remoteSetKeepAwake], ["remote", "keep-awake", "on"]),
+        .init("remote mailbox", [.remoteSetMailbox], ["remote", "mailbox", "off"]),
+        .init("remote app-link set", [.remoteSetAppLink], ["remote", "app-link", "set", "https://testflight.apple.com/join/AbCd1234"]),
+        .init("remote app-link clear", [.remoteSetAppLink], ["remote", "app-link", "clear"]),
+        .init("remote reset", [.remoteReset], ["remote", "reset", "--yes"]),
         // Chat (plan 6)
         .init("chat", [.chatSend, .chatShow, .chatUndo, .chatStop],
               ["chat", "api#1", "hi"], ["chat", "api#1", "--show"], ["chat", "api#1", "--undo"], ["chat", "api#1", "--stop"]),

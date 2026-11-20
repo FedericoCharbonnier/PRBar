@@ -36,7 +36,10 @@ enum RespondPushGateTests {
             try expect(pushCheck(runningTests: true)?.contains("Wait for the tests") == true)
             try expect(pushCheck(record(result: result(), pushed: true))?.contains("already pushed") == true)
             let failed = TestRun(command: "make test", passed: false, outputTail: "")
-            try expect(pushCheck(gate: .testsFailed(failed))?.contains("--anyway") == true)
+            try expect(pushCheck(gate: .testsFailed(failed))?.contains("`prbar respond push o/r#8 --anyway`") == true)
+            var ci = record(result: result())
+            ci.draft.mode = .ciFix
+            try expect(pushCheck(ci, gate: .testsFailed(failed))?.contains("`prbar ci push o/r#8 --anyway`") == true)
             try expectEqual(pushCheck(gate: .testsFailed(failed), anyway: true), nil)
             try expect(pushCheck(anyway: true)?.contains("Nothing is blocked") == true)
             try expect(pushCheck(chatting: true)?.contains("--stop") == true)

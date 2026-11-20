@@ -98,6 +98,8 @@ public enum AppPaths {
             .appendingPathComponent("PRBar", isDirectory: true)
     }
     public static var configFile: URL { appSupport.appendingPathComponent("config.json") }
+    /// Los iPhones emparejados (spec P.2): solo claves públicas, 0600 en una carpeta 0700.
+    public static var remoteDir: URL { appSupport.appendingPathComponent("remote", isDirectory: true) }
     /// El id de esta instalación de PRBar (su subcarpeta en la carpeta remota de cada host). Aparte de la config:
     /// si se copia la config a otra Mac, el id no viaja.
     public static var installationIDFile: URL { appSupport.appendingPathComponent("installation-id") }
@@ -143,6 +145,8 @@ public enum AppPaths {
     public static var instructionsFile: URL { appSupport.appendingPathComponent("instructions.json") }
     /// The findings the user discarded when posting, for the suggestions (spec E.4).
     public static var discardStatsFile: URL { appSupport.appendingPathComponent("discard-stats.json") }
+    /// El libro de uso de Claude (spec O): una entrada por corrida.
+    public static var usageFile: URL { appSupport.appendingPathComponent("usage.json") }
     /// The instructions chat's cwd: an empty folder, always the same so `--resume` finds the session (spec E.2).
     public static var instructionsChatDir: URL {
         FileManager.default.temporaryDirectory.appendingPathComponent("PRBar/instructions-chat", isDirectory: true)

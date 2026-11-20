@@ -133,17 +133,17 @@ if [[ -n "$(git ls-remote --tags origin "refs/tags/$TAG" 2>/dev/null)" ]]; then 
 step "Release notes"
 PREVIOUS="$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD 2>/dev/null || true)"
 {
-    echo "# Release notes for PRBar $VERSION (commits since ${PREVIOUS:-the beginning})."
-    echo "# Lines starting with # are removed. Leave the file empty to cancel the release."
+    echo "#~ Release notes for PRBar $VERSION (commits since ${PREVIOUS:-the beginning})."
+    echo "#~ Lines starting with #~ are removed (Markdown headings like ## stay). Leave the file empty to cancel the release."
     git log --no-merges --reverse --pretty='- %s' ${PREVIOUS:+"$PREVIOUS..HEAD"}
 } > "$NOTES"
 if (( DRY_RUN )); then
     echo "[dry-run] these notes would open in your editor:"
-    grep -v '^#' "$NOTES" || true
+    grep -v '^#~' "$NOTES" || true
 else
     ${VISUAL:-${EDITOR:-vi}} "$NOTES"
 fi
-sed -i '' '/^#/d' "$NOTES"
+sed -i '' '/^#~/d' "$NOTES"
 if ! grep -q '[^[:space:]]' "$NOTES"; then
     if (( DRY_RUN )); then
         echo "[dry-run] the notes are empty: a real release would stop here." >&2
