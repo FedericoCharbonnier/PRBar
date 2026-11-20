@@ -53,10 +53,19 @@ public enum AppCommand: Codable, Equatable, Sendable {
     case mergePreview(pr: String, method: MergeMethod?)
     /// Dismiss del error de merge de la fila.
     case mergeDismiss(pr: String)
+    // Recursos (spec I)
+    /// CPU, RAM, disco por categoría y procesos (`prbar resources`).
+    case resources
+    /// Lo que borraría Clean Up, sin borrar. `olderThanDays`: también historial y logs más viejos.
+    case cleanupPreview(olderThanDays: Int?)
+    /// Clean Up. Con algo para borrar exige `confirmed` (lo verifica la app).
+    case cleanup(olderThanDays: Int?, confirmed: Bool)
     // Configuración
     case configShow
     case setRefreshInterval(minutes: Int)
     case setLaunchAtLogin(enabled: Bool)
+    /// Settings › General › umbral de disco; nil = apagado.
+    case setDiskWarning(gigabytes: Int?)
     case accountList
     case accountSetEnabled(login: String, enabled: Bool)
     case accountReload
@@ -160,6 +169,7 @@ public enum AppCommand: Codable, Equatable, Sendable {
         case rulesSuggestions, rulesSuggestionAct, chatProposal, claudeReviewSet, claudeRespondSet, claudeStageSet
         case claudePromptShow, claudePromptSet, claudePromptReset
         case openPopover
+        case resources, cleanupPreview, cleanup, setDiskWarning
     }
 
     public var name: Name {
@@ -265,6 +275,10 @@ public enum AppCommand: Codable, Equatable, Sendable {
         case .claudePromptShow: .claudePromptShow
         case .claudePromptSet: .claudePromptSet
         case .claudePromptReset: .claudePromptReset
+        case .resources: .resources
+        case .cleanupPreview: .cleanupPreview
+        case .cleanup: .cleanup
+        case .setDiskWarning: .setDiskWarning
         }
     }
 }

@@ -320,6 +320,21 @@ enum CLIParsingTests {
                 try expectEqual(try flags([]).applied(to: [.respond]), [.respond])
                 try expect(try flags([]).isEmpty)
             },
+            TestCase("cli parse: resources, cleanup y disk-warning") {
+                try expectEqual(try parsed(["resources"]), .resources)
+                try expectEqual(try parsed(["resources", "--json"]), .resources)
+                try expectEqual(try parsed(["cleanup"]), .cleanup(olderThanDays: nil, confirmed: true))
+                try expectEqual(try parsed(["cleanup", "--older-than", "30d"]), .cleanup(olderThanDays: 30, confirmed: true))
+                try expectEqual(try parsed(["cleanup", "--older-than", "7"]), .cleanup(olderThanDays: 7, confirmed: true))
+                try expectEqual(try parsed(["cleanup"], confirmed: false), .cleanup(olderThanDays: nil, confirmed: false))
+                try expect(rejects(["cleanup", "--older-than", "0d"]))
+                try expect(rejects(["cleanup", "--older-than", "a week"]))
+                try expectEqual(try parsed(["config", "set", "disk-warning", "5"]), .setDiskWarning(gigabytes: 5))
+                try expectEqual(try parsed(["config", "set", "disk-warning", "off"]), .setDiskWarning(gigabytes: nil))
+                try expect(rejects(["config", "set", "disk-warning", "0"]))
+                try expect(rejects(["config", "set", "disk-warning", "101"]))
+                try expectEqual(try parsed(["cleanup", "--preview"]), .cleanupPreview(olderThanDays: nil))
+            },
         ]
     }
 }

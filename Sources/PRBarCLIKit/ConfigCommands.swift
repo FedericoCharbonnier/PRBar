@@ -26,12 +26,13 @@ enum ConfigKey: String, ExpressibleByArgument, CaseIterable {
     case refreshInterval = "refresh-interval"
     case launchAtLogin = "launch-at-login"
     case updateInterval = "update-interval"
+    case diskWarning = "disk-warning"
 }
 
 struct ConfigSet: RemoteCommand {
     static let configuration = CommandConfiguration(
         commandName: "set", abstract: "Change a general setting.",
-        discussion: "refresh-interval 1|2|5|10 (minutes) · launch-at-login on|off · update-interval 0|6|12|24|168 (hours; 0 = manual only)")
+        discussion: "refresh-interval 1|2|5|10 (minutes) · launch-at-login on|off · update-interval 0|6|12|24|168 (hours; 0 = manual only) · disk-warning 1…100|off (GB)")
     @Argument(help: "The setting.") var key: ConfigKey
     @Argument(help: "Its value.") var value: String
     @OptionGroup var global: GlobalOptions
@@ -49,6 +50,12 @@ struct ConfigSet: RemoteCommand {
         case .updateInterval:
             guard let hours = Int(value) else { throw ValidationError("update-interval takes hours: 0 (manual only), 6, 12, 24 or 168.") }
             return .setUpdateInterval(hours: hours)
+        case .diskWarning:
+            if value == "off" { return .setDiskWarning(gigabytes: nil) }
+            guard let gigabytes = Int(value), ResourceSettings.gigabyteRange.contains(gigabytes) else {
+                throw ValidationError("disk-warning takes gigabytes (1–100) or off.")
+            }
+            return .setDiskWarning(gigabytes: gigabytes)
         }
     }
 

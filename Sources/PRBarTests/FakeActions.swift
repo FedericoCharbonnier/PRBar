@@ -4,7 +4,7 @@ import PRBarCore
 /// `AppModel` de mentira: anota qué método se llamó (con los argumentos que importan) y devuelve algo mínimo.
 @MainActor
 final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActions, ConfigActions, SlackActions,
-    ChatCommandActions, UpdateCommandActions, InstructionCommandActions {
+    ChatCommandActions, UpdateCommandActions, InstructionCommandActions, ResourceActions {
     var calls: [String] = []
     /// Si no es nil, los métodos que pueden fallar la lanzan.
     var failure: Error?
@@ -269,4 +269,16 @@ final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActi
     func claudePromptReset(stage: PromptStage) throws -> PromptInfo {
         try record("claudePromptReset \(stage.rawValue)"); return PromptInfo(stage: stage, text: "", isDefault: true, requiredVariables: [])
     }
+
+    // MARK: ResourceActions
+    func resources() async -> ResourcesInfo {
+        calls.append("resources")
+        return ResourcesInfo(usage: ResourceUsage(cpuPercent: 0, memoryBytes: 0, processes: [], sampledAt: t0),
+                             disk: DiskUsage(items: [], scannedAt: t0))
+    }
+    func cleanupPreview(olderThanDays: Int?) async -> CleanupPlan { calls.append("cleanupPreview \(olderThanDays ?? 0)"); return CleanupPlan(candidates: []) }
+    func cleanup(olderThanDays: Int?, confirmed: Bool) async throws -> CleanupResult {
+        try record("cleanup \(olderThanDays ?? 0) confirmed=\(confirmed)"); return CleanupResult()
+    }
+    func configSetDiskWarning(gigabytes: Int?) throws { try record("setDiskWarning \(gigabytes ?? 0)") }
 }

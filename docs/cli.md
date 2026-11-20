@@ -37,6 +37,8 @@ shows the help of `review start`, the group’s default subcommand).
 | `prbar status [--json]` | What the menu bar shows: counts (with the popover tabs’ totals, “To Review N · My PRs N”), running jobs, issues |
 | `prbar prs [--tab to-review\|mine] [--list to-review\|updated\|mine\|ready-to-merge\|other] [--account L]` | The PRs; `--tab` keeps one of the popover’s tabs and combines with `--list` (`--list other --tab mine` is Waiting for Review; a section from the other tab is a usage error). The Section column shows the popover’s section |
 | `prbar refresh` | Refresh now |
+| `prbar resources [--json]` | CPU, memory and disk PRBar is using (the popover’s footer and the PRBar Activity window): CPU and memory of the app and every process it launched, with its task; disk by category (worktrees, updater, history, logs, app data). Says how many leftover worktrees `prbar cleanup` would remove |
+| `prbar cleanup [--older-than 30d] [--preview] [--yes]` | Clean Up: delete leftover worktrees and the updater’s builds (and, with `--older-than`, history and log files older than that many days). Shows what it would delete and asks; without a terminal it needs `--yes`. Never touches a worktree with a job running or with fixes not pushed yet (those are listed as skipped). `--preview` only lists. “Nothing to clean up.” exits 0 |
 | `prbar open <pr> [--review\|--respond\|--merge\|--posted\|--worktree] [--copy]` | Open the PR, its window (`--merge`: the Merge window of a PR of yours that’s Ready to Merge), the posted review or the worktree; `--copy` copies the link |
 | `prbar history [--repo R] [--kind review\|respond\|merge] [--search Q] [--limit N]` | History |
 | `prbar history show <id> [--open-log\|--reveal-log]` | One record (id or its first 4+ characters), with its chat |
@@ -71,7 +73,7 @@ shows the help of `review start`, the group’s default subcommand).
 | `prbar merge <pr> [--method squash\|merge\|rebase] [--yes]` | Merge a PR of yours that’s Ready to Merge (the repo’s method unless `--method`) |
 | `prbar merge <pr> --preview [--method M]` | What would be merged, without merging: the Merge window’s summary (description, reviews, checks, unresolved conversations, files; `--json` has all of it), branches, commits, head and the note; also for a PR that can’t be merged yet (with why, exit 6) |
 | `prbar merge <pr> --dismiss` | Dismiss the row’s merge error |
-| `prbar config show`, `prbar config set refresh-interval 1\|2\|5\|10`, `… launch-at-login on\|off`, `… update-interval 0\|6\|12\|24\|168` (hours; 0 = check manually only) | General |
+| `prbar config show`, `prbar config set refresh-interval 1\|2\|5\|10`, `… launch-at-login on\|off`, `… update-interval 0\|6\|12\|24\|168` (hours; 0 = check manually only), `… disk-warning 1–100\|off` (GB; notify when PRBar uses more) | General |
 | `prbar account list\|reload`, `prbar account enable\|disable <login>` | Accounts |
 | `prbar repo list\|available\|add\|remove\|branches\|open`, `prbar repo set <repo> [--path P\|none] [--worktrees P\|default] [--test-command C] [--branches a,b] [--add-branch b] [--remove-branch b] [--channel #name\|ID\|none] [--merge-method squash\|merge\|rebase\|default] [--ignore G]… [--unignore G]…` | Repos (`--ignore`: hide findings in matching files in this repo’s reviews) |
 | `prbar follow list [repo]`, `prbar follow add\|remove <repo> <users…>`, `prbar follow suggestions <repo>` | People to follow |

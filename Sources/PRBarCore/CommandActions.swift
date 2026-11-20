@@ -151,6 +151,16 @@ public protocol InstructionCommandActions: AnyObject {
     func claudePromptReset(stage: PromptStage) throws -> PromptInfo
 }
 
+/// Recursos y limpieza (spec I).
+@MainActor
+public protocol ResourceActions: AnyObject {
+    func resources() async -> ResourcesInfo
+    func cleanupPreview(olderThanDays: Int?) async -> CleanupPlan
+    /// Arma el plan de nuevo; vacío → resultado vacío sin pedir confirmación; si no, exige `confirmed`.
+    func cleanup(olderThanDays: Int?, confirmed: Bool) async throws -> CleanupResult
+    func configSetDiskWarning(gigabytes: Int?) throws
+}
+
 /// Lo que la app tiene que saber hacer para abrir el socket.
 public typealias PRBarActions = StatusActions & ReviewActions & RespondActions & MergeActions & ConfigActions
-    & SlackActions & ChatCommandActions & UpdateCommandActions & InstructionCommandActions
+    & SlackActions & ChatCommandActions & UpdateCommandActions & InstructionCommandActions & ResourceActions

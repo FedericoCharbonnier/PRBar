@@ -42,6 +42,8 @@ enum AppCommandTests {
                 .claudeRespondSet(changes: RespondOptionChanges(commitMode: .single, replyTemplate: .clear)),
                 .claudeStageSet(stage: .filter, change: .skill(name: "a:b")),
                 .claudePromptReset(stage: .reviewChat),
+                .resources, .cleanupPreview(olderThanDays: 30), .cleanup(olderThanDays: nil, confirmed: true),
+                .setDiskWarning(gigabytes: nil), .setDiskWarning(gigabytes: 5),
             ]
             for command in commands {
                 let decoded = try CommandProtocol.decode(AppCommand.self, line: try CommandProtocol.line(command))
@@ -49,7 +51,7 @@ enum AppCommandTests {
             }
         },
         TestCase("app command: Name tiene un caso por comando") {
-            try expectEqual(AppCommand.Name.allCases.count, 101)
+            try expectEqual(AppCommand.Name.allCases.count, 105)
             try expectEqual(AppCommand.slackTokenSet(token: "xoxp-secret").name, .slackTokenSet)
             try expectEqual(AppCommand.reviewCancel(pr: "x").name.rawValue, "reviewCancel")
             try expectEqual(AppCommand.claudePromptShow(stage: .review).name, .claudePromptShow)
