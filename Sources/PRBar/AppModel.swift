@@ -50,6 +50,8 @@ struct AppModelServices {
     /// Dónde se guarda la pestaña del popover (spec H.1). `nil`: solo en memoria; lo usa el modo de capturas para no
     /// tocar el del usuario ni escribir fuera de su carpeta.
     var popoverDefaults: UserDefaults? = .standard
+    /// `nil`: `usage.json` in Application Support (spec O).
+    var usageLedger: UsageLedger? = nil
 
     static func live(runner: SystemProcessRunner) -> AppModelServices {
         let accounts = AccountProvider(runner: runner, ghPath: nil)
@@ -195,6 +197,10 @@ final class AppModel: ObservableObject {
     var showPopover: (() -> Bool)?
     /// La fila elegida con ↑/↓ en el popover.
     let popoverRows = PopoverRowSelection()
+    /// Claude's usage, one entry per run (spec O). Written from any thread by `ClaudeUsageCenter`'s observer.
+    let usageLedger: UsageLedger
+    /// Goes up when a Claude run is recorded (Activity and History refresh their costs).
+    @Published var usageRevision = 0
 
     @Published private(set) var tools = ResolvedTools()
     @Published private(set) var toolsResolved = false
@@ -237,6 +243,7 @@ final class AppModel: ObservableObject {
         self.instructions = services.instructionsStore ?? InstructionsStore()
         self.discardStats = services.discardStats ?? DiscardStatsStore()
         self.mergeHistory = services.mergeHistory ?? MergeHistory()
+        self.usageLedger = services.usageLedger ?? UsageLedger()
         self.claudeSkills = services.claudeSkills
         self.reviewPipeline = services.reviewPipeline
         self.respondPipeline = services.respondPipeline
@@ -262,6 +269,12 @@ final class AppModel: ObservableObject {
             self?.updateMergeSessions(snapshot)
         }
         guard startsServices else { return }
+        // Every `claude -p` of the app goes to the ledger (spec O.4.2).
+        let ledger = usageLedger
+        ClaudeUsageCenter.shared.setObserver { [weak self] entry in
+            ledger.append(entry)
+            Task { @MainActor in self?.usageRevision += 1 }
+        }
         startCommandServer()
         WindowPresenter.shared.openSettings = { [weak self] in self?.openSettings() }
         WindowPresenter.shared.openHistory = { [weak self] in self?.openHistory() }
@@ -1044,18 +1057,19 @@ final class AppModel: ObservableObject {
     @discardableResult
     /// Throws if the tests that must run first can't start now (a chat turn or another job on the PR): nothing is
     /// pushed, and the window says so.
+    /// `ignoringFailedTests`: "Push Anyway", which for a Fix CI also pushes when its failing checks pass now (spec K.6.6).
     func pushRespond(prID: String, ignoringFailedTests: Bool = false) throws -> RespondPushGate {
         let gate = respondPushGate(prID: prID)
         switch gate {
         case .ready:
-            respond.publish(prID: prID)
+            respond.publish(prID: prID, ignoringCI: ignoringFailedTests)
         case .runTests:
             guard let draft = respond.records[prID]?.draft, let command = testCommand(for: draft),
                   respond.pushAfterTests(prID: prID, testCommand: command) else {
                 throw PRBarError.respond(RespondCopy.testsDidNotStart)
             }
         case .testsFailed:
-            if ignoringFailedTests { respond.publish(prID: prID) }
+            if ignoringFailedTests { respond.publish(prID: prID, ignoringCI: true) }
         }
         return gate
     }
@@ -1066,7 +1080,7 @@ final class AppModel: ObservableObject {
         guard let draft = respond.records[prID]?.draft else { return }
         let windowID = Self.respondWindowID(prID)
         WindowPresenter.shared.show(
-            id: windowID, title: "Respond · \(draft.repo.name)#\(draft.number)", size: RespondWindow.size,
+            id: windowID, title: respondWindowTitle(draft), size: RespondWindow.size,
             // Sin confirmación al cerrar: las decisiones viven en el coordinador del draft (plan 7, decisión 3).
             options: WindowOptions(sharedFrameKey: "RespondWindowFrame", tabbingIdentifier: "PRBar.respond", bridgesToolbar: true,
                                    toolbarStyle: .unified),
@@ -1098,7 +1112,18 @@ final class AppModel: ObservableObject {
         if !phase.isActive { resources.jobFinished() }
         let draft = respond.records[prID]?.draft
         let event: NotificationPlanner.RespondEvent?
+        let isCI = respond.mode(of: prID) == .ciFix
         switch phase {
+        // Fix CI (spec K.6.7): nothing to choose in `ready` (the fix starts on its own).
+        case .ready where isCI:
+            event = nil
+        case .readyToPush(_, let result) where isCI:
+            event = result.tests == nil ? .ciFixReady(commits: RespondCounts.commits(result)) : nil
+        case .done where isCI:
+            event = .ciFixPushed
+            Task { await prStore.refresh() }
+        case .failed where isCI:
+            event = .ciFixFailed
         case .ready(let ready):
             event = .analysisReady(count: ready.items.count)
         case .readyToPush(_, let result):

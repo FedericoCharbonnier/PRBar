@@ -266,6 +266,8 @@ public struct ReviewInfo: Codable, Equatable, Sendable {
     public var generalComment: String?
     public var reviewURL: URL?
     public var logPath: String?
+    /// Claude's usage for the review and its chat (spec O); nil if unknown.
+    public var usage: ClaudeUsage?
 
     public init(prID: String, phase: ReviewPhase?, edits: ReviewEdits? = nil, outdated: Bool = false) {
         pr = prID
@@ -287,6 +289,7 @@ public struct ReviewInfo: Codable, Equatable, Sendable {
             // #N = posición en `draft.items + edits.added` (plan 6), la misma de la ventana y del chat.
             findings = edits.items(of: draft).enumerated().map { FindingInfo(number: $0.offset + 1, item: $0.element, edits: edits) }
             generalComment = edits.generalComment.isEmpty ? nil : edits.generalComment
+            usage = draft.totalUsage
         default:
             break
         }
@@ -400,6 +403,14 @@ public struct RespondInfo: Codable, Equatable, Sendable {
     public var logPath: String?
     /// Los tests de antes del push fallaron: no se pusheó ("Push Anyway" = `prbar respond push --anyway`).
     public var pushBlockedByTests: Bool
+    /// `feedback` o `ciFix` (spec K); nil = `feedback`.
+    public var mode: RespondMode?
+    /// Fix CI: los checks que fallaron.
+    public var ciChecks: [CICheckFailure]?
+    /// Fix CI: por qué no se pusheó (los checks pasan ahora); "Push Anyway" = `prbar ci push --anyway`.
+    public var pushBlockedByCI: String?
+    /// Claude's usage for the run and its chat (spec O); nil if unknown.
+    public var usage: ClaudeUsage?
 
     public init(prID: String, phase: RespondPhase?, record: RespondRecord?, selections: [String: RespondSelection],
                 runningTests: Bool, testCommand: String?, logPath: String? = nil, pushBlockedByTests: Bool = false) {
@@ -440,6 +451,9 @@ public struct RespondInfo: Codable, Equatable, Sendable {
         pushed = record.pushed
         pendingReplies = RespondCounts.pendingReplies(record)
         errorMessage = record.errorMessage
+        mode = draft.mode
+        ciChecks = draft.ci?.checks
+        usage = record.totalUsage
     }
 }
 
@@ -472,9 +486,11 @@ public struct HistoryEntryInfo: Codable, Equatable, Sendable {
     public var status: String
     public var startedAt: Date
     public var finishedAt: Date?
+    /// Claude's usage for the whole job and its chat (spec O); nil in older records ("—").
+    public var usage: ClaudeUsage?
 
     public init(id: UUID, kind: HistoryKind, pr: String, repo: String, number: Int, title: String, status: String,
-                startedAt: Date, finishedAt: Date? = nil) {
+                startedAt: Date, finishedAt: Date? = nil, usage: ClaudeUsage? = nil) {
         self.id = id
         self.kind = kind
         self.pr = pr
@@ -484,12 +500,13 @@ public struct HistoryEntryInfo: Codable, Equatable, Sendable {
         self.status = status
         self.startedAt = startedAt
         self.finishedAt = finishedAt
+        self.usage = usage
     }
 
     public init(review record: ReviewRecord) {
         self.init(id: record.id, kind: .review, pr: record.draft.prID, repo: record.draft.repo.fullName,
                   number: record.draft.number, title: record.draft.title, status: record.status.rawValue,
-                  startedAt: record.startedAt, finishedAt: record.finishedAt)
+                  startedAt: record.startedAt, finishedAt: record.finishedAt, usage: record.draft.totalUsage)
     }
 
     public init(respond record: RespondRecord) {
@@ -502,16 +519,16 @@ public struct HistoryEntryInfo: Codable, Equatable, Sendable {
         } else {
             "ready"
         }
-        self.init(id: record.id, kind: .respond, pr: record.draft.prID, repo: record.draft.repo.fullName,
-                  number: record.draft.number, title: record.draft.title, status: status,
-                  startedAt: record.startedAt, finishedAt: record.finishedAt)
+        self.init(id: record.id, kind: record.draft.isCIFix ? .ciFix : .respond, pr: record.draft.prID,
+                  repo: record.draft.repo.fullName, number: record.draft.number, title: record.draft.title, status: status,
+                  startedAt: record.startedAt, finishedAt: record.finishedAt, usage: record.totalUsage)
     }
 
     /// Un merge desde PRBar (spec G.4): `merged`, `failed` u `open` (no se mergeó).
     public init(merge record: MergeRecord) {
         self.init(id: record.id, kind: .merge, pr: record.prID, repo: record.repo.fullName, number: record.number,
                   title: record.title, status: record.status.rawValue, startedAt: record.startedAt,
-                  finishedAt: record.finishedAt)
+                  finishedAt: record.finishedAt, usage: record.chat?.usage)
     }
 
     /// Búsqueda de la ventana de Historial: título, repo o número ("482" o "#482"). `query` ya en minúsculas.
@@ -1144,9 +1161,53 @@ public struct PromptInfo: Codable, Equatable, Sendable {
 public struct ResourcesInfo: Codable, Equatable, Sendable {
     public var usage: ResourceUsage
     public var disk: DiskUsage
+    /// Claude's estimated usage this month (spec O.2); nil from an older app.
+    public var claudeThisMonth: ClaudeUsage?
 
-    public init(usage: ResourceUsage, disk: DiskUsage) {
+    public init(usage: ResourceUsage, disk: DiskUsage, claudeThisMonth: ClaudeUsage? = nil) {
         self.usage = usage
         self.disk = disk
+        self.claudeThisMonth = claudeThisMonth
+    }
+}
+
+// MARK: - Fix CI y uso de Claude (specs K y O)
+
+/// Un PR mío con el CI fallido (`prbar ci list`).
+public struct CIListEntry: Codable, Equatable, Sendable {
+    public var pr: String
+    public var title: String
+    public var url: URL
+    public var account: String
+    /// La fase del Fix CI (`RespondPhase.cliName`), o nil si no hay ninguno.
+    public var phase: String?
+    /// Un Respond (no un Fix CI) ocupa el PR.
+    public var respondInProgress: Bool
+    /// Por qué no se puede arrancar ahora (sin carpeta local, una actualización en curso…).
+    public var unavailableReason: String?
+
+    public init(pr: String, title: String, url: URL, account: String, phase: String?, respondInProgress: Bool,
+                unavailableReason: String?) {
+        self.pr = pr
+        self.title = title
+        self.url = url
+        self.account = account
+        self.phase = phase
+        self.respondInProgress = respondInProgress
+        self.unavailableReason = unavailableReason
+    }
+}
+
+/// `prbar usage` (spec O.3).
+public struct UsageInfo: Codable, Equatable, Sendable {
+    public var month: UsageMonth
+    /// Las tareas recientes del mes, de la más nueva a la más vieja.
+    public var tasks: [UsageTask]
+    public var note: String
+
+    public init(month: UsageMonth, tasks: [UsageTask], note: String = UsageFormat.note) {
+        self.month = month
+        self.tasks = tasks
+        self.note = note
     }
 }

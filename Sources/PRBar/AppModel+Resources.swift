@@ -74,7 +74,8 @@ extension AppModel: ResourceActions {
     func resources() async -> ResourcesInfo {
         let usage = await resources.freshUsage()
         let disk = await resources.freshDisk()
-        return ResourcesInfo(usage: usage, disk: disk)
+        let month = UsageSummary.month(UsageSummary.monthKey(Date()), entries: usageLedger.entries())
+        return ResourcesInfo(usage: usage, disk: disk, claudeThisMonth: month.usage.runs > 0 ? month.usage : nil)
     }
 
     func cleanupPreview(olderThanDays: Int?) async -> CleanupPlan {

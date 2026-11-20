@@ -322,6 +322,15 @@ public struct UsageTask: Codable, Equatable, Sendable, Identifiable {
     public var finishedAt: Date
     public var usage: ClaudeUsage
 
+    public init(id: UUID, activity: ProcessActivity?, stages: [String], startedAt: Date, finishedAt: Date, usage: ClaudeUsage) {
+        self.id = id
+        self.activity = activity
+        self.stages = stages
+        self.startedAt = startedAt
+        self.finishedAt = finishedAt
+        self.usage = usage
+    }
+
     public var title: String { activity?.title ?? "Claude" }
 }
 
@@ -332,6 +341,12 @@ public struct UsageMonth: Codable, Equatable, Sendable {
     public var usage: ClaudeUsage
     /// Por `ProcessActivity.Kind` (`rawValue`; "other" fuera de una tarea).
     public var byKind: [String: ClaudeUsage]
+
+    public init(month: String, usage: ClaudeUsage, byKind: [String: ClaudeUsage]) {
+        self.month = month
+        self.usage = usage
+        self.byKind = byKind
+    }
 }
 
 public enum UsageSummary {

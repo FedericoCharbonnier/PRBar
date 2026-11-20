@@ -12,7 +12,9 @@ public enum CommandProtocol {
     /// 3: se quita `setConfirmMerge` (spec G.1), `mergePreview` trae el resumen del PR y existe `open --merge`.
     /// 4: `listPRs` lleva la pestaña del popover (`--tab`) y existe `openPopover`.
     /// 5: `RepoChanges.runOn` y los comandos de destinos SSH (`prbar runners`).
-    public static let version = 5
+    /// 6: Fix CI (`ciList`, `ciFix`, `HistoryKind.ciFix`, `RespondInfo.mode`) y el uso de Claude (`usage`, `usage` en los
+    ///    resultados de historial, review, respond y recursos).
+    public static let version = 6
 
     public static var encoder: JSONEncoder {
         let encoder = JSONEncoder()

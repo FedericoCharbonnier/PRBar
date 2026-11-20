@@ -31,6 +31,8 @@ public enum PRListing {
 
 public enum HistoryKind: String, Codable, CaseIterable, Sendable {
     case review, respond, merge
+    /// Fix CI (spec K): a Respond run in CI mode.
+    case ciFix = "ci-fix"
 }
 
 /// `prbar open <pr> --…`.

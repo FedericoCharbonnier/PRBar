@@ -68,6 +68,7 @@ enum CLIIntegrationTests {
         TestCase("integración: runners test sale con 1 si hay problemas, también con --json; list muestra el estado") { try await runnersTestExit() },
         TestCase("integración: update espera a la versión nueva solo si la app se estaba reiniciando") { try await updateRelaunch() },
         TestCase("integración: chat --json sin mensaje en una terminal no se queda leyendo la terminal") { try await chatJSONWithoutMessage() },
+        TestCase("integración: prbar ci y prbar usage (Fix CI y costo estimado, specs K y O)") { try await ciAndUsage() },
         TestCase("chat: el mensaje sale de stdin solo si no es una terminal; no vacío") {
             let tty = Terminal(stdinIsTTY: true, stdoutIsTTY: false, colors: false)
             let error = try await expectThrows { _ = try ChatInput.readMessage(terminal: tty) { "never read" } }
@@ -204,6 +205,30 @@ enum CLIIntegrationTests {
         let decoded = try JSONDecoder().decode([String: JSONValue].self, from: Data(json.out.utf8))
         guard case .object(let data)? = decoded["data"] else { throw TestFailure(description: json.out) }
         try expectEqual(data["latest"], .string("2.0.0"))
+    }
+
+    @MainActor
+    private static func ciAndUsage() async throws {
+        let harness = try Harness()
+        defer { harness.server.stop() }
+        let list = try await runCLI(["ci"], socket: harness.url)
+        try expectEqual(list.code, 0)
+        try expect(list.out.contains("acme/api#12") && list.out.contains("Add rate limiting"), list.out)
+        let fix = try await runCLI(["ci", "fix", "api#12"], socket: harness.url)
+        try expectEqual(fix.code, 0)
+        try expect(fix.out.contains("Fix CI"), fix.out)
+        let usage = try await runCLI(["usage", "--month", "2026-10"], socket: harness.url)
+        try expectEqual(usage.code, 0)
+        try expect(usage.out.contains("Claude in 2026-10: $0.42 estimated"), usage.out)
+        try expect(usage.out.contains("Review api#7") && usage.out.contains("review, filter"), usage.out)
+        try expect(usage.out.contains("may not be billed per token"), usage.out)
+        let json = try await runCLI(["usage", "--json"], socket: harness.url)
+        try expect(json.out.contains("\"costUSD\" : 0.42") && json.out.contains("may not be billed per token"), json.out)
+        // `ci push` de algo que no es un Fix CI: no pushea (exit 6) y solo miró el estado.
+        let push = try await runCLI(["ci", "push", "api#12"], socket: harness.url)
+        try expectEqual(push.code, CLIExit.invalidState)
+        try expect(push.err.contains("isn’t a Fix CI"), push.err)
+        try expectEqual(harness.fake.calls, ["ciList", "ciFix api#12 wait=false", "usage 2026-10", "usage -", "respondShow api#12"])
     }
 
     @MainActor

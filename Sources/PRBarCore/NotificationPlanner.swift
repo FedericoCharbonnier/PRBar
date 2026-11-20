@@ -204,6 +204,10 @@ extension NotificationPlanner {
         /// Se publicaron las respuestas (`pushed`: también se pushearon fixes).
         case published(replies: Int, pushed: Bool)
         case failed
+        /// Fix CI (spec K.6.7): Claude's fix is ready to review (`commits == 0`: it changed nothing).
+        case ciFixReady(commits: Int)
+        case ciFixPushed
+        case ciFixFailed
     }
 
     public static func respondFinished(
@@ -225,6 +229,15 @@ extension NotificationPlanner {
             body = pushed ? "\(ref): fixes pushed and \(answers)" : "\(ref): \(answers)"
         case .failed:
             (title, key) = ("Couldn't Respond", "failed")
+            body = "\(ref): open PRBar to see the error."
+        case .ciFixReady(let commits):
+            (title, key) = ("CI Fix Ready", "ci-fix")
+            body = commits == 0 ? "\(ref): Claude made no changes — see why" : "\(ref): review the fix and push it"
+        case .ciFixPushed:
+            (title, key) = ("CI Fix Pushed", "ci-pushed")
+            body = "\(ref): the fix is on the branch; CI will run again"
+        case .ciFixFailed:
+            (title, key) = ("Couldn't Fix CI", "ci-failed")
             body = "\(ref): open PRBar to see the error."
         }
         return PlannedNotification(kind: .reviewFinished, title: title, body: body, url: nil, respondPRID: prID, event: "respond-\(key)")

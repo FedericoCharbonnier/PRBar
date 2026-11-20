@@ -4,7 +4,7 @@ import PRBarCore
 /// `AppModel` de mentira: anota qué método se llamó (con los argumentos que importan) y devuelve algo mínimo.
 @MainActor
 final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActions, ConfigActions, SlackActions,
-    ChatCommandActions, UpdateCommandActions, InstructionCommandActions, ResourceActions, RunnerActions {
+    ChatCommandActions, UpdateCommandActions, InstructionCommandActions, ResourceActions, RunnerActions, CIFixUsageActions {
     var calls: [String] = []
     /// Si no es nil, los métodos que pueden fallar la lanzan.
     var failure: Error?
@@ -307,4 +307,25 @@ final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActi
     func runnerRemove(name: String) async throws { try record("runnerRemove \(name)") }
     func runnerTest(name: String) async throws -> RunnerInfo { try record("runnerTest \(name)"); return runnerInfo(name) }
     func runnerDefault(target: String) throws { try record("runnerDefault \(target)") }
+
+    // MARK: CIFixUsageActions
+    func ciList() throws -> [CIListEntry] {
+        try record("ciList")
+        return [CIListEntry(pr: "acme/api#12", title: "Add rate limiting", url: URL(string: "https://github.com/acme/api/pull/12")!,
+                            account: "fede", phase: nil, respondInProgress: false, unavailableReason: nil)]
+    }
+    func ciFix(pr: String, wait: Bool, events: CommandEventSink) async throws -> RespondInfo {
+        try record("ciFix \(pr) wait=\(wait)")
+        if wait { waitEvents.forEach(events) }
+        var info = respondInfo(pr)
+        info.mode = .ciFix
+        return info
+    }
+    func usage(month: String?) throws -> UsageInfo {
+        try record("usage \(month ?? "-")")
+        let usage = ClaudeUsage.run(duration: 192, tokens: ClaudeTokenUsage(inputTokens: 90_000, outputTokens: 2_100), cost: 0.42)
+        return UsageInfo(month: UsageMonth(month: month ?? "2026-11", usage: usage, byKind: ["review": usage]),
+                         tasks: [UsageTask(id: UUID(), activity: .review("acme/api#7"), stages: ["review", "filter"],
+                                           startedAt: t0, finishedAt: t0, usage: usage)])
+    }
 }

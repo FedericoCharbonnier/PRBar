@@ -53,6 +53,15 @@ public protocol RespondActions: AnyObject {
     func respondDismiss(pr: String) throws
 }
 
+/// Fix CI (spec K) y el uso de Claude (spec O).
+@MainActor
+public protocol CIFixUsageActions: AnyObject {
+    func ciList() throws -> [CIListEntry]
+    func ciFix(pr: String, wait: Bool, events: CommandEventSink) async throws -> RespondInfo
+    /// `month`: `YYYY-MM` (ya validado por la CLI); nil = este mes.
+    func usage(month: String?) throws -> UsageInfo
+}
+
 /// Ready to Merge (spec F).
 @MainActor
 public protocol MergeActions: AnyObject {
@@ -182,4 +191,4 @@ public protocol RunnerActions: AnyObject {
 /// Lo que la app tiene que saber hacer para abrir el socket.
 public typealias PRBarActions = StatusActions & ReviewActions & RespondActions & MergeActions & ConfigActions
     & SlackActions & ChatCommandActions & UpdateCommandActions & InstructionCommandActions & ResourceActions
-    & RunnerActions
+    & RunnerActions & CIFixUsageActions

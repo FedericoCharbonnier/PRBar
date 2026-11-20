@@ -31,7 +31,8 @@ extension RespondPushGate {
     /// que no lo permite, con tests corriendo, ya todo publicado, tests que fallaron (sin `--anyway`), nada bloqueado
     /// por tests (con `--anyway`) o el chat contestando. `nil` = se puede.
     public static func commandCheck(
-        _ record: RespondRecord, phase: RespondPhase?, runningTests: Bool, chatting: Bool, gate: RespondPushGate, anyway: Bool
+        _ record: RespondRecord, phase: RespondPhase?, runningTests: Bool, chatting: Bool, gate: RespondPushGate, anyway: Bool,
+        blockedByCI: Bool = false
     ) -> CommandFailure? {
         let id = record.draft.prID
         guard record.result != nil else {
@@ -45,8 +46,10 @@ extension RespondPushGate {
         if record.pushed && RespondCounts.pendingReplies(record) == 0 {
             return CommandFailure(.invalidState, "Everything was already pushed and posted.")
         }
-        if anyway && !gate.isTestsFailed {
-            return CommandFailure(.invalidState, "Nothing is blocked by failed tests: use `prbar respond push \(id)`.")
+        if anyway && !gate.isTestsFailed && !blockedByCI {
+            return CommandFailure(.invalidState, record.draft.isCIFix
+                ? "Nothing is blocked: use `prbar ci push \(id)`."
+                : "Nothing is blocked by failed tests: use `prbar respond push \(id)`.")
         }
         if !anyway, case .testsFailed(let run) = gate {
             return CommandFailure(.invalidState, "“\(run.command)” failed, so PRBar didn’t push. Push anyway with `prbar respond push \(id) --anyway`.")
