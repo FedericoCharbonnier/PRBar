@@ -681,6 +681,91 @@ private func append(_ text: String, to name: String, in cwd: URL) throws {
 
 enum RespondPipelineTests {
     static let cases: [TestCase] = [
+        TestCase("fix ci: lee los checks en la Mac, prepara el worktree, implementa solo, no responde y pushea con el CI re-verificado") { @MainActor in
+            let claude = ScriptedClaude { schema, prompt, cwd in
+                guard schema == RespondSchemas.fix, prompt.contains("MARK-CI") else { return [] }
+                try append("chau\n", to: "README.md", in: cwd)
+                return [fixLine("Fix the README check")]
+            }
+            let e = try E2E.make(claude: claude)
+            defer { e.repo.remove() }
+            e.api.checks[e.repo.prSHA] = [ciRun("build", id: 5), ciRun("lint", id: 6, conclusion: "success")]
+            e.api.jobLogs[5] = "2026-11-20T10:00:00Z MARK-CI: README needs chau\nerror: tok-fede leaked"
+            e.api.details = PRDetails(title: "t", body: "", headOid: e.repo.prSHA, state: .open)
+            let events = QueueEventLog()
+            let queue = RespondQueue(pipeline: e.pipeline, history: e.history) { prID, phase in
+                events.record(.finished("\(prID)|\(phase.name)"))
+            }
+            queue.analyze(classified(7), localPath: e.repo.local.path, worktreeDir: e.worktreeDir.path, mode: .ciFix)
+            try expectEqual(queue.modes[prID(7)], .ciFix)
+            try await events.wait(for: reached(7, "readyToPush"))
+            guard case .readyToPush(let draft, let result)? = queue.phases[prID(7)] else { throw TestFailure(description: "sin readyToPush") }
+            try expectEqual(draft.mode, .ciFix)
+            try expectEqual(draft.ci?.checks.map(\.name), ["build"])
+            try expectEqual(draft.startHeadOid, e.repo.prSHA)
+            try expectEqual(result.commits?.map(\.message), ["Fix the README check"])
+            try expectEqual(claude.calls.count, 1)
+            let prompt = claude.calls[0].arguments[claude.calls[0].arguments.firstIndex(of: "-p")! + 1]
+            try expect(prompt.contains("<<<CI_LOG_"))
+            try expect(!prompt.contains("tok-fede"))
+            try expect(!prompt.contains("2026-11-20T10:00:00Z"))
+            // Al pushear: mismo head en GitHub y el check sigue fallando.
+            queue.publish(prID: prID(7))
+            try await events.wait(for: reached(7, "done"))
+            let head = try e.git(draft.worktree.path, ["rev-parse", "HEAD"])
+            try expectEqual(try e.git(e.repo.origin.path, ["rev-parse", "refs/heads/feature"]), head)
+            try expect(e.api.posts.isEmpty)
+            try expectEqual(e.api.checkCalls, [e.repo.prSHA, e.repo.prSHA])
+        },
+        TestCase("fix ci: con los checks en verde no pushea (vuelve al diff con el aviso) salvo Push Anyway; un head nuevo nunca") { @MainActor in
+            let claude = ScriptedClaude { schema, _, cwd in
+                guard schema == RespondSchemas.fix else { return [] }
+                try append("chau\n", to: "README.md", in: cwd)
+                return [fixLine("Fix it")]
+            }
+            let e = try E2E.make(claude: claude)
+            defer { e.repo.remove() }
+            e.api.checks[e.repo.prSHA] = [ciRun("build", id: 5)]
+            e.api.details = PRDetails(title: "t", body: "", headOid: e.repo.prSHA, state: .open)
+            let events = QueueEventLog()
+            let queue = RespondQueue(pipeline: e.pipeline, history: e.history) { prID, phase in
+                events.record(.finished("\(prID)|\(phase.name)"))
+            }
+            queue.analyze(classified(7), localPath: e.repo.local.path, worktreeDir: e.worktreeDir.path, mode: .ciFix)
+            try await events.wait(for: reached(7, "readyToPush"))
+            // Alguien re-corrió el CI y pasó.
+            e.api.checks[e.repo.prSHA] = [ciRun("build", id: 9, conclusion: "success")]
+            queue.publish(prID: prID(7))
+            try await waitUntil { queue.pushBlockedByCI[prID(7)] != nil }
+            try await waitUntil { if case .readyToPush? = queue.phases[prID(7)] { return true } else { return false } }
+            try expect(queue.pushBlockedByCI[prID(7)]!.contains("pass now"))
+            try expectEqual(try e.git(e.repo.origin.path, ["rev-parse", "refs/heads/feature"]), e.repo.prSHA)
+            // Un head nuevo en GitHub: ni con Push Anyway.
+            e.api.details = PRDetails(title: "t", body: "", headOid: String(repeating: "9", count: 40), state: .open)
+            queue.publish(prID: prID(7), ignoringCI: true)
+            try await events.wait(for: reached(7, "failed"))
+            if case .failed(let message, _)? = queue.phases[prID(7)] { try expect(message.contains("new commits"), message) }
+            try expectEqual(try e.git(e.repo.origin.path, ["rev-parse", "refs/heads/feature"]), e.repo.prSHA)
+        },
+        TestCase("fix ci: sin checks fallidos o con el PR movido mientras leía el CI, falla sin worktree ni Claude") {
+            let claude = ScriptedClaude { _, _, _ in [] }
+            let e = try E2E.make(claude: claude)
+            defer { e.repo.remove() }
+            let request = RespondRequest(item: classified(7), localPath: e.repo.local.path, worktreeDir: e.worktreeDir.path, mode: .ciFix)
+            e.api.checks[e.repo.prSHA] = [ciRun("build", id: 5, conclusion: "success")]
+            let none = try await expectThrows { _ = try await e.pipeline.analyze(request, draftID: UUID()) { _ in } }
+            try expectEqual(none as? PRBarError, .respond(RespondPipeline.noFailingChecksMessage))
+            // GitHub dice otro head (el PR avanzó): el worktree que se armó no es el que falló.
+            let other = String(repeating: "d", count: 40)
+            e.api.feedback = PRFeedback(headRefName: "feature", headRefOid: other, isCrossRepository: false, lastCommitAt: at(0),
+                                        threads: [], reviews: [])
+            e.api.checks[other] = [ciRun("build", id: 5)]
+            let moved = try await expectThrows { _ = try await e.pipeline.analyze(request, draftID: UUID()) { _ in } }
+            try expect((moved as? PRBarError).map { "\($0.localizedDescription)" }?.contains("new commits") == true, "\(moved)")
+            try expectEqual(claude.calls.count, 0)
+            let left = (try? FileManager.default.contentsOfDirectory(atPath: e.worktreeDir.path)) ?? []
+            try expect(left.isEmpty, "\(left)")
+        },
         TestCase("respond pipeline: sin ítems sin resolver falla sin tocar git ni Claude") {
             let claude = ScriptedClaude { _, _, _ in [] }
             let git = FakeProcessRunner { _, _ in ok("") }

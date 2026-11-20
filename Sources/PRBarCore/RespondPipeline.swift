@@ -8,11 +8,14 @@ public struct RespondRequest: Sendable {
     public let localPath: String?
     /// `RepoConfig.worktreeDir`; nil = `<localPath>-worktrees`.
     public let worktreeDir: String?
+    /// Responder el feedback o arreglar el CI (spec K).
+    public let mode: RespondMode
 
-    public init(item: ClassifiedPR, localPath: String?, worktreeDir: String?) {
+    public init(item: ClassifiedPR, localPath: String?, worktreeDir: String?, mode: RespondMode = .feedback) {
         self.item = item
         self.localPath = localPath
         self.worktreeDir = worktreeDir
+        self.mode = mode
     }
 }
 
@@ -116,6 +119,26 @@ public struct RespondCancellation: Error, Equatable, LocalizedError {
     }
 }
 
+/// Fix CI (spec K.6.6): todos los checks que habían fallado pasan ahora en el mismo head; no se pushea salvo "Push Anyway".
+public struct CIPassingNow: Error, Equatable, LocalizedError {
+    public let checks: [String]
+    public let headOid: String
+
+    public init(checks: [String], headOid: String) {
+        self.checks = checks
+        self.headOid = headOid
+    }
+
+    public var errorDescription: String? {
+        "The checks that failed (\(checks.joined(separator: ", "))) pass now on \(headOid.prefix(7)), so PRBar didn’t push. "
+            + "Push anyway, or dismiss the fix."
+    }
+}
+
+extension RespondPipelineRunning {
+    public func checkCIBeforePush(draft: RespondDraft, ignoringPassingChecks: Bool) async throws {}
+}
+
 public protocol RespondPipelineRunning: Sendable {
     /// Token → feedback → filtro → worktree → análisis de Claude. El draft sale con `id == draftID`.
     func analyze(_ request: RespondRequest, draftID: UUID,
@@ -129,6 +152,10 @@ public protocol RespondPipelineRunning: Sendable {
     func push(draft: RespondDraft, result: RespondResult) async throws
     /// Saca el worktree de PRBar y su ref (al terminar o al descartar). Nunca lanza.
     func cleanup(draft: RespondDraft) async
+    /// Fix CI (spec K.4), justo antes del push: el head del PR en GitHub sigue siendo el que falló y (salvo
+    /// `ignoringPassingChecks`, "Push Anyway") el CI no pasó: si todos los checks que fallaron pasan ahora, lanza
+    /// `CIPassingNow`. Un Respond normal no verifica nada.
+    func checkCIBeforePush(draft: RespondDraft, ignoringPassingChecks: Bool) async throws
     /// Ver `RespondPublisher.postReplies`. Un error al pedir el token vuelve como error, sin publicar nada.
     func postReplies(draft: RespondDraft, selections: [String: RespondSelection], result: RespondResult?,
                      alreadyPosted: [String: PostedReply],
@@ -143,6 +170,7 @@ public struct RespondPipeline: RespondPipelineRunning {
     public static let noItemsMessage = "There are no unresolved comments"
     public static let forkMessage = "The PR comes from a fork: PRBar can't push to it"
     public static let needsLocalPathMessage = "This repo needs a local folder to respond."
+    public static let noFailingChecksMessage = "No failing checks on the PR’s latest commit: CI may have passed or still be running. Refresh and try again."
 
     private let processRunner: ProcessRunning
     private let streamingRunner: StreamingProcessRunning
@@ -163,6 +191,8 @@ public struct RespondPipeline: RespondPipelineRunning {
     /// siguen en la Mac: los fixes vuelven con `importer` (decisión J.7.9).
     private let placement: RemotePlacement?
     private let importer: RemoteFixImport?
+    /// Los checks y logs de Fix CI (spec K); nil = el `api`, si los sabe pedir.
+    private let ciAPI: (any CIChecksAPI)?
 
     /// `worktreeRoot`: donde van las carpetas de contexto (`AppPaths.worktreesDir`). `gitEnvironment` se suma
     /// al de cada git (los tests aíslan la configuración global). `logURLProvider` recibe el id del draft.
@@ -175,8 +205,9 @@ public struct RespondPipeline: RespondPipelineRunning {
         logURLProvider: @escaping @Sendable (UUID) -> URL,
         originMatches: @escaping @Sendable (String, RepoRef) -> Bool = { WorktreeResolver.originMatches($0, repo: $1) },
         workspaceFS: any WorkspaceFS = LocalWorkspaceFS(),
-        placement: RemotePlacement? = nil, importer: RemoteFixImport? = nil
+        placement: RemotePlacement? = nil, importer: RemoteFixImport? = nil, ciAPI: (any CIChecksAPI)? = nil
     ) {
+        self.ciAPI = ciAPI ?? (api as? any CIChecksAPI)
         self.processRunner = processRunner
         self.streamingRunner = streamingRunner
         self.tokens = tokens
@@ -204,6 +235,7 @@ public struct RespondPipeline: RespondPipelineRunning {
 
     public func analyze(_ request: RespondRequest, draftID: UUID,
                         onPhase: @escaping @MainActor @Sendable (RespondPhase) -> Void) async throws -> RespondDraft {
+        if request.mode == .ciFix { return try await analyzeCI(request, draftID: draftID) }
         let item = request.item
         let pr = item.pr
         let token = try await tokens.token(for: item.account)
@@ -254,6 +286,79 @@ public struct RespondPipeline: RespondPipelineRunning {
             await Task.detached { await pipeline.removeWorktree(worktree) }.value
             throw error
         }
+    }
+
+    // MARK: - Fix CI (spec K)
+
+    /// Token → head y checks del PR (en la Mac) → logs de Actions (sin token en la redirección) → worktree en el head que
+    /// falló (acá o en el host) → draft con un solo ítem. Sin Claude: la implementación arranca después (K.6.3).
+    private func analyzeCI(_ request: RespondRequest, draftID: UUID) async throws -> RespondDraft {
+        let item = request.item
+        let pr = item.pr
+        guard let ciAPI else { throw PRBarError.respond("PRBar can’t read this PR’s checks.") }
+        let token = try await tokens.token(for: item.account)
+        let feedback = try await api.reviewFeedback(repo: pr.repo, number: pr.number, token: token)
+        if feedback.isCrossRepository { throw PRBarError.respond(Self.forkMessage) }
+        let head = feedback.headRefOid
+        let failing = CILogs.failing(try await ciAPI.checkRuns(repo: pr.repo, headOid: head, token: token))
+        guard !failing.isEmpty else { throw PRBarError.respond(Self.noFailingChecksMessage) }
+        var logs: [Int: String] = [:]
+        for run in failing.prefix(CILogs.maxChecks) where run.isActions {
+            try Task.checkCancellation()
+            guard let id = run.id else { continue }
+            do {
+                logs[id] = try await ciAPI.actionsJobLog(repo: pr.repo, jobID: id, token: token)
+            } catch {
+                // Sin log (expirado, sin permiso): Claude ve el resumen del check.
+                AppLog.write("Fix CI: couldn't download the log of \(run.name) on \(pr.repo.fullName)#\(pr.number): \(error.localizedDescription)")
+            }
+        }
+        try Task.checkCancellation()
+        let (worktree, startHeadOid) = try await prepareWorktree(request, headRef: feedback.headRefName)
+        guard startHeadOid == head else {
+            await Task.detached { [self] in await removeWorktree(worktree) }.value
+            throw PRBarError.respond("The PR got new commits while PRBar was reading its CI (now at \(startHeadOid.prefix(7))). Try Fix CI again.")
+        }
+        let (ciItem, context) = CIFixItem.make(headOid: head, failing: failing, logs: logs, secrets: [token], prURL: pr.url)
+        return RespondDraft(
+            id: draftID, prID: item.id, repo: pr.repo, number: pr.number, title: pr.title, url: pr.url,
+            headRef: feedback.headRefName, account: item.account, worktree: worktree, startHeadOid: startHeadOid,
+            items: [ciItem], runner: placement?.name, localPath: placement == nil ? nil : request.localPath,
+            mode: .ciFix, ci: context)
+    }
+
+    public func checkCIBeforePush(draft: RespondDraft, ignoringPassingChecks: Bool) async throws {
+        guard draft.isCIFix, let context = draft.ci else { return }
+        guard let ciAPI else { throw PRBarError.respond("PRBar can’t read this PR’s checks.") }
+        let token = try await tokens.token(for: draft.account)
+        let details = try await api.pullRequestDetails(repo: draft.repo, number: draft.number, token: token)
+        if let state = details.state, state != .open {
+            throw PRBarError.respond("The PR isn’t open anymore. Not pushing.")
+        }
+        guard let head = details.headOid, head == draft.startHeadOid else {
+            throw PRBarError.respond("The PR has new commits since Fix CI read its checks"
+                + "\(details.headOid.map { " (now at \($0.prefix(7)))" } ?? ""). Not pushing: run Fix CI again.")
+        }
+        guard !ignoringPassingChecks else { return }
+        let runs = try await ciAPI.checkRuns(repo: draft.repo, headOid: head, token: token)
+        guard CILogs.stillFailing(context.checkNames, now: runs) else {
+            throw CIPassingNow(checks: context.checkNames, headOid: head)
+        }
+    }
+
+    /// El worktree propio de PRBar en la rama del PR: en el host (de su mirror) o en el clone local.
+    private func prepareWorktree(_ request: RespondRequest, headRef: String) async throws -> (ResolvedWorktree, String) {
+        let pr = request.item.pr
+        if let remote = placement {
+            return try await remote.preparing {
+                let bare = try await remote.workspaces.mirror(pr.repo)
+                return try await remote.workspaces.prepareRespond(localPath: bare, repo: pr.repo, number: pr.number, headRef: headRef,
+                                                                  worktreeDir: nil)
+            }
+        }
+        guard let localPath = request.localPath, !localPath.isEmpty else { throw PRBarError.respond(Self.needsLocalPathMessage) }
+        return try await resolver.prepare(localPath: localPath, repo: pr.repo, number: pr.number, headRef: headRef,
+                                          worktreeDir: request.worktreeDir)
     }
 
     /// Las etapas siguientes corren donde corrió el análisis (decisión J.7.10): nunca un worktree del host con git de
