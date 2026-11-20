@@ -168,6 +168,7 @@ enum ClaudeUsageTests {
             ledger.append(ClaudeUsageEntry(date: now, jobID: nil, activity: .review("o/r#1"), stage: "review",
                                            usage: .run(duration: 2, tokens: nil, cost: 0.5)), now: now)
             try expectEqual(ledger.entries().map(\.stage), ["review"])
+            ledger.flush()
             try expectEqual(UsageLedger(url: url).entries().map(\.stage), ["review"])
             // Una entrada rota se saltea; el resto queda.
             var text = try String(contentsOf: url, encoding: .utf8)
@@ -177,6 +178,43 @@ enum ClaudeUsageTests {
             try "{nope".write(to: url, atomically: true, encoding: .utf8)
             try expectEqual(UsageLedger(url: url).entries().count, 0)
             try expect(FileManager.default.fileExists(atPath: url.appendingPathExtension("bak").path))
+        },
+        TestCase("usage ledger: append no escribe bajo el lock; el resumen se cachea hasta el próximo append") {
+            let dir = try temporaryDirectory()
+            let url = dir.appendingPathComponent("usage.json")
+            let ledger = UsageLedger(url: url)
+            let now = Date()
+            let key = UsageSummary.monthKey(now)
+            try expectEqual(ledger.month(key).usage.runs, 0)
+            for n in 0..<200 {
+                ledger.append(ClaudeUsageEntry(date: now, jobID: nil, activity: .review("o/r#\(n)"), stage: "review",
+                                               usage: .run(duration: 1, tokens: nil, cost: 0.01)), now: now)
+            }
+            // In memory right away (the summary isn't stale), on disk once the writer is done.
+            try expectEqual(ledger.month(key).usage.runs, 200)
+            try expectEqual(ledger.recentTasks(limit: 3).count, 3)
+            try expectEqual(ledger.month(key), UsageSummary.month(key, entries: ledger.entries()))
+            ledger.flush()
+            try expectEqual(UsageLedger(url: url).entries().count, 200)
+            ledger.append(ClaudeUsageEntry(date: now.addingTimeInterval(1), jobID: nil, activity: nil, stage: "chat",
+                                           usage: .run(duration: 1, tokens: nil, cost: nil)), now: now)
+            try expectEqual(ledger.month(key).usage.runs, 201)
+            try expectEqual(ledger.recentTasks(limit: 1).first?.stages, ["chat"])
+            ledger.flush()
+            try expectEqual(UsageLedger(url: url).entries().count, 201)
+            // Concurrent appends and reads don't lose entries.
+            await withTaskGroup(of: Void.self) { group in
+                for n in 0..<50 {
+                    group.addTask {
+                        ledger.append(ClaudeUsageEntry(date: now, jobID: nil, activity: nil, stage: "s\(n)",
+                                                       usage: .run(duration: 1, tokens: nil, cost: nil)), now: now)
+                        _ = ledger.month(key)
+                    }
+                }
+            }
+            ledger.flush()
+            try expectEqual(ledger.month(key).usage.runs, 251)
+            try expectEqual(UsageLedger(url: url).entries().count, 251)
         },
         TestCase("usage summary: total del mes por tipo y tareas recientes (una por trabajo)") {
             var calendar = Calendar(identifier: .gregorian)

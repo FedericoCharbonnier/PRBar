@@ -304,6 +304,8 @@ final class AppModel: ObservableObject {
                 self?.respond.cancelAll()
                 // A turn that was running stays `pending` in its record and reopens as "Interrupted" (spec B.9).
                 self?.chatScheduler.cancelAll()
+                // The usage ledger writes in the background: whatever is pending reaches the disk before quitting.
+                self?.usageLedger.flush()
             }
         }
         // En segundo plano y sin esperar a nadie: cada host que responde limpia lo que quedó de antes (J.7.16).

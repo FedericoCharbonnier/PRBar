@@ -712,7 +712,7 @@ extension AppModel: CIFixUsageActions {
         }
         let entries = usageLedger.entries()
         let inMonth = entries.filter { UsageSummary.monthKey($0.date) == key }
-        return UsageInfo(month: UsageSummary.month(key, entries: entries), tasks: UsageSummary.recentTasks(inMonth, limit: 50))
+        return UsageInfo(month: usageLedger.month(key), tasks: UsageSummary.recentTasks(inMonth, limit: 50))
     }
 }
 

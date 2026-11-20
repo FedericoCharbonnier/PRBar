@@ -268,6 +268,10 @@ public enum ClaudeUsageStage {
 
 /// El libro de uso (spec O.4.2): `{"version":1,"entries":[…]}`, escrito solo por la app. Guarda 400 días (y a lo sumo
 /// `maxEntries`). Un JSON roto se copia a `usage.json.bak` y se arranca vacío; una entrada rota se saltea.
+///
+/// The lock only guards memory: `append` adds to the in-memory list and returns; encoding and writing the file happen
+/// on a serial queue, outside the lock, coalescing appends that arrive while a write is in progress. The month and
+/// recent-task summaries Activity asks for on every render are cached until the next append.
 public final class UsageLedger: Sendable {
     public static let retentionDays = 400
     public static let maxEntries = 50_000
@@ -285,35 +289,92 @@ public final class UsageLedger: Sendable {
         }
     }
 
+    private struct State {
+        var entries: [ClaudeUsageEntry]?
+        /// Bumped on every append: what the file and the cached summaries are compared against.
+        var revision = 0
+        var savedRevision = 0
+        var months: [String: UsageMonth] = [:]
+        var recent: [Int: [UsageTask]] = [:]
+    }
+
     private let url: URL
-    private let state = OSAllocatedUnfairLock<[ClaudeUsageEntry]?>(initialState: nil)
+    private let state = OSAllocatedUnfairLock(initialState: State())
+    private let writer = DispatchQueue(label: "PRBar.UsageLedger.writer", qos: .utility)
 
     public init(url: URL = AppPaths.usageFile) {
         self.url = url
     }
 
     public func entries() -> [ClaudeUsageEntry] {
-        state.withLock { cached in
-            if let cached { return cached }
-            let loaded = load()
-            cached = loaded
+        if let cached = state.withLock({ $0.entries }) { return cached }
+        // Read outside the lock; if another thread loaded (or appended) meanwhile, that one wins.
+        let loaded = load()
+        return state.withLock { state in
+            if let entries = state.entries { return entries }
+            state.entries = loaded
             return loaded
         }
     }
 
-    /// Agrega, recorta y guarda. Nunca lanza (un error se loguea).
+    /// Agrega, recorta y programa el guardado (en segundo plano). Nunca lanza (un error se loguea).
     public func append(_ entry: ClaudeUsageEntry, now: Date = Date()) {
-        state.withLock { cached in
-            var entries = cached ?? load()
+        _ = entries()
+        state.withLock { state in
+            var entries = state.entries ?? []
             entries.append(entry)
-            entries = Self.pruned(entries, now: now)
-            cached = entries
-            save(entries)
+            state.entries = Self.pruned(entries, now: now)
+            state.revision += 1
+            state.months = [:]
+            state.recent = [:]
         }
+        writer.async { [self] in saveIfNeeded() }
+    }
+
+    /// Waits for pending writes (tests, quitting).
+    public func flush() {
+        writer.sync {}
+    }
+
+    /// `UsageSummary.month` of these entries, cached until the next append.
+    public func month(_ key: String) -> UsageMonth {
+        if let cached = state.withLock({ $0.months[key] }) { return cached }
+        let (entries, revision) = snapshot()
+        let month = UsageSummary.month(key, entries: entries)
+        state.withLock { state in if state.revision == revision { state.months[key] = month } }
+        return month
+    }
+
+    /// `UsageSummary.recentTasks` of these entries, cached until the next append.
+    public func recentTasks(limit: Int) -> [UsageTask] {
+        if let cached = state.withLock({ $0.recent[limit] }) { return cached }
+        let (entries, revision) = snapshot()
+        let tasks = UsageSummary.recentTasks(entries, limit: limit)
+        state.withLock { state in if state.revision == revision { state.recent[limit] = tasks } }
+        return tasks
+    }
+
+    private func snapshot() -> ([ClaudeUsageEntry], Int) {
+        let entries = entries()
+        return state.withLock { ($0.entries ?? entries, $0.revision) }
+    }
+
+    /// On `writer`: writes the latest entries unless a later call already did.
+    private func saveIfNeeded() {
+        let pending = state.withLock { state -> ([ClaudeUsageEntry], Int)? in
+            guard state.revision != state.savedRevision, let entries = state.entries else { return nil }
+            return (entries, state.revision)
+        }
+        guard let (entries, revision) = pending else { return }
+        save(entries)
+        state.withLock { $0.savedRevision = max($0.savedRevision, revision) }
     }
 
     static func pruned(_ entries: [ClaudeUsageEntry], now: Date) -> [ClaudeUsageEntry] {
         let cutoff = now.addingTimeInterval(-Double(retentionDays) * 86_400)
+        // Entries are appended in order: usually nothing to drop, and no full pass.
+        guard entries.first.map({ $0.date < cutoff }) == true || entries.last.map({ $0.date < cutoff }) == true
+                || entries.count > maxEntries else { return entries }
         let kept = entries.filter { $0.date >= cutoff }
         return kept.count > maxEntries ? Array(kept.suffix(maxEntries)) : kept
     }
@@ -394,8 +455,23 @@ public enum UsageSummary {
         return String(format: "%04d-%02d", year, month)
     }
 
+    /// `[first instant of the month, first instant of the next)` in `calendar`; nil for an invalid key.
+    static func monthRange(_ key: String, calendar: Calendar) -> Range<Date>? {
+        guard let valid = parseMonth(key) else { return nil }
+        let parts = valid.split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 2, let start = calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: 1)),
+              let end = calendar.date(byAdding: .month, value: 1, to: start), start < end else { return nil }
+        return start..<end
+    }
+
     public static func month(_ key: String, entries: [ClaudeUsageEntry], calendar: Calendar = .current) -> UsageMonth {
-        let inMonth = entries.filter { monthKey($0.date, calendar: calendar) == key }
+        // One date range for the month, not a calendar computation per entry.
+        let inMonth: [ClaudeUsageEntry]
+        if let range = monthRange(key, calendar: calendar) {
+            inMonth = entries.filter { range.contains($0.date) }
+        } else {
+            inMonth = entries.filter { monthKey($0.date, calendar: calendar) == key }
+        }
         var byKind: [String: ClaudeUsage] = [:]
         for entry in inMonth { byKind[entry.activity?.kind.rawValue ?? "other", default: .zero] += entry.usage }
         return UsageMonth(month: key, usage: inMonth.map(\.usage).reduce(.zero, +), byKind: byKind)

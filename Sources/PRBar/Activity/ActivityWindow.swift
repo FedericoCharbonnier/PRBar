@@ -89,12 +89,12 @@ struct ActivityWindow: View {
     /// This month's Claude usage, from the ledger (refreshed when a run is recorded: `usageRevision`).
     private var thisMonth: UsageMonth {
         _ = model.usageRevision
-        return UsageSummary.month(UsageSummary.monthKey(Date()), entries: model.usageLedger.entries())
+        return model.usageLedger.month(UsageSummary.monthKey(Date()))
     }
 
     private var recentTasks: [UsageTask] {
         _ = model.usageRevision
-        return UsageSummary.recentTasks(model.usageLedger.entries(), limit: 8)
+        return model.usageLedger.recentTasks(limit: 8)
     }
 
     private var claudeUsage: some View {
