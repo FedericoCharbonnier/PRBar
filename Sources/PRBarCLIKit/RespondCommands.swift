@@ -210,10 +210,14 @@ struct RespondPush: RemoteCommand {
         discussion: "Runs your pre-push hooks in PRBar’s worktree. Asks for confirmation; without a terminal it needs --yes.")
     @Argument(help: prHelp) var pr: String
     @Flag(help: "Wait until it’s pushed and posted.") var wait = false
+    @Flag(help: "Push even though the tests before the push failed (Push Anyway).") var anyway = false
     @OptionGroup var global: GlobalOptions
 
     func confirmation(_ connection: AppConnection, _ output: Output) throws -> String? {
         let info: RespondInfo = try connection.run(.respondShow(pr: pr)).decode()
+        if anyway && !info.pushBlockedByTests {
+            throw CommandFailure(.invalidState, "Nothing is blocked by failed tests: use `prbar respond push \(info.pr)`.")
+        }
         guard info.phase == "readyToPush" || info.phase == "failed" else {
             throw CommandFailure(.invalidState, "\(info.pr) has no fixes ready to push (\(info.phase)).")
         }
@@ -224,10 +228,12 @@ struct RespondPush: RemoteCommand {
             }
             if let tests = info.tests { output.line(tests.passed ? "Tests passed." : output.paint("Tests failed.", .yellow)) }
         }
-        return RespondQuestion.push(info)
+        return (anyway ? "The tests failed. " : "") + RespondQuestion.push(info)
     }
 
-    func appCommand(confirmed: Bool) -> AppCommand { .respondPush(pr: pr, confirmed: confirmed, wait: wait) }
+    func appCommand(confirmed: Bool) -> AppCommand {
+        anyway ? .respondPushAnyway(pr: pr, confirmed: confirmed, wait: wait) : .respondPush(pr: pr, confirmed: confirmed, wait: wait)
+    }
     func render(_ result: JSONValue, _ output: Output) throws { RespondRender.info(try result.decode(), output) }
 }
 

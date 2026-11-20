@@ -230,13 +230,14 @@ struct AppHistory: RemoteCommand {
 }
 
 enum LogKind: String, EnumerableFlag {
-    case app, slack, update
+    case app, slack, update, instructions
 
     static func help(for value: LogKind) -> ArgumentHelp? {
         switch value {
         case .app: "PRBar’s log (default)."
         case .slack: "The Slack connector’s log (Settings › Slack › Show Log)."
         case .update: "The last update’s log (Show Log in the update window)."
+        case .instructions: "The Instructions chat’s log (Show Log under an error in that chat)."
         }
     }
 
@@ -245,6 +246,7 @@ enum LogKind: String, EnumerableFlag {
         case .app: AppPaths.logFile
         case .slack: AppPaths.slackConnectorLog
         case .update: AppPaths.updateLog
+        case .instructions: AppPaths.instructionsChatLog
         }
     }
 }

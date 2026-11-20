@@ -192,6 +192,8 @@ struct RepoSet: RemoteCommand {
     @Option(help: "Remove a base branch.") var removeBranch: [String] = []
     @Option(help: "Slack channel: #name, its ID, or none.") var channel: String?
     @Option(help: "How Merge merges this repo’s PRs: squash, merge, rebase, or default (GitHub’s).") var mergeMethod: String?
+    @Option(help: "Hide findings in files matching this glob in this repo’s reviews (repeatable).") var ignore: [String] = []
+    @Option(help: "Stop ignoring this glob (repeatable).") var unignore: [String] = []
     @OptionGroup var global: GlobalOptions
 
     var changes: RepoChanges {
@@ -202,6 +204,7 @@ struct RepoSet: RemoteCommand {
             baseBranches: branches.map { $0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } },
             addBranches: addBranch, removeBranches: removeBranch,
             channel: channel.map { $0 == "none" ? .clear : .set(value: $0) },
+            addIgnore: ignore, removeIgnore: unignore,
             mergeMethod: mergeMethod.map { $0.lowercased() == "default" ? .clear : .set(value: $0.lowercased()) }
         )
     }
@@ -359,23 +362,53 @@ struct NotifySystemSettings: LocalCommand {
 
 struct ClaudeGroup: ParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "claude", abstract: "Skills and model of the reviews and responses (Settings › Claude).",
-        subcommands: [ClaudeShow.self, ClaudeSet.self, ClaudeReset.self, ClaudeSkillsCommand.self])
+        commandName: "claude", abstract: "Claude’s settings: stages, skills, prompts, review and fix options, model and chat (Settings › Claude).",
+        subcommands: [ClaudeShow.self, ClaudeSet.self, ClaudeReset.self, ClaudeSkillsCommand.self, ClaudeReviewGroup.self,
+                      ClaudeRespondGroup.self, ClaudeStage.self, ClaudePromptGroup.self])
 }
 
 enum ClaudeRender {
+    /// Cómo corre una etapa: su skill o el prompt propio.
+    static func stage(_ stage: PromptStage, _ settings: ClaudeSettings) -> String {
+        if settings.usesCustomPrompt(stage) { return "custom prompt" + (settings.usesSkill(stage) ? " (uses \(settings.skill(for: stage) ?? "its skill"))" : "") }
+        let skill = settings.skill(for: stage) ?? "no skill"
+        if settings.stage(stage)?.mode == .prompt { return "\(skill) (custom prompt not valid yet: the default one runs)" }
+        return skill
+    }
+
     static func settings(_ result: JSONValue, _ output: Output) throws {
         let settings: ClaudeSettings = try result.decode()
+        let review = settings.review
+        let respond = settings.respond
+        let categories = FindingCategory.allCases.map { "\($0.rawValue)=\(Render.onOff(review.isEnabled($0)))" }
         Render.pairs([
-            ("Review skill", settings.effectiveReviewSkill),
+            ("Review", stage(.review, settings)),
             ("Filter findings", Render.onOff(settings.filterEnabled)),
-            ("Filter skill", settings.effectiveFilterSkill),
-            ("Respond skill", settings.effectiveRespondSkill),
+            ("Filter", stage(.filter, settings)),
+            ("Minimum severity", review.minSeverity.rawValue),
+            ("Maximum findings", review.maxFindings.map(String.init) ?? "no limit"),
+            ("Report", categories.joined(separator: " ")),
+            ("Ignore paths", review.ignorePaths.isEmpty ? "none" : review.ignorePaths.joined(separator: ", ")),
+            ("Tone", review.tone.rawValue),
+            ("Analysis", stage(.analysis, settings)),
+            ("Implementation", stage(.implementation, settings)),
+            ("Run tests before pushing", Render.onOff(respond.runTestsBeforePush)),
+            ("Commits", respond.commitMode == .single ? "single" : "per-comment"),
+            ("Commit message", respond.commitMessageTemplate ?? "default"),
+            ("Allow new tests", Render.onOff(respond.allowNewTests)),
+            ("Allow new dependencies", Render.onOff(respond.allowNewDependencies)),
+            ("Reply to fixed comments", respond.replyTemplate ?? "default (“Fixed in …”)"),
             ("Model", settings.model?.rawValue ?? "default"),
             ("Chat", Render.onOff(settings.chatEnabled)),
             ("Chat model", settings.chatModel?.rawValue ?? "same as review"),
+            ("Modified prompts", PromptStage.allCases.filter { settings.customPrompt(for: $0) != nil }.map(\.cliName)
+                .joined(separator: ", ").nonEmpty ?? "none"),
         ], output)
     }
+}
+
+private extension String {
+    var nonEmpty: String? { isEmpty ? nil : self }
 }
 
 struct ClaudeShow: RemoteCommand {
@@ -465,4 +498,182 @@ struct ToolsReset: RemoteCommand {
     @OptionGroup var global: GlobalOptions
     func appCommand(confirmed: Bool) -> AppCommand { .toolsSet(tool: tool, path: nil) }
     func render(_ result: JSONValue, _ output: Output) throws { try ToolsRender.list(result, output) }
+}
+
+// MARK: - claude review / respond / stage / prompt (spec E.5–E.7)
+
+struct ClaudeReviewGroup: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "review", abstract: "What the review reports.",
+                                                    subcommands: [ClaudeReviewSet.self])
+}
+
+struct ClaudeReviewSet: RemoteCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "set", abstract: "Change what the review reports (Settings › Claude › What the review reports).",
+        discussion: "Categories: \(FindingCategory.allCases.map(\.rawValue).joined(separator: ", ")). What these settings hide goes to “Hidden by your settings” in the Review window (`prbar review include` still includes it).")
+    @Option(help: "low (everything), medium or high.") var minSeverity: Severity?
+    @Option(help: "At most this many findings (1–50), or none.") var maxFindings: String?
+    @Option(help: "Hide findings in files matching this glob (repeatable).") var ignore: [String] = []
+    @Option(help: "Stop ignoring this glob (repeatable).") var unignore: [String] = []
+    @Option(help: "A category on or off, e.g. style=off (repeatable).") var category: [String] = []
+    @Option(help: "direct, friendly or with-suggestions.") var tone: ToneArgument?
+    @OptionGroup var global: GlobalOptions
+
+    var categories: [String: Bool] {
+        get throws {
+            var result: [String: Bool] = [:]
+            for item in category {
+                let parts = item.split(separator: "=", maxSplits: 1).map(String.init)
+                guard parts.count == 2, let value = OnOff(rawValue: parts[1].lowercased()) else {
+                    throw ValidationError("--category takes name=on or name=off (e.g. style=off).")
+                }
+                result[parts[0].lowercased()] = value.isOn
+            }
+            return result
+        }
+    }
+
+    var changes: ReviewOptionChanges {
+        get throws {
+            ReviewOptionChanges(minSeverity: minSeverity,
+                                maxFindings: maxFindings.map { $0.lowercased() == "none" ? .clear : .set(value: $0) },
+                                addIgnore: ignore, removeIgnore: unignore, categories: try categories, tone: tone?.tone)
+        }
+    }
+
+    func validate() throws {
+        guard try !changes.isEmpty else { throw ValidationError("Nothing to change. See `prbar claude review set --help`.") }
+    }
+
+    func appCommand(confirmed: Bool) throws -> AppCommand { .claudeReviewSet(changes: try changes) }
+    func render(_ result: JSONValue, _ output: Output) throws { try ClaudeRender.settings(result, output) }
+}
+
+struct ClaudeRespondGroup: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "respond", abstract: "How the fixes are made.",
+                                                    subcommands: [ClaudeRespondSet.self])
+}
+
+struct ClaudeRespondSet: RemoteCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "set", abstract: "Change how the fixes are made (Settings › Claude › Fixes).",
+        discussion: "Commit message variables: {n} {pr} {title} {comment}. Reply variables: {commit} {summary} {pr} {title} {comment}.")
+    @Option(help: "Run the repo’s test command before pushing and don’t push if it fails: on or off.") var testsBeforePush: OnOff?
+    @Option(help: "per-comment (one commit per comment) or single.") var commitMode: CommitModeArgument?
+    @Option(help: "The commit message template, or default.") var commitTemplate: String?
+    @Option(help: "Allow Claude to add tests: on or off.") var allowTests: OnOff?
+    @Option(help: "Allow Claude to add dependencies: on or off.") var allowDeps: OnOff?
+    @Option(help: "The reply to fixed comments, or default (“Fixed in …”).") var replyTemplate: String?
+    @OptionGroup var global: GlobalOptions
+
+    var changes: RespondOptionChanges {
+        RespondOptionChanges(runTestsBeforePush: testsBeforePush?.isOn, commitMode: commitMode?.mode,
+                             commitMessageTemplate: commitTemplate.map { $0.lowercased() == "default" ? .clear : .set(value: $0) },
+                             allowNewTests: allowTests?.isOn, allowNewDependencies: allowDeps?.isOn,
+                             replyTemplate: replyTemplate.map { $0.lowercased() == "default" ? .clear : .set(value: $0) })
+    }
+
+    func validate() throws {
+        guard !changes.isEmpty else { throw ValidationError("Nothing to change. See `prbar claude respond set --help`.") }
+    }
+
+    func appCommand(confirmed: Bool) -> AppCommand { .claudeRespondSet(changes: changes) }
+    func render(_ result: JSONValue, _ output: Output) throws { try ClaudeRender.settings(result, output) }
+}
+
+struct ClaudeStage: RemoteCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "stage", abstract: "Run a stage with a skill, your own prompt, or the defaults (Skill / Custom Prompt).",
+        discussion: "Stages: review, filter, analysis, implementation. `--skill none` only for the implementation. Editing a prompt never changes Claude’s tools, permissions or output format.")
+    @Argument(help: "review, filter, analysis or implementation.") var stage: PromptStage
+    @Option(help: "Use this skill (plugin:skill or skill).") var skill: String?
+    @Option(help: "Use the prompt in this file (- = stdin).") var promptFile: String?
+    @Flag(name: .customLong("default"), help: "Back to the default skill and prompt.") var useDefault = false
+    @OptionGroup var global: GlobalOptions
+
+    func validate() throws {
+        guard [skill != nil, promptFile != nil, useDefault].filter({ $0 }).count == 1 else {
+            throw ValidationError("Pass one of --skill, --prompt-file and --default.")
+        }
+        guard stage.hasSkill else {
+            throw ValidationError("Chat prompts have no skill: use `prbar claude prompt edit \(stage.cliName)`.")
+        }
+    }
+
+    func appCommand(confirmed: Bool) throws -> AppCommand {
+        if let skill { return .claudeStageSet(stage: stage, change: .skill(name: skill)) }
+        if let promptFile { return .claudeStageSet(stage: stage, change: .prompt(text: try readText(promptFile))) }
+        return .claudeStageSet(stage: stage, change: .useDefault)
+    }
+
+    func render(_ result: JSONValue, _ output: Output) throws { try ClaudeRender.settings(result, output) }
+}
+
+/// Un archivo de la línea de comandos (`-` = stdin).
+func readText(_ path: String) throws -> String {
+    if path == "-" { return String(decoding: FileHandle.standardInput.readDataToEndOfFile(), as: UTF8.self) }
+    do {
+        return try String(contentsOfFile: absolutePath(path), encoding: .utf8)
+    } catch {
+        throw CommandFailure(.notFound, "Couldn’t read \(path).")
+    }
+}
+
+struct ClaudePromptGroup: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "prompt", abstract: "The stages’ editable prompts (Settings › Claude › Prompts).",
+        discussion: "Stages: \(PromptStage.allCases.map(\.cliName).joined(separator: ", ")). PRBar always adds its fixed part around your prompt.",
+        subcommands: [ClaudePromptShow.self, ClaudePromptEdit.self, ClaudePromptReset.self])
+}
+
+enum PromptRender {
+    static func show(_ result: JSONValue, _ output: Output) throws {
+        let info: PromptInfo = try result.decode()
+        output.line(output.paint("\(info.stage.title) prompt\(info.isDefault ? " (default)" : " (modified)")", .bold))
+        if !info.requiredVariables.isEmpty {
+            output.line(output.paint("Must use: \(info.requiredVariables.map { "{\($0)}" }.joined(separator: " "))", .dim))
+        }
+        output.line(info.text)
+    }
+}
+
+struct ClaudePromptShow: RemoteCommand {
+    static let configuration = CommandConfiguration(commandName: "show", abstract: "Print a stage’s prompt (yours or the default).")
+    @Argument(help: "The stage.") var stage: PromptStage
+    @OptionGroup var global: GlobalOptions
+    func appCommand(confirmed: Bool) -> AppCommand { .claudePromptShow(stage: stage) }
+    func render(_ result: JSONValue, _ output: Output) throws { try PromptRender.show(result, output) }
+}
+
+struct ClaudePromptEdit: RemoteCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "edit", abstract: "Edit a stage’s prompt in $EDITOR, or set it from a file (Edit Prompt… › Save).",
+        discussion: "A stage with a skill switches to “Custom Prompt”; use {skill} to keep using its skill. A prompt without the stage’s required variables is rejected.")
+    @Argument(help: "The stage.") var stage: PromptStage
+    @Option(help: "Read the prompt from this file (- = stdin) instead of opening $EDITOR.") var file: String?
+    @OptionGroup var global: GlobalOptions
+
+    var text: String?
+
+    mutating func prepare(_ connection: AppConnection, _ output: Output) throws {
+        if let file {
+            text = try readText(file)
+            return
+        }
+        let current: PromptInfo = try connection.run(.claudePromptShow(stage: stage)).decode()
+        let edited = try Editor.edit(current.text)
+        guard edited != current.text else { throw CommandFailure(.cancelled, "No changes.") }
+        text = edited
+    }
+
+    func appCommand(confirmed: Bool) -> AppCommand { .claudePromptSet(stage: stage, text: text ?? "") }
+    func render(_ result: JSONValue, _ output: Output) throws { output.line("Saved the \(stage.cliName) prompt.") }
+}
+
+struct ClaudePromptReset: RemoteCommand {
+    static let configuration = CommandConfiguration(commandName: "reset", abstract: "Back to the default prompt (Reset to Default).")
+    @Argument(help: "The stage.") var stage: PromptStage
+    @OptionGroup var global: GlobalOptions
+    func appCommand(confirmed: Bool) -> AppCommand { .claudePromptReset(stage: stage) }
+    func render(_ result: JSONValue, _ output: Output) throws { output.line("The \(stage.cliName) prompt is the default again.") }
 }

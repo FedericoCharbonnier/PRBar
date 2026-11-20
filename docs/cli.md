@@ -40,7 +40,7 @@ shows the help of `review start`, the group’s default subcommand).
 | `prbar history show <id> [--open-log\|--reveal-log]` | One record (id or its first 4+ characters), with its chat |
 | `prbar history reopen <id>` | Open to Post |
 | `prbar app start\|quit\|settings [tab]\|history [id]` | The app (tabs: `general`, `claude`, `instructions`, `accounts`, `repos`, `slack`) |
-| `prbar app logs [--app\|--slack\|--update] [--path]` | Open a log (PRBar’s, the Slack connector’s, the last update’s) |
+| `prbar app logs [--app\|--slack\|--update\|--instructions] [--path]` | Open a log (PRBar’s, the Slack connector’s, the last update’s, the Instructions chat’s) |
 | `prbar doctor [--json]` | Check the installation |
 | `prbar update --check` | Exit 0 if up to date, 10 if there’s a new version (prints it and its notes) |
 | `prbar update [--yes] [--cancel-jobs]` | Download, build and install the new version, then restart PRBar (progress in the terminal; Ctrl-C cancels). Running jobs are waited for (Update When Done) unless `--cancel-jobs` |
@@ -60,6 +60,7 @@ shows the help of `review start`, the group’s default subcommand).
 | `prbar respond implement\|test <pr> [--wait]` | Implement the fixes / run the tests |
 | `prbar respond diff <pr> [--stat]` | The diff that would be pushed |
 | `prbar respond push <pr> [--wait] [--yes]` | Push and reply |
+| `prbar respond push <pr> --anyway [--yes]` | Push Anyway: the tests before the push failed and you push anyway |
 | `prbar respond reply-only <pr> [--wait] [--yes]` | Only replies |
 | `prbar respond cancel\|dismiss <pr>` | Cancel / dismiss |
 | `prbar chat <pr> ["message"]` | Chat with Claude about the review or the Respond analysis; without a message in a terminal, an interactive chat (`/undo`, `/show`, `/stop`, `/quit`); without a terminal the message comes from stdin |
@@ -68,7 +69,7 @@ shows the help of `review start`, the group’s default subcommand).
 | `prbar merge <pr> --dismiss` | Dismiss the row’s merge error |
 | `prbar config show`, `prbar config set refresh-interval 1\|2\|5\|10`, `… launch-at-login on\|off`, `… confirm-merge on\|off`, `… update-interval 0\|6\|12\|24\|168` (hours; 0 = check manually only) | General |
 | `prbar account list\|reload`, `prbar account enable\|disable <login>` | Accounts |
-| `prbar repo list\|available\|add\|remove\|branches\|open`, `prbar repo set <repo> [--path P\|none] [--worktrees P\|default] [--test-command C] [--branches a,b] [--add-branch b] [--remove-branch b] [--channel #name\|ID\|none] [--merge-method squash\|merge\|rebase\|default]` | Repos |
+| `prbar repo list\|available\|add\|remove\|branches\|open`, `prbar repo set <repo> [--path P\|none] [--worktrees P\|default] [--test-command C] [--branches a,b] [--add-branch b] [--remove-branch b] [--channel #name\|ID\|none] [--merge-method squash\|merge\|rebase\|default] [--ignore G]… [--unignore G]…` | Repos (`--ignore`: hide findings in matching files in this repo’s reviews) |
 | `prbar follow list [repo]`, `prbar follow add\|remove <repo> <users…>`, `prbar follow suggestions <repo>` | People to follow |
 | `prbar notify list\|enable\|disable\|system-settings`, `prbar notify set <kind> on\|off` | Notifications (`new-to-review`, `reviewed-updated`, `my-feedback`, `review-finished`, `approved-or-ci`, `ready-to-merge`) |
 | `prbar claude show\|reset\|skills`, `prbar claude set [--review-skill S] [--filter on\|off] [--filter-skill S] [--respond-skill S] [--model M] [--chat on\|off] [--chat-model M\|same]` | Claude |
@@ -79,6 +80,26 @@ shows the help of `review start`, the group’s default subcommand).
 | `prbar slack emoji eyes\|comment\|approved <name>`, `prbar slack search-days <7–90>` | Reactions |
 | `prbar slack template list\|show\|set\|reset <new-pr\|update\|round\|merged> [text\|--editor]` | Templates (`myPR.merged` is an alias of `merged`) |
 | `prbar slack test [--yes]` | Test message to your DM |
+
+## Rules, review options and prompts
+
+Rules are injected in every Claude prompt in a delimited section; PR content is never treated as instructions.
+Editing a prompt never changes Claude’s tools, permissions or output schema.
+
+| Command | Does |
+|---|---|
+| `prbar rules list [--repo R]` | Your rules (with `--repo`, the global ones and that repo’s) |
+| `prbar rules add "text" [--repo R] [--review] [--fixes]` | Add a rule (without `--review`/`--fixes`: both) |
+| `prbar rules edit <id> [--text T] [--repo R\|--global] [--review\|--no-review] [--fixes\|--no-fixes]` | Change a rule (stages you don’t name stay as they are) |
+| `prbar rules remove\|enable\|disable <id>` | Delete, turn on, turn off (ids can be shortened to 4+ characters) |
+| `prbar rules chat ["message"]` / `--undo [--yes]` / `--show` / `--stop` | The Instructions chat (interactive without a message in a terminal) |
+| `prbar rules suggestions [list]`, `… accept <id> [--text T]`, `… dismiss <id>`, `… never <id>` | Create Rule / Not Now / Never |
+| `prbar rules proposal save <pr> <n> [--text T] [--global\|--this-repo] [--review\|--no-review] [--fixes\|--no-fixes]` | Save a “Save as rule” card from the PR’s chat (`n` as in `prbar chat <pr> --show`) |
+| `prbar rules proposal dismiss <pr> <n>` | Dismiss a card |
+| `prbar claude review set [--min-severity low\|medium\|high] [--max-findings N\|none] [--ignore G]… [--unignore G]… [--category C=on\|off]… [--tone direct\|friendly\|with-suggestions]` | What the review reports (categories: `bug`, `security`, `performance`, `tests`, `style`, `docs`, `other`) |
+| `prbar claude respond set [--tests-before-push on\|off] [--commit-mode per-comment\|single] [--commit-template T\|default] [--allow-tests on\|off] [--allow-deps on\|off] [--reply-template T\|default]` | How the fixes are made |
+| `prbar claude stage <review\|filter\|analysis\|implementation> --skill S\|--prompt-file F\|--default` | Run a stage with a skill, your own prompt, or the defaults (`--skill none`: implementation without a skill) |
+| `prbar claude prompt show\|edit\|reset <stage> [--file F]` | A stage’s prompt (stages above plus `chat-review`, `chat-respond`, `chat-instructions`); `edit` opens `$EDITOR` or reads `--file` and rejects a prompt without the stage’s required variables |
 
 ## Interactive and scripts
 

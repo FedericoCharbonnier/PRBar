@@ -239,6 +239,73 @@ enum CLIParsingTests {
                 try expect(rejects(["update", "--check", "--skip"]))
                 try expectEqual(try parsed(["config", "set", "update-interval", "0"]), .setUpdateInterval(hours: 0))
             },
+            TestCase("cli parse: rules, opciones y prompts") {
+                try expectEqual(try parsed(["rules", "list", "--repo", "acme/web"]), .rulesList(repo: "acme/web"))
+                try expectEqual(try parsed(["rules", "add", "Use React Query", "--repo", "acme/web", "--fixes"]),
+                                .rulesAdd(text: "Use React Query", scope: .repo("acme/web"), appliesTo: [.respond]))
+                try expectEqual(try parsed(["rules", "add", "No style comments"]),
+                                .rulesAdd(text: "No style comments", scope: .global, appliesTo: [.review, .respond]))
+                // --review/--fixes se combinan con lo que la regla ya tiene en `prepare` (pide `rules list`).
+                try expectEqual(try parsed(["rules", "edit", "r1ab", "--global", "--no-fixes"]),
+                                .rulesEdit(id: "r1ab", text: nil, scope: .global, appliesTo: nil))
+                try expectEqual(try parsed(["rules", "edit", "r1ab", "--repo", "acme/web", "--text", "T"]),
+                                .rulesEdit(id: "r1ab", text: "T", scope: .repo("acme/web"), appliesTo: nil))
+                try expect(rejects(["rules", "edit", "r1ab"]))
+                try expect(rejects(["rules", "edit", "r1ab", "--global", "--repo", "acme/web"]))
+                try expectEqual(try parsed(["rules", "disable", "r1ab"]), .rulesSetEnabled(id: "r1ab", enabled: false))
+                try expectEqual(try parsed(["rules", "remove", "r1ab"]), .rulesRemove(id: "r1ab"))
+                try expectEqual(try parsed(["rules", "chat", "forget the console.log one"]), .rulesChatSend(message: "forget the console.log one"))
+                try expectEqual(try parsed(["rules", "chat", "--undo", "--yes"]), .rulesChatUndo(confirmed: true))
+                try expectEqual(try parsed(["rules", "chat", "--show"]), .rulesChatShow)
+                try expectEqual(try parsed(["rules", "chat", "--stop"]), .rulesChatStop)
+                try expect(rejects(["rules", "chat", "hi", "--show"]))
+                try expectEqual(try parsed(["rules", "suggestions"]), .rulesSuggestions)
+                try expectEqual(try parsed(["rules", "suggestions", "never", "s1"]), .rulesSuggestionAct(id: "s1", action: .never, text: nil))
+                try expectEqual(try parsed(["rules", "suggestions", "accept", "s1", "--text", "T"]), .rulesSuggestionAct(id: "s1", action: .accept, text: "T"))
+                try expectEqual(try parsed(["rules", "suggestions", "dismiss", "s1"]), .rulesSuggestionAct(id: "s1", action: .dismiss, text: nil))
+                try expectEqual(try parsed(["rules", "proposal", "save", "api#1", "1", "--text", "Edited"]),
+                                .chatProposal(pr: "api#1", number: 1, save: true, text: "Edited"))
+                try expectEqual(try parsed(["rules", "proposal", "save", "api#1", "2", "--global"]),
+                                .chatProposal(pr: "api#1", number: 2, save: true, text: nil, scope: .global))
+                try expectEqual(try parsed(["rules", "proposal", "dismiss", "api#1", "1"]), .chatProposal(pr: "api#1", number: 1, save: false, text: nil))
+                try expect(rejects(["rules", "proposal", "save", "api#1", "1", "--global", "--this-repo"]))
+                try expectEqual(try parsed(["claude", "review", "set", "--min-severity", "medium", "--max-findings", "10",
+                                            "--ignore", "generated/**", "--category", "style=off", "--tone", "with-suggestions"]),
+                                .claudeReviewSet(changes: ReviewOptionChanges(minSeverity: .medium, maxFindings: .set(value: "10"),
+                                                                              addIgnore: ["generated/**"], categories: ["style": false],
+                                                                              tone: .withSuggestions)))
+                try expectEqual(try parsed(["claude", "review", "set", "--max-findings", "none", "--unignore", "x/**"]),
+                                .claudeReviewSet(changes: ReviewOptionChanges(maxFindings: .clear, removeIgnore: ["x/**"])))
+                try expect(rejects(["claude", "review", "set", "--category", "style"]))
+                try expect(rejects(["claude", "review", "set"]))
+                try expectEqual(try parsed(["claude", "respond", "set", "--tests-before-push", "on", "--commit-mode", "per-comment", "--allow-deps", "off"]),
+                                .claudeRespondSet(changes: RespondOptionChanges(runTestsBeforePush: true, commitMode: .perComment,
+                                                                                allowNewDependencies: false)))
+                try expectEqual(try parsed(["claude", "respond", "set", "--commit-template", "Fix {n}", "--reply-template", "default"]),
+                                .claudeRespondSet(changes: RespondOptionChanges(commitMessageTemplate: .set(value: "Fix {n}"), replyTemplate: .clear)))
+                try expectEqual(try parsed(["claude", "stage", "filter", "--default"]), .claudeStageSet(stage: .filter, change: .useDefault))
+                try expectEqual(try parsed(["claude", "stage", "review", "--skill", "a:b"]), .claudeStageSet(stage: .review, change: .skill(name: "a:b")))
+                try expect(rejects(["claude", "stage", "filter", "--default", "--skill", "x"]))
+                try expect(rejects(["claude", "stage", "chat-review", "--default"]))
+                try expectEqual(try parsed(["claude", "prompt", "reset", "chat-review"]), .claudePromptReset(stage: .reviewChat))
+                try expectEqual(try parsed(["claude", "prompt", "show", "chat-instructions"]), .claudePromptShow(stage: .instructionsChat))
+                try expect(rejects(["claude", "prompt", "show", "reviewChat"]))
+                guard case .repoSet(_, _, let changes) = try parsed(["repo", "set", "acme/web", "--ignore", "dist/**", "--unignore", "gen/**"]) else {
+                    throw TestFailure(description: "repo set")
+                }
+                try expectEqual(changes.addIgnore, ["dist/**"])
+                try expectEqual(changes.removeIgnore, ["gen/**"])
+                try expectEqual(try parsed(["respond", "push", "web#2", "--anyway", "--yes"]), .respondPushAnyway(pr: "web#2", confirmed: true, wait: false))
+                try expect(try PRBarCommand.parseAsRoot(["app", "logs", "--instructions"]) is any LocalCommand)
+            },
+            TestCase("cli: --review/--fixes cambian solo lo nombrado") {
+                func flags(_ arguments: [String]) throws -> StageFlags { try StageFlags.parse(arguments) }
+                try expectEqual(try flags(["--no-fixes"]).applied(to: [.review, .respond]), [.review])
+                try expectEqual(try flags(["--review"]).applied(to: [.respond]), [.review, .respond])
+                try expectEqual(try flags(["--no-review", "--fixes"]).applied(to: [.review]), [.respond])
+                try expectEqual(try flags([]).applied(to: [.respond]), [.respond])
+                try expect(try flags([]).isEmpty)
+            },
         ]
     }
 }

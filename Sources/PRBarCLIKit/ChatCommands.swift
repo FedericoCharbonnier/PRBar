@@ -89,7 +89,9 @@ struct ChatCommand: RemoteCommand {
     mutating func run() throws {
         let terminal = Terminal.current()
         if message == nil && !undo && !show && !stop && terminal.isInteractive && !global.json {
-            return try ChatREPL.run(pr: pr)
+            let pr = pr
+            return try ChatREPL.run(show: .chatShow(pr: pr), send: { .chatSend(pr: pr, message: $0) },
+                                    undo: { .chatUndo(pr: pr, confirmed: $0) }, stop: .chatStop(pr: pr))
         }
         do {
             try CLIRunner.run(self)
@@ -103,17 +105,18 @@ struct ChatCommand: RemoteCommand {
     }
 }
 
-/// `prbar chat <pr>` en una terminal: la conversación con streaming. Ctrl-C mientras Claude contesta lo detiene
-/// (y sale con 130); Ctrl-D o `/quit` salen. Una línea que termina en `\` sigue en la próxima.
+/// `prbar chat <pr>` (y `prbar rules chat`) en una terminal: la conversación con streaming. Ctrl-C mientras Claude
+/// contesta lo detiene (y sale con 130); Ctrl-D o `/quit` salen. Una línea que termina en `\` sigue en la próxima.
 enum ChatREPL {
-    static func run(pr: String) throws {
+    static func run(show: AppCommand, send: (String) -> AppCommand, undo: (Bool) -> AppCommand, stop: AppCommand,
+                    hint: String = "Type a message") throws {
         let environment = CLIEnvironment.live
         let output = Output(terminal: environment.terminal, json: false)
         do {
             let connection = try environment.connect()
             defer { connection.close() }
-            ChatRender.transcript(try connection.run(.chatShow(pr: pr)).decode(), output)
-            output.note("Type a message (end a line with \\ to continue). /undo, /show, /stop, /quit.")
+            ChatRender.transcript(try connection.run(show).decode(), output)
+            output.note("\(hint) (end a line with \\ to continue). /undo, /show, /stop, /quit.")
             while true {
                 output.write(output.paint("you› ", .bold))
                 guard var text = readLine() else { output.line(); return }
@@ -124,25 +127,25 @@ enum ChatREPL {
                 case "/quit", "/exit":
                     return
                 case "/show":
-                    ChatRender.transcript(try connection.run(.chatShow(pr: pr)).decode(), output)
+                    ChatRender.transcript(try connection.run(show).decode(), output)
                 case "/stop":
-                    _ = try? connection.run(.chatStop(pr: pr))
+                    _ = try? connection.run(stop)
                 case "/undo":
                     do {
-                        ChatRender.transcript(try connection.run(.chatUndo(pr: pr, confirmed: false)).decode(), output)
+                        ChatRender.transcript(try connection.run(undo(false)).decode(), output)
                     } catch let failure as CommandFailure where failure.code == .confirmationRequired {
                         if Prompt.confirm("\(failure.message) Undo anyway?") {
-                            ChatRender.transcript(try connection.run(.chatUndo(pr: pr, confirmed: true)).decode(), output)
+                            ChatRender.transcript(try connection.run(undo(true)).decode(), output)
                         }
                     } catch let failure as CommandFailure {
                         output.error(failure.message)
                     }
                 default:
-                    let interrupt = InterruptHandler(cancel: .chatStop(pr: pr), connect: environment.connect, err: environment.err)
+                    let interrupt = InterruptHandler(cancel: stop, connect: environment.connect, err: environment.err)
                     defer { interrupt.remove() }
                     output.write(output.paint("claude› ", .violet, .bold))
                     do {
-                        let info: ChatInfo = try connection.run(.chatSend(pr: pr, message: text)) { output.event($0) }.decode()
+                        let info: ChatInfo = try connection.run(send(text)) { output.event($0) }.decode()
                         ChatRender.reply(info, output)
                     } catch let failure as CommandFailure {
                         output.line()

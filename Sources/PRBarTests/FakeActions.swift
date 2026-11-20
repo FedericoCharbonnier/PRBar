@@ -217,7 +217,7 @@ final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActi
     func rulesSuggestionAct(id: String, action: SuggestionAction, text: String?) throws -> [RuleInfo] {
         try record("rulesSuggestionAct \(id) \(action.rawValue)"); return [rule]
     }
-    func chatProposal(pr: String, number: Int, save: Bool, text: String?) throws -> ChatInfo {
+    func chatProposal(pr: String, number: Int, save: Bool, text: String?, scope: RuleScope?, appliesTo: [RuleStage]?) throws -> ChatInfo {
         try record("chatProposal \(pr) \(number) save=\(save)"); return chatInfo(pr)
     }
     func claudeReviewSet(changes: ReviewOptionChanges) throws -> ClaudeSettings { try record("claudeReviewSet"); return ClaudeSettings() }

@@ -6,8 +6,6 @@ import Foundation
 enum UIMapping: Equatable {
     case cli([String])
     case viewOnly(String)
-    /// Controles de los planes 6/8/9 cuyo comando agregan las Tasks 26–28. La Task 28 borra este caso.
-    case deferred(String)
 }
 
 struct UIAction {
@@ -99,13 +97,13 @@ enum UIActionInventory {
         .init("Chat/ChatPanel.swift", "TextField", "-", 1, .cli(["chat"])),   // el mensaje
         .init("Chat/ChatPanel.swift", "Button", "-", 1, .cli(["chat"])),   // enviar
         .init("Chat/ChatPanel.swift", "Button", "Stop", 1, .cli(["chat"])),   // --stop
-        .init("Chat/ChatPanel.swift", "Button", "Undo", 1, .cli(["chat"])),   // --undo (también en el chat de instrucciones)
-        .init("Chat/ChatPanel.swift", "Button", "Show Log", 1, .cli(["history show"])),   // el log del review o del análisis
+        .init("Chat/ChatPanel.swift", "Button", "Undo", 1, .cli(["chat", "rules chat"])),   // --undo (también en el chat de instrucciones)
+        .init("Chat/ChatPanel.swift", "Button", "Show Log", 1, .cli(["history show", "app logs"])),   // el log del review/análisis, o `app logs --instructions`
         .init("Chat/ChatPanel.swift", "DisclosureGroup", "-", 1, .cli(["history show", "chat"])),   // la conversación en el historial
-        .init("Chat/ChatPanel.swift", "TextField", "Rule", 1, .deferred("Task 28")),   // tarjeta "Save as rule"
-        .init("Chat/ChatPanel.swift", "Picker", "Scope", 1, .deferred("Task 28")),
-        .init("Chat/ChatPanel.swift", "Button", "Save", 1, .deferred("Task 28")),
-        .init("Chat/ChatPanel.swift", "Button", "Dismiss", 1, .deferred("Task 28")),
+        .init("Chat/ChatPanel.swift", "TextField", "Rule", 1, .cli(["rules proposal save"])),   // tarjeta "Save as rule" (--text)
+        .init("Chat/ChatPanel.swift", "Picker", "Scope", 1, .cli(["rules proposal save"])),   // --global / --this-repo
+        .init("Chat/ChatPanel.swift", "Button", "Save", 1, .cli(["rules proposal save"])),
+        .init("Chat/ChatPanel.swift", "Button", "Dismiss", 1, .cli(["rules proposal dismiss"])),
         // Botones Review / Respond de la fila
         .init("Review/ReviewButton.swift", "Button", "Review", 1, .cli(["review start"])),
         .init("Review/ReviewButton.swift", "Button", "-", 4, .cli(["open", "review cancel", "history show"])),
@@ -141,7 +139,7 @@ enum UIActionInventory {
         // Ventana de Respond
         // carpeta, Push/Post, la acción de un mensaje ("Open New Analysis"…) y el botón Chat
         .init("Respond/RespondWindow.swift", "Button", "-", 4, .cli(["open", "respond push", "chat"])),
-        .init("Respond/RespondWindow.swift", "Button", "Push Anyway…", 1, .deferred("Task 28")),
+        .init("Respond/RespondWindow.swift", "Button", "Push Anyway…", 1, .cli(["respond push"])),   // --anyway
         .init("Respond/RespondWindow.swift", "Button", "Reset to Claude’s Suggestions", 1, .cli(["respond select"])),
         .init("Respond/RespondWindow.swift", "Button", "Implement 1 Fix", 1, .cli(["respond implement"])),
         .init("Respond/RespondWindow.swift", "Button", "Analyze Again", 1, .cli(["respond start"])),
@@ -189,43 +187,43 @@ enum UIActionInventory {
         .init("Settings/PathRow.swift", "Button", "Choose…", 1, .cli(["tools set", "repo set"])),
         // Settings › Claude
         // el selector de skill, "None", una fila de la lista de skills y los chips de categoría (Task 28)
-        .init("Settings/ClaudeTab.swift", "Button", "-", 4, .cli(["claude set", "claude skills"])),
+        .init("Settings/ClaudeTab.swift", "Button", "-", 4, .cli(["claude stage", "claude set", "claude skills", "claude review set"])),
         .init("Settings/ClaudeTab.swift", "Toggle", "Filter findings", 1, .cli(["claude set"])),
         .init("Settings/ClaudeTab.swift", "Picker", "Model", 2, .cli(["claude set"])),   // --model y --chat-model
         .init("Settings/ClaudeTab.swift", "Toggle", "Chat with Claude in Review and Respond windows", 1, .cli(["claude set"])),   // --chat
-        .init("Settings/ClaudeTab.swift", "Picker", "-", 1, .deferred("Task 28")),   // Skill / Custom prompt por etapa
-        .init("Settings/ClaudeTab.swift", "Button", "Edit Prompt…", 1, .deferred("Task 28")),
-        .init("Settings/ClaudeTab.swift", "Button", "Edit…", 1, .deferred("Task 28")),
-        .init("Settings/ClaudeTab.swift", "Picker", "Minimum severity", 1, .deferred("Task 28")),
-        .init("Settings/ClaudeTab.swift", "Toggle", "Limit", 1, .deferred("Task 28")),
-        .init("Settings/ClaudeTab.swift", "Stepper", #"\(limit)"#, 1, .deferred("Task 28")),
-        .init("Settings/ClaudeTab.swift", "Picker", "Tone", 1, .deferred("Task 28")),
-        .init("Settings/ClaudeTab.swift", "Toggle", "Run tests before pushing", 1, .deferred("Task 28")),
-        .init("Settings/ClaudeTab.swift", "Picker", "Commits", 1, .deferred("Task 28")),
-        .init("Settings/ClaudeTab.swift", "Toggle", "Allow new tests", 1, .deferred("Task 28")),
-        .init("Settings/ClaudeTab.swift", "Toggle", "Allow new dependencies", 1, .deferred("Task 28")),
-        .init("Settings/FixTemplateEditor.swift", "TextField", "-", 1, .deferred("Task 28")),
-        .init("Settings/FixTemplateEditor.swift", "Button", #"\(variable.token)  \(variable.summary)"#, 1, .deferred("Task 28")),
-        .init("Settings/FixTemplateEditor.swift", "Button", "Reset to Default", 1, .deferred("Task 28")),
-        .init("Settings/PatternListField.swift", "TextField", "e.g. generated/**, *.lock", 1, .deferred("Task 28")),
-        .init("Settings/PromptEditorSheet.swift", "TextEditor", "-", 1, .deferred("Task 28")),
-        .init("Settings/PromptEditorSheet.swift", "Button", #"\(variable.token)  \(variable.summary)"#, 1, .deferred("Task 28")),
-        .init("Settings/PromptEditorSheet.swift", "Button", "Reset to Default", 1, .deferred("Task 28")),
-        .init("Settings/PromptEditorSheet.swift", "Button", "Save", 1, .deferred("Task 28")),
+        .init("Settings/ClaudeTab.swift", "Picker", "-", 1, .cli(["claude stage", "claude prompt edit"])),   // Skill / Custom Prompt por etapa
+        .init("Settings/ClaudeTab.swift", "Button", "Edit Prompt…", 1, .cli(["claude prompt edit", "claude prompt show"])),
+        .init("Settings/ClaudeTab.swift", "Button", "Edit…", 1, .cli(["claude prompt edit", "claude prompt show"])),   // Prompts
+        .init("Settings/ClaudeTab.swift", "Picker", "Minimum severity", 1, .cli(["claude review set"])),
+        .init("Settings/ClaudeTab.swift", "Toggle", "Limit", 1, .cli(["claude review set"])),   // --max-findings N|none
+        .init("Settings/ClaudeTab.swift", "Stepper", #"\(limit)"#, 1, .cli(["claude review set"])),
+        .init("Settings/ClaudeTab.swift", "Picker", "Tone", 1, .cli(["claude review set"])),
+        .init("Settings/ClaudeTab.swift", "Toggle", "Run tests before pushing", 1, .cli(["claude respond set"])),
+        .init("Settings/ClaudeTab.swift", "Picker", "Commits", 1, .cli(["claude respond set"])),
+        .init("Settings/ClaudeTab.swift", "Toggle", "Allow new tests", 1, .cli(["claude respond set"])),
+        .init("Settings/ClaudeTab.swift", "Toggle", "Allow new dependencies", 1, .cli(["claude respond set"])),
+        .init("Settings/FixTemplateEditor.swift", "TextField", "-", 1, .cli(["claude respond set"])),   // --commit-template / --reply-template
+        .init("Settings/FixTemplateEditor.swift", "Button", #"\(variable.token)  \(variable.summary)"#, 1, .cli(["claude respond set"])),   // Insert Variable
+        .init("Settings/FixTemplateEditor.swift", "Button", "Reset to Default", 1, .cli(["claude respond set"])),   // … default
+        .init("Settings/PatternListField.swift", "TextField", "e.g. generated/**, *.lock", 1, .cli(["claude review set", "repo set"])),   // --ignore / --unignore (global y por repo)
+        .init("Settings/PromptEditorSheet.swift", "TextEditor", "-", 1, .cli(["claude prompt edit"])),
+        .init("Settings/PromptEditorSheet.swift", "Button", #"\(variable.token)  \(variable.summary)"#, 1, .cli(["claude prompt edit"])),   // Insert Variable
+        .init("Settings/PromptEditorSheet.swift", "Button", "Reset to Default", 1, .cli(["claude prompt reset"])),
+        .init("Settings/PromptEditorSheet.swift", "Button", "Save", 1, .cli(["claude prompt edit"])),
         .init("Settings/PromptEditorSheet.swift", "Button", "Cancel", 1, .viewOnly("closes the editor without saving")),
         // Settings › Instructions (plan 9)
-        .init("Settings/InstructionsTab.swift", "TextField", "Rule", 1, .deferred("Task 28")),
-        .init("Settings/InstructionsTab.swift", "Toggle", "Enabled", 1, .deferred("Task 28")),
-        .init("Settings/InstructionsTab.swift", "Button", "-", 2, .deferred("Task 28")),   // borrar la regla y enviar en el chat
-        .init("Settings/InstructionsTab.swift", "TextField", "New Rule", 1, .deferred("Task 28")),
-        .init("Settings/InstructionsTab.swift", "Button", "Add", 1, .deferred("Task 28")),
-        .init("Settings/InstructionsTab.swift", "TextField", "-", 1, .deferred("Task 28")),   // el mensaje del chat de instrucciones
-        .init("Settings/InstructionsTab.swift", "Button", "Stop", 1, .deferred("Task 28")),
-        .init("Settings/RuleViews.swift", "Button", "-", 1, .deferred("Task 28")),   // StageChip: Review / Fixes
-        .init("Settings/RuleViews.swift", "TextField", "Rule", 1, .deferred("Task 28")),   // sugerencia
-        .init("Settings/RuleViews.swift", "Button", "Create Rule", 1, .deferred("Task 28")),
-        .init("Settings/RuleViews.swift", "Button", "Not Now", 1, .deferred("Task 28")),
-        .init("Settings/RuleViews.swift", "Button", "Never", 1, .deferred("Task 28")),
+        .init("Settings/InstructionsTab.swift", "TextField", "Rule", 1, .cli(["rules edit"])),   // el texto de una regla
+        .init("Settings/InstructionsTab.swift", "Toggle", "Enabled", 1, .cli(["rules enable", "rules disable"])),
+        .init("Settings/InstructionsTab.swift", "Button", "-", 2, .cli(["rules remove", "rules chat"])),   // borrar la regla y enviar en el chat
+        .init("Settings/InstructionsTab.swift", "TextField", "New Rule", 1, .cli(["rules add"])),
+        .init("Settings/InstructionsTab.swift", "Button", "Add", 1, .cli(["rules add"])),
+        .init("Settings/InstructionsTab.swift", "TextField", "-", 1, .cli(["rules chat"])),   // el mensaje del chat de instrucciones
+        .init("Settings/InstructionsTab.swift", "Button", "Stop", 1, .cli(["rules chat"])),   // --stop
+        .init("Settings/RuleViews.swift", "Button", "-", 1, .cli(["rules edit", "rules add", "rules proposal save"])),   // StageChip: Review / Fixes
+        .init("Settings/RuleViews.swift", "TextField", "Rule", 1, .cli(["rules suggestions accept"])),   // la regla sugerida (--text)
+        .init("Settings/RuleViews.swift", "Button", "Create Rule", 1, .cli(["rules suggestions accept"])),
+        .init("Settings/RuleViews.swift", "Button", "Not Now", 1, .cli(["rules suggestions dismiss"])),
+        .init("Settings/RuleViews.swift", "Button", "Never", 1, .cli(["rules suggestions never"])),
         .init("Settings/ClaudeTab.swift", "Button", "Reset to Defaults", 1, .cli(["claude reset"])),
         .init("Settings/ClaudeTab.swift", "TextField", "Search skills", 1, .cli(["claude skills"])),
         .init("Settings/ClaudeTab.swift", "Button", "Custom…", 1, .cli(["claude set"])),

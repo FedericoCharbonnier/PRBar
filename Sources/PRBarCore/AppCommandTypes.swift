@@ -227,6 +227,24 @@ public enum SuggestionAction: String, Codable, CaseIterable, Sendable {
     case accept, dismiss, never
 }
 
+extension PromptStage {
+    /// El nombre en la CLI: `review`, `filter`, `analysis`, `implementation`, `chat-review`, `chat-respond`,
+    /// `chat-instructions`.
+    public var cliName: String {
+        switch self {
+        case .reviewChat: "chat-review"
+        case .respondChat: "chat-respond"
+        case .instructionsChat: "chat-instructions"
+        case .review, .filter, .analysis, .implementation: rawValue
+        }
+    }
+
+    public init?(cliName: String) {
+        guard let stage = Self.allCases.first(where: { $0.cliName == cliName }) else { return nil }
+        self = stage
+    }
+}
+
 /// `prbar claude stage <stage>`: la etapa usa un skill, un prompt propio o vuelve a lo de fábrica.
 public enum StageChange: Codable, Equatable, Sendable {
     case skill(name: String)

@@ -167,6 +167,39 @@ extension SlackTemplateName: ExpressibleByArgument {
     }
 }
 
+/// `review`, `filter`, `analysis`, `implementation`, `chat-review`, `chat-respond`, `chat-instructions`.
+extension PromptStage: ExpressibleByArgument {
+    public init?(argument: String) {
+        self.init(cliName: argument)
+    }
+
+    public static var allValueStrings: [String] { allCases.map(\.cliName) }
+}
+
+extension Severity: ExpressibleByArgument {}
+
+/// `--tone direct|friendly|with-suggestions`.
+enum ToneArgument: String, ExpressibleByArgument, CaseIterable {
+    case direct, friendly
+    case withSuggestions = "with-suggestions"
+
+    var tone: ReviewTone {
+        switch self {
+        case .direct: .direct
+        case .friendly: .friendly
+        case .withSuggestions: .withSuggestions
+        }
+    }
+}
+
+/// `--commit-mode per-comment|single`.
+enum CommitModeArgument: String, ExpressibleByArgument, CaseIterable {
+    case perComment = "per-comment"
+    case single
+
+    var mode: CommitMode { self == .single ? .single : .perComment }
+}
+
 /// Ayuda del argumento `<pr>`.
 let prHelp: ArgumentHelp = "owner/repo#N, repo#N or the PR’s URL."
 

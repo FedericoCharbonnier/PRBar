@@ -19,11 +19,6 @@ public enum CommandDispatcher {
         }
     }
 
-    @MainActor
-    private static func instructions(_ actions: any PRBarActions) throws -> any InstructionCommandActions {
-        try extra(actions, InstructionCommandActions.self, "rules, review options and prompts")
-    }
-
     private static func encode<T: Encodable>(_ value: T) throws -> JSONValue {
         try JSONValue(encoding: value)
     }
@@ -32,16 +27,6 @@ public enum CommandDispatcher {
         guard confirmed else {
             throw CommandFailure(.confirmationRequired, "\(what) needs confirmation: run it again with --yes.")
         }
-    }
-
-    /// Los protocolos que `AppModel` suma en las Tasks 26–28: si todavía no los implementa, el comando falla con un
-    /// mensaje claro en vez de no compilar.
-    @MainActor
-    private static func extra<T>(_ actions: any PRBarActions, _ type: T.Type, _ what: String) throws -> T {
-        guard let extra = actions as? T else {
-            throw CommandFailure(.failed, "This version of PRBar can’t do \(what) from the command line yet.")
-        }
-        return extra
     }
 
     @MainActor
@@ -258,43 +243,44 @@ public enum CommandDispatcher {
             return .ok
         // Instrucciones, opciones y prompts
         case .rulesList(let repo):
-            return try encode(instructions(actions).rulesList(repo: repo))
+            return try encode(actions.rulesList(repo: repo))
         case .rulesAdd(let text, let scope, let stages):
-            return try encode(instructions(actions).rulesAdd(text: text, scope: scope, appliesTo: stages))
+            return try encode(actions.rulesAdd(text: text, scope: scope, appliesTo: stages))
         case .rulesEdit(let id, let text, let scope, let stages):
-            return try encode(instructions(actions).rulesEdit(id: id, text: text, scope: scope, appliesTo: stages))
+            return try encode(actions.rulesEdit(id: id, text: text, scope: scope, appliesTo: stages))
         case .rulesRemove(let id):
-            try instructions(actions).rulesRemove(id: id)
+            try actions.rulesRemove(id: id)
             return .ok
         case .rulesSetEnabled(let id, let enabled):
-            try instructions(actions).rulesSetEnabled(id: id, enabled: enabled)
+            try actions.rulesSetEnabled(id: id, enabled: enabled)
             return .ok
         case .rulesChatSend(let message):
-            return try encode(await instructions(actions).rulesChatSend(message: message, events: events))
+            return try encode(await actions.rulesChatSend(message: message, events: events))
         case .rulesChatShow:
-            return try encode(instructions(actions).rulesChatShow())
+            return try encode(actions.rulesChatShow())
         case .rulesChatUndo(let confirmed):
-            return try encode(await instructions(actions).rulesChatUndo(confirmed: confirmed))
+            return try encode(await actions.rulesChatUndo(confirmed: confirmed))
         case .rulesChatStop:
-            return try encode(instructions(actions).rulesChatStop())
+            return try encode(actions.rulesChatStop())
         case .rulesSuggestions:
-            return try encode(instructions(actions).rulesSuggestions())
+            return try encode(actions.rulesSuggestions())
         case .rulesSuggestionAct(let id, let action, let text):
-            return try encode(instructions(actions).rulesSuggestionAct(id: id, action: action, text: text))
-        case .chatProposal(let pr, let number, let save, let text):
-            return try encode(instructions(actions).chatProposal(pr: pr, number: number, save: save, text: text))
+            return try encode(actions.rulesSuggestionAct(id: id, action: action, text: text))
+        case .chatProposal(let pr, let number, let save, let text, let scope, let stages):
+            return try encode(actions.chatProposal(pr: pr, number: number, save: save, text: text, scope: scope,
+                                                                 appliesTo: stages))
         case .claudeReviewSet(let changes):
-            return try encode(instructions(actions).claudeReviewSet(changes: changes))
+            return try encode(actions.claudeReviewSet(changes: changes))
         case .claudeRespondSet(let changes):
-            return try encode(instructions(actions).claudeRespondSet(changes: changes))
+            return try encode(actions.claudeRespondSet(changes: changes))
         case .claudeStageSet(let stage, let change):
-            return try encode(instructions(actions).claudeStageSet(stage: stage, change: change))
+            return try encode(actions.claudeStageSet(stage: stage, change: change))
         case .claudePromptShow(let stage):
-            return try encode(instructions(actions).claudePromptShow(stage: stage))
+            return try encode(actions.claudePromptShow(stage: stage))
         case .claudePromptSet(let stage, let text):
-            return try encode(instructions(actions).claudePromptSet(stage: stage, text: text))
+            return try encode(actions.claudePromptSet(stage: stage, text: text))
         case .claudePromptReset(let stage):
-            return try encode(instructions(actions).claudePromptReset(stage: stage))
+            return try encode(actions.claudePromptReset(stage: stage))
         }
     }
 }

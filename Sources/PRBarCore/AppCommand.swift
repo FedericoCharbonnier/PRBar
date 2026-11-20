@@ -119,8 +119,9 @@ public enum AppCommand: Codable, Equatable, Sendable {
     case rulesChatStop
     case rulesSuggestions
     case rulesSuggestionAct(id: String, action: SuggestionAction, text: String?)
-    /// La tarjeta "Save as rule" número `number` (desde 1, entre las pendientes del chat del PR).
-    case chatProposal(pr: String, number: Int, save: Bool, text: String?)
+    /// La tarjeta "Save as rule" número `number` (desde 1, entre las pendientes del chat del PR). Al guardar, `text`,
+    /// `scope` y `appliesTo` reemplazan lo propuesto (como editar la tarjeta); `nil` = lo propuesto.
+    case chatProposal(pr: String, number: Int, save: Bool, text: String?, scope: RuleScope? = nil, appliesTo: [RuleStage]? = nil)
     case claudeReviewSet(changes: ReviewOptionChanges)
     case claudeRespondSet(changes: RespondOptionChanges)
     case claudeStageSet(stage: PromptStage, change: StageChange)

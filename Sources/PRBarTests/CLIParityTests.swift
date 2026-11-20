@@ -4,20 +4,11 @@ import PRBarCLIKit
 import PRBarCore
 
 enum CLIParityTests {
-    /// Casos de `AppCommand` cuyos comandos llegan en las Tasks 26–28 (chat, actualizaciones, instrucciones). Cada
-    /// task saca los suyos; al final queda vacío.
-    static let pending: Set<AppCommand.Name> = [
-        .rulesList, .rulesAdd, .rulesEdit, .rulesRemove, .rulesSetEnabled, .rulesChatSend, .rulesChatShow, .rulesChatUndo,
-        .rulesChatStop, .rulesSuggestions, .rulesSuggestionAct, .chatProposal, .claudeReviewSet, .claudeRespondSet,
-        .claudeStageSet, .claudePromptShow, .claudePromptSet, .claudePromptReset, .respondPushAnyway,
-    ]
-
     static let cases: [TestCase] = [
         TestCase("paridad: cada AppCommand lo produce algún comando de la CLI") {
             let produced = Set(CLIRouter.commands.flatMap(\.produces))
-            let missing = AppCommand.Name.allCases.filter { !produced.contains($0) && !pending.contains($0) }
+            let missing = AppCommand.Name.allCases.filter { !produced.contains($0) }
             try expect(missing.isEmpty, "Sin comando de CLI: \(missing.map(\.rawValue))")
-            try expect(pending.isDisjoint(with: produced), "Ya tienen comando: \(pending.intersection(produced).map(\.rawValue))")
         },
         TestCase("paridad: los ejemplos de la tabla producen lo que dicen") {
             SlackTokenInput.read = { _ in "xoxp-test" }

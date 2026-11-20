@@ -5,8 +5,7 @@ import Foundation
 // estos métodos. Los métodos lanzan `CommandFailure` con el texto de la UI y el comando sugerido (spec C.6).
 //
 // El chat (`ChatCommandActions`), las actualizaciones (`UpdateCommandActions`) y las instrucciones/opciones/prompts
-// (`InstructionCommandActions`) son protocolos aparte que `AppModel` implementa en las Tasks 26–28: hasta entonces el
-// dispatcher contesta que esa versión de PRBar no los sabe hacer.
+// (`InstructionCommandActions`) también los implementa `AppModel` (AppModel+Chat, +UpdateCommands, +InstructionCommands).
 
 @MainActor
 public protocol StatusActions: AnyObject {
@@ -139,7 +138,7 @@ public protocol InstructionCommandActions: AnyObject {
     func rulesChatStop() throws -> ChatInfo
     func rulesSuggestions() -> [RuleSuggestionInfo]
     func rulesSuggestionAct(id: String, action: SuggestionAction, text: String?) throws -> [RuleInfo]
-    func chatProposal(pr: String, number: Int, save: Bool, text: String?) throws -> ChatInfo
+    func chatProposal(pr: String, number: Int, save: Bool, text: String?, scope: RuleScope?, appliesTo: [RuleStage]?) throws -> ChatInfo
     func claudeReviewSet(changes: ReviewOptionChanges) throws -> ClaudeSettings
     func claudeRespondSet(changes: RespondOptionChanges) throws -> ClaudeSettings
     func claudeStageSet(stage: PromptStage, change: StageChange) throws -> ClaudeSettings
@@ -148,7 +147,6 @@ public protocol InstructionCommandActions: AnyObject {
     func claudePromptReset(stage: PromptStage) throws -> PromptInfo
 }
 
-/// Lo que la app tiene que saber hacer para abrir el socket. El chat, las actualizaciones y las instrucciones se
-/// suman cuando `AppModel` los implementa (Tasks 26–28); mientras tanto el dispatcher los busca con `as?`.
+/// Lo que la app tiene que saber hacer para abrir el socket.
 public typealias PRBarActions = StatusActions & ReviewActions & RespondActions & MergeActions & ConfigActions
-    & SlackActions & ChatCommandActions & UpdateCommandActions
+    & SlackActions & ChatCommandActions & UpdateCommandActions & InstructionCommandActions
