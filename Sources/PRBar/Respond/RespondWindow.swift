@@ -194,7 +194,7 @@ struct RespondWindow: View {
                     .font(.callout.weight(.semibold))
                 Spacer()
                 Button("Reset to Claude’s Suggestions") {
-                    chat.selections = Dictionary(uniqueKeysWithValues: draft.items.map { ($0.id, RespondSelection.defaults(for: $0)) })
+                    model.resetRespondSelections(draft)
                 }
                 .controlSize(.small)
                 .help("Go back to Claude’s decisions and texts")
@@ -235,7 +235,7 @@ struct RespondWindow: View {
                 if fixCount > 0 {
                     if canAct {
                         Button(fixCount == 1 ? "Implement 1 Fix" : "Implement \(fixCount) Fixes") {
-                            model.implementRespond(prID: prID, selections: chat.selections)
+                            model.implementRespond(prID: prID)
                         }
                         .buttonStyle(.borderedProminent)
                         .keyboardShortcut(.return, modifiers: .command)
@@ -252,12 +252,11 @@ struct RespondWindow: View {
                     }
                 } else {
                     Button(alreadyPosted > 0 ? "Retry Pending Replies" : replyCount == 1 ? "Post 1 Reply" : "Post \(replyCount) Replies") {
-                        let selections = chat.selections
                         ConfirmAlert.present(
                             title: replyCount == 1 ? "Post 1 reply?" : "Post \(replyCount) replies?",
                             message: "They’ll be posted to \(draft.repo.name)#\(draft.number) as @\(draft.account). Nothing is pushed.",
                             action: "Post"
-                        ) { queue.publishRepliesOnly(prID: prID, selections: selections) }
+                        ) { model.publishRespondReplies(prID: prID) }
                     }
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.return, modifiers: .command)

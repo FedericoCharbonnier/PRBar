@@ -43,10 +43,11 @@ extension AppModel {
     /// `nil` = they can.
     var jobsBlockedReason: String? { updates.jobsBlockedReason }
 
-    /// Implement the selected fixes, unless an update is being installed.
-    func implementRespond(prID: String, selections: [String: RespondSelection]) {
-        guard jobsBlockedReason == nil else { return }
-        respond.implement(prID: prID, selections: selections)
+    /// "Implement N Fixes" (ventana) o `prbar respond implement`: los fixes elegidos en el coordinador del análisis,
+    /// salvo que se esté instalando una actualización.
+    func implementRespond(prID: String) {
+        guard jobsBlockedReason == nil, let draft = respond.records[prID]?.draft else { return }
+        respond.implement(prID: prID, selections: respondSelections(for: draft))
     }
 
     /// Reviews, análisis, implementaciones, tests y publicaciones de Responder en cola o corriendo, los turnos de

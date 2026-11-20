@@ -931,6 +931,32 @@ final class AppModel: ObservableObject {
         WindowPresenter.shared.close(id: Self.respondWindowID(prID))
     }
 
+    /// Lo elegido para el análisis `draft` (ventana, chat o CLI): las `selections` de su coordinador.
+    func respondSelections(for draft: RespondDraft) -> [String: RespondSelection] {
+        respondChat(for: draft).selections
+    }
+
+    func updateRespondSelection(_ draft: RespondDraft, itemID: String, _ mutate: (inout RespondSelection) -> Void) {
+        guard let item = draft.items.first(where: { $0.id == itemID }) else { return }
+        let chat = respondChat(for: draft)
+        var selection = chat.selections[itemID] ?? RespondSelection.defaults(for: item)
+        mutate(&selection)
+        chat.selections[itemID] = selection
+    }
+
+    /// "Reset to Claude’s Suggestions".
+    func resetRespondSelections(_ draft: RespondDraft) {
+        respondChat(for: draft).selections = Dictionary(uniqueKeysWithValues: draft.items.map {
+            ($0.id, RespondSelection.defaults(for: $0))
+        })
+    }
+
+    /// "Post N Replies" sin fixes (ventana) o `prbar respond reply-only`.
+    func publishRespondReplies(prID: String) {
+        guard let draft = respond.records[prID]?.draft else { return }
+        respond.publishRepliesOnly(prID: prID, selections: respondSelections(for: draft))
+    }
+
     /// El `testCommand` del repo del draft (`nil` = sin botón "Correr tests").
     func testCommand(for draft: RespondDraft) -> String? {
         repoConfig(account: draft.account, repo: draft.repo)?.testCommand
@@ -978,13 +1004,8 @@ final class AppModel: ObservableObject {
         let windowID = Self.respondWindowID(prID)
         WindowPresenter.shared.show(
             id: windowID, title: "Respond · \(draft.repo.name)#\(draft.number)", size: RespondWindow.size,
-            options: WindowOptions(
-                sharedFrameKey: "RespondWindowFrame",
-                bridgesToolbar: true, toolbarStyle: .unified,
-                closeConfirmation: CloseConfirmation(
-                    message: "Close without using the changes?", info: "Your decisions and edited text will be lost."
-                )
-            ),
+            // Sin confirmación al cerrar: las decisiones viven en el coordinador del draft (plan 7, decisión 3).
+            options: WindowOptions(sharedFrameKey: "RespondWindowFrame", bridgesToolbar: true, toolbarStyle: .unified),
             contentID: draft.id.uuidString,
             replaceConfirmation: "The previous analysis has unused decisions. Replace it?"
         ) {
