@@ -143,6 +143,8 @@ let allTests: [TestCase] = []
     + WireTests.cases
     + NoiseTests.cases
     + SealedTests.cases
+    + SASTests.cases
+    + PairingQRTests.cases
 
 let filter = CommandLine.arguments.dropFirst().first
 let selected = allTests.filter { test in
