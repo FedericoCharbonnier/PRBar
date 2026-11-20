@@ -16,7 +16,7 @@ public struct PRBarCommand: ParsableCommand {
         version: AppConnection.cliVersion,
         subcommands: [
             StatusCommand.self, PRsCommand.self, RefreshCommand.self, OpenCommand.self, HistoryGroup.self, AppGroup.self,
-            ReviewGroup.self, RespondGroup.self, MergeCommand.self,
+            ReviewGroup.self, RespondGroup.self, MergeCommand.self, ChatCommand.self,
             ConfigGroup.self, AccountGroup.self, RepoGroup.self, FollowGroup.self, NotifyGroup.self, ClaudeGroup.self, ToolsGroup.self,
             SlackGroup.self,
             VersionCommand.self, DoctorCommand.self, CompletionCommand.self,

@@ -57,6 +57,9 @@ public enum CLIRouter {
         .init("respond reply-only", [.respondReplyOnly], ["respond", "reply-only", "web#2", "--yes"]),
         .init("respond cancel", [.respondCancel], ["respond", "cancel", "web#2"]),
         .init("respond dismiss", [.respondDismiss], ["respond", "dismiss", "web#2"]),
+        // Chat (plan 6)
+        .init("chat", [.chatSend, .chatShow, .chatUndo, .chatStop],
+              ["chat", "api#1", "hi"], ["chat", "api#1", "--show"], ["chat", "api#1", "--undo"], ["chat", "api#1", "--stop"]),
         // Ready to Merge (plan 10)
         .init("merge", [.merge, .mergeDismiss], ["merge", "api#4", "--method", "squash", "--yes"], ["merge", "api#4", "--dismiss"]),
         // Configuración
@@ -86,7 +89,7 @@ public enum CLIRouter {
         .init("notify disable", [.notifySetEnabled], ["notify", "disable"]),
         .init("notify system-settings", [], ["notify", "system-settings"]),
         .init("claude show", [.claudeShow], ["claude", "show"]),
-        .init("claude set", [.claudeSet], ["claude", "set", "--filter", "on"]),
+        .init("claude set", [.claudeSet], ["claude", "set", "--filter", "on"], ["claude", "set", "--chat", "on"]),
         .init("claude reset", [.claudeReset], ["claude", "reset"]),
         .init("claude skills", [.claudeSkills], ["claude", "skills"]),
         .init("tools list", [.toolsList], ["tools", "list"]),

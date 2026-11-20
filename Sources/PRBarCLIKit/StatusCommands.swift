@@ -161,6 +161,11 @@ struct HistoryShow: RemoteCommand {
         }
         if let general = detail.generalComment { output.line("General comment: \(general)") }
         for reply in detail.replies { output.line("↩ \(reply.location) \(reply.url.absoluteString)") }
+        if let chat = detail.chat {
+            output.line()
+            output.line(output.paint("Chat (\(chat.messages.count) message\(chat.messages.count == 1 ? "" : "s"))", .bold))
+            ChatRender.transcript(chat, output)
+        }
         if openLog || revealLog {
             guard let log = detail.logPath else { throw CommandFailure(.notFound, "This record has no log.") }
             try LocalOpen.open(log, reveal: revealLog)

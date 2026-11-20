@@ -3,6 +3,27 @@ import PRBarCore
 
 enum CommandResultsTests {
     static let cases: [TestCase] = [
+        TestCase("resultados: ChatInfo numera las propuestas pendientes y el historial trae la conversación") {
+            var draft = editDraft()
+            let plain = HistoryDetail(review: ReviewRecord(draft: draft, startedAt: t0, status: .ready), logPath: nil, canReopen: false)
+            try expect(plain.chat == nil)
+            var session = ChatSession(prID: draft.prID, kind: .review)
+            let saved = RuleProposal(scope: .global, appliesTo: [.review], text: "Saved", status: .saved)
+            let first = RuleProposal(scope: .global, appliesTo: [.review, .respond], text: "No style comments")
+            let second = RuleProposal(scope: .global, appliesTo: [.respond], text: "Use React Query")
+            session.messages = [ChatMessage(role: .user, text: "hi"),
+                                ChatMessage(role: .assistant, text: "ok", proposals: [saved, first]),
+                                ChatMessage(role: .assistant, text: "and", proposals: [second])]
+            draft.chat = session
+            let detail = HistoryDetail(review: ReviewRecord(draft: draft, startedAt: t0, status: .ready), logPath: nil, canReopen: false)
+            guard let chat = detail.chat else { throw TestFailure(description: "sin chat") }
+            try expectEqual(chat.kind, "review")
+            try expect(chat.readOnly)
+            try expectEqual(chat.messages.map(\.role), ["user", "assistant", "assistant"])
+            try expectEqual(chat.messages.flatMap(\.proposals).map(\.number), [nil, 1, 2])
+            try expectEqual(chat.messages[1].proposals[1].appliesTo, [.review, .respond])
+            try expect(!chat.messages.contains(where: \.undoable))
+        },
         TestCase("resultados: PRInfo con JSON estable") {
             let item = ClassifiedPR(pr: makePR(number: 1), category: .toReview, account: "fede")
             let info = PRInfo(item: item, review: nil, respond: nil)

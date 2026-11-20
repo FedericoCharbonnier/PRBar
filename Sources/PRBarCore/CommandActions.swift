@@ -150,4 +150,4 @@ public protocol InstructionCommandActions: AnyObject {
 /// Lo que la app tiene que saber hacer para abrir el socket. El chat, las actualizaciones y las instrucciones se
 /// suman cuando `AppModel` los implementa (Tasks 26–28); mientras tanto el dispatcher los busca con `as?`.
 public typealias PRBarActions = StatusActions & ReviewActions & RespondActions & MergeActions & ConfigActions
-    & SlackActions
+    & SlackActions & ChatCommandActions

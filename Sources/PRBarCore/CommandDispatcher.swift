@@ -235,13 +235,13 @@ public enum CommandDispatcher {
             return try encode(await actions.slackChannels(reload: reload))
         // Chat
         case .chatSend(let pr, let message):
-            return try encode(await extra(actions, ChatCommandActions.self, "the chat").chatSend(pr: pr, message: message, events: events))
+            return try encode(await actions.chatSend(pr: pr, message: message, events: events))
         case .chatShow(let pr):
-            return try encode(extra(actions, ChatCommandActions.self, "the chat").chatShow(pr: pr))
+            return try encode(actions.chatShow(pr: pr))
         case .chatUndo(let pr, let confirmed):
-            return try encode(await extra(actions, ChatCommandActions.self, "the chat").chatUndo(pr: pr, confirmed: confirmed))
+            return try encode(await actions.chatUndo(pr: pr, confirmed: confirmed))
         case .chatStop(let pr):
-            return try encode(extra(actions, ChatCommandActions.self, "the chat").chatStop(pr: pr))
+            return try encode(actions.chatStop(pr: pr))
         // Actualizaciones
         case .updateCheck:
             return try encode(await extra(actions, UpdateCommandActions.self, "updates").updateCheck())

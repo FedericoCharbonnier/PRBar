@@ -37,7 +37,7 @@ shows the help of `review start`, the group’s default subcommand).
 | `prbar refresh` | Refresh now |
 | `prbar open <pr> [--review\|--respond\|--posted\|--worktree] [--copy]` | Open the PR, its window, the posted review or the worktree; `--copy` copies the link |
 | `prbar history [--repo R] [--kind review\|respond] [--search Q] [--limit N]` | History |
-| `prbar history show <id> [--open-log\|--reveal-log]` | One record (id or its first 4+ characters) |
+| `prbar history show <id> [--open-log\|--reveal-log]` | One record (id or its first 4+ characters), with its chat |
 | `prbar history reopen <id>` | Open to Post |
 | `prbar app start\|quit\|settings [tab]\|history [id]` | The app (tabs: `general`, `claude`, `instructions`, `accounts`, `repos`, `slack`) |
 | `prbar app logs [--app\|--slack\|--update] [--path]` | Open a log (PRBar’s, the Slack connector’s, the last update’s) |
@@ -59,6 +59,8 @@ shows the help of `review start`, the group’s default subcommand).
 | `prbar respond push <pr> [--wait] [--yes]` | Push and reply |
 | `prbar respond reply-only <pr> [--wait] [--yes]` | Only replies |
 | `prbar respond cancel\|dismiss <pr>` | Cancel / dismiss |
+| `prbar chat <pr> ["message"]` | Chat with Claude about the review or the Respond analysis; without a message in a terminal, an interactive chat (`/undo`, `/show`, `/stop`, `/quit`); without a terminal the message comes from stdin |
+| `prbar chat <pr> --undo [--yes]\|--show\|--stop` | Undo Claude’s last change (asks if it would discard your manual edits), print the conversation, stop the answer |
 | `prbar merge <pr> [--method squash\|merge\|rebase] [--yes]` | Merge a PR of yours that’s Ready to Merge (the repo’s method unless `--method`) |
 | `prbar merge <pr> --dismiss` | Dismiss the row’s merge error |
 | `prbar config show`, `prbar config set refresh-interval 1\|2\|5\|10`, `… launch-at-login on\|off`, `… confirm-merge on\|off` | General |
@@ -66,7 +68,7 @@ shows the help of `review start`, the group’s default subcommand).
 | `prbar repo list\|available\|add\|remove\|branches\|open`, `prbar repo set <repo> [--path P\|none] [--worktrees P\|default] [--test-command C] [--branches a,b] [--add-branch b] [--remove-branch b] [--channel #name\|ID\|none] [--merge-method squash\|merge\|rebase\|default]` | Repos |
 | `prbar follow list [repo]`, `prbar follow add\|remove <repo> <users…>`, `prbar follow suggestions <repo>` | People to follow |
 | `prbar notify list\|enable\|disable\|system-settings`, `prbar notify set <kind> on\|off` | Notifications (`new-to-review`, `reviewed-updated`, `my-feedback`, `review-finished`, `approved-or-ci`, `ready-to-merge`) |
-| `prbar claude show\|reset\|skills`, `prbar claude set [--review-skill S] [--filter on\|off] [--filter-skill S] [--respond-skill S] [--model M]` | Claude |
+| `prbar claude show\|reset\|skills`, `prbar claude set [--review-skill S] [--filter on\|off] [--filter-skill S] [--respond-skill S] [--model M] [--chat on\|off] [--chat-model M\|same]` | Claude |
 | `prbar tools list`, `prbar tools set <gh\|git\|claude> <path>`, `prbar tools reset <tool>` | Tool paths |
 | `prbar slack show\|enable\|disable\|check\|channels [--reload]` | Slack |
 | `prbar slack provider connector\|token`, `prbar slack token set [--stdin]\|clear` | Connection |

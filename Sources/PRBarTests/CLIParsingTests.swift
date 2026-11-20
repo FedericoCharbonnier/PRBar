@@ -219,6 +219,15 @@ enum CLIParsingTests {
                 try expectEqual(MergeQuestion.text(pr: "acme/api#4", method: .squash), "Squash and Merge acme/api#4?")
                 try expectEqual(MergeQuestion.text(pr: "acme/api#4", method: nil), "Merge acme/api#4 with the repo’s default method?")
             },
+            TestCase("cli parse: chat") {
+                try expectEqual(try parsed(["chat", "api#1", "why is #2 a bug?"]), .chatSend(pr: "api#1", message: "why is #2 a bug?"))
+                try expectEqual(try parsed(["chat", "api#1", "--show"]), .chatShow(pr: "api#1"))
+                try expectEqual(try parsed(["chat", "api#1", "--undo", "--yes"]), .chatUndo(pr: "api#1", confirmed: true))
+                try expectEqual(try parsed(["chat", "api#1", "--stop"]), .chatStop(pr: "api#1"))
+                try expect(rejects(["chat", "api#1", "hi", "--undo"]))
+                try expectEqual(try parsed(["claude", "set", "--chat", "off", "--chat-model", "same"]),
+                                .claudeSet(changes: ClaudeChanges(chatEnabled: false, chatModel: .clear)))
+            },
         ]
     }
 }

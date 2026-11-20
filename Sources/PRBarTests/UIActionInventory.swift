@@ -96,12 +96,12 @@ enum UIActionInventory {
         .init("Update/UpdateWindow.swift", "Button", "Hide", 1, .viewOnly("closes the window; the update keeps going")),
         .init("Update/UpdateWindow.swift", "Button", "OK", 1, .viewOnly("closes the window")),
         // Chat (plan 6) e instrucciones (plan 9) en el chat del PR
-        .init("Chat/ChatPanel.swift", "TextField", "-", 1, .deferred("Task 26")),
-        .init("Chat/ChatPanel.swift", "Button", "-", 1, .deferred("Task 26")),   // enviar
-        .init("Chat/ChatPanel.swift", "Button", "Stop", 1, .deferred("Task 26")),
-        .init("Chat/ChatPanel.swift", "Button", "Undo", 1, .deferred("Task 26")),
-        .init("Chat/ChatPanel.swift", "Button", "Show Log", 1, .deferred("Task 26")),
-        .init("Chat/ChatPanel.swift", "DisclosureGroup", "-", 1, .deferred("Task 26")),   // la conversación en el historial
+        .init("Chat/ChatPanel.swift", "TextField", "-", 1, .cli(["chat"])),   // el mensaje
+        .init("Chat/ChatPanel.swift", "Button", "-", 1, .cli(["chat"])),   // enviar
+        .init("Chat/ChatPanel.swift", "Button", "Stop", 1, .cli(["chat"])),   // --stop
+        .init("Chat/ChatPanel.swift", "Button", "Undo", 1, .cli(["chat"])),   // --undo (también en el chat de instrucciones)
+        .init("Chat/ChatPanel.swift", "Button", "Show Log", 1, .cli(["history show"])),   // el log del review o del análisis
+        .init("Chat/ChatPanel.swift", "DisclosureGroup", "-", 1, .cli(["history show", "chat"])),   // la conversación en el historial
         .init("Chat/ChatPanel.swift", "TextField", "Rule", 1, .deferred("Task 28")),   // tarjeta "Save as rule"
         .init("Chat/ChatPanel.swift", "Picker", "Scope", 1, .deferred("Task 28")),
         .init("Chat/ChatPanel.swift", "Button", "Save", 1, .deferred("Task 28")),
@@ -121,7 +121,7 @@ enum UIActionInventory {
         .init("Respond/RespondButton.swift", "accessibilityAction", "Cancel", 1, .cli(["respond cancel"])),
         // Ventana de Review
         // Discarded y "Hidden by your settings" (vista; `review show` los lista), "Approve with N comments" y el botón Chat
-        .init("Review/ReviewWindow.swift", "Button", "-", 4, .cli(["review publish", "review show"])),
+        .init("Review/ReviewWindow.swift", "Button", "-", 4, .cli(["review publish", "review show", "chat"])),
         .init("Review/ReviewWindow.swift", "Button", "Select All", 1, .cli(["review include"])),
         .init("Review/ReviewWindow.swift", "Button", "Select None", 1, .cli(["review exclude"])),
         .init("Review/ReviewWindow.swift", "Button", "Post Everything in the Review Body", 1, .cli(["review publish"])),
@@ -140,7 +140,7 @@ enum UIActionInventory {
         .init("Review/ReviewStyle.swift", "Link", "-", 1, .viewOnly(generic)),
         // Ventana de Respond
         // carpeta, Push/Post, la acción de un mensaje ("Open New Analysis"…) y el botón Chat
-        .init("Respond/RespondWindow.swift", "Button", "-", 4, .cli(["open", "respond push"])),
+        .init("Respond/RespondWindow.swift", "Button", "-", 4, .cli(["open", "respond push", "chat"])),
         .init("Respond/RespondWindow.swift", "Button", "Push Anyway…", 1, .deferred("Task 28")),
         .init("Respond/RespondWindow.swift", "Button", "Reset to Claude’s Suggestions", 1, .cli(["respond select"])),
         .init("Respond/RespondWindow.swift", "Button", "Implement 1 Fix", 1, .cli(["respond implement"])),
@@ -191,8 +191,8 @@ enum UIActionInventory {
         // el selector de skill, "None", una fila de la lista de skills y los chips de categoría (Task 28)
         .init("Settings/ClaudeTab.swift", "Button", "-", 4, .cli(["claude set", "claude skills"])),
         .init("Settings/ClaudeTab.swift", "Toggle", "Filter findings", 1, .cli(["claude set"])),
-        .init("Settings/ClaudeTab.swift", "Picker", "Model", 2, .cli(["claude set"])),   // el de reviews y el del chat (Task 26)
-        .init("Settings/ClaudeTab.swift", "Toggle", "Chat with Claude in Review and Respond windows", 1, .deferred("Task 26")),
+        .init("Settings/ClaudeTab.swift", "Picker", "Model", 2, .cli(["claude set"])),   // --model y --chat-model
+        .init("Settings/ClaudeTab.swift", "Toggle", "Chat with Claude in Review and Respond windows", 1, .cli(["claude set"])),   // --chat
         .init("Settings/ClaudeTab.swift", "Picker", "-", 1, .deferred("Task 28")),   // Skill / Custom prompt por etapa
         .init("Settings/ClaudeTab.swift", "Button", "Edit Prompt…", 1, .deferred("Task 28")),
         .init("Settings/ClaudeTab.swift", "Button", "Edit…", 1, .deferred("Task 28")),

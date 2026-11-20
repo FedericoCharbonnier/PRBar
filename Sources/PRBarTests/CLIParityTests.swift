@@ -7,7 +7,6 @@ enum CLIParityTests {
     /// Casos de `AppCommand` cuyos comandos llegan en las Tasks 26–28 (chat, actualizaciones, instrucciones). Cada
     /// task saca los suyos; al final queda vacío.
     static let pending: Set<AppCommand.Name> = [
-        .chatSend, .chatShow, .chatUndo, .chatStop,
         .updateCheck, .updateInstall, .updateCancel, .updateSkip, .setUpdateInterval,
         .rulesList, .rulesAdd, .rulesEdit, .rulesRemove, .rulesSetEnabled, .rulesChatSend, .rulesChatShow, .rulesChatUndo,
         .rulesChatStop, .rulesSuggestions, .rulesSuggestionAct, .chatProposal, .claudeReviewSet, .claudeRespondSet,

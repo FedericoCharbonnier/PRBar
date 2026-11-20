@@ -534,11 +534,13 @@ public struct HistoryDetail: Codable, Equatable, Sendable {
     public var canReopen: Bool
     /// "Show Response" (`prbar open <pr> --respond`).
     public var canOpen: Bool
+    /// La conversación con Claude de ese review o análisis (la sección "Chat" del historial), si hubo.
+    public var chat: ChatInfo?
 
     public init(entry: HistoryEntryInfo, prURL: URL, summary: String? = nil, errorMessage: String? = nil,
                 findings: [FindingInfo] = [], generalComment: String? = nil, action: String? = nil, reviewURL: URL? = nil,
                 replies: [PostedReplyInfo] = [], pushed: Bool = false, logPath: String? = nil, canReopen: Bool = false,
-                canOpen: Bool = false) {
+                canOpen: Bool = false, chat: ChatInfo? = nil) {
         self.entry = entry
         self.prURL = prURL
         self.summary = summary
@@ -552,6 +554,7 @@ public struct HistoryDetail: Codable, Equatable, Sendable {
         self.logPath = logPath
         self.canReopen = canReopen
         self.canOpen = canOpen
+        self.chat = chat
     }
 
     public init(review record: ReviewRecord, logPath: String?, canReopen: Bool) {
@@ -567,15 +570,24 @@ public struct HistoryDetail: Codable, Equatable, Sendable {
         self.init(entry: HistoryEntryInfo(review: record), prURL: record.draft.url, summary: record.draft.summary,
                   errorMessage: record.errorMessage, findings: findings, generalComment: record.generalComment,
                   action: record.status == .published ? record.action.rawValue : nil, reviewURL: record.reviewURL,
-                  logPath: logPath, canReopen: canReopen)
+                  logPath: logPath, canReopen: canReopen,
+                  chat: record.draft.chat.flatMap { session in
+                      session.messages.isEmpty ? nil
+                          : ChatInfo(pr: record.draft.prID, session: session) { edits.number(of: $0, in: record.draft) }
+                  })
     }
 
     public init(respond record: RespondRecord, logPath: String?, canOpen: Bool) {
         let replies = record.draft.items.compactMap { item in
             record.posted[item.id].map { PostedReplyInfo(item: item.id, location: item.feedback.cliLocation, url: $0.url) }
         }
-        self.init(entry: HistoryEntryInfo(respond: record), prURL: record.draft.url, errorMessage: record.errorMessage,
-                  replies: replies, pushed: record.pushed, logPath: logPath, canOpen: canOpen)
+        let draft = record.draft
+        self.init(entry: HistoryEntryInfo(respond: record), prURL: draft.url, errorMessage: record.errorMessage,
+                  replies: replies, pushed: record.pushed, logPath: logPath, canOpen: canOpen,
+                  chat: record.chat.flatMap { session in
+                      session.messages.isEmpty ? nil
+                          : ChatInfo(pr: draft.prID, session: session) { id in draft.items.firstIndex { $0.id == id }.map { $0 + 1 } }
+                  })
     }
 }
 
@@ -893,6 +905,34 @@ public struct ChatInfo: Codable, Equatable, Sendable {
         self.lockReason = lockReason
         self.messages = messages
         self.streamed = streamed
+    }
+}
+
+extension ChatInfo {
+    /// La conversación como la muestra el panel del chat: `number` da el `#N` de un hallazgo o comentario (para
+    /// "edited #2"); las tarjetas "Save as rule" pendientes se numeran desde 1 en orden.
+    public init(pr: String, kind: String, messages: [ChatMessage], undoableMessageID: UUID?, canUndo: Bool, readOnly: Bool,
+                running: Bool, lockReason: String?, streamed: Bool = false, number: (String) -> Int?) {
+        var pending = 0
+        let infos = messages.map { message -> ChatMessageInfo in
+            let proposals = message.proposals.map { proposal -> RuleProposalInfo in
+                guard proposal.status == .pending else { return RuleProposalInfo(number: nil, proposal: proposal) }
+                pending += 1
+                return RuleProposalInfo(number: pending, proposal: proposal)
+            }
+            return ChatMessageInfo(id: message.id, role: message.role.rawValue, text: message.text, createdAt: message.createdAt,
+                                   changes: message.changes.isEmpty ? nil : ChatActions.summary(message.changes, number: number),
+                                   undone: message.undone, notes: message.notes,
+                                   undoable: canUndo && message.id == undoableMessageID, proposals: proposals)
+        }
+        self.init(pr: pr, kind: kind, readOnly: readOnly, running: running, lockReason: lockReason, messages: infos,
+                  streamed: streamed)
+    }
+
+    /// Una conversación guardada (historial): solo lectura.
+    public init(pr: String, session: ChatSession, number: (String) -> Int?) {
+        self.init(pr: pr, kind: session.kind.rawValue, messages: session.messages, undoableMessageID: nil, canUndo: false,
+                  readOnly: true, running: false, lockReason: nil, number: number)
     }
 }
 

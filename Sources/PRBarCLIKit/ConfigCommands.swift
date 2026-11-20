@@ -368,6 +368,8 @@ enum ClaudeRender {
             ("Filter skill", settings.effectiveFilterSkill),
             ("Respond skill", settings.effectiveRespondSkill),
             ("Model", settings.model?.rawValue ?? "default"),
+            ("Chat", Render.onOff(settings.chatEnabled)),
+            ("Chat model", settings.chatModel?.rawValue ?? "same as review"),
         ], output)
     }
 }
@@ -380,17 +382,20 @@ struct ClaudeShow: RemoteCommand {
 }
 
 struct ClaudeSet: RemoteCommand {
-    static let configuration = CommandConfiguration(commandName: "set", abstract: "Change the skills or the model.")
+    static let configuration = CommandConfiguration(commandName: "set", abstract: "Change the skills, the model or the chat.")
     @Option(help: "plugin:skill or skill.") var reviewSkill: String?
     @Option(help: "on or off.") var filter: OnOff?
     @Option(help: "plugin:skill or skill.") var filterSkill: String?
     @Option(help: "plugin:skill or skill.") var respondSkill: String?
     @Option(help: "opus, sonnet, haiku or default.") var model: String?
+    @Option(help: "Chat with Claude in Review and Respond windows: on or off.") var chat: OnOff?
+    @Option(help: "Chat model: opus, sonnet, haiku or same (as the review).") var chatModel: String?
     @OptionGroup var global: GlobalOptions
 
     var changes: ClaudeChanges {
         ClaudeChanges(reviewSkill: reviewSkill, filterEnabled: filter?.isOn, filterSkill: filterSkill, respondSkill: respondSkill,
-                      model: model.map { $0.lowercased() == "default" ? .clear : .set(value: $0) })
+                      model: model.map { $0.lowercased() == "default" ? .clear : .set(value: $0) }, chatEnabled: chat?.isOn,
+                      chatModel: chatModel.map { $0.lowercased() == "same" ? .clear : .set(value: $0) })
     }
 
     func validate() throws {
