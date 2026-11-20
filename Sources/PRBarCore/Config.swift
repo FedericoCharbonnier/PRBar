@@ -338,7 +338,7 @@ public struct ClaudeSettings: Hashable, Codable, Sendable {
     public var respond = RespondOptions()
     /// `nil` = the CLI's default model (no `--model`).
     public var model: ClaudeModel?
-    /// Chat with Claude in the Review and Respond windows (spec B.8).
+    /// Chat with Claude in the Review, Respond and Merge windows (spec B.8, G.4).
     public var chatEnabled = true
     /// The chat's model. `nil` = the same as reviews (`model`).
     public var chatModel: ClaudeModel?

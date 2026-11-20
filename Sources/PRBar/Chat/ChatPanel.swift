@@ -2,8 +2,8 @@ import AppKit
 import PRBarCore
 import SwiftUI
 
-/// The chat panel of the Review and Respond windows (spec B.2): the messages, Claude's answer as it streams with
-/// the last tool it used, and a multi-line field (↩ sends, ⇧↩ new line; Stop while it runs).
+/// The chat panel of the Review, Respond and Merge windows (spec B.2, G.4): the messages, Claude's answer as it streams
+/// with the last tool it used, and a multi-line field (↩ sends, ⇧↩ new line; Stop while it runs).
 struct ChatPanel: View {
     @ObservedObject var chat: ChatCoordinator
     /// Why the chat can't run at all (claude not found…), shown as the field's placeholder.

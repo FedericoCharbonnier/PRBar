@@ -421,7 +421,7 @@ struct ClaudeSet: RemoteCommand {
     @Option(help: "plugin:skill or skill.") var filterSkill: String?
     @Option(help: "plugin:skill or skill.") var respondSkill: String?
     @Option(help: "opus, sonnet, haiku or default.") var model: String?
-    @Option(help: "Chat with Claude in Review and Respond windows: on or off.") var chat: OnOff?
+    @Option(help: "Chat with Claude in Review, Respond and Merge windows: on or off.") var chat: OnOff?
     @Option(help: "Chat model: opus, sonnet, haiku or same (as the review).") var chatModel: String?
     @OptionGroup var global: GlobalOptions
 

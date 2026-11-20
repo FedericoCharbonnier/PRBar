@@ -109,7 +109,7 @@ struct ClaudeTab: View {
             }
 
             Section {
-                Toggle("Chat with Claude in Review and Respond windows", isOn: Binding(
+                Toggle("Chat with Claude in Review, Respond and Merge windows", isOn: Binding(
                     get: { settings.chatEnabled },
                     set: { on in update { $0.chatEnabled = on } }
                 ))
