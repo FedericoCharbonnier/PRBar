@@ -20,7 +20,9 @@ Every screen comes in `-light` and `-dark`, at 2x:
 | File | What it shows |
 | --- | --- |
 | `menubar-icon` | The menu bar icon with a badge of 5, on a menu-bar-like strip |
+| `menubar-icon-update` | The same icon with the blue "update available" dot at the glyph's top-right corner |
 | `popover` | The popover's To Review tab (selected; My PRs shows "3 •"): To Review (one idle, one "Reviewing…" on devbox), Updated Since My Review (ready, 4 comments, "Ran on this Mac — devbox unreachable"), Other collapsed; at the bottom the resources footer (CPU 12%, RAM 640 MB, Disk 2.3 GB) |
+| `popover-update` | The To Review tab with PRBar 1.3.0 offered: the blue "Update" capsule in the header, left of refresh and settings |
 | `popover-mine` | The My PRs tab: My PRs with Feedback (Changes requested, Respond), Ready to Merge (one ready, one blocked) and Waiting for Review (collapsed) |
 | `popover-empty` | The To Review tab with nothing to review ("Nothing to review 🎉"), Other collapsed |
 | `popover-empty-mine` | The My PRs tab with nothing to do ("No PRs of yours need anything"), Waiting for Review collapsed |

@@ -69,7 +69,8 @@ private final class SnapshotSession {
         try files.createDirectory(at: scratch, withIntermediateDirectories: true)
         defer { try? files.removeItem(at: scratch) }
 
-        try menuBarIcon()
+        try menuBarIcon("menubar-icon", updateDot: false)
+        try menuBarIcon("menubar-icon-update", updateDot: true)
 
         // The popover first: the respond queue of this model is driven further below.
         let main = try makeModel("main", snapshot: fixtures.snapshot)
@@ -83,6 +84,10 @@ private final class SnapshotSession {
         main.popoverTab.selected = .mine
         try await popover("popover-mine", model: main)
         main.popoverTab.selected = .toReview
+        // The same popover with a new version offered: the "Update" button in the header.
+        main.updates.applySnapshotState(available: SnapshotFixtures.updateRelease)
+        try await popover("popover-update", model: main)
+        main.updates.applySnapshotState(available: nil)
         main.reviews.cancelAll()
 
         let empty = try makeModel("empty", snapshot: fixtures.caughtUpSnapshot)
@@ -163,8 +168,11 @@ private final class SnapshotSession {
         }
     }
 
-    private func menuBarIcon() throws {
-        let icon = BadgeIcon.image(for: .count(5))
+    /// With `updateDot`, the blue dot `UpdateDotView` draws over the icon in the real menu bar.
+    private func menuBarIcon(_ name: String, updateDot: Bool) throws {
+        let state = MenuBarIconState.count(5)
+        let icon = BadgeIcon.image(for: state, updateDot: updateDot)
+        let dot = BadgeIcon.updateDotRect(imageSize: icon.size)
         for appearance in options.appearances {
             let dark = appearance == .dark
             let size = NSSize(width: 176, height: 30)
@@ -176,7 +184,12 @@ private final class SnapshotSession {
                 // Our icon, then two dimmed neighbors so it reads as a menu bar.
                 var x: CGFloat = 16
                 let ours = SnapshotRenderer.tinted(icon, ink)
-                ours.draw(in: NSRect(x: x, y: (rect.height - ours.size.height) / 2, width: ours.size.width, height: ours.size.height))
+                let iconY = (rect.height - ours.size.height) / 2
+                ours.draw(in: NSRect(x: x, y: iconY, width: ours.size.width, height: ours.size.height))
+                if updateDot {
+                    NSColor.systemBlue.setFill()
+                    NSBezierPath(ovalIn: dot.offsetBy(dx: x, dy: iconY)).fill()
+                }
                 x += ours.size.width + 22
                 let neighbors = ["wifi", "battery.75percent", "magnifyingglass"]
                 for name in neighbors {
@@ -189,7 +202,7 @@ private final class SnapshotSession {
                     x += glyph.size.width + 18
                 }
             }
-            try write(data, "menubar-icon", appearance)
+            try write(data, name, appearance)
         }
     }
 

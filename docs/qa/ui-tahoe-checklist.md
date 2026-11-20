@@ -21,7 +21,7 @@ Safari (u otra app) en pantalla completa.
 
 ## C. Pantalla chica y Dock
 Una MacBook Air 13" en "Más espacio" o una resolución baja; Dock abajo y grande.
-- [ ] Con muchos PRs, el panel nunca pasa el Dock: la lista se achica y hace scroll; el pie (CPU/RAM) y "Update…" siguen visibles.
+- [ ] Con muchos PRs, el panel nunca pasa el Dock: la lista se achica y hace scroll; el pie (CPU/RAM) y la cápsula "Update" del header siguen visibles.
 - [ ] Con el ícono cerca del borde derecho, el panel queda entero dentro de la pantalla.
 - [ ] Review/Respond/Merge de 720–760 pt: ⇧⌘C abre el chat y la ventana se ensancha lo necesario sin salirse de la pantalla (cerca del borde derecho, se corre a la izquierda).
 - [ ] Settings › Claude: la ventana se puede agrandar en alto (no en ancho); al cambiar de pestaña vuelve al tamaño de esa pestaña.
