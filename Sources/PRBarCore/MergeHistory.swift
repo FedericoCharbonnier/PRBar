@@ -122,6 +122,12 @@ public struct MergeHistory: Sendable {
         }
     }
 
+    /// El intento fallido más nuevo de `prID`: un merge que se confirma después (p. ej. Retry encontró que GitHub lo
+    /// mergeó) completa ese registro en vez de crear otro.
+    public func lastFailed(prID: String) -> MergeRecord? {
+        all().first { $0.prID == prID && $0.status == .failed }
+    }
+
     public func logURL(for id: UUID) -> URL {
         directory.appendingPathComponent("logs", isDirectory: true).appendingPathComponent("\(id.uuidString).log")
     }

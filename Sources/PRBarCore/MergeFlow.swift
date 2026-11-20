@@ -97,6 +97,15 @@ public enum MergeFlow {
         return !hasMessages && !isRunning
     }
 
+    /// Si un merge fallido queda en el historial (`MergeRecord` .failed): solo si se le pidió a GitHub. Lo que PRBar
+    /// no mandó (un precheck, una actualización instalándose, uno en curso o ya hecho) solo se muestra en la fila.
+    public static func recordsAttempt(_ error: MergeError) -> Bool {
+        switch error {
+        case .alreadyInProgress, .alreadyMerged, .missingMergeData, .blocked, .unavailable, .noLongerOpen: false
+        case .headChanged, .forbidden, .notMergeable, .mergeQueueRequired, .github, .other: true
+        }
+    }
+
     /// Qué hace Retry después de refrescar.
     public enum RetryRoute: Equatable, Sendable {
         /// Pedir de nuevo (`request`) con el PR refrescado y el mismo método.

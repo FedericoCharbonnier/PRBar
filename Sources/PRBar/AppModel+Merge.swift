@@ -36,11 +36,12 @@ extension AppModel {
 
     // MARK: Sesiones
 
-    /// La sesión del PR, nueva si no había (el detalle se carga al abrir la ventana).
+    /// La sesión del PR, nueva si no había (el detalle se carga al abrir la ventana). `reusing`: el registro con que
+    /// empieza una sesión nueva (por defecto, uno nuevo).
     @discardableResult
-    func mergeSession(for item: ClassifiedPR) -> MergeSession {
+    func mergeSession(for item: ClassifiedPR, reusing existing: MergeRecord? = nil) -> MergeSession {
         if let session = mergeSessions[item.id] { return session }
-        let record = MergeRecord(item: item, startedAt: Date())
+        let record = existing ?? MergeRecord(item: item, startedAt: Date())
         let api = self.api
         let accounts = self.accounts
         let window = MergeWindowModel(prID: item.id, recordID: record.id) {
@@ -83,9 +84,12 @@ extension AppModel {
         historyRevision += 1
     }
 
+    /// Un merge hecho sin sesión (terminó mientras Retry le preguntaba a GitHub) completa el último intento fallido
+    /// del PR en vez de dejar dos registros (Failed y Merged).
     private func recordMergeAttempt(_ item: ClassifiedPR, method: MergeMethod, status: MergeRecord.Status, error: String?,
                                     at date: Date) {
-        let session = mergeSession(for: item)
+        let previous = status == .merged && mergeSessions[item.id] == nil ? mergeHistory.lastFailed(prID: item.id) : nil
+        let session = mergeSession(for: item, reusing: previous)
         session.record.method = method
         session.record.headOid = item.pr.headOid
         session.record.status = status
@@ -235,7 +239,7 @@ extension AppModel {
     /// mirar el PR en el snapshot actual: si ya no está en Ready to Merge, el botón estaría deshabilitado o el repo no
     /// permite `method`, no lo manda (`MergeError.unavailable`; `.noLongerOpen` si ya no está en la lista). Cuenta en
     /// `postings`: una actualización espera a que termine; mientras se instala una, no empieza (`MergeError.blocked`).
-    /// El intento queda en el historial (`MergeRecord`).
+    /// Un intento que llegó a GitHub queda en el historial (`MergeRecord`, `MergeFlow.recordsAttempt`).
     @discardableResult
     func merge(_ item: ClassifiedPR, method: MergeMethod) async -> Result<MergeCompletion, MergeError> {
         let precheck: MergeError?
@@ -245,7 +249,7 @@ extension AppModel {
             precheck = .noLongerOpen
         }
         let result = await postings.track { await merges.merge(item, method: method, precheck: precheck) }
-        if case .failure(let error) = result, error != .alreadyInProgress, error != .alreadyMerged {
+        if case .failure(let error) = result, MergeFlow.recordsAttempt(error) {
             recordMergeAttempt(item, method: method, status: .failed, error: error.localizedDescription, at: Date())
         }
         return result

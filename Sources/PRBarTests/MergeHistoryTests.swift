@@ -26,6 +26,24 @@ enum MergeHistoryTests {
             try expectEqual(history.directory.lastPathComponent, "merge")
             try expectEqual(history.logURL(for: first.id).deletingLastPathComponent().lastPathComponent, "logs")
         },
+        TestCase("merge history: el último intento fallido de un PR (para no duplicarlo al mergear)") {
+            let history = MergeHistory(historyDir: try temporaryDirectory())
+            try expectEqual(history.lastFailed(prID: "acme/api#4"), nil)
+            var old = record(4, startedAt: t0)
+            old.status = .failed
+            var newer = record(4, startedAt: at(60))
+            newer.status = .failed
+            var open = record(4, startedAt: at(120))
+            open.status = .open
+            var other = record(5, startedAt: at(180))
+            other.status = .failed
+            for item in [old, newer, open, other] { try history.save(item) }
+            try expectEqual(history.lastFailed(prID: "acme/api#4")?.id, newer.id)
+            var merged = record(6, startedAt: at(200))
+            merged.status = .merged
+            try history.save(merged)
+            try expectEqual(history.lastFailed(prID: "acme/api#6"), nil)
+        },
         TestCase("merge history: un mismo id se sobrescribe") {
             let history = MergeHistory(historyDir: try temporaryDirectory())
             var item = record(3, startedAt: t0)

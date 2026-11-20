@@ -22,6 +22,16 @@ private func check(
 
 enum MergeFlowTests {
     static let cases: [TestCase] = [
+        TestCase("merge flow: solo lo que llegó a GitHub queda en el historial como intento fallido") {
+            for error: MergeError in [.headChanged, .forbidden("no"), .notMergeable("no"), .mergeQueueRequired("q"),
+                                      .github(.network("offline")), .other("x")] {
+                try expect(MergeFlow.recordsAttempt(error), "\(error)")
+            }
+            for error: MergeError in [.alreadyInProgress, .alreadyMerged, .missingMergeData, .blocked("update"),
+                                      .unavailable("not ready"), .noLongerOpen] {
+                try expect(!MergeFlow.recordsAttempt(error), "\(error)")
+            }
+        },
         TestCase("merge flow (CLI): elige el método y mergea solo el head que se mostró") {
             try expectEqual(check(), .success(.squash))
             try expectEqual(check(method: .merge, expected: "cafe7"), .success(.merge))
