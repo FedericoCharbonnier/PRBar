@@ -130,6 +130,36 @@ public enum DiskScanner {
         return total
     }
 
+    /// Una sola pasada por `root` (sin seguir symlinks): los bytes de cada `bucket` (rutas relativas a `root`; si
+    /// se anidan, cada archivo va al más profundo) y el resto, con `root` mismo.
+    public static func allocatedSizes(_ root: URL, buckets: [String]) -> (buckets: [String: Int64], rest: Int64) {
+        let keys: [URLResourceKey] = [.totalFileAllocatedSizeKey, .fileAllocatedSizeKey]
+        func size(_ item: URL) -> Int64 {
+            guard let values = try? item.resourceValues(forKeys: Set(keys)) else { return 0 }
+            return Int64(values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? 0)
+        }
+        var totals = Dictionary(uniqueKeysWithValues: buckets.map { ($0, Int64(0)) })
+        var rest = size(root)
+        guard CanonicalPath.isDirectory(root.path),
+              let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys, options: []) else {
+            return (totals, rest)
+        }
+        let prefix = root.standardizedFileURL.path + "/"
+        // El más profundo primero.
+        let ordered = buckets.sorted { $0.count > $1.count }
+        for case let item as URL in enumerator {
+            let path = item.standardizedFileURL.path
+            let relative = path.hasPrefix(prefix) ? String(path.dropFirst(prefix.count)) : nil
+            let bytes = size(item)
+            if let relative, let bucket = ordered.first(where: { relative == $0 || relative.hasPrefix($0 + "/") }) {
+                totals[bucket, default: 0] += bytes
+            } else {
+                rest += bytes
+            }
+        }
+        return (totals, rest)
+    }
+
     static func modified(_ url: URL) -> Date? {
         (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
     }
@@ -197,23 +227,25 @@ public enum DiskScanner {
         let build = source.appendingPathComponent(".build")
         let staging = support.appendingPathComponent("update-staging")
         let history = support.appendingPathComponent("history")
-        let buildBytes = allocatedSize(build)
+        // Una sola pasada por Application Support (`.build` puede tener cientos de miles de archivos).
+        let sizes = allocatedSizes(support, buckets: ["source/.build", "source", "update-staging", "history"])
+        let buildBytes = sizes.buckets["source/.build"] ?? 0
         if buildBytes > 0 {
             items.append(DiskItem(path: CanonicalPath.of(build.path), bytes: buildBytes, kind: .updater, state: .cache, title: "Updater builds"))
         }
-        let sourceBytes = allocatedSize(source) - buildBytes
+        let sourceBytes = sizes.buckets["source"] ?? 0
         if sourceBytes > 0 {
             items.append(DiskItem(path: CanonicalPath.of(source.path), bytes: sourceBytes, kind: .updater, state: .data, title: "Updater clone"))
         }
-        let stagingBytes = allocatedSize(staging)
+        let stagingBytes = sizes.buckets["update-staging"] ?? 0
         if stagingBytes > 0 {
             items.append(DiskItem(path: CanonicalPath.of(staging.path), bytes: stagingBytes, kind: .updater, state: .cache, title: "Update staging"))
         }
-        let historyBytes = allocatedSize(history)
+        let historyBytes = sizes.buckets["history"] ?? 0
         if historyBytes > 0 {
             items.append(DiskItem(path: CanonicalPath.of(history.path), bytes: historyBytes, kind: .history, state: .data, title: "History"))
         }
-        let rest = allocatedSize(support) - allocatedSize(source) - stagingBytes - historyBytes
+        let rest = sizes.rest
         if rest > 0 {
             items.append(DiskItem(path: CanonicalPath.of(support.path), bytes: rest, kind: .appData, state: .data, title: "Settings and state"))
         }

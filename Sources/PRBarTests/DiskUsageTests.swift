@@ -53,6 +53,21 @@ enum DiskUsageTests {
             try expectEqual(usage.total, DiskCategoryKind.allCases.map { usage.bytes($0) }.reduce(0, +))
             try expect(item(layout.appSupport.appendingPathComponent("source/.build"))?.state == .cache)
         },
+        TestCase("disk: una sola pasada reparte los bytes por carpeta (la más profunda gana) y el resto") {
+            let base = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: base) }
+            try write(base.appendingPathComponent("source/.build/x.o"), bytes: 20_000)
+            try write(base.appendingPathComponent("source/Package.swift"), bytes: 1_000)
+            try write(base.appendingPathComponent("history/a.json"), bytes: 10_000)
+            try write(base.appendingPathComponent("config.json"), bytes: 500)
+            let sizes = DiskScanner.allocatedSizes(base, buckets: ["source/.build", "source", "history", "update-staging"])
+            let build = DiskScanner.allocatedSize(base.appendingPathComponent("source/.build"))
+            try expectEqual(sizes.buckets["source/.build"], build)
+            try expectEqual(sizes.buckets["source"], DiskScanner.allocatedSize(base.appendingPathComponent("source")) - build)
+            try expectEqual(sizes.buckets["history"], DiskScanner.allocatedSize(base.appendingPathComponent("history")))
+            try expectEqual(sizes.buckets["update-staging"] ?? 0, 0)
+            try expectEqual(sizes.buckets.values.reduce(0, +) + sizes.rest, DiskScanner.allocatedSize(base))
+        },
         TestCase("disk: no sigue symlinks") {
             let base = try temporaryDirectory()
             defer { try? FileManager.default.removeItem(at: base) }
