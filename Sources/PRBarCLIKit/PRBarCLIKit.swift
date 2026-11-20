@@ -1,4 +1,45 @@
-/// Comandos de `prbar` (spec C). El ejecutable `PRBarCLI` solo llama a `PRBarCLIMain.run()` (Task 14).
+import ArgumentParser
+import Darwin
+import Foundation
+import PRBarCore
+
 public enum PRBarCLIKit {
     public static let commandName = "prbar"
+}
+
+/// `prbar`: todo lo que se hace en la app, desde la terminal (spec C). Ver docs/cli.md.
+public struct PRBarCommand: ParsableCommand {
+    public static let configuration = CommandConfiguration(
+        commandName: PRBarCLIKit.commandName,
+        abstract: "Control PRBar from the terminal.",
+        discussion: "Everything you can do in PRBar’s menu bar and windows. PRs: owner/repo#N, repo#N or the PR’s URL. See docs/cli.md.",
+        version: AppConnection.cliVersion,
+        subcommands: [
+            StatusCommand.self,
+        ]
+    )
+
+    public init() {}
+}
+
+public enum PRBarCLIMain {
+    /// Parsea, corre y sale con los códigos de `CLIExit` (uso inválido = 2, no el 64 de ArgumentParser).
+    public static func run() async -> Never {
+        signal(SIGPIPE, SIG_IGN)
+        do {
+            var command = try PRBarCommand.parseAsRoot()
+            if var asyncCommand = command as? AsyncParsableCommand {
+                try await asyncCommand.run()
+            } else {
+                try command.run()
+            }
+            exit(CLIExit.ok)
+        } catch {
+            if PRBarCommand.exitCode(for: error).rawValue == ExitCode.validationFailure.rawValue {
+                FileHandle.standardError.write(Data((PRBarCommand.fullMessage(for: error) + "\n").utf8))
+                exit(CLIExit.usage)
+            }
+            PRBarCommand.exit(withError: error)
+        }
+    }
 }

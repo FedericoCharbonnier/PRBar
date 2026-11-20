@@ -94,6 +94,8 @@ let allTests: [TestCase] = []
     + SlackMergedTemplateTests.cases
     + SlackMergedReplyTests.cases
     + CLISmokeTests.cases
+    + CLISupportTests.cases
+    + CLIParsingTests.cases
     + PRReferenceTests.cases
     + CommandProtocolTests.cases
     + AppCommandTests.cases

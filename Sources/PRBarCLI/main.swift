@@ -1,3 +1,3 @@
 import PRBarCLIKit
 
-print(PRBarCLIKit.commandName)
+await PRBarCLIMain.run()
