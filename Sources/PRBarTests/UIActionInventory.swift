@@ -277,5 +277,69 @@ enum UIActionInventory {
         .init("Settings/SlackTemplateEditor.swift", "TextField", "-", 1, .cli(["slack template set"])),
         .init("Settings/SlackTemplateEditor.swift", "Button", "-", 1, .cli(["slack template set"])),   // Insert Variable
         .init("Settings/SlackTemplateEditor.swift", "Button", "Reset to Default", 1, .cli(["slack template reset"])),
+
+        // Usos de componentes que reciben acciones (los botones están en el archivo del componente), confirmaciones,
+        // atajos de teclado y AppKit.
+        .init("AppMenu.swift", "NSMenuItem", "", 1, .viewOnly("AppMenu.item: the menu items are inventoried as MenuItem")),
+        .init("AppMenu.swift", "NSMenuItem", "-", 1, .viewOnly("a submenu title")),
+        .init("Review/ReviewButton.swift", "NSMenuItem", "-", 1, .viewOnly("the error text at the top of the error menu (disabled)")),
+        .init("WindowPresenter.swift", "NSAlertButton", "Replace", 1, .viewOnly("replaces a window’s unsaved contents with the new ones")),
+        .init("WindowPresenter.swift", "NSAlertButton", "Keep Previous", 1, .viewOnly("keeps the window’s unsaved contents")),
+        .init("WindowPresenter.swift", "NSAlertButton", "Close", 1, .viewOnly("closes a window with unsaved edits")),
+        .init("WindowPresenter.swift", "NSAlertButton", "Cancel", 1, .viewOnly("keeps the window open")),
+        .init("AppModel+Merge.swift", "Component:MergeConfirmView", "-", 1, .cli(["merge"])),
+        .init("AppModel+Updates.swift", "Component:UpdateWindow", "-", 1, .cli(["update"])),
+        .init("AppModel.swift", "Component:ReviewWindow", "-", 1, .viewOnly("window plumbing (unsaved state, close)")),
+        .init("AppModel.swift", "Component:RespondWindow", "-", 1, .viewOnly("window plumbing (unsaved state, close)")),
+        .init("Popover/PRRowView.swift", "Component:ReviewButtonActions", "-", 2,
+              .cli(["review start", "review cancel", "open", "review dismiss"])),
+        .init("Popover/PRRowView.swift", "Component:RespondButtonActions", "-", 2,
+              .cli(["respond start", "respond cancel", "open", "respond dismiss"])),
+        .init("Popover/PRRowView.swift", "Component:MergeButtonActions", "-", 2, .cli(["merge"])),   // merge, retry, --dismiss
+        .init("Popover/PopoverView.swift", "Component:MessageView", "-", 4, .cli(["app settings", "refresh"])),   // Open Settings, Try Again
+        .init("Popover/PopoverView.swift", "Component:SectionHeader", "-", 1, .viewOnly("collapses a section")),
+        .init("Popover/PopoverView.swift", "Component:UpdateRow", "-", 1, .cli(["update"])),
+        .init("Chat/ChatPanel.swift", "Component:ChatMessageRow", "-", 2, .cli(["chat", "rules chat"])),   // Undo (--undo)
+        .init("Chat/ChatPanel.swift", "Component:RuleProposalActions", "-", 1, .cli(["rules proposal save", "rules proposal dismiss"])),
+        .init("Chat/ChatPanel.swift", "Component:StageChip", "-", 1, .cli(["rules proposal save"])),   // --applies-to
+        .init("Chat/ChatPanel.swift", "ConfirmAlert", "Undo Claude’s changes?", 1, .cli(["chat"])),   // --undo --yes
+        .init("Chat/ChatPanel.swift", "onKeyPress", "-", 1, .cli(["chat"])),   // ↩ sends
+        .init("Components/SearchablePickerPopover.swift", "Component:PickerContent", "-", 1, .viewOnly(generic)),
+        .init("Respond/RespondWindow.swift", "Component:MessageView", "-", 1, .viewOnly("a message; its action is a Button in this file")),
+        .init("Respond/RespondWindow.swift", "Component:RespondDoneView", "-", 1, .viewOnly("closes the window")),
+        .init("Respond/RespondWindow.swift", "Component:TestsBlockedPushBanner", "-", 1, .cli(["respond push"])),   // --anyway
+        .init("Respond/RespondWindow.swift", "Component:TestsSection", "-", 1, .cli(["respond test", "respond cancel"])),
+        .init("Respond/RespondWindow.swift", "ConfirmAlert", "-", 3, .cli(["respond push", "respond reply-only"])),   // Push and Reply, Push Anyway, Post
+        .init("Review/HistoryWindow.swift", "Component:HistoryDetailView", "-", 1, .cli(["history reopen"])),
+        .init("Review/HistoryWindow.swift", "Component:RespondHistoryDetailView", "-", 1, .cli(["open"])),
+        .init("Review/HistoryWindow.swift", "Component:MessageView", "-", 1, .viewOnly("an empty-state message without an action")),
+        .init("Review/ReviewWindow.swift", "Component:OutdatedReviewBanner", "-", 1, .cli(["review start"])),
+        .init("Review/ReviewWindow.swift", "Component:ReviewPublishedView", "-", 1, .viewOnly("closes the window")),
+        .init("Review/ReviewWindow.swift", "ConfirmAlert", "Approve this PR?", 1, .cli(["review publish"])),
+        .init("Review/ReviewWindow.swift", "primaryAction", "-", 1, .cli(["review publish"])),   // Approve with N comments
+        .init("Settings/ClaudeTab.swift", "Component:CategoryChip", "-", 1, .cli(["claude review set"])),   // --category
+        .init("Settings/ClaudeTab.swift", "Component:ClaudeStageRow", "Review", 1, .cli(["claude stage", "claude prompt edit"])),
+        .init("Settings/ClaudeTab.swift", "Component:ClaudeStageRow", "Filter", 1, .cli(["claude stage", "claude prompt edit"])),
+        .init("Settings/ClaudeTab.swift", "Component:ClaudeStageRow", "Analysis", 1, .cli(["claude stage", "claude prompt edit"])),
+        .init("Settings/ClaudeTab.swift", "Component:ClaudeStageRow", "Implementation", 1, .cli(["claude stage", "claude prompt edit"])),
+        .init("Settings/ClaudeTab.swift", "Component:FixTemplateEditor", "Commit message", 1, .cli(["claude respond set"])),
+        .init("Settings/ClaudeTab.swift", "Component:FixTemplateEditor", "Reply to fixed comments", 1, .cli(["claude respond set"])),
+        .init("Settings/ClaudeTab.swift", "Component:PatternListField", "Ignore paths", 1, .cli(["claude review set"])),
+        .init("Settings/ClaudeTab.swift", "Component:PromptEditorSheet", "-", 1, .cli(["claude prompt edit", "claude prompt reset"])),
+        .init("Settings/ClaudeTab.swift", "Component:SkillList", "-", 1, .cli(["claude stage"])),
+        .init("Settings/ClaudeTab.swift", "Component:SkillPicker", "Skill", 1, .cli(["claude stage"])),
+        .init("Settings/ClaudeTab.swift", "onSubmit", "-", 1, .cli(["claude set"])),   // Use (custom skill)
+        .init("Settings/GeneralTab.swift", "OpenPanel", "-", 1, .cli(["tools set"])),
+        .init("Settings/InstructionsTab.swift", "Component:ChatMessageRow", "-", 1, .cli(["rules chat"])),   // --undo
+        .init("Settings/InstructionsTab.swift", "Component:StageChip", "-", 2, .cli(["rules add", "rules edit"])),   // --applies-to
+        .init("Settings/InstructionsTab.swift", "ConfirmAlert", "Undo Claude’s changes?", 1, .cli(["rules chat"])),   // --undo --yes
+        .init("Settings/InstructionsTab.swift", "onKeyPress", "-", 1, .cli(["rules chat"])),   // ↩ sends
+        .init("Settings/InstructionsTab.swift", "onSubmit", "-", 2, .cli(["rules edit", "rules add"])),
+        .init("Settings/PatternListField.swift", "onSubmit", "-", 1, .cli(["claude review set", "repo set"])),
+        .init("Settings/ReposTab.swift", "Component:PatternListField", "Ignore paths", 1, .cli(["repo set"])),
+        .init("Settings/ReposTab.swift", "Component:RemovableChip", "arrow.triangle.branch", 1, .cli(["repo set"])),   // --remove-branch
+        .init("Settings/ReposTab.swift", "OpenPanel", "-", 2, .cli(["repo set"])),   // --path, --worktrees
+        .init("Settings/ReposTab.swift", "onSubmit", "-", 1, .cli(["repo set"])),   // --test-command
+        .init("Settings/SlackTab.swift", "Component:SlackTemplateEditor", "-", 1, .cli(["slack template set", "slack template reset"])),
     ]
 }
