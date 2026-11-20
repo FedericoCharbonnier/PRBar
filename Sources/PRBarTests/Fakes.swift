@@ -325,7 +325,7 @@ final class FakeSecrets: SecretStore, @unchecked Sendable {
 
 /// GitHub falso para "Responder": `feedback` programable y graba cada respuesta publicada. `failPosts` tiene
 /// los números de post (desde 1, contando todos los intentos) que fallan con un 502.
-final class FakeFeedbackAPI: GitHubAPI, @unchecked Sendable {
+final class FakeFeedbackAPI: GitHubAPI, CIChecksAPI, @unchecked Sendable {
     enum Post: Equatable { case reply(commentID: Int, body: String), issue(body: String) }
 
     private let lock = NSLock()
@@ -399,5 +399,25 @@ final class FakeFeedbackAPI: GitHubAPI, @unchecked Sendable {
     }
     func mergeDetail(repo: RepoRef, number: Int, token: String) async throws -> MergeDetail {
         throw PRBarError.http(status: 404, message: "no")
+    }
+
+    // CI (spec K)
+    /// Los checks de cada head; un head que no está → sin checks.
+    var checks: [String: [CICheckRun]] = [:]
+    var jobLogs: [Int: String] = [:]
+    private var _checkCalls: [String] = []
+    var checkCalls: [String] { lock.withLock { _checkCalls } }
+    /// Se llama dentro de `checkRuns`, antes de devolver (p. ej. para mover el head del PR mientras baja los logs).
+    var onCheckRuns: (@Sendable () -> Void)?
+
+    func checkRuns(repo: RepoRef, headOid: String, token: String) async throws -> [CICheckRun] {
+        lock.withLock { _checkCalls.append(headOid) }
+        onCheckRuns?()
+        return checks[headOid] ?? []
+    }
+
+    func actionsJobLog(repo: RepoRef, jobID: Int, token: String) async throws -> String {
+        guard let log = jobLogs[jobID] else { throw PRBarError.http(status: 410, message: "gone") }
+        return log
     }
 }

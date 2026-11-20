@@ -19,9 +19,10 @@ public struct FeedbackComment: Codable, Equatable, Sendable {
 }
 
 public struct FeedbackItem: Codable, Equatable, Sendable, Identifiable {
-    public enum Kind: String, Codable, Sendable { case thread, reviewBody }
+    /// `ciChecks`: los checks fallidos de un Fix CI (spec K.6.2); sus "comentarios" son los checks.
+    public enum Kind: String, Codable, Sendable { case thread, reviewBody, ciChecks }
 
-    /// "thread:<nodeID>" | "review:<databaseID>"
+    /// "thread:<nodeID>" | "review:<databaseID>" | "ci:<headOid>"
     public let id: String
     public let kind: Kind
     public let path: String?
@@ -105,11 +106,16 @@ public struct RespondDraft: Codable, Equatable, Sendable, Identifiable {
     public var runner: String?
     /// El clone local del repo al analizar (para traer los fixes, J.7.9); nil sin carpeta local.
     public var localPath: String?
+    /// Responder el feedback o arreglar el CI (spec K.6.1). `feedback` en registros de versiones anteriores.
+    public var mode: RespondMode
+    /// Los checks que fallaron (solo un Fix CI).
+    public var ci: CIFixContext?
 
     public init(
         id: UUID = UUID(), prID: String, repo: RepoRef, number: Int, title: String, url: URL, headRef: String,
         account: String, worktree: ResolvedWorktree, startHeadOid: String, items: [RespondItem],
-        language: PRLanguage = .english, runner: String? = nil, localPath: String? = nil
+        language: PRLanguage = .english, runner: String? = nil, localPath: String? = nil,
+        mode: RespondMode = .feedback, ci: CIFixContext? = nil
     ) {
         self.id = id
         self.prID = prID
@@ -125,11 +131,15 @@ public struct RespondDraft: Codable, Equatable, Sendable, Identifiable {
         self.language = language
         self.runner = runner
         self.localPath = localPath
+        self.mode = mode
+        self.ci = ci
     }
+
+    public var isCIFix: Bool { mode == .ciFix }
 
     private enum CodingKeys: String, CodingKey {
         case id, prID, repo, number, title, url, headRef, account, worktree, startHeadOid, items, language
-        case runner, localPath
+        case runner, localPath, mode, ci
     }
 
     public init(from decoder: Decoder) throws {
@@ -143,7 +153,9 @@ public struct RespondDraft: Codable, Equatable, Sendable, Identifiable {
             startHeadOid: try c.decode(String.self, forKey: .startHeadOid), items: try c.decode([RespondItem].self, forKey: .items),
             language: (try? c.decodeIfPresent(PRLanguage.self, forKey: .language)) ?? .english,
             runner: try c.decodeIfPresent(String.self, forKey: .runner),
-            localPath: try c.decodeIfPresent(String.self, forKey: .localPath))
+            localPath: try c.decodeIfPresent(String.self, forKey: .localPath),
+            mode: (try? c.decodeIfPresent(RespondMode.self, forKey: .mode)) ?? .feedback,
+            ci: (try? c.decodeIfPresent(CIFixContext.self, forKey: .ci)) ?? nil)
     }
 }
 
@@ -164,6 +176,11 @@ public struct RespondSelection: Codable, Equatable, Sendable {
     /// reply → reply, fixAndReply → los dos, skip → nada. El plan y la respuesta de Claude se conservan
     /// para que el usuario pueda activar la casilla que Claude no marcó.
     public static func defaults(for item: RespondItem) -> RespondSelection {
+        // Un Fix CI nunca responde nada (spec K.6.5).
+        if item.feedback.kind == .ciChecks {
+            return RespondSelection(implement: item.action != .skip && item.action != .reply, fixPlan: item.fixPlan,
+                                    reply: false, replyText: "")
+        }
         switch item.action {
         case .fix:
             return RespondSelection(implement: true, fixPlan: item.fixPlan, reply: true, replyText: "")
