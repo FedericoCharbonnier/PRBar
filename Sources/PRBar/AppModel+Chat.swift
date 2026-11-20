@@ -39,8 +39,8 @@ extension AppModel: ChatCommandActions {
     func chatSend(pr: String, message: String, events: CommandEventSink) async throws -> ChatInfo {
         let id = try resolvePRID(pr)
         guard chatEnabled else { throw CommandFailure(.invalidState, "The chat is off. Turn it on with `prbar claude set --chat on`.") }
-        if let reason = chatUnavailableReason { throw CommandFailure(.invalidState, reason) }
         let chat = try chatCoordinator(id)
+        if let reason = chatUnavailableReason(for: chat) { throw CommandFailure(.invalidState, reason) }
         if chat.session.readOnly {
             throw CommandFailure(.invalidState, "This conversation is read only (the review was posted or the fixes pushed).")
         }

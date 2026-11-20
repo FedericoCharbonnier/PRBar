@@ -120,6 +120,8 @@ final class AppModel: ObservableObject {
     /// Dónde corrió el último trabajo de cada PR ("on devbox" / "Ran on this Mac — …") y el último fallback de cada
     /// repo (el aviso de Settings › Repos). En memoria (spec J.4).
     @Published var placements = RunnerPlacements()
+    /// `git --version` y `claude --version` de esta Mac (fila "This Mac" de Run On), para las rutas `tools`.
+    @Published var localToolVersions: LocalToolVersions?
     /// Cola de reviews. Es `lazy` para que el pipeline y `onFinished` puedan capturar `self` (débil).
     private(set) lazy var reviews = ReviewQueue(
         pipeline: reviewPipeline ?? LiveReviewPipeline(
@@ -484,7 +486,8 @@ final class AppModel: ObservableObject {
             reviews.markFailed(prID: item.id, message: "Still looking for git and claude. Try again in a few seconds.")
             return
         }
-        if let missing = tools.git == nil ? "git" : tools.claude == nil ? "claude" : nil {
+        // Un repo que corre en un host no necesita claude en esta Mac (sí git: el diff y el chat lo usan acá).
+        if let missing = missingLocalTool(account: item.account, repo: item.pr.repo) {
             reviews.markFailed(prID: item.id, message: PRBarError.toolNotFound(missing).localizedDescription)
             return
         }
@@ -764,12 +767,21 @@ final class AppModel: ObservableObject {
 
     var chatEnabled: Bool { configStore.config.claude.chatEnabled }
 
-    /// Why the chat can't run, with the same reasons as the Review button; nil = it can.
-    var chatUnavailableReason: String? {
+    /// Why a chat that runs on this Mac (the instructions chat) can't run, with the same reasons as the Review
+    /// button; nil = it can.
+    var chatUnavailableReason: String? { chatUnavailableReason(runsOnHost: false) }
+
+    /// The same for a PR chat: one that runs on a host (spec J) doesn't need claude on this Mac, only git.
+    func chatUnavailableReason(for chat: ChatCoordinator) -> String? {
+        chatUnavailableReason(runsOnHost: chatHost(chat) != nil)
+    }
+
+    private func chatUnavailableReason(runsOnHost: Bool) -> String? {
         if let jobsBlockedReason { return jobsBlockedReason }
         guard toolsResolved else { return "Still looking for git and claude. Try again in a few seconds." }
-        if tools.git == nil { return PRBarError.toolNotFound("git").localizedDescription }
-        if tools.claude == nil { return PRBarError.toolNotFound("claude").localizedDescription }
+        if let missing = LocalTools.missing(git: tools.git, claude: tools.claude, runsOnHost: runsOnHost) {
+            return PRBarError.toolNotFound(missing).localizedDescription
+        }
         return nil
     }
 

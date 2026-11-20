@@ -217,6 +217,8 @@ struct ReposTab: View {
                         .foregroundStyle(.secondary)
                 }
 
+                runOnSection(repo)
+
                 respondSection(repo)
 
                 slackSection(repo)
@@ -232,6 +234,58 @@ struct ReposTab: View {
             Text(account.repos.isEmpty ? "Add a repo to get started." : "Select a repo from the list.")
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    /// "Run Claude on" (spec J.4): un host, Default (con lo que resuelve hoy) o This Mac, y el aviso si el último
+    /// trabajo del repo cayó a esta Mac. Pasa por `repoSet` como `prbar repo set --run-on`.
+    private func runOnSection(_ repo: RepoConfig) -> some View {
+        let runners = configStore.config.runners
+        let resolved: String = switch runners.defaultTarget {
+        case .local: "This Mac"
+        case .runner(let name): runners.destination(named: name)?.name ?? "This Mac"
+        }
+        // Un nombre que ya no existe cuenta como Default (`RunTargetResolver`).
+        let current: String = switch repo.runOn {
+        case nil: "default"
+        case .local?: "local"
+        case .runner(let name)?: runners.destination(named: name)?.name ?? "default"
+        }
+        return Section {
+            Picker("Run Claude on", selection: Binding(
+                get: { current },
+                set: { value in
+                    let change: ValueChange = value == "default" ? .clear : .set(value: value)
+                    Task {
+                        do {
+                            _ = try await model.repoSet(repo: repo.id, account: login, changes: RepoChanges(runOn: change))
+                        } catch {
+                            AppLog.write("Settings: couldn't set where \(repo.id) runs Claude: \(error.localizedDescription)")
+                        }
+                    }
+                }
+            )) {
+                Text("Default (\(resolved))").tag("default")
+                Text("This Mac").tag("local")
+                if !runners.destinations.isEmpty {
+                    Divider()
+                    ForEach(runners.destinations) { Text($0.name).tag($0.name) }
+                }
+            }
+            if let warning = model.placements.repoWarning(repo.repo) {
+                Label(warning, systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout)
+                    .foregroundStyle(Theme.orangeText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        } header: {
+            Text("Claude")
+        } footer: {
+            Text(runners.destinations.isEmpty
+                 ? "Add an SSH host in Settings › Claude › Run On to run this repo’s reviews, fixes and chats there."
+                 : "Where this repo’s reviews, fixes and PR chats run. A host uses its own git access to the repo and its own Claude login.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 

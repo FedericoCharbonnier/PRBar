@@ -365,6 +365,24 @@ enum UIActionInventory {
         .init("Settings/ReposTab.swift", "Component:RemovableChip", "arrow.triangle.branch", 1, .cli(["repo set"])),   // --remove-branch
         .init("Settings/ReposTab.swift", "OpenPanel", "-", 2, .cli(["repo set"])),   // --path, --worktrees
         .init("Settings/ReposTab.swift", "onSubmit", "-", 1, .cli(["repo set"])),   // --test-command
+        .init("Settings/ReposTab.swift", "Picker", "Run Claude on", 1, .cli(["repo set"])),   // --run-on local|<host>|default
+        // Settings › Claude › Run On (plan 14, spec J.4)
+        .init("Settings/RunOnSection.swift", "Picker", "-", 1, .cli(["runners default"])),   // Default
+        .init("Settings/RunOnSection.swift", "Component:RunOnTable", "-", 1, .cli(["runners list"])),
+        .init("Settings/RunOnSection.swift", "onTapGesture", "-", 1, .viewOnly("selects the host the buttons act on")),
+        .init("Settings/RunOnSection.swift", "Toggle", "Fall back to this Mac", 1, .cli(["runners set"])),   // --fallback on|off
+        .init("Settings/RunOnSection.swift", "Button", "Add SSH Host…", 1, .cli(["runners add"])),
+        .init("Settings/RunOnSection.swift", "Button", "Test Connection", 1, .cli(["runners test"])),
+        .init("Settings/RunOnSection.swift", "Button", "-", 1, .cli(["runners remove"])),   // Remove (red label)
+        .init("Settings/RunOnSection.swift", "ConfirmAlert", "-", 1, .cli(["runners remove"])),
+        .init("Settings/RunOnSection.swift", "Component:AddRunnerSheet", "-", 1, .cli(["runners add"])),
+        .init("Settings/RunOnSection.swift", "Picker", "From ~/.ssh/config", 1, .cli(["runners add"])),
+        .init("Settings/RunOnSection.swift", "TextField", "Host", 1, .cli(["runners add"])),
+        .init("Settings/RunOnSection.swift", "TextField", "Name", 1, .cli(["runners add"])),   // --name
+        .init("Settings/RunOnSection.swift", "TextField", "Folder on the host", 1, .cli(["runners add"])),   // --dir
+        .init("Settings/RunOnSection.swift", "Toggle", "Fall back to this Mac if it’s unreachable", 1, .cli(["runners add"])),   // --no-fallback
+        .init("Settings/RunOnSection.swift", "Button", "Cancel", 1, .viewOnly("closes the sheet")),
+        .init("Settings/RunOnSection.swift", "Button", "Add", 1, .cli(["runners add"])),
         .init("Settings/SlackTab.swift", "Component:SlackTemplateEditor", "-", 1, .cli(["slack template set", "slack template reset"])),
     ]
 }

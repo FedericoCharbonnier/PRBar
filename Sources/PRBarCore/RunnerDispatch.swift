@@ -116,3 +116,24 @@ public struct RunnerPlacements: Equatable, Sendable {
 
     private static func key(_ repo: RepoRef) -> String { repo.fullName.lowercased() }
 }
+
+/// Lo que un trabajo necesita en esta Mac (spec J): git siempre (el diff, el import de los fixes, el chat);
+/// claude solo si el trabajo corre acá.
+public enum LocalTools {
+    /// La herramienta que falta (`"git"` o `"claude"`), o `nil`.
+    public static func missing(git: String?, claude: String?, runsOnHost: Bool) -> String? {
+        if git == nil { return "git" }
+        if claude == nil && !runsOnHost { return "claude" }
+        return nil
+    }
+
+    /// La fila "This Mac" de Settings › Claude › Run On: "✓ claude 2.1.318 · git 2.47.1" o "⚠ claude isn’t installed".
+    public static func statusSummary(git: String?, claude: String?, gitVersion: String?, claudeVersion: String?) -> String {
+        if git == nil { return "⚠ git isn’t installed" }
+        if claude == nil { return "⚠ claude isn’t installed" }
+        let claudeText = claudeVersion?.split(separator: " ").first.map { "claude \($0)" } ?? "claude"
+        let gitText = gitVersion.map { $0.replacingOccurrences(of: "git version ", with: "") }
+            .flatMap { $0.split(separator: " ").first }.map { "git \($0)" } ?? "git"
+        return "✓ \(claudeText) · \(gitText)"
+    }
+}

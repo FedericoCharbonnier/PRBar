@@ -128,7 +128,7 @@ struct RespondWindow: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            RespondHeader(draft: draft)
+            RespondHeader(draft: draft, placement: draft.runner.map { "on \($0)" } ?? model.placements.label(prID: draft.prID))
                 .padding(.horizontal, 20)
                 .padding(.top, 14)
                 .padding(.bottom, 12)
@@ -140,9 +140,9 @@ struct RespondWindow: View {
         .onChange(of: chatLock, initial: true) { _, reason in chat.setLock(reason) }
         .onChange(of: isFinished, initial: true) { _, finished in if finished { chat.markReadOnly() } }
         .inspector(isPresented: Binding(get: { showsChat && model.chatEnabled }, set: { showsChat = $0 })) {
-            ChatPanel(chat: chat, unavailableReason: model.chatUnavailableReason,
+            ChatPanel(chat: chat, unavailableReason: model.chatUnavailableReason(for: chat),
                       notice: nil,
-                      logURL: model.respondHistory.logURL(for: draft.id))
+                      host: model.chatHost(chat), logURL: model.respondHistory.logURL(for: draft.id))
                 .inspectorColumnWidth(min: 320, ideal: chatWidth, max: 480)
                 .background(GeometryReader { geometry in
                     Color.clear.onChange(of: geometry.size.width) { _, width in chatWidth = min(max(width, 320), 480) }
@@ -628,6 +628,8 @@ struct RespondWindow: View {
 /// Encabezado: `repo#N` + "Abrir en GitHub", título, cuenta, rama y worktree.
 private struct RespondHeader: View {
     let draft: RespondDraft
+    /// Where the analysis ran (spec J): "on devbox" or "Ran on this Mac — devbox unreachable"; nil = this Mac.
+    let placement: String?
 
     private var origin: String {
         switch draft.worktree.origin {
@@ -653,6 +655,10 @@ private struct RespondHeader: View {
                     .font(.system(.callout, design: .monospaced))
                     .foregroundStyle(.primary)
                     .truncationMode(.middle)
+                if let placement {
+                    Text("·").foregroundStyle(.tertiary)
+                    PlacementLabel(text: placement)
+                }
             }
             .font(.callout)
             .foregroundStyle(.secondary)

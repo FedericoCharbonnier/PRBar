@@ -244,8 +244,8 @@ struct PopoverView: View {
         }
         if !collapsed.contains(section) {
             ForEach(items) { item in
-                PRRowView(item: item, dimmed: section.isQuiet, model: model, reviews: model.reviews, respond: model.respond,
-                          merges: model.merges, updateSession: model.updates.session)
+                PRRowView(item: item, dimmed: section.isQuiet, placement: model.placements.label(prID: item.id), model: model,
+                          reviews: model.reviews, respond: model.respond, merges: model.merges, updateSession: model.updates.session)
             }
         }
     }

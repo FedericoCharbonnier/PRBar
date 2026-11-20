@@ -6,6 +6,8 @@ struct PRRowView: View {
     let item: ClassifiedPR
     /// Fila de "Otros": el título va en gris en vez de bajar la opacidad de toda la fila.
     var dimmed = false
+    /// Where the PR's last job ran (spec J): "on devbox" or the fallback; nil = this Mac.
+    var placement: String? = nil
     let model: AppModel
     @ObservedObject var reviews: ReviewQueue
     @ObservedObject var respond: RespondQueue
@@ -16,6 +18,10 @@ struct PRRowView: View {
 
     private var pr: PullRequest { item.pr }
     private var hasReviewButton: Bool { item.category == .toReview || item.category == .updatedSinceMyReview }
+    /// "on devbox" only while the PR has a review or an analysis to show (in progress or done).
+    private var shownPlacement: String? {
+        reviews.phases[item.id] != nil || respond.phases[item.id] != nil ? placement : nil
+    }
 
     var body: some View {
         // La fila es un `Button` real que abre el PR. Los botones Review y Responder no pueden ir adentro (serían
@@ -48,6 +54,22 @@ struct PRRowView: View {
     }
 
     private var rowContent: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            rowMain
+            // Its own line, as wide as the row (not squeezed by the buttons on the right): the fallback text is long.
+            if let shownPlacement {
+                PlacementLabel(text: shownPlacement)
+                    .font(.caption)
+                    .padding(.leading, 22 + 8)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .padding(.horizontal, 6)
+        .contentShape(Rectangle())
+    }
+
+    private var rowMain: some View {
         HStack(alignment: .center, spacing: 8) {
             AvatarView(login: pr.author, url: pr.authorAvatarURL)
             VStack(alignment: .leading, spacing: 2) {
@@ -103,10 +125,6 @@ struct PRRowView: View {
                 .font(.system(.caption, design: .monospaced))
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .padding(.horizontal, 6)
-        .contentShape(Rectangle())
     }
 
     @ViewBuilder
@@ -194,6 +212,7 @@ struct PRRowView: View {
         if item.category == .readyToMerge {
             parts.append(MergeStatusLabel.text(for: model.mergeOptions(item).availability))
         }
+        if let shownPlacement { parts.append(shownPlacement) }
         return parts.joined(separator: ", ")
     }
 

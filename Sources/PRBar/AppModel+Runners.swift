@@ -148,3 +148,44 @@ extension ReviewContext {
     static let closed = ReviewContext(tools: ResolvedTools(), orphanCleanup: nil, claude: ClaudeSettings(),
                                       coordinator: RunnerCoordinator(makeHost: { _ in throw CancellationError() }))
 }
+
+/// Las versiones de git y claude de esta Mac para las rutas `tools` (la fila "This Mac" de Settings › Claude › Run On).
+struct LocalToolVersions: Equatable {
+    var tools: ResolvedTools
+    var git: String?
+    var claude: String?
+}
+
+// Herramientas de esta Mac para los trabajos que corren en un host (spec J): git siempre, claude solo acá.
+extension AppModel {
+    /// Lo que falta en esta Mac para un trabajo del repo, con el texto del botón; `nil` = puede correr.
+    func missingLocalTool(account: String, repo: RepoRef) -> String? {
+        LocalTools.missing(git: tools.git, claude: tools.claude, runsOnHost: runnerDestination(account: account, repo: repo) != nil)
+    }
+
+    /// Dónde corre (o correría el próximo turno de) este chat: el host o `nil` = esta Mac.
+    func chatHost(_ chat: ChatCoordinator) -> String? {
+        switch RunnerDispatch.chatTarget(subject: chat.subject, session: chat.session) {
+        case .pinned(let name): name
+        case .repoDestination: runnerDestination(account: chat.subject.account, repo: chat.subject.repo)?.name
+        }
+    }
+
+    /// Lee `--version` de git y claude una vez por cada juego de rutas (no corre nada si ya las tiene).
+    func refreshLocalToolVersions() async {
+        guard toolsResolved, localToolVersions?.tools != tools else { return }
+        let tools = self.tools
+        async let git = Self.toolVersion(tools.git, runner: runner)
+        async let claude = Self.toolVersion(tools.claude, runner: runner)
+        let found = LocalToolVersions(tools: tools, git: await git, claude: await claude)
+        if self.tools == tools { localToolVersions = found }
+    }
+
+    /// La primera línea de `<path> --version`, o `nil`.
+    nonisolated private static func toolVersion(_ path: String?, runner: SystemProcessRunner) async -> String? {
+        guard let path,
+              let result = try? await runner.run(path, ["--version"], environment: nil, currentDirectory: nil, timeout: 10),
+              result.status == 0 else { return nil }
+        return result.stdout.split(whereSeparator: \.isNewline).first.map(String.init)
+    }
+}

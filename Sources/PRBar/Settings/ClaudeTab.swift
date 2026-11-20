@@ -127,6 +127,7 @@ struct ClaudeTab: View {
                 footer("Ask Claude about a PR, have it adjust the findings, draft replies or change your fixes. It never posts, pushes or approves.")
             }
 
+            RunOnSection(model: model, configStore: configStore)
 
             Section {
                 ForEach(PromptStage.allCases) { stage in

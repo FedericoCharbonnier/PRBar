@@ -266,8 +266,8 @@ struct MergeWindow: View {
     @ViewBuilder
     private var chatPanel: some View {
         if let chat = session.chat {
-            ChatPanel(chat: chat, unavailableReason: model.chatUnavailableReason, notice: chatNotice(chat),
-                      logURL: model.mergeHistory.logURL(for: record.id))
+            ChatPanel(chat: chat, unavailableReason: model.chatUnavailableReason(for: chat), notice: chatNotice(chat),
+                      host: model.chatHost(chat), logURL: model.mergeHistory.logURL(for: record.id))
         } else {
             Text("The chat needs the PR in PRBar’s list.")
                 .font(.callout)

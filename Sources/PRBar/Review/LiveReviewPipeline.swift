@@ -46,6 +46,8 @@ struct LiveReviewPipeline: ReviewPipelineRunning {
         // (`ReviewFailure.underlying` es `RemotePreparationFailure`).
         return try await RunnerDispatch.run(
             destination: context.runner, coordinator: context.coordinator,
+            // Sin git o claude en esta Mac (un repo que corre en un host) no cae acá: se ve el error del host.
+            canRunLocally: context.tools.git != nil && context.tools.claude != nil,
             onPlacement: { await context.onPlacement(prID, $0) },
             local: {
                 guard let git = context.tools.git else { throw ReviewFailure(underlying: PRBarError.toolNotFound("git"), logURL: nil) }

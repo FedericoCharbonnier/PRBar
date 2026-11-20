@@ -24,10 +24,10 @@ struct LiveRespondPipeline: RespondPipelineRunning {
         await context.orphanCleanup?.value
         try Task.checkCancellation()
         let prID = request.item.id
-        // Sin carpeta local no hay a dónde caer: el error del host.
+        // Sin carpeta local, git o claude en esta Mac no hay a dónde caer: el error del host.
         return try await RunnerDispatch.run(
             destination: context.runner, coordinator: context.coordinator,
-            canRunLocally: !(request.localPath ?? "").isEmpty,
+            canRunLocally: !(request.localPath ?? "").isEmpty && context.tools.git != nil && context.tools.claude != nil,
             onPlacement: { await context.onPlacement(prID, $0) },
             local: { try await pipeline(context).analyze(request, draftID: draftID, onPhase: onPhase) },
             remote: { try await pipeline(context, placement: $0).analyze(request, draftID: draftID, onPhase: onPhase) })

@@ -10,6 +10,8 @@ struct ChatPanel: View {
     let unavailableReason: String?
     /// A warning on top, e.g. that the review is for an older commit.
     let notice: String?
+    /// Where Claude answers (spec J): "on devbox"; nil = this Mac.
+    var host: String? = nil
     let logURL: URL
 
     @State private var text = ""
@@ -25,6 +27,15 @@ struct ChatPanel: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 7)
                     .background(Theme.tint(Theme.orange))
+            }
+            if let host {
+                PlacementLabel(text: "on \(host)")
+                    .font(.caption)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 5)
+                    .help("Claude answers on \(host), with its own Claude login and plugins.")
+                Divider()
             }
             messages
             Divider()

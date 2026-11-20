@@ -281,3 +281,49 @@ extension AppConfig {
         }
     }
 }
+
+/// Los `Host` de `~/.ssh/config` para elegir en "Add SSH Host…" (sin comodines ni negaciones; `Include` relativos a
+/// la carpeta del archivo, un nivel). Solo lee y solo para mostrar: lo que se guarda pasa por `SSHEndpoint.parse`.
+public enum SSHConfigHosts {
+    public static func hosts(configAt url: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".ssh/config")) -> [String] {
+        var found = Set<String>()
+        func read(_ file: URL, depth: Int) {
+            guard let text = try? String(contentsOf: file, encoding: .utf8) else { return }
+            for raw in text.split(whereSeparator: \.isNewline) {
+                let line = raw.trimmingCharacters(in: .whitespaces)
+                guard !line.isEmpty, !line.hasPrefix("#") else { continue }
+                // `Keyword valor…` o `Keyword=valor…`.
+                var parts = line.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
+                if let first = parts.first, let equals = first.firstIndex(of: "=") {
+                    let value = String(first[first.index(after: equals)...])
+                    parts[0] = String(first[..<equals])
+                    if !value.isEmpty { parts.insert(value, at: 1) }
+                }
+                guard let keyword = parts.first?.lowercased() else { continue }
+                if keyword == "host" {
+                    for name in parts.dropFirst() where SSHEndpoint.isName(name) {
+                        found.insert(name)
+                    }
+                } else if keyword == "include", depth == 0 {
+                    for pattern in parts.dropFirst() {
+                        let base: URL
+                        if pattern.hasPrefix("/") {
+                            base = URL(fileURLWithPath: pattern)
+                        } else if pattern.hasPrefix("~/") {
+                            base = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(String(pattern.dropFirst(2)))
+                        } else {
+                            base = url.deletingLastPathComponent().appendingPathComponent(pattern)
+                        }
+                        let entries = (try? FileManager.default.contentsOfDirectory(at: base.deletingLastPathComponent(),
+                                                                                    includingPropertiesForKeys: nil)) ?? []
+                        for entry in entries.sorted(by: { $0.path < $1.path }) where fnmatch(base.lastPathComponent, entry.lastPathComponent, 0) == 0 {
+                            read(entry, depth: 1)
+                        }
+                    }
+                }
+            }
+        }
+        read(url, depth: 0)
+        return found.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+}

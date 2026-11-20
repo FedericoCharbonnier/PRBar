@@ -97,5 +97,34 @@ enum RunnerSettingsTests {
             try expectEqual(settings.destinations[0].endpoint, SSHEndpoint(user: "fede", host: "devbox", port: 2222))
             try expectEqual(settings.defaultTarget, .runner("ok"))
         },
+        TestCase("runners: hosts de ~/.ssh/config sin comodines, con Include de un nivel") {
+            let dir = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: dir) }
+            try Data("Host devbox gpu-1\n  HostName 10.0.0.2\nHost *.internal *\nInclude extra/*.conf\nhost  Lab\n".utf8)
+                .write(to: dir.appendingPathComponent("config"))
+            try FileManager.default.createDirectory(at: dir.appendingPathComponent("extra"), withIntermediateDirectories: true)
+            try Data("Host build-box\nInclude ../config\n".utf8).write(to: dir.appendingPathComponent("extra/a.conf"))
+            try expectEqual(SSHConfigHosts.hosts(configAt: dir.appendingPathComponent("config")), ["build-box", "devbox", "gpu-1", "Lab"])
+            // Negaciones, `?`, nombres que ssh leería como opción o con caracteres raros, y `Host=x`.
+            try Data("Host !bad ok-1 we?rd -opt a$b\nHost=eq-host\n\tHost tabbed\n# Host commented\n".utf8)
+                .write(to: dir.appendingPathComponent("config"))
+            try expectEqual(SSHConfigHosts.hosts(configAt: dir.appendingPathComponent("config")), ["eq-host", "ok-1", "tabbed"])
+            try expectEqual(SSHConfigHosts.hosts(configAt: dir.appendingPathComponent("missing")), [])
+        },
+        TestCase("runners: herramientas de esta Mac — git siempre, claude solo si el trabajo corre acá") {
+            try expectEqual(LocalTools.missing(git: nil, claude: "/c", runsOnHost: true), "git")
+            try expectEqual(LocalTools.missing(git: "/g", claude: nil, runsOnHost: true), nil)
+            try expectEqual(LocalTools.missing(git: "/g", claude: nil, runsOnHost: false), "claude")
+            try expectEqual(LocalTools.missing(git: nil, claude: nil, runsOnHost: false), "git")
+            try expectEqual(LocalTools.missing(git: "/g", claude: "/c", runsOnHost: false), nil)
+        },
+        TestCase("runners: estado de esta Mac en Run On") {
+            try expectEqual(LocalTools.statusSummary(git: "/g", claude: "/c", gitVersion: "git version 2.47.1", claudeVersion: "2.1.318 (Claude Code)"),
+                            "✓ claude 2.1.318 · git 2.47.1")
+            try expectEqual(LocalTools.statusSummary(git: "/g", claude: "/c", gitVersion: nil, claudeVersion: nil), "✓ claude · git")
+            try expectEqual(LocalTools.statusSummary(git: "/g", claude: nil, gitVersion: "git version 2.47.1", claudeVersion: nil),
+                            "⚠ claude isn’t installed")
+            try expectEqual(LocalTools.statusSummary(git: nil, claude: nil, gitVersion: nil, claudeVersion: nil), "⚠ git isn’t installed")
+        },
     ]
 }

@@ -93,7 +93,7 @@ struct ReviewWindow: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ReviewHeader(draft: draft, pr: currentPR?.pr)
+            ReviewHeader(draft: draft, pr: currentPR?.pr, placement: model.placements.label(prID: draft.prID))
                 .padding(.horizontal, 20)
                 .padding(.top, 14)
                 .padding(.bottom, 12)
@@ -115,9 +115,9 @@ struct ReviewWindow: View {
         // and its worktree goes away.
         .onChange(of: shownResult != nil, initial: true) { _, posted in if posted { chat.markReadOnly() } }
         .inspector(isPresented: Binding(get: { showsChat && model.chatEnabled }, set: { showsChat = $0 })) {
-            ChatPanel(chat: chat, unavailableReason: model.chatUnavailableReason,
+            ChatPanel(chat: chat, unavailableReason: model.chatUnavailableReason(for: chat),
                       notice: isOutdated ? "This review is for an older commit." : nil,
-                      logURL: model.history.logURL(for: draft.id))
+                      host: model.chatHost(chat), logURL: model.history.logURL(for: draft.id))
                 .inspectorColumnWidth(min: 320, ideal: chatWidth, max: 480)
                 .background(GeometryReader { geometry in
                     Color.clear.onChange(of: geometry.size.width) { _, width in chatWidth = min(max(width, 320), 480) }
@@ -371,6 +371,8 @@ struct ReviewWindow: View {
 private struct ReviewHeader: View {
     let draft: ReviewDraft
     let pr: PullRequest?
+    /// Where the review ran (spec J): "on devbox" or "Ran on this Mac — devbox unreachable"; nil = this Mac.
+    let placement: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -392,6 +394,10 @@ private struct ReviewHeader: View {
                     (Text("+\(pr.additions)").foregroundColor(Theme.greenText)
                         + Text(" −\(pr.deletions)").foregroundColor(Theme.redText))
                         .monospacedDigit()
+                }
+                if let placement {
+                    dot
+                    PlacementLabel(text: placement)
                 }
             }
             .font(.callout)
