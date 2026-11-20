@@ -37,11 +37,27 @@ public struct DiskItem: Codable, Equatable, Sendable, Identifiable {
     public var title: String
 
     public var id: String { path }
+
+    public init(path: String, bytes: Int64, kind: DiskCategoryKind, state: DiskItemState, repo: String? = nil,
+                clone: String? = nil, title: String) {
+        self.path = path
+        self.bytes = bytes
+        self.kind = kind
+        self.state = state
+        self.repo = repo
+        self.clone = clone
+        self.title = title
+    }
 }
 
 public struct DiskUsage: Codable, Equatable, Sendable {
     public var items: [DiskItem]
     public var scannedAt: Date
+
+    public init(items: [DiskItem], scannedAt: Date) {
+        self.items = items
+        self.scannedAt = scannedAt
+    }
 
     public var total: Int64 { items.map(\.bytes).reduce(0, +) }
     public func bytes(_ kind: DiskCategoryKind) -> Int64 { items.filter { $0.kind == kind }.map(\.bytes).reduce(0, +) }

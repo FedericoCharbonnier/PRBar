@@ -1,0 +1,89 @@
+import Foundation
+import PRBarCore
+
+private func item(_ path: String, _ state: DiskItemState, kind: DiskCategoryKind = .worktrees, bytes: Int64 = 100,
+                  clone: String? = nil, title: String? = nil) -> DiskItem {
+    DiskItem(path: path, bytes: bytes, kind: kind, state: state, repo: nil, clone: clone,
+             title: title ?? URL(fileURLWithPath: path).lastPathComponent)
+}
+
+enum DiskCleanupTests {
+    static let cases: [TestCase] = [
+        TestCase("cleanup: el plan solo trae huérfanos y caché del updater; nunca activos ni datos") {
+            let usage = DiskUsage(items: [
+                item("/w/api-1-1-aaaaaaaa", .active),
+                item("/w/api-2-1-bbbbbbbb", .orphan),
+                item("/s/source/.build", .cache, kind: .updater, title: "Updater builds"),
+                item("/s/update-staging", .cache, kind: .updater, title: "Update staging"),
+                item("/s/history", .data, kind: .history),
+            ], scannedAt: t0)
+            let plan = DiskCleanup.plan(usage: usage, oldFiles: [], updateInProgress: false)
+            try expectEqual(plan.candidates.map(\.path), ["/w/api-2-1-bbbbbbbb", "/s/source/.build", "/s/update-staging"])
+            try expectEqual(plan.totalBytes, 300)
+            let busy = DiskCleanup.plan(usage: usage, oldFiles: [], updateInProgress: true)
+            try expectEqual(busy.candidates.map(\.path), ["/w/api-2-1-bbbbbbbb"])
+        },
+        TestCase("cleanup: archivos viejos solo si se piden, nunca prbar.log") {
+            let base = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: base) }
+            let old = base.appendingPathComponent("history/review/old.json")
+            let new = base.appendingPathComponent("history/review/new.json")
+            let log = base.appendingPathComponent("Logs/prbar.log")
+            for url in [old, new, log] {
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try Data("x".utf8).write(to: url)
+            }
+            let longAgo = Date().addingTimeInterval(-40 * 86_400)
+            try FileManager.default.setAttributes([.modificationDate: longAgo], ofItemAtPath: old.path)
+            try FileManager.default.setAttributes([.modificationDate: longAgo], ofItemAtPath: log.path)
+            let files = DiskCleanup.oldFiles(in: [base.appendingPathComponent("history"), base.appendingPathComponent("Logs")],
+                                             olderThanDays: 30, now: Date())
+            try expectEqual(files.map(\.path), [old.standardizedFileURL.path])
+        },
+        TestCase("cleanup: el ejecutor saca un worktree de Responder limpio y saltea uno con commits sin pushear") {
+            let repo = try TempGitRepo.make()
+            defer { repo.remove() }
+            let dir = repo.base.appendingPathComponent("local-worktrees")
+            let clean = dir.appendingPathComponent("local-7-respond-0a0a0a0a")
+            let dirty = dir.appendingPathComponent("local-7-respond-0b0b0b0b")
+            try TempGitRepo.run(repo.local, ["worktree", "add", "--detach", clean.path, "HEAD"])
+            try TempGitRepo.run(repo.local, ["worktree", "add", "--detach", dirty.path, "HEAD"])
+            try Data("fix\n".utf8).write(to: dirty.appendingPathComponent("fix.txt"))
+            try TempGitRepo.run(dirty, ["add", "-A"])
+            try TempGitRepo.run(dirty, ["commit", "-q", "-m", "unpushed fix"])
+            let plan = CleanupPlan(candidates: [
+                CleanupCandidate(path: clean.path, bytes: 1, kind: .respondWorktree, clone: repo.local.path, title: "clean"),
+                CleanupCandidate(path: dirty.path, bytes: 1, kind: .respondWorktree, clone: repo.local.path, title: "dirty"),
+            ])
+            let executor = DiskCleanupExecutor(runner: SystemProcessRunner(), gitPath: TempGitRepo.git,
+                                               worktreeRoots: [repo.root], gitEnvironment: ["GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"],
+                                               registry: WorkspaceRegistry())
+            let result = await executor.run(plan)
+            try expectEqual(result.removed, [clean.path])
+            try expectEqual(result.skipped.count, 1)
+            try expect(result.skipped[0].contains("unpushed"), result.skipped[0])
+            try expect(FileManager.default.fileExists(atPath: dirty.path))
+            try expect(!FileManager.default.fileExists(atPath: clean.path))
+            try expectEqual(try repo.worktreeNames().sorted(), ["local", "local-7-respond-0b0b0b0b"])
+        },
+        TestCase("cleanup: el ejecutor re-verifica y no toca algo que pasó a estar activo ni algo fuera de las raíces") {
+            let base = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: base) }
+            let root = base.appendingPathComponent("worktrees")
+            let busy = root.appendingPathComponent("api-1-1700000000-cccccccc-diff")
+            let outside = base.appendingPathComponent("elsewhere/api-1-1700000000-dddddddd-diff")
+            for url in [busy, outside] { try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true) }
+            let registry = WorkspaceRegistry()
+            registry.insert(busy.path)
+            let executor = DiskCleanupExecutor(runner: SystemProcessRunner(), gitPath: "/usr/bin/git", worktreeRoots: [root],
+                                               gitEnvironment: [:], registry: registry)
+            let result = await executor.run(CleanupPlan(candidates: [
+                CleanupCandidate(path: busy.path, bytes: 1, kind: .workspace, clone: nil, title: "busy"),
+                CleanupCandidate(path: outside.path, bytes: 1, kind: .workspace, clone: nil, title: "outside"),
+            ]))
+            try expectEqual(result.removed, [])
+            try expect(FileManager.default.fileExists(atPath: busy.path) && FileManager.default.fileExists(atPath: outside.path))
+            try expectEqual(result.skipped.count, 2)
+        },
+    ]
+}
