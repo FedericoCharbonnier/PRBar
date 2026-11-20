@@ -125,5 +125,16 @@ enum ConfigTests {
             try expectEqual(config.repoConfig(account: "other", repo: RepoRef(owner: "acme", name: "web-app")), nil)
             try expectEqual(config.repoConfig(account: "me", repo: RepoRef(owner: "acme", name: "api")), nil)
         },
+        TestCase("config: el umbral de disco está apagado por defecto, se guarda y se acota a 1–100 GB") {
+            try expectEqual(AppConfig().resources.diskWarningGB, nil)
+            var config = AppConfig()
+            config.resources.setDiskWarning(gigabytes: 500)
+            try expectEqual(config.resources.diskWarningGB, 100)
+            config.resources.setDiskWarning(gigabytes: 5)
+            let back = try JSONDecoder().decode(AppConfig.self, from: try JSONEncoder().encode(config))
+            try expectEqual(back.resources.diskWarningGB, 5)
+            let old = try JSONDecoder().decode(AppConfig.self, from: Data(#"{"refreshIntervalMinutes":5}"#.utf8))
+            try expectEqual(old.resources.diskWarningGB, nil)
+        },
     ]
 }
