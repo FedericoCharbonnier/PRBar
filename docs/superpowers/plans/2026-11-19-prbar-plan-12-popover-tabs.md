@@ -299,16 +299,6 @@ public enum PopoverTabs {
 }
 ```
 
-> Nota: el test de `section.tab` del Step 1 compara contra `PopoverTabs.sections`: si una sección quedara fuera de su pestaña, falla. Reemplazar esa línea por la versión simple si resulta confusa:
-> `for section in PopoverSection.allCases { try expect(PopoverTabs.sections(section.tab).contains(section)) }`
-> (usar esta versión; la del Step 1 compara un `PopoverTab` con un `PopoverTab?` y **no compila**).
-
-Corregir el Step 1 antes de correrlo: la línea `for section in PopoverSection.allCases { try expectEqual(section.tab, …) }` se reemplaza por
-
-```swift
-            for section in PopoverSection.allCases { try expect(PopoverTabs.sections(section.tab).contains(section)) }
-```
-
 - [ ] **Step 4: Correr y ver que pasa.**
 
 Run: `swift build --product PRBarTests && swift run PRBarTests "popover tabs"`
@@ -411,15 +401,13 @@ y después de `(.quit, "quit"),`:
     (.openPopover(tab: .mine), "openPopover"),
 ```
 
-En la función `arguments()` del mismo archivo (la que verifica que los argumentos llegan), agregar al final:
+En la función `arguments()` del mismo archivo (`@MainActor private static func arguments()`), antes de `let result = await run(.reviewCancel…`, agregar:
 
 ```swift
-    do {
-        let actions = FakeActions()
-        _ = await CommandDispatcher.run(.listPRs(list: .other, account: "me", tab: .mine), on: actions) { _ in }
-        let calls = actions.calls
-        try expectEqual(calls, ["listPRs other me mine"])
-    }
+        _ = await run(.listPRs(list: .other, account: "me", tab: .mine), fake)
+        try expectEqual(fake.calls.last, "listPRs other me mine")
+        _ = await run(.openPopover(tab: nil), fake)
+        try expectEqual(fake.calls.last, "openPopover -")
 ```
 
 En `AppCommandTests.swift`, agregar un caso:
@@ -437,9 +425,7 @@ En `AppCommandTests.swift`, agregar un caso:
         },
 ```
 
-> Si `CommandRequest` no tiene ese `init` (ver `CommandProtocol.swift`), usar el `init` que tenga (el resto de `AppCommandTests` muestra cómo se arma uno).
-
-En `CommandProtocolTests.swift`, si hay una aserción sobre `CommandProtocol.version`, cambiarla a `4`.
+En `CommandProtocolTests.swift`, si hay una aserción sobre `CommandProtocol.version` (hoy no la hay: los tests usan versiones literales en los mensajes), cambiarla a `4`.
 
 En `CommandResultsTests.swift`, agregar:
 
