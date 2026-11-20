@@ -167,6 +167,8 @@ final class AppModel: ObservableObject {
     /// Cuándo se pidió cada review (por prID), para el `ReviewRecord`.
     private var reviewStarts: [String: Date] = [:]
     private var terminationObserver: NSObjectProtocol?
+    /// El socket de `prbar` (spec C.2); `nil` en el modo de capturas o si no se pudo abrir.
+    var commandServer: CommandServer?
     /// Re-renders the views that use `jobsBlockedReason` when an update starts or ends.
     private var installStateObserver: AnyCancellable?
     /// Descarta las fases de merge de los PRs que ya no están en cada snapshot nuevo (spec F.8.10), aunque el refresco
@@ -239,6 +241,7 @@ final class AppModel: ObservableObject {
             self?.closeStaleMergeConfirmations(snapshot)
         }
         guard startsServices else { return }
+        startCommandServer()
         WindowPresenter.shared.openSettings = { [weak self] in self?.openSettings() }
         notifications?.onOpenReview = { [weak self] prID, recordID in self?.openFromNotification(prID: prID, recordID: recordID) }
         notifications?.onOpenRespond = { [weak self] prID in self?.openRespondFromNotification(prID: prID) }
@@ -249,6 +252,7 @@ final class AppModel: ObservableObject {
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
+                self?.stopCommandServer()
                 self?.reviews.cancelAll()
                 self?.respond.cancelAll()
                 // A turn that was running stays `pending` in its record and reopens as "Interrupted" (spec B.9).

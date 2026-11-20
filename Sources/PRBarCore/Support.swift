@@ -98,6 +98,8 @@ public enum AppPaths {
             .appendingPathComponent("PRBar", isDirectory: true)
     }
     public static var configFile: URL { appSupport.appendingPathComponent("config.json") }
+    /// Socket de `prbar` (spec C.2). La carpeta queda en 0700 (`CommandServer.secure`).
+    public static var socketFile: URL { appSupport.appendingPathComponent("prbar.sock") }
     public static var stateFile: URL { appSupport.appendingPathComponent("state.json") }
     public static var slackStateFile: URL { appSupport.appendingPathComponent("slack-state.json") }
     /// Registros y logs de las reviews.
