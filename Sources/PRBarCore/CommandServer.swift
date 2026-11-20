@@ -87,6 +87,11 @@ public final class CommandServer: @unchecked Sendable {
         }
     }
 
+    /// Solo el id de un pedido que no se pudo leer entero.
+    private struct RequestID: Decodable {
+        let id: Int
+    }
+
     private func serve(_ connection: LineConnection) {
         defer {
             _ = locked { connections.removeValue(forKey: ObjectIdentifier(connection)) }
@@ -110,8 +115,14 @@ public final class CommandServer: @unchecked Sendable {
         let handler = self.handler
         while let line = connection.readLine() {
             guard let request = try? CommandProtocol.decode(CommandRequest.self, line: line) else {
-                let failure = CommandFailure(.invalidUsage, "Couldn't read the request.")
-                try? connection.write(CommandProtocol.line(CommandResponse.failure(id: 0, failure)))
+                // Con el id, el cliente recibe el error en vez de esperar para siempre (p. ej. un `prbar` más nuevo
+                // que manda un comando que esta app no conoce).
+                let response = if let id = try? CommandProtocol.decode(RequestID.self, line: line).id {
+                    CommandResponse.failure(id: id, .unknownCommand(app: appVersion))
+                } else {
+                    CommandResponse.failure(id: 0, CommandFailure(.invalidUsage, "Couldn’t read the request."))
+                }
+                try? connection.write(CommandProtocol.line(response))
                 continue
             }
             tasks.append(Task {
@@ -184,9 +195,10 @@ public final class CommandClient {
             throw ConnectError.unavailable(error.localizedDescription)
         }
         while let line = connection.readLine() {
-            guard let response = try? CommandProtocol.decode(CommandResponse.self, line: line), response.id == id else {
-                continue
-            }
+            guard let response = try? CommandProtocol.decode(CommandResponse.self, line: line) else { continue }
+            // id 0 = la app no pudo leer el pedido: no va a llegar otra respuesta.
+            if response.id == 0, let error = response.error { throw error }
+            guard response.id == id else { continue }
             if let event = response.event {
                 onEvent(event)
                 continue

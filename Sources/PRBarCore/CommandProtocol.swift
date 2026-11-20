@@ -72,6 +72,11 @@ public struct CommandFailure: Error, Codable, Equatable, Sendable, LocalizedErro
     public static func protocolMismatch(cli: String, app: String) -> CommandFailure {
         CommandFailure(.protocolMismatch, "prbar \(cli) can't talk to PRBar \(app) — run `prbar update` or reinstall")
     }
+
+    /// El pedido tiene un comando que la app no conoce: `prbar` es más nuevo que la PRBar que está corriendo.
+    public static func unknownCommand(app: String) -> CommandFailure {
+        CommandFailure(.protocolMismatch, "PRBar \(app) doesn’t know this command — prbar is newer. Restart PRBar (or update it with `prbar update`).")
+    }
 }
 
 /// Lo que manda la app mientras corre un comando largo (`--wait`, chat, update).

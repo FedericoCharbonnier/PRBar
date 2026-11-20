@@ -125,6 +125,63 @@ enum CommandServerTests {
             for _ in 0..<100 where !cancelled.isSet { try await Task.sleep(for: .milliseconds(20)) }
             try expect(cancelled.isSet)
         },
+        TestCase("socket: un comando que la app no conoce → error con el id del pedido") {
+            let url = try shortSocketURL()
+            defer { removeSocketDirectory(url) }
+            let server = try echoServer(url)
+            defer { server.stop() }
+            let raw = try RawSocket.connect(url)
+            defer { raw.close() }
+            raw.writeLine(helloLine(protocolVersion: CommandProtocol.version))
+            _ = raw.readLine()
+            raw.writeLine(#"{"id":7,"command":{"someFutureCommand":{"x":1}}}"#)
+            guard let line = raw.readLine() else { throw TestFailure(description: "sin respuesta") }
+            let response = try CommandProtocol.decode(CommandResponse.self, line: line)
+            try expectEqual(response.id, 7)
+            try expectEqual(response.error?.code, .protocolMismatch)
+            try expect(response.error?.message.contains("PRBar 9.9.9 doesn’t know this command") == true, line)
+        },
+        TestCase("socket: una línea que ni tiene id → error con id 0 y la conexión sigue") {
+            let url = try shortSocketURL()
+            defer { removeSocketDirectory(url) }
+            let server = try echoServer(url)
+            defer { server.stop() }
+            let raw = try RawSocket.connect(url)
+            defer { raw.close() }
+            raw.writeLine(helloLine(protocolVersion: CommandProtocol.version))
+            _ = raw.readLine()
+            raw.writeLine("not json")
+            let response = try CommandProtocol.decode(CommandResponse.self, line: raw.readLine() ?? "")
+            try expectEqual(response.id, 0)
+            try expectEqual(response.error?.code, .invalidUsage)
+            raw.writeLine(try CommandProtocol.line(CommandRequest(id: 1, command: .status)))
+            let next = try CommandProtocol.decode(CommandResponse.self, line: raw.readLine() ?? "")
+            try expectEqual(next.id, 1)
+        },
+        TestCase("socket: el cliente no se cuelga si la app contesta un error con id 0") {
+            let url = try shortSocketURL()
+            defer { removeSocketDirectory(url) }
+            let listening = try RawSocket.listen(url)
+            defer { close(listening) }
+            let fake = Thread {
+                let peer = RawSocket(fd: accept(listening, nil, nil))
+                _ = peer.readLine()
+                peer.writeLine(#"{"hello":{"protocolVersion":\#(CommandProtocol.version),"version":"0.1.0"}}"#)
+                _ = peer.readLine()
+                peer.writeLine(try! CommandProtocol.line(CommandResponse.failure(id: 0, CommandFailure(.invalidUsage, "Couldn’t read the request."))))
+                _ = peer.waitForClose(timeout: 10)
+                peer.close()
+            }
+            fake.start()
+            let error = try await expectThrows {
+                _ = try await offMain {
+                    let client = try CommandClient.connect(socketURL: url, clientVersion: "1.0.0")
+                    defer { client.close() }
+                    return try client.send(.status)
+                }
+            }
+            try expectEqual((error as? CommandFailure)?.message, "Couldn’t read the request.")
+        },
         TestCase("socket: stop borra el socket") {
             let url = try shortSocketURL()
             defer { removeSocketDirectory(url) }
