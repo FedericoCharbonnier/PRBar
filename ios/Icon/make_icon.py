@@ -1,13 +1,23 @@
-"""Ícono de PRBar para iPhone a partir del glifo del ícono de Mac: claro, oscuro y tintado (1024×1024, sin máscara)."""
+"""Ícono de PRBar para iPhone a partir del glifo del ícono de Mac: claro, oscuro y tintado (1024×1024, sin máscara).
+
+Uso: python3 ios/Icon/make_icon.py  (necesita numpy y Pillow). Escribe en ios/Icon/out/; copiar los tres PNG a
+ios/PRBarMobile/Resources/Assets.xcassets/AppIcon.appiconset/.
+"""
+import subprocess
+import tempfile
 from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 
-HERE = Path(__file__).parent
+ROOT = Path(__file__).resolve().parents[2]
+HERE = Path(__file__).parent / "out"
+HERE.mkdir(exist_ok=True)
+MAC_PNG = Path(tempfile.mkdtemp()) / "mac-icon.png"
+subprocess.run(["sips", "-s", "format", "png", str(ROOT / "Resources" / "AppIcon.icns"), "--out", str(MAC_PNG)], check=True, capture_output=True)
 S = 1024
 
-src = np.asarray(Image.open(Path(__file__).resolve().parents[2] / "build-icon-src" / "mac-icon.png").convert("RGBA")).astype(float)
+src = np.asarray(Image.open(MAC_PNG).convert("RGBA")).astype(float)
 tile = src[100:924, 100:924]
 r, b = tile[..., 0], tile[..., 2]
 alpha = np.clip((r - 125) / (250 - 125), 0, 1)
