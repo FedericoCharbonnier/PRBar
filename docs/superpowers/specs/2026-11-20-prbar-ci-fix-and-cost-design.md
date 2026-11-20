@@ -95,6 +95,15 @@ prbar ci cancel|dismiss <pr>
 8. **Historial**: `HistoryKind.ciFix` (`prbar history --kind ci-fix`); en la ventana, "Fix CI" en vez de "Respond".
 9. **Activity**: `ProcessActivity.Kind.ciFix`, título "Fix CI api#12"; Stop = cancelar el Fix CI.
 10. **Protocolo 6** (junto con O): `ciFix`, `ciList`, `usage`, `HistoryKind.ciFix`, `RespondInfo.mode`.
+11. **Head que falló**: el head, la rama y si es un fork salen de la misma consulta que usa Respond (`reviewFeedback`); los
+    checks se piden para ese head. Si el worktree que se armó no quedó en ese commit (el PR avanzó mientras se leían los
+    logs), el Fix CI falla sin Claude y borra el worktree.
+12. **"Push Anyway"** es uno solo: con los tests fallidos o con el CI en verde, pushea ignorando los dos (nunca un head
+    distinto). Un log que no se puede bajar (expirado, sin permiso) no frena el Fix CI: ese check va con su resumen.
+13. **Sin notificación en `ready`**: si la implementación automática no pudo arrancar (por ejemplo, un turno del chat en el
+    PR), la fila queda en "Fix CI" y la ventana ofrece el botón; no hay aviso aparte.
+14. **Comandos**: `ci show|diff|test|push|cancel|dismiss` mandan los mismos `AppCommand` que Respond; `respond show` de un
+    Fix CI imprime lo mismo que `ci show`, y `ci push` de algo que no es un Fix CI se niega.
 
 ---
 
@@ -140,5 +149,11 @@ Y el campo `usage` en `--json` de `history`, `history show`, `review show`, `res
    tolerante; faltan → "—"). El total de una entrada suma el registro y su chat.
 5. **Costo desconocido**: si ninguna corrida trajo datos, "—". Si algunas sí, el costo de las que sí y "N runs
    without usage data". `costUSD` nunca se inventa: no hay tabla de precios en PRBar.
-6. **Fuera de alcance**: el conector de Slack por Claude, la verificación de login de los hosts y el listado de skills
+6. **Tareas recientes**: una por trabajo de `JobScheduler`; los turnos del chat son trabajos (uno por mensaje). Una
+   corrida fuera de un trabajo es su propia tarea.
+7. **Uso por registro**: el de un análisis va al registro nuevo (también al vacío de un análisis fallido); el de la
+   implementación, los tests y la publicación se suma al registro antes del evento de fase, así el historial lo tiene.
+   Un trabajo cancelado suma lo que llegó a gastar. Los turnos del chat se suman en `ChatSession.usage` aunque fallen o
+   se detengan.
+8. **Fuera de alcance**: el conector de Slack por Claude, la verificación de login de los hosts y el listado de skills
    (no son tareas de un PR y no pasan por `ClaudeRunner`).
