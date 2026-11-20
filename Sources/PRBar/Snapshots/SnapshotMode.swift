@@ -381,7 +381,7 @@ private final class SnapshotSession {
         model.updates.applySnapshotState(available: SnapshotFixtures.updateRelease)
         let sizes: [SettingsWindow.Tab: NSSize] = [
             .general: NSSize(width: 700, height: 905),
-            .claude: NSSize(width: 700, height: 2420),
+            .claude: NSSize(width: 700, height: 2470),
             .instructions: NSSize(width: 700, height: 1330),
             .repos: NSSize(width: 700, height: 1330),
             .slack: NSSize(width: 700, height: 1260),
