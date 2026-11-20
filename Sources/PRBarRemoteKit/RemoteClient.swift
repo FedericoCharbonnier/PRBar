@@ -79,7 +79,11 @@ public actor RemoteClient {
     private let clock: @Sendable () -> Date
     public private(set) var paired: PairedMac?
     public private(set) var keys: DeviceKeys?
-    public private(set) var status: RemoteClientStatus
+    public private(set) var status: RemoteClientStatus {
+        didSet { if status != oldValue { statusSink.yield(status) } }
+    }
+    /// El último código con el que el relay cerró (o no abrió) la conexión: 4401, 4403, 4409… Solo informa (M3).
+    public private(set) var lastRelayCloseCode: Int?
     public private(set) var presencePolicy: (requirePresence: Bool, gated: [AppCommand.Name]) = (true, [])
     public private(set) var macHello: RemoteHello?
 
@@ -103,6 +107,9 @@ public actor RemoteClient {
     /// Pedazos de chats que no inició este teléfono (`chatDelta`, spec P.6).
     public nonisolated let chatDeltas: AsyncStream<RemoteChatDelta>
     private let chatSink: AsyncStream<RemoteChatDelta>.Continuation
+    /// Cada cambio de `status` (la app del iPhone lo muestra y reconecta con esto).
+    public nonisolated let statusUpdates: AsyncStream<RemoteClientStatus>
+    private let statusSink: AsyncStream<RemoteClientStatus>.Continuation
 
     public init(configuration: Configuration, paired: PairedMac? = nil, keys: DeviceKeys? = nil,
                 linkFactory: @escaping RelayLinkFactory, clock: @escaping @Sendable () -> Date = { Date() }) {
@@ -114,6 +121,7 @@ public actor RemoteClient {
         status = paired == nil ? .unpaired : .disconnected
         (states, stateSink) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(64))
         (chatDeltas, chatSink) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(256))
+        (statusUpdates, statusSink) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(16))
     }
 
     // MARK: - Emparejamiento (spec P.11)
@@ -132,10 +140,10 @@ public actor RemoteClient {
     }
 
     /// Se une a la ranura del QR, hace el handshake IKpsk2 y devuelve el código de 6 dígitos para comparar con la Mac.
-    /// `presenceKey`: la pública x963 de la clave del Secure Enclave.
-    public func startPairing(qr: PairingQR, presenceKey: Data) async throws -> String {
+    /// `presenceKey`: la pública x963 de la clave del Secure Enclave. `keys`: las claves nuevas del teléfono (la app
+    /// las genera y las guarda recién cuando la Mac confirma).
+    public func startPairing(qr: PairingQR, presenceKey: Data, keys: DeviceKeys = DeviceKeys()) async throws -> String {
         await cancelPairingFlow()
-        let keys = DeviceKeys()
         let secrets = PairingSecrets(secret: qr.secret)
         let link = linkFactory(.pairing(account: qr.accountId, pairing: qr.pairingId, authKey: secrets.authKey))
         do {
@@ -255,6 +263,11 @@ public actor RemoteClient {
         pairingFlow?.resultWaiter = nil
     }
 
+    /// "Codes Don't Match" o Cancel en el teléfono: suelta la ranura (la Mac ve que el teléfono se fue).
+    public func cancelPairing() async {
+        await cancelPairingFlow()
+    }
+
     private func cancelPairingFlow() async {
         guard let flow = pairingFlow else { return }
         failPairing(.pairingCancelled)
@@ -273,14 +286,17 @@ public actor RemoteClient {
         if link == nil {
             let link = linkFactory(.signed(account: paired.accountId, client: paired.deviceId, key: keys.relay))
             let ready: RelayReady
+            lastRelayCloseCode = nil
             do {
                 ready = try await link.connect()
             } catch let closed as RelayClosed where closed.code == RelayCloseCode.deviceRemoved.rawValue
                 || closed.code == RelayCloseCode.unauthorized.rawValue {
                 // Solo un indicio: la revocación la dice la Mac con `bye(revoked)` dentro de la sesión (M3).
+                lastRelayCloseCode = closed.code
                 status = .relayRejected
                 throw RemoteError.relayRejected
             } catch {
+                lastRelayCloseCode = (error as? RelayClosed)?.code
                 status = .relayUnreachable
                 throw RemoteError.relayUnreachable
             }
@@ -369,6 +385,7 @@ public actor RemoteClient {
         guard link === ended else { return }
         link = nil
         let closed = error as? RelayClosed
+        lastRelayCloseCode = closed?.code
         if status == .revoked {
             tearDown(.revoked)
         } else if closed?.code == RelayCloseCode.deviceRemoved.rawValue {
