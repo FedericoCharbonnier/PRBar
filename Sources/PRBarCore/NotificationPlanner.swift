@@ -208,6 +208,8 @@ extension NotificationPlanner {
         case ciFixReady(commits: Int)
         case ciFixPushed
         case ciFixFailed
+        /// Fix CI's push stopped because the checks that failed pass now (spec K.6.6): back to the diff.
+        case ciFixNotPushed
     }
 
     public static func respondFinished(
@@ -239,6 +241,9 @@ extension NotificationPlanner {
         case .ciFixFailed:
             (title, key) = ("Couldn't Fix CI", "ci-failed")
             body = "\(ref): open PRBar to see the error."
+        case .ciFixNotPushed:
+            (title, key) = ("CI Fix Not Pushed", "ci-not-pushed")
+            body = "\(ref): the failing checks pass now. Push Anyway if you still want the fix."
         }
         return PlannedNotification(kind: .reviewFinished, title: title, body: body, url: nil, respondPRID: prID, event: "respond-\(key)")
     }

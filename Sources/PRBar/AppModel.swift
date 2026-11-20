@@ -1124,6 +1124,8 @@ final class AppModel: ObservableObject {
         // Fix CI (spec K.6.7): nothing to choose in `ready` (the fix starts on its own).
         case .ready where isCI:
             event = nil
+        case .readyToPush where isCI && respond.isReportingCIBlock(prID):
+            event = .ciFixNotPushed
         case .readyToPush(_, let result) where isCI:
             event = result.tests == nil ? .ciFixReady(commits: RespondCounts.commits(result)) : nil
         case .done where isCI:

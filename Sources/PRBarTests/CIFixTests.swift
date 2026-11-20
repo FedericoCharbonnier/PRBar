@@ -332,6 +332,10 @@ enum CIFixTests {
                                                                 event: .ciFixPushed, settings: settings)?.title, "CI Fix Pushed")
             try expectEqual(NotificationPlanner.respondFinished(prID: "x", repo: RepoRef(owner: "acme", name: "api"), number: 12,
                                                                 event: .ciFixFailed, settings: settings)?.title, "Couldn't Fix CI")
+            let notPushed = NotificationPlanner.respondFinished(prID: "x", repo: RepoRef(owner: "acme", name: "api"), number: 12,
+                                                                event: .ciFixNotPushed, settings: settings)
+            try expectEqual(notPushed?.title, "CI Fix Not Pushed")
+            try expectEqual(notPushed?.body, "api#12: the failing checks pass now. Push Anyway if you still want the fix.")
             settings.reviewFinished = false
             try expectEqual(NotificationPlanner.respondFinished(prID: "x", repo: RepoRef(owner: "acme", name: "api"), number: 12,
                                                                 event: .ciFixReady(commits: 1), settings: settings), nil)

@@ -739,6 +739,8 @@ enum RespondPipelineTests {
             try await waitUntil { queue.pushBlockedByCI[prID(7)] != nil }
             try await waitUntil { if case .readyToPush? = queue.phases[prID(7)] { return true } else { return false } }
             try expect(queue.pushBlockedByCI[prID(7)]!.contains("pass now"))
+            // Back in readyToPush with a phase event (Activity, History and the notification hear of it).
+            try await waitUntil { events.count(.finished("\(prID(7))|readyToPush")) == 2 }
             try expectEqual(try e.git(e.repo.origin.path, ["rev-parse", "refs/heads/feature"]), e.repo.prSHA)
             // Un head nuevo en GitHub: ni con Push Anyway.
             e.api.details = PRDetails(title: "t", body: "", headOid: String(repeating: "9", count: 40), state: .open)

@@ -31,6 +31,9 @@ public final class RespondQueue: ObservableObject {
     /// Fix CI: PRs whose push PRBar stopped because the failing checks pass now (spec K.6.6), with the reason. The
     /// window offers "Push Anyway".
     @Published public private(set) var pushBlockedByCI: [String: String] = [:]
+    /// Set only while `onEvent` hears the `readyToPush` of a push the CI stopped (the checks pass now).
+    private var reportingCIBlock: String?
+    public func isReportingCIBlock(_ prID: String) -> Bool { reportingCIBlock == prID }
 
     private enum Kind { case analyze, implement, tests, publish }
 
@@ -486,9 +489,13 @@ public final class RespondQueue: ObservableObject {
                 self.cleanupWorktree(record.draft)
             case .failure(let error as CIPassingNow):
                 // Nothing was pushed: back to the diff, with "Push Anyway" (spec K.6.6).
+                // Through `finish`, like any other end of a job: the app updates Activity and History and notifies
+                // (`isReportingCIBlock` tells this event from a later one, such as a test run's).
                 self.pushBlockedByCI[prID] = error.localizedDescription
-                if case .readyToPush? = previous { self.phases[prID] = previous } else if let result = record.result {
-                    self.phases[prID] = .readyToPush(draft, result)
+                self.reportingCIBlock = prID
+                defer { self.reportingCIBlock = nil }
+                if case .readyToPush? = previous, let previous { self.finish(prID, previous) } else if let result = record.result {
+                    self.finish(prID, .readyToPush(draft, result))
                 }
             case .failure(let error):
                 self.fail(prID, error)
