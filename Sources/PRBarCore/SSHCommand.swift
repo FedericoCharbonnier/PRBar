@@ -1,12 +1,16 @@
 import Foundation
 
 /// Los argumentos del `ssh` del sistema (spec J.1, J.5). Nunca hay contraseñas (`BatchMode`), nunca se reenvía el
-/// agent ni X11, nunca corre un `LocalCommand`, y el host va después de `--` (no se puede leer como opción).
+/// agent ni X11 ni variables de entorno, nunca corre un `LocalCommand`, y el host va después de `--` (no se puede
+/// leer como opción). Necesita OpenSSH 8.7 o más nuevo (`SessionType`, `ForkAfterAuthentication`, `StdinNull`).
 public enum SSHCommandBuilder {
     public static let fixedOptions = [
         "BatchMode=yes", "ConnectTimeout=10", "ControlMaster=auto", "ControlPersist=60s", "ForwardAgent=no", "ForwardX11=no",
         "ClearAllForwardings=yes", "PermitLocalCommand=no", "RequestTTY=no", "ServerAliveInterval=15", "ServerAliveCountMax=4",
         "LogLevel=ERROR",
+        // Ninguna variable local viaja (aunque la config del usuario diga `SendEnv`), sin túneles, sin quedar en
+        // segundo plano y una sesión normal con el stdin que da PRBar.
+        "SendEnv=-*", "Tunnel=no", "SessionType=default", "ForkAfterAuthentication=no", "StdinNull=no",
     ]
 
     private static func target(_ destination: RunnerDestination) -> [String] {
