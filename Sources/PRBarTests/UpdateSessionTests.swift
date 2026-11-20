@@ -132,5 +132,27 @@ enum InFlightCounterTests {
             await task.value
             try expectEqual(counter.count, 0)
         },
+        TestCase("exclusive runs: una segunda con la misma clave falla mientras corre la primera; otra clave no") { @MainActor in
+            let runs = ExclusiveRuns<String>()
+            let release = Box(false)
+            let first = Task { @MainActor in
+                try await runs.run("a", busy: InstallBoom()) {
+                    while !release.value { try? await Task.sleep(for: .milliseconds(2)) }
+                    return 1
+                }
+            }
+            while !runs.contains("a") { try await Task.sleep(for: .milliseconds(1)) }
+            _ = try await expectThrows { _ = try await runs.run("a", busy: InstallBoom()) { 2 } }
+            let other = try await runs.run("b", busy: InstallBoom()) { 3 }
+            try expectEqual(other, 3)
+            release.value = true
+            let firstValue = try await first.value
+            try expectEqual(firstValue, 1)
+            try expect(!runs.contains("a"))
+            // También se libera si falla.
+            _ = try await expectThrows { _ = try await runs.run("a", busy: InstallBoom()) { () throws -> Int in throw InstallBoom() } }
+            let again = try await runs.run("a", busy: InstallBoom()) { 4 }
+            try expectEqual(again, 4)
+        },
     ]
 }

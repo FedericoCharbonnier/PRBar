@@ -17,3 +17,22 @@ public final class InFlightCounter: ObservableObject {
         return try await body()
     }
 }
+
+/// Operaciones que no pueden correr dos veces a la vez con la misma clave (publicar el review de un draft desde la
+/// ventana y desde `prbar` a la vez daría dos reviews en GitHub).
+@MainActor
+public final class ExclusiveRuns<Key: Hashable>: ObservableObject {
+    @Published public private(set) var running: Set<Key> = []
+
+    public init() {}
+
+    public func contains(_ key: Key) -> Bool { running.contains(key) }
+
+    /// Corre `body` si no hay otra con `key` en curso; si la hay, lanza `busy` sin correrlo.
+    public func run<T>(_ key: Key, busy: @autoclosure () -> Error,
+                       _ body: @MainActor () async throws -> T) async throws -> T {
+        guard running.insert(key).inserted else { throw busy() }
+        defer { running.remove(key) }
+        return try await body()
+    }
+}

@@ -14,7 +14,8 @@ struct ReviewWindow: View {
     @ObservedObject var chat: ChatCoordinator
     private let initialEdits: ReviewEdits
 
-    @State private var publishing = false
+    /// Esta ventana pidió publicar (hasta que termina).
+    @State private var requestedPublish = false
     @State private var error: String?
     /// El último intento falló con un 422 por los comentarios inline: se ofrece publicar todo en el cuerpo.
     @State private var inlineRejected: ReviewEvent?
@@ -69,6 +70,10 @@ struct ReviewWindow: View {
         guard let pr = currentPR else { return false }
         return pr.pr.headOid != draft.headOid
     }
+
+    /// Publicando desde esta ventana o desde `prbar review publish` (`AppModel.publishingReviews`): los botones de
+    /// publicar se deshabilitan en los dos casos.
+    private var publishing: Bool { requestedPublish || model.publishingReviews.contains(draft.id) }
 
     /// Publicado desde esta ventana o desde la CLI (`prbar review publish`).
     private var shownResult: PublishedReview? { result ?? model.publishedReviews[draft.id] }
@@ -346,7 +351,7 @@ struct ReviewWindow: View {
     /// los textos de la ventana como están. `AppModel.publishReview` arma lo publicado (lo mismo que usa la CLI).
     private func publish(_ event: ReviewEvent, allInBody: Bool = false, withComments: Bool = true) {
         guard !publishing else { return }
-        publishing = true
+        requestedPublish = true
         error = nil
         inlineRejected = nil
         Task { @MainActor in
@@ -357,7 +362,7 @@ struct ReviewWindow: View {
                 self.error = error.localizedDescription
                 if error is InlineCommentsRejected { inlineRejected = event }
             }
-            publishing = false
+            requestedPublish = false
         }
     }
 }

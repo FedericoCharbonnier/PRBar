@@ -171,6 +171,9 @@ final class AppModel: ObservableObject {
     var commandServer: CommandServer?
     /// Re-renders the views that use `jobsBlockedReason` when an update starts or ends.
     private var installStateObserver: AnyCancellable?
+    /// Los drafts cuyo review se está publicando (ventana o `prbar`): no se publica dos veces a la vez.
+    let publishingReviews = ExclusiveRuns<UUID>()
+    private var publishingObserver: AnyCancellable?
     /// Descarta las fases de merge de los PRs que ya no están en cada snapshot nuevo (spec F.8.10), aunque el refresco
     /// de después del merge no haya podido correr.
     private var mergePruneObserver: AnyCancellable?
@@ -236,6 +239,7 @@ final class AppModel: ObservableObject {
             }
         )
         installStateObserver = updates.session.$state.removeDuplicates().sink { [weak self] _ in self?.objectWillChange.send() }
+        publishingObserver = publishingReviews.$running.sink { [weak self] _ in self?.objectWillChange.send() }
         mergePruneObserver = prStore.$snapshot.dropFirst().compactMap { $0 }.sink { [weak self] snapshot in
             self?.merges.prune(keeping: Set(snapshot.items.map(\.id)))
             self?.closeStaleMergeConfirmations(snapshot)
@@ -607,7 +611,8 @@ final class AppModel: ObservableObject {
     /// `only`: ids de hallazgos a publicar en vez de la selección (sin cambiarla); `withComments: false` publica solo
     /// el veredicto (y no cuenta como descartar hallazgos, spec E.4). Si el PR cambió desde la review, todo va al
     /// cuerpo. Mientras publica, el chat queda bloqueado; después, de solo lectura (spec B.2). La publicación corre en
-    /// su propia `Task`: si quien la pidió se va (la CLI se desconecta), no se corta a la mitad.
+    /// su propia `Task`: si quien la pidió se va (la CLI se desconecta), no se corta a la mitad. Si ya se está
+    /// publicando el mismo draft (la ventana y `prbar` a la vez), falla sin publicar (`publishingReviews`).
     func publishReview(draft: ReviewDraft, event: ReviewEvent, only: Set<String>? = nil, withComments: Bool = true,
                        allInBody: Bool = false) async throws -> PublishedReview {
         let chat = reviewChat(for: draft)
@@ -622,12 +627,16 @@ final class AppModel: ObservableObject {
         } else {
             edits.userDiscarded(of: draft)
         }
-        chat.setLock("Posting the review…")
-        defer { chat.setLock(nil) }
-        let result = try await Task { @MainActor in
-            try await self.publish(draft: draft, selected: comments, general: general, event: event,
-                                   allInBody: allInBody || self.isOutdated(draft), userDiscarded: discarded)
-        }.value
+        let result = try await publishingReviews.run(
+            draft.id, busy: CommandFailure(.invalidState, "This review is already being posted.")
+        ) {
+            chat.setLock("Posting the review…")
+            defer { chat.setLock(nil) }
+            return try await Task { @MainActor in
+                try await self.publish(draft: draft, selected: comments, general: general, event: event,
+                                       allInBody: allInBody || self.isOutdated(draft), userDiscarded: discarded)
+            }.value
+        }
         publishedReviews[draft.id] = result
         chat.markReadOnly()
         return result
