@@ -19,7 +19,7 @@ public struct ClaudeTokenUsage: Codable, Equatable, Sendable {
     /// nil si no es un objeto o no trae ninguno de los cuatro.
     static func parse(_ value: Any?) -> ClaudeTokenUsage? {
         guard let object = value as? [String: Any] else { return nil }
-        func int(_ key: String) -> Int? { (object[key] as? NSNumber)?.intValue }
+        func int(_ key: String) -> Int? { (object[key] as? NSNumber).map { ClaudeUsage.clampedCount($0.doubleValue) } }
         let values = [int("input_tokens"), int("output_tokens"), int("cache_creation_input_tokens"), int("cache_read_input_tokens")]
         guard values.contains(where: { $0 != nil }) else { return nil }
         return ClaudeTokenUsage(inputTokens: max(0, values[0] ?? 0), outputTokens: max(0, values[1] ?? 0),
@@ -56,10 +56,36 @@ public struct ClaudeUsage: Codable, Equatable, Sendable {
 
     public static let zero = ClaudeUsage()
 
+    /// Caps for what is read (from `usage.json`, the history or Claude's output): a corrupted or hand-edited file with
+    /// absurd values must not make the app trap when it adds them up (L1). Way above any real usage.
+    public static let maxCount = 1_000_000_000_000
+    public static let maxSeconds: Double = 1_000_000_000
+    public static let maxCostUSD: Double = 1_000_000_000
+
+    static func clampedCount(_ value: Double) -> Int {
+        guard value.isFinite, value > 0 else { return 0 }
+        return value >= Double(maxCount) ? maxCount : Int(value)
+    }
+
+    static func clampedCount(_ value: Int) -> Int { min(max(0, value), maxCount) }
+
+    static func clampedSeconds(_ value: Double) -> Double { value.isFinite ? min(max(0, value), maxSeconds) : 0 }
+
+    static func clampedCost(_ value: Double?) -> Double? {
+        guard let value, value.isFinite, value >= 0 else { return nil }
+        return min(value, maxCostUSD)
+    }
+
+    /// `a + b` that stops at `Int.max` instead of trapping.
+    static func plus(_ a: Int, _ b: Int) -> Int {
+        let (sum, overflow) = a.addingReportingOverflow(b)
+        return overflow ? (b > 0 ? .max : .min) : sum
+    }
+
     /// Una corrida. Sin `tokens` ni `cost` es una corrida sin datos.
     public static func run(duration: TimeInterval, tokens: ClaudeTokenUsage?, cost: Double?) -> ClaudeUsage {
-        let cost = cost.flatMap { $0.isFinite && $0 >= 0 ? $0 : nil }
-        return ClaudeUsage(runs: 1, unknownRuns: tokens == nil && cost == nil ? 1 : 0, durationSeconds: max(0, duration),
+        let cost = clampedCost(cost)
+        return ClaudeUsage(runs: 1, unknownRuns: tokens == nil && cost == nil ? 1 : 0, durationSeconds: clampedSeconds(duration),
                            inputTokens: tokens?.inputTokens ?? 0, outputTokens: tokens?.outputTokens ?? 0,
                            cacheCreationTokens: tokens?.cacheCreationTokens ?? 0, cacheReadTokens: tokens?.cacheReadTokens ?? 0,
                            costUSD: cost)
@@ -70,11 +96,11 @@ public struct ClaudeUsage: Codable, Equatable, Sendable {
         case (nil, nil): nil
         case let (a, b): (a ?? 0) + (b ?? 0)
         }
-        return ClaudeUsage(runs: lhs.runs + rhs.runs, unknownRuns: lhs.unknownRuns + rhs.unknownRuns,
+        return ClaudeUsage(runs: plus(lhs.runs, rhs.runs), unknownRuns: plus(lhs.unknownRuns, rhs.unknownRuns),
                            durationSeconds: lhs.durationSeconds + rhs.durationSeconds,
-                           inputTokens: lhs.inputTokens + rhs.inputTokens, outputTokens: lhs.outputTokens + rhs.outputTokens,
-                           cacheCreationTokens: lhs.cacheCreationTokens + rhs.cacheCreationTokens,
-                           cacheReadTokens: lhs.cacheReadTokens + rhs.cacheReadTokens, costUSD: cost)
+                           inputTokens: plus(lhs.inputTokens, rhs.inputTokens), outputTokens: plus(lhs.outputTokens, rhs.outputTokens),
+                           cacheCreationTokens: plus(lhs.cacheCreationTokens, rhs.cacheCreationTokens),
+                           cacheReadTokens: plus(lhs.cacheReadTokens, rhs.cacheReadTokens), costUSD: cost)
     }
 
     public static func += (lhs: inout ClaudeUsage, rhs: ClaudeUsage) { lhs = lhs + rhs }
@@ -87,24 +113,24 @@ public struct ClaudeUsage: Codable, Equatable, Sendable {
 
     /// Alguna corrida trajo tokens o costo.
     public var hasData: Bool { runs > unknownRuns }
-    public var totalTokens: Int { inputTokens + outputTokens + cacheCreationTokens + cacheReadTokens }
+    public var totalTokens: Int { Self.plus(Self.plus(inputTokens, outputTokens), Self.plus(cacheCreationTokens, cacheReadTokens)) }
 
     private enum CodingKeys: String, CodingKey {
         case runs, unknownRuns, durationSeconds, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, costUSD
     }
 
-    /// Tolerante: un campo que falta o está roto vale 0 (o nil el costo).
+    /// Tolerante: un campo que falta o está roto vale 0 (o nil el costo); los valores se acotan (`maxCount`…).
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        func int(_ key: CodingKeys) -> Int { max(0, (try? c.decodeIfPresent(Int.self, forKey: key)) ?? 0) }
+        func int(_ key: CodingKeys) -> Int { Self.clampedCount((try? c.decodeIfPresent(Int.self, forKey: key)) ?? 0) }
         runs = int(.runs)
         unknownRuns = min(int(.unknownRuns), runs)
-        durationSeconds = max(0, (try? c.decodeIfPresent(Double.self, forKey: .durationSeconds)) ?? 0)
+        durationSeconds = Self.clampedSeconds((try? c.decodeIfPresent(Double.self, forKey: .durationSeconds)) ?? 0)
         inputTokens = int(.inputTokens)
         outputTokens = int(.outputTokens)
         cacheCreationTokens = int(.cacheCreationTokens)
         cacheReadTokens = int(.cacheReadTokens)
-        costUSD = (try? c.decodeIfPresent(Double.self, forKey: .costUSD)) ?? nil
+        costUSD = Self.clampedCost((try? c.decodeIfPresent(Double.self, forKey: .costUSD)) ?? nil)
     }
 }
 
@@ -433,7 +459,7 @@ public enum UsageFormat {
     }
 
     public static func duration(seconds: Double) -> String {
-        let total = Int(seconds.rounded())
+        let total = Int(ClaudeUsage.clampedSeconds(seconds).rounded())
         if total < 60 { return "\(total)s" }
         if total < 3600 { return "\(total / 60)m \(String(format: "%02d", total % 60))s" }
         return "\(total / 3600)h \(String(format: "%02d", (total % 3600) / 60))m"

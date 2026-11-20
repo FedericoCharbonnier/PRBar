@@ -58,6 +58,37 @@ enum ClaudeUsageTests {
             let empty = try JSONDecoder().decode(ClaudeUsage.self, from: Data("{}".utf8))
             try expectEqual(empty, .zero)
         },
+        TestCase("usage: valores enormes o rotos no hacen caer la app (se acotan al leer y la suma satura)") {
+            let json = #"{"runs":9223372036854775807,"unknownRuns":1,"durationSeconds":1e300,"inputTokens":9223372036854775807,"#
+                + #""outputTokens":9223372036854775807,"cacheCreationTokens":9223372036854775807,"cacheReadTokens":9223372036854775807,"#
+                + #""costUSD":-5}"#
+            let usage = try JSONDecoder().decode(ClaudeUsage.self, from: Data(json.utf8))
+            try expectEqual(usage.inputTokens, ClaudeUsage.maxCount)
+            try expectEqual(usage.runs, ClaudeUsage.maxCount)
+            try expect(usage.durationSeconds <= ClaudeUsage.maxSeconds)
+            try expectEqual(usage.costUSD, nil)
+            let huge = try JSONDecoder().decode(ClaudeUsage.self, from: Data(#"{"runs":1,"costUSD":1e308}"#.utf8))
+            try expect((huge.costUSD ?? 0) <= ClaudeUsage.maxCostUSD)
+            // Adding and formatting never trap.
+            let total = [ClaudeUsage](repeating: usage, count: 3).reduce(.zero, +)
+            try expectEqual(total.inputTokens, 3 * ClaudeUsage.maxCount)
+            let saturated = ClaudeUsage(runs: Int.max, inputTokens: Int.max, cacheReadTokens: Int.max)
+                + ClaudeUsage(runs: 1, inputTokens: Int.max)
+            try expectEqual(saturated.inputTokens, Int.max)
+            try expectEqual(saturated.runs, Int.max)
+            try expectEqual(saturated.totalTokens, Int.max)
+            _ = total.totalTokens
+            _ = UsageFormat.summary(total)
+            _ = UsageFormat.duration(seconds: .infinity)
+            _ = UsageFormat.duration(seconds: .nan)
+            _ = UsageFormat.duration(seconds: 1e300)
+            // From the stream: absurd numbers are capped too.
+            var parser = ClaudeStreamParser()
+            _ = parser.consumeAll(#"{"type":"result","is_error":false,"result":"x","total_cost_usd":1e300,"usage":{"input_tokens":1e30,"output_tokens":5}}"#)
+            try expectEqual(parser.result?.usage?.inputTokens, ClaudeUsage.maxCount)
+            try expectEqual(parser.result?.usage?.outputTokens, 5)
+            try expect((ClaudeUsage.run(duration: 1, tokens: nil, cost: parser.result?.costUSD).costUSD ?? 0) <= ClaudeUsage.maxCostUSD)
+        },
         TestCase("usage: ClaudeRunner reporta cada intento (también el reintento) al sink del TaskLocal, con etapa") {
             var calls = 0
             let fake = FakeStreamingRunner { _, _, _ in
