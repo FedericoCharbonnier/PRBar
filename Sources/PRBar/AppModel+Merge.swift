@@ -264,6 +264,7 @@ extension AppModel {
     /// "Merged" en Slack y, a los 2 s ("Merged ✓" en la fila y en la ventana), se cierra la ventana, termina la sesión y
     /// un refresco saca la fila.
     func mergeFinished(_ completion: MergeCompletion) {
+        resources.jobFinished()
         let item = completion.item
         recordMergeAttempt(item, method: completion.method, status: .merged, error: nil, at: completion.mergedAt)
         mergeSessions[item.id]?.chat?.markReadOnly()

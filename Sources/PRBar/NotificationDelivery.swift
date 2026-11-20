@@ -17,6 +17,8 @@ final class NotificationDelivery: NSObject, UNUserNotificationCenterDelegate {
     var onOpenMerge: ((String) -> Void)?
     /// Clic en una notificación de un PR (antes de su acción): elige la pestaña del popover (spec H.1).
     var onSelectPR: ((String) -> Void)?
+    /// Click en el aviso de disco (spec I): abre la ventana PRBar Activity.
+    var onOpenActivity: (() -> Void)?
 
     private nonisolated static let categoryID = "PR"
     private nonisolated static let openActionID = "open"
@@ -63,6 +65,7 @@ final class NotificationDelivery: NSObject, UNUserNotificationCenterDelegate {
             if let version = notification.updateVersion { userInfo["updateVersion"] = version }
             if let prID = notification.prID { userInfo["prID"] = prID }
             if let prID = notification.mergePRID { userInfo["mergePRID"] = prID }
+            if notification.kind == .diskUsage { userInfo["activity"] = "1" }
             content.userInfo = userInfo
             if !userInfo.isEmpty { content.categoryIdentifier = Self.categoryID }
             let request = UNNotificationRequest(identifier: notification.identifier, content: content, trigger: nil)
@@ -83,6 +86,11 @@ final class NotificationDelivery: NSObject, UNUserNotificationCenterDelegate {
             return
         }
         let userInfo = response.notification.request.content.userInfo
+        if userInfo["activity"] != nil {
+            Task { @MainActor in self.onOpenActivity?() }
+            completionHandler()
+            return
+        }
         if let prID = userInfo["prID"] as? String {
             Task { @MainActor in self.onSelectPR?(prID) }
         }

@@ -1,0 +1,64 @@
+import Foundation
+import PRBarCore
+
+enum ProcessActivityTests {
+    static let cases: [TestCase] = [
+        TestCase("activity: títulos y PR corto") {
+            try expectEqual(ProcessActivity.review("acme/api#317").title, "Review api#317")
+            try expectEqual(ProcessActivity.respond("acme/web#2").title, "Respond web#2")
+            try expectEqual(ProcessActivity.chat("acme/api#4").title, "Chat api#4")
+            try expectEqual(ProcessActivity.update.title, "Update build")
+            try expectEqual(ProcessActivity.review("acme/api#1").on(host: "devbox").host, "devbox")
+        },
+        TestCase("activity: el runner anota el proceso con la tarea mientras corre y lo borra al terminar") {
+            let registry = ProcessRegistry()
+            let runner = SystemProcessRunner(registry: registry)
+            let task = Task {
+                try await ProcessActivity.$current.withValue(.review("acme/api#9")) {
+                    try await runner.run("/bin/sleep", ["1"], timeout: 10)
+                }
+            }
+            var seen: RegisteredProcess?
+            for _ in 0..<40 where seen == nil {
+                try await Task.sleep(for: .milliseconds(25))
+                seen = registry.all().first
+            }
+            try expectEqual(seen?.executable, "sleep")
+            try expectEqual(seen?.activity, .review("acme/api#9"))
+            _ = try await task.value
+            let after = registry.all()
+            try expect(after.isEmpty, "quedó anotado: \(after)")
+        },
+        TestCase("activity: un proceso sin tarea queda anotado sin actividad") {
+            let registry = ProcessRegistry()
+            let runner = SystemProcessRunner(registry: registry)
+            let task = Task { try await runner.run("/bin/sleep", ["1"], timeout: 10) }
+            var seen: RegisteredProcess?
+            for _ in 0..<40 where seen == nil {
+                try await Task.sleep(for: .milliseconds(25))
+                seen = registry.all().first
+            }
+            try expect(seen != nil)
+            try expectEqual(seen?.activity, nil)
+            _ = try await task.value
+        },
+        TestCase("activity: JobScheduler corre el trabajo con su actividad") { @MainActor in
+            let scheduler = JobScheduler<String>(maxConcurrent: 1)
+            let seen = JobOutcomeProbe()
+            let done = AsyncStream<Void>.makeStream()
+            scheduler.enqueue("k", activity: .chat("acme/api#1"), onStart: {}, work: {
+                seen.set(ProcessActivity.current)
+            }, onComplete: { _ in done.continuation.finish() })
+            for await _ in done.stream {}
+            try expectEqual(seen.get(), .chat("acme/api#1"))
+        },
+    ]
+}
+
+/// Guarda un valor escrito desde la tarea del trabajo.
+final class JobOutcomeProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: ProcessActivity?
+    func set(_ new: ProcessActivity?) { lock.withLock { value = new } }
+    func get() -> ProcessActivity? { lock.withLock { value } }
+}

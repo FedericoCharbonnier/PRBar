@@ -1115,3 +1115,14 @@ public struct PromptInfo: Codable, Equatable, Sendable {
         self.requiredVariables = requiredVariables
     }
 }
+
+/// `prbar resources`.
+public struct ResourcesInfo: Codable, Equatable, Sendable {
+    public var usage: ResourceUsage
+    public var disk: DiskUsage
+
+    public init(usage: ResourceUsage, disk: DiskUsage) {
+        self.usage = usage
+        self.disk = disk
+    }
+}

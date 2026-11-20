@@ -19,8 +19,10 @@ extension AppModel {
     }
 
     /// Lo llama `WindowAccessor` cuando el contenido del popover entra en una ventana (o sale, con `nil`). Se miran
-    /// sus cambios de key/visibilidad para avisar a `PopoverTabState` cuándo se abre y se cierra.
+    /// sus cambios de key/visibilidad para avisar a `PopoverTabState` cuándo se abre y se cierra, y al
+    /// `ResourceMonitor` cuándo puede muestrear (spec I).
     func setPopoverWindow(_ window: NSWindow?) {
+        resources.setVisible("popover", window != nil)
         guard window !== popoverWindow else { return syncPopoverVisibility() }
         popoverWindowObservers.forEach(NotificationCenter.default.removeObserver)
         popoverWindowObservers = []
@@ -29,9 +31,17 @@ extension AppModel {
             let names: [Notification.Name] = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
                                               NSWindow.didChangeOcclusionStateNotification]
             popoverWindowObservers = names.map { name in
-                NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+                NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] note in
                     // Al cerrarse, la ventana deja de ser key antes de salir de pantalla: se vuelve a mirar después.
-                    Task { @MainActor in self?.syncPopoverVisibility() }
+                    let occlusion = note.name == NSWindow.didChangeOcclusionStateNotification
+                    Task { @MainActor in
+                        // `MenuBarExtra` deja la ventana creada al cerrarse: su `occlusionState` dice si está en
+                        // pantalla, y el muestreo se para en cuanto deja de estarlo (spec I).
+                        if occlusion, let window = self?.popoverWindow {
+                            self?.resources.setVisible("popover", window.occlusionState.contains(.visible))
+                        }
+                        self?.syncPopoverVisibility()
+                    }
                 }
             }
         }

@@ -90,7 +90,10 @@ public final class SlackAnnouncer: ObservableObject {
         var next: (snapshot: Snapshot, config: AppConfig)? = (snapshot, config)
         while let current = next {
             pending = nil
-            await run(snapshot: current.snapshot, config: current.config)
+            // Los `claude` del conector salen en la ventana Activity como "Slack" (spec I).
+            await ProcessActivity.$current.withValue(.slack) {
+                await run(snapshot: current.snapshot, config: current.config)
+            }
             next = pending
         }
     }

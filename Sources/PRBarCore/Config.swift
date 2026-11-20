@@ -464,6 +464,19 @@ public struct ClaudeSettings: Hashable, Codable, Sendable {
     }
 }
 
+/// Settings › General › "Warn when PRBar uses more than N GB" (spec I). `nil` = apagado.
+public struct ResourceSettings: Hashable, Codable, Sendable {
+    public var diskWarningGB: Int?
+
+    public init(diskWarningGB: Int? = nil) { self.diskWarningGB = diskWarningGB }
+
+    public static let gigabyteRange = 1...100
+
+    public mutating func setDiskWarning(gigabytes: Int?) {
+        diskWarningGB = gigabytes.map { min(max($0, Self.gigabyteRange.lowerBound), Self.gigabyteRange.upperBound) }
+    }
+}
+
 public struct AppConfig: Hashable, Codable, Sendable {
     public var accounts: [AccountConfig] = []
     public var refreshIntervalMinutes = 2
@@ -473,12 +486,14 @@ public struct AppConfig: Hashable, Codable, Sendable {
     public var slack = SlackSettings()
     public var claude = ClaudeSettings()
     public var updates = UpdateSettings()
+    public var resources = ResourceSettings()
 
     public init() {}
 
     enum CodingKeys: String, CodingKey {
         // `merge` (`{"confirm": …}`, F.5) se quitó en el Plan 11 (spec G.1): la clave vieja se ignora al leer.
         case accounts, refreshIntervalMinutes, launchAtLogin, notifications, toolPaths, slack, claude, updates
+        case resources
     }
 
     public init(from decoder: Decoder) throws {
@@ -491,6 +506,7 @@ public struct AppConfig: Hashable, Codable, Sendable {
         slack = try c.decodeIfPresent(SlackSettings.self, forKey: .slack) ?? SlackSettings()
         claude = (try? c.decodeIfPresent(ClaudeSettings.self, forKey: .claude)) ?? ClaudeSettings()
         updates = (try? c.decodeIfPresent(UpdateSettings.self, forKey: .updates)) ?? UpdateSettings()
+        resources = (try? c.decodeIfPresent(ResourceSettings.self, forKey: .resources)) ?? ResourceSettings()
     }
 }
 

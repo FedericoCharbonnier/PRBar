@@ -159,5 +159,14 @@ enum NotificationPlannerTests {
             try expectEqual(NotificationPlanner.respondFinished(
                 prID: "o/r#7", repo: RepoRef(owner: "o", name: "r"), number: 7, event: .analysisReady(count: 2), settings: settings), nil)
         },
+        TestCase("notificaciones: aviso de disco con el total y el umbral") {
+            let planned = NotificationPlanner.diskWarning(totalBytes: 6_400_000_000, limitGB: 5, settings: NotificationSettings())
+            try expectEqual(planned?.kind, .diskUsage)
+            try expectEqual(planned?.title, "PRBar Is Using a Lot of Disk")
+            try expectEqual(planned?.body, "PRBar is using 6.4 GB (your limit is 5 GB). Open PRBar Activity to clean up.")
+            var off = NotificationSettings()
+            off.enabled = false
+            try expectEqual(NotificationPlanner.diskWarning(totalBytes: 6_400_000_000, limitGB: 5, settings: off), nil)
+        },
 ]
 }

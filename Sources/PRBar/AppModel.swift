@@ -83,7 +83,7 @@ final class AppModel: ObservableObject {
     let api: any GitHubAPI
     let runner: SystemProcessRunner
     let slack: SlackAnnouncer
-    private let notifications: NotificationDelivery?
+    let notifications: NotificationDelivery?
     let history: ReviewHistory
     /// Los skills que ofrece Configuración → Claude.
     let claudeSkills: ClaudeSkills
@@ -167,6 +167,10 @@ final class AppModel: ObservableObject {
         blockedReason: { [weak self] in self?.jobsBlockedReason },
         onMerged: { [weak self] completion in self?.mergeFinished(completion) }
     )
+    /// CPU/RAM/disco de PRBar (spec I). `lazy` porque su escaneo de disco lee la config y los drafts de `self`.
+    private(set) lazy var resources: ResourceMonitor = makeResourceMonitor()
+    /// Para avisar una vez por cruce del umbral (spec I).
+    var diskWarning = DiskWarningState()
     /// Limpieza de worktrees huérfanos del arranque; cada review la espera antes de crear el suyo.
     private var orphanCleanup: Task<Void, Never>?
     /// Cuándo se pidió cada review (por prID), para el `ReviewRecord`.
@@ -266,6 +270,7 @@ final class AppModel: ObservableObject {
         notifications?.onOpenRespond = { [weak self] prID in self?.openRespondFromNotification(prID: prID) }
         notifications?.onOpenUpdate = { [weak self] in self?.openUpdateWindow() }
         notifications?.onSelectPR = { [weak self] prID in self?.selectTab(forNotificationPR: prID) }
+        notifications?.onOpenActivity = { [weak self] in self?.openActivityWindow() }
         notifications?.onOpenMerge = { [weak self] prID in self?.openMergeFromNotification(prID: prID) }
         // Al salir se cancela todo: el runner manda SIGTERM al grupo de procesos de cada Claude (y sus `git`/`gh`).
         // Los worktrees que queden los borra la limpieza de huérfanos del próximo arranque.
@@ -538,6 +543,7 @@ final class AppModel: ObservableObject {
     }
 
     private func reviewFinished(_ request: ReviewRequest, _ result: Result<ReviewDraft, Error>) {
+        resources.jobFinished()
         let item = request.item
         let startedAt = reviewStarts.removeValue(forKey: item.id) ?? Date()
         let record: ReviewRecord
@@ -1063,6 +1069,7 @@ final class AppModel: ObservableObject {
     /// Cada etapa terminada de `RespondQueue`: recarga el historial, avisa y, si se publicó, refresca los PRs.
     private func respondEvent(prID: String, phase: RespondPhase) {
         historyRevision += 1
+        if !phase.isActive { resources.jobFinished() }
         let draft = respond.records[prID]?.draft
         let event: NotificationPlanner.RespondEvent?
         switch phase {

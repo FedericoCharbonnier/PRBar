@@ -227,8 +227,12 @@ public struct RespondPipeline: RespondPipelineRunning {
                                        settings: settings, rules: rules)
         let relay = MainActorRelay<Int> { agents in onPhase(.analyzing(agents: agents)) }
         let analyzed: [RespondItem]
+        WorkspaceRegistry.shared.insert(contextDir.path)
         do {
-            defer { try? FileManager.default.removeItem(at: contextDir) }
+            defer {
+                try? FileManager.default.removeItem(at: contextDir)
+                WorkspaceRegistry.shared.remove(contextDir.path)
+            }
             analyzed = try await analyzer.analyze(pr: pr, items: items, worktree: worktreeURL, contextDir: contextDir,
                                                  description: description ?? "", language: language) { relay.send($0) }
         } catch {

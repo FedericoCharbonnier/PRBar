@@ -6,6 +6,8 @@ public enum NotificationKind: String, Codable, Sendable, CaseIterable {
     case updateAvailable
     /// Un PR mío entró a Ready to Merge (spec F.5).
     case readyToMerge
+    /// PRBar pasó el umbral de disco (spec I). Solo depende del interruptor general.
+    case diskUsage
 }
 
 public struct PlannedNotification: Equatable, Sendable {
@@ -62,6 +64,7 @@ extension NotificationSettings {
         case .myPRApprovedOrCIFailed: return myPRApprovedOrCIFailed
         case .updateAvailable: return true
         case .readyToMerge: return readyToMerge
+        case .diskUsage: return true
         }
     }
 }
@@ -145,6 +148,7 @@ public enum NotificationPlanner {
         case .myPRApprovedOrCIFailed: "Updates on Your PR"
         case .updateAvailable: "PRBar Update Available"
         case .readyToMerge: "Ready to Merge"
+        case .diskUsage: "PRBar Is Using a Lot of Disk"
         }
     }
 
@@ -157,6 +161,7 @@ public enum NotificationPlanner {
         case .myPRApprovedOrCIFailed: "\(count) updates on your PRs"
         case .updateAvailable: "\(count) PRBar updates available"
         case .readyToMerge: "\(count) of your PRs are ready to merge"
+        case .diskUsage: "PRBar disk usage"
         }
     }
 
@@ -235,5 +240,15 @@ extension NotificationPlanner {
             kind: .updateAvailable, title: "PRBar \(version) is available", body: release.summary ?? "Open PRBar to update.",
             url: nil, event: version, updateVersion: version
         )
+    }
+
+    /// El total pasó el umbral de Settings › General (spec I). El clic abre la ventana Activity (`event: "disk"`).
+    public static func diskWarning(totalBytes: Int64, limitGB: Int, settings: NotificationSettings) -> PlannedNotification? {
+        guard settings.isOn(.diskUsage) else { return nil }
+        // Formato fijo (no `ByteCountFormatter`): el texto no depende del locale de quien corre los tests.
+        let used = String(format: "%.1f GB", locale: Locale(identifier: "en_US_POSIX"), Double(totalBytes) / 1_000_000_000)
+        return PlannedNotification(kind: .diskUsage, title: "PRBar Is Using a Lot of Disk",
+                                   body: "PRBar is using \(used) (your limit is \(limitGB) GB). Open PRBar Activity to clean up.",
+                                   url: nil, event: "disk")
     }
 }

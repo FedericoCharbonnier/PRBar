@@ -287,6 +287,16 @@ public enum CommandDispatcher {
             return try encode(actions.claudePromptSet(stage: stage, text: text))
         case .claudePromptReset(let stage):
             return try encode(actions.claudePromptReset(stage: stage))
+        // Recursos (spec I)
+        case .resources:
+            return try encode(await actions.resources())
+        case .cleanupPreview(let days):
+            return try encode(await actions.cleanupPreview(olderThanDays: days))
+        case .cleanup(let days, let confirmed):
+            return try encode(try await actions.cleanup(olderThanDays: days, confirmed: confirmed))
+        case .setDiskWarning(let gigabytes):
+            try actions.configSetDiskWarning(gigabytes: gigabytes)
+            return .ok
         }
     }
 }

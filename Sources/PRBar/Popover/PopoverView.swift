@@ -20,7 +20,11 @@ struct PopoverView: View {
             }
             Divider().padding(.bottom, 4)
             content
-            // Acá, debajo del contenido y visible en las dos pestañas, va el pie de recursos (Plan 13, spec I).
+            // El pie de recursos, debajo del contenido y visible en las dos pestañas (spec I).
+            if showsTabs {
+                Divider()
+                ResourceFooter(monitor: model.resources) { model.openActivityWindow() }
+            }
             UpdateRow(updates: model.updates) { model.openUpdateWindow() }
         }
         .frame(width: Theme.popoverWidth)

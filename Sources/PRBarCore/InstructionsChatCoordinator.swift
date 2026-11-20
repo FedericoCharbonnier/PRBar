@@ -102,7 +102,7 @@ public final class InstructionsChatCoordinator: ObservableObject {
         let ended: @MainActor (Result<Void, Error>) -> Void = { [weak self] _ in
             self?.finishTurn(id, outcome.value ?? .failure(CancellationError()), repos: repos, state: state)
         }
-        let accepted = scheduler.enqueue(Self.key, onStart: { [weak self] in
+        let accepted = scheduler.enqueue(Self.key, activity: .instructions, onStart: { [weak self] in
             if self?.turnID == id { self?.activity = "Claude is thinking…" }
         }, work: {
             do {

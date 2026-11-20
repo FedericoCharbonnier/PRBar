@@ -105,6 +105,10 @@ let dispatchSamples: [(command: AppCommand, call: String)] = [
     (.claudePromptShow(stage: .filter), "claudePromptShow"),
     (.claudePromptSet(stage: .filter, text: "…"), "claudePromptSet"),
     (.claudePromptReset(stage: .filter), "claudePromptReset"),
+    (.resources, "resources"),
+    (.cleanupPreview(olderThanDays: 30), "cleanupPreview"),
+    (.cleanup(olderThanDays: nil, confirmed: true), "cleanup"),
+    (.setDiskWarning(gigabytes: 5), "setDiskWarning"),
 ]
 
 enum CommandDispatcherTests {

@@ -27,7 +27,7 @@ public final class ReviewQueue: ObservableObject {
         let draft = DraftSlot()
         jobs[prID] = jobID
         phases[prID] = .queued
-        scheduler.enqueue(prID, onStart: { [weak self] in
+        scheduler.enqueue(prID, activity: .review(prID), onStart: { [weak self] in
             self?.phases[prID] = .preparing
         }, work: { [weak self] in
             draft.value = try await pipeline.run(request) { [weak self] phase in
