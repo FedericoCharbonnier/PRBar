@@ -76,6 +76,7 @@ extension AppModel: StatusActions {
                     phase: respond.runningTests.contains(prID) ? "testing" : respond.phases[prID]?.cliName ?? "testing")
         }
         let mergeJobs = merges.phases.filter { $0.value.isActive }.map { JobInfo(pr: $0.key, kind: "merge", phase: $0.value.cliName) }
+        let tabs = PopoverTabs.counts(in: snapshot)
         return StatusInfo(
             appVersion: appVersion, refreshing: prStore.isRefreshing, fetchedAt: snapshot?.fetchedAt,
             offline: snapshot?.failedCompletely ?? false, rateLimitedUntil: snapshot?.rateLimitedUntil,
@@ -83,7 +84,8 @@ extension AppModel: StatusActions {
             issues: snapshot?.issues.map(\.message) ?? [], slackIssues: slack.issues.map(\.message),
             jobs: (reviewJobs + respondJobs + mergeJobs).sorted { ($0.pr, $0.kind) < ($1.pr, $1.kind) },
             accounts: configStore.config.accounts.filter(\.enabled).map(\.login), tools: toolsList(),
-            blockedReason: jobsBlockedReason, updateAvailable: updates.available?.version.description
+            blockedReason: jobsBlockedReason, updateAvailable: updates.available?.version.description,
+            tabCounts: Dictionary(uniqueKeysWithValues: tabs.map { ($0.key.rawValue, $0.value) })
         )
     }
 

@@ -15,6 +15,8 @@ final class NotificationDelivery: NSObject, UNUserNotificationCenterDelegate {
     var onOpenUpdate: (() -> Void)?
     /// Click en "is ready to merge": abre la ventana de Merge del PR (lo asigna `AppModel`).
     var onOpenMerge: ((String) -> Void)?
+    /// Clic en una notificación de un PR (antes de su acción): elige la pestaña del popover (spec H.1).
+    var onSelectPR: ((String) -> Void)?
 
     private nonisolated static let categoryID = "PR"
     private nonisolated static let openActionID = "open"
@@ -59,6 +61,7 @@ final class NotificationDelivery: NSObject, UNUserNotificationCenterDelegate {
             if let recordID = notification.reviewRecordID { userInfo["reviewRecordID"] = recordID.uuidString }
             if let prID = notification.respondPRID { userInfo["respondPRID"] = prID }
             if let version = notification.updateVersion { userInfo["updateVersion"] = version }
+            if let prID = notification.prID { userInfo["prID"] = prID }
             if let prID = notification.mergePRID { userInfo["mergePRID"] = prID }
             content.userInfo = userInfo
             if !userInfo.isEmpty { content.categoryIdentifier = Self.categoryID }
@@ -80,6 +83,9 @@ final class NotificationDelivery: NSObject, UNUserNotificationCenterDelegate {
             return
         }
         let userInfo = response.notification.request.content.userInfo
+        if let prID = userInfo["prID"] as? String {
+            Task { @MainActor in self.onSelectPR?(prID) }
+        }
         if userInfo["updateVersion"] is String {
             Task { @MainActor in self.onOpenUpdate?() }
         } else if let prID = userInfo["mergePRID"] as? String {

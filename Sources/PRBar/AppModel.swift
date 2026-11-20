@@ -47,6 +47,9 @@ struct AppModelServices {
     var discardStats: DiscardStatsStore? = nil
     /// `nil`: `history/merge/` in Application Support (spec G.4).
     var mergeHistory: MergeHistory? = nil
+    /// Dónde se guarda la pestaña del popover (spec H.1). `nil`: `UserDefaults.standard`. El modo de capturas usa uno
+    /// propio para no tocar el del usuario.
+    var popoverDefaults: UserDefaults? = nil
 
     static func live(runner: SystemProcessRunner) -> AppModelServices {
         let accounts = AccountProvider(runner: runner, ghPath: nil)
@@ -183,6 +186,11 @@ final class AppModel: ObservableObject {
     var mergeSessions: [String: MergeSession] = [:]
     /// Los merges hechos desde PRBar y sus chats (spec G.4).
     let mergeHistory: MergeHistory
+    /// La pestaña elegida del popover (spec H).
+    let popoverTab: PopoverTabState
+    /// La ventana del popover cuando está en pantalla (la pone `WindowAccessor`): `prbar app popover` no la vuelve a
+    /// abrir (un clic en el botón la cerraría).
+    weak var popoverWindow: NSWindow?
 
     @Published private(set) var tools = ResolvedTools()
     @Published private(set) var toolsResolved = false
@@ -231,6 +239,7 @@ final class AppModel: ObservableObject {
         self.chatBackendOverride = services.chatBackend
         self.instructionsChatBackendOverride = services.instructionsChatBackend
         self.updateTransport = services.updateTransport
+        self.popoverTab = PopoverTabState(defaults: services.popoverDefaults ?? .standard)
         self.prStore = PRStore(
             builder: SnapshotBuilder(api: services.api, tokens: services.accounts),
             configStore: configStore,
@@ -254,6 +263,7 @@ final class AppModel: ObservableObject {
         notifications?.onOpenReview = { [weak self] prID, recordID in self?.openFromNotification(prID: prID, recordID: recordID) }
         notifications?.onOpenRespond = { [weak self] prID in self?.openRespondFromNotification(prID: prID) }
         notifications?.onOpenUpdate = { [weak self] in self?.openUpdateWindow() }
+        notifications?.onSelectPR = { [weak self] prID in self?.selectTab(forNotificationPR: prID) }
         notifications?.onOpenMerge = { [weak self] prID in self?.openMergeFromNotification(prID: prID) }
         // Al salir se cancela todo: el runner manda SIGTERM al grupo de procesos de cada Claude (y sus `git`/`gh`).
         // Los worktrees que queden los borra la limpieza de huérfanos del próximo arranque.
