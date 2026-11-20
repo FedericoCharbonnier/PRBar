@@ -25,12 +25,18 @@ public enum RemoteHostEvent: Equatable, Sendable {
     case commandRefused(device: String, name: AppCommand.Name)
     /// Un pedido o un handshake frenado por `RemoteLimits`.
     case rateLimited(device: String)
+    /// Cambió la unión de los tópicos suscritos (el feed de la Mac calcula solo esos).
+    case subscriptionsChanged(Set<String>)
 }
 
 /// La máquina de estado de la Mac (spec P y Q.1): una conexión con el relay, una sesión de Noise KK por teléfono,
 /// el emparejamiento, y cada `req` pasa por `RemotePolicy` → presencia → `handler` (el `CommandDispatcher` de la app).
 public actor RemoteHost {
     public typealias Handler = @Sendable (AppCommand, @escaping CommandEventSink) async -> Result<JSONValue, CommandFailure>
+    /// Como `Handler`, con el dispositivo que lo pidió (el puente de la Mac lo loguea y lo usa para que
+    /// `remoteSetPresenceRequirement` solo cambie al propio teléfono).
+    public typealias DeviceHandler = @Sendable (AppCommand, PairedDevice, @escaping CommandEventSink) async
+        -> Result<JSONValue, CommandFailure>
 
     public struct Configuration: Sendable {
         public var accountId: String
@@ -101,7 +107,7 @@ public actor RemoteHost {
 
     private let config: Configuration
     private let linkFactory: RelayLinkFactory
-    private let handler: Handler
+    private let handler: DeviceHandler
     private let clock: @Sendable () -> Date
     private var link: RelayLink?
     private var receiveTask: Task<Void, Never>?
@@ -130,9 +136,15 @@ public actor RemoteHost {
 
     public init(configuration: Configuration, devices: [PairedDevice], linkFactory: @escaping RelayLinkFactory,
                 clock: @escaping @Sendable () -> Date = { Date() }, handler: @escaping Handler) {
+        self.init(configuration: configuration, devices: devices, linkFactory: linkFactory, clock: clock,
+                  deviceHandler: { command, _, sink in await handler(command, sink) })
+    }
+
+    public init(configuration: Configuration, devices: [PairedDevice], linkFactory: @escaping RelayLinkFactory,
+                clock: @escaping @Sendable () -> Date = { Date() }, deviceHandler: @escaping DeviceHandler) {
         config = configuration
         self.linkFactory = linkFactory
-        self.handler = handler
+        self.handler = deviceHandler
         self.clock = clock
         self.devices = Dictionary(uniqueKeysWithValues: devices.map { ($0.deviceId, $0) })
         (events, eventSink) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(256))
@@ -143,6 +155,8 @@ public actor RemoteHost {
     public var pairedDevices: [PairedDevice] { devices.values.sorted { $0.pairedAt < $1.pairedAt } }
     public var onlineDevices: Set<String> { online }
     public var isConnected: Bool { link != nil }
+    /// La unión de los tópicos de las sesiones abiertas.
+    public var subscribedTopics: Set<String> { sessions.values.reduce(into: Set<String>()) { $0.formUnion($1.topics) } }
 
     /// Conecta y se queda conectado (reconecta con `backoff`) hasta `disconnect()`.
     public func connect() async throws {
@@ -389,6 +403,7 @@ public actor RemoteHost {
             session.topics = accepted
             session.sentRevs = session.sentRevs.filter { accepted.contains($0.key) }
             sessions[deviceId] = session
+            eventSink.yield(.subscriptionsChanged(subscribedTopics))
             for topic in accepted.sorted() { sendState(topic, to: deviceId) }
         case .unpair:
             revoke(deviceId)
@@ -453,7 +468,12 @@ public actor RemoteHost {
         let pump = Task {
             for await event in stream { self.sendFrame(.res(.event(id: request.id, event)), to: deviceId, sid: sid) }
         }
-        let result = await handler(command) { continuation.yield($0) }
+        guard let device = devices[deviceId] else {
+            continuation.finish()
+            await pump.value
+            return reply(CommandFailure(.unauthorized, RemotePolicy.deniedMessage))
+        }
+        let result = await handler(command, device) { continuation.yield($0) }
         continuation.finish()
         await pump.value
         switch result {
@@ -480,6 +500,13 @@ public actor RemoteHost {
         if let current = latest[topic], current.data == data { return }
         latest[topic] = ((latest[topic]?.rev ?? 0) + 1, data)
         for (deviceId, session) in sessions where session.topics.contains(topic) { sendState(topic, to: deviceId) }
+    }
+
+    /// Un pedazo de un chat que no inició el teléfono (p. ej. desde la Mac), a las sesiones suscritas a `pr:<pr>`.
+    public func sendChatDelta(pr: String, text: String) {
+        for (deviceId, session) in sessions where session.topics.contains("pr:\(pr)") {
+            sendFrame(.chatDelta(pr: pr, text: text), to: deviceId)
+        }
     }
 
     private func sendState(_ topic: String, to deviceId: String) {

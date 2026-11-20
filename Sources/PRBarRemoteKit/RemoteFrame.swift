@@ -76,6 +76,16 @@ public struct RemoteStateUpdate: Codable, Equatable, Sendable {
     }
 }
 
+public struct RemoteChatDelta: Equatable, Sendable {
+    public var pr: String
+    public var text: String
+
+    public init(pr: String, text: String) {
+        self.pr = pr
+        self.text = text
+    }
+}
+
 public enum RemoteFrame: Equatable, Sendable {
     case hello(RemoteHello)
     case req(RemoteRequest)

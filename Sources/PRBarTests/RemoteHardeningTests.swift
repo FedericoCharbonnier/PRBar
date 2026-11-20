@@ -231,5 +231,45 @@ enum RemoteHardeningTests {
             let response = try await client.run(.status)
             try expectEqual(response.ok, true)
         },
+        TestCase("remote host: el handler recibe el dispositivo; tópicos suscritos y chatDelta solo a pr:<id>") {
+            let seen = CommandRecorder()
+            let clock = RemoteTestClock()
+            let relay = InMemoryRelay(clock: clock.function)
+            let keys = MacKeys()
+            let account = await relay.enroll(macKey: keys.relay.publicKey)
+            actor Names { var names: [String] = []; func add(_ n: String) { names.append(n) } }
+            let names = Names()
+            let host = RemoteHost(
+                configuration: .init(accountId: account, relayHost: relay.host, macName: "Mac", appVersion: "1.2.0",
+                                     keys: keys, backoff: { _ in .milliseconds(50) }),
+                devices: [], linkFactory: relay.factory(), clock: clock.function,
+                deviceHandler: { command, device, _ in
+                    await seen.record(command)
+                    await names.add(device.name)
+                    return .success(.ok)
+                })
+            try await host.connect()
+            let h = RemoteHarness(relay: relay, clock: clock, macKeys: keys, account: account, host: host,
+                                  recorder: seen, factory: relay.factory())
+            let client = try await h.pairedClient()
+            try await client.connect()
+            _ = try await client.run(.status)
+            let called = await names.names
+            try expectEqual(called, ["Federico’s iPhone"])
+            let events = host.events
+            try await client.subscribe(["home", "pr:acme/api#1"])
+            let topics = try await within {
+                for await event in events { if case .subscriptionsChanged(let topics) = event { return topics } }
+                throw TestFailure(description: "sin evento")
+            }
+            try expectEqual(topics, ["home", "pr:acme/api#1"])
+            let subscribed = await host.subscribedTopics
+            try expectEqual(subscribed, ["home", "pr:acme/api#1"])
+            let deltas = client.chatDeltas
+            await host.sendChatDelta(pr: "acme/api#2", text: "nope")
+            await host.sendChatDelta(pr: "acme/api#1", text: "hola")
+            let delta = try await within { for await delta in deltas { return delta }; throw TestFailure(description: "sin delta") }
+            try expectEqual(delta, RemoteChatDelta(pr: "acme/api#1", text: "hola"))
+        },
     ]
 }

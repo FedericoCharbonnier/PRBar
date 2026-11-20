@@ -100,6 +100,9 @@ public actor RemoteClient {
 
     public nonisolated let states: AsyncStream<RemoteStateUpdate>
     private let stateSink: AsyncStream<RemoteStateUpdate>.Continuation
+    /// Pedazos de chats que no inició este teléfono (`chatDelta`, spec P.6).
+    public nonisolated let chatDeltas: AsyncStream<RemoteChatDelta>
+    private let chatSink: AsyncStream<RemoteChatDelta>.Continuation
 
     public init(configuration: Configuration, paired: PairedMac? = nil, keys: DeviceKeys? = nil,
                 linkFactory: @escaping RelayLinkFactory, clock: @escaping @Sendable () -> Date = { Date() }) {
@@ -110,6 +113,7 @@ public actor RemoteClient {
         self.clock = clock
         status = paired == nil ? .unpaired : .disconnected
         (states, stateSink) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(64))
+        (chatDeltas, chatSink) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(256))
     }
 
     // MARK: - Emparejamiento (spec P.11)
@@ -460,7 +464,9 @@ public actor RemoteClient {
         case .bye(let reason):
             if reason == "revoked" { status = .revoked }
             tearDown(reason == "revoked" ? .revoked : .sessionClosed)
-        case .chatDelta, .req, .sub, .unpair, .unknown:
+        case .chatDelta(let pr, let text):
+            chatSink.yield(RemoteChatDelta(pr: pr, text: text))
+        case .req, .sub, .unpair, .unknown:
             break
         }
     }
