@@ -18,6 +18,9 @@ public struct RemotePlacement: Sendable {
         guard info.isUsable, let rootPath = info.root, let git = info.gitPath else {
             throw RemoteRunnerError.hostProblems(host: host.name, problems: info.problems)
         }
+        // La raíz es la de esta instalación (`<carpeta>/installs/<id>`); la carpeta en sí no se compara (`pwd -P`
+        // resuelve symlinks). Que sea la del destino actual lo asegura `RunnerHealthCache`.
+        guard rootPath.hasSuffix("/installs/" + host.installationID) else { throw RemoteRunnerError.outsideRoot(rootPath) }
         let root = try RemoteRoot(verified: rootPath)
         let runner = RemoteProcessRunner(host: host, root: root, toolDirectories: info.toolDirectories)
         let fs = RemoteWorkspaceFS.ssh(host: host, home: info.home ?? (rootPath as NSString).deletingLastPathComponent, root: root)

@@ -109,5 +109,29 @@ enum RunnerProbeTests {
             _ = try? await failCache.info(for: down, now: t0.addingTimeInterval(61))
             try expectEqual(ssh.invocations().count, afterFail + 1)
         },
+        TestCase("probe: la salud se cachea por destino (host y carpeta) y una verificación en curso no vuelve después de forget") {
+            let ssh = try FakeSSH.make()
+            defer { ssh.remove() }
+            // Un `claude --version` lento mientras exista `~/slow` (la verificación queda en curso).
+            try ssh.installTool("claude", """
+            #!/bin/sh
+            [ -f "$HOME/slow" ] && sleep 2
+            echo '2.1.400 (Claude Code)'
+            """)
+            let cache = RunnerHealthCache()
+            let first = try await cache.info(for: try ssh.host())
+            // El mismo nombre con otra carpeta (`prbar runners set --dir`): nunca la raíz vieja.
+            let moved = try await cache.info(for: try ssh.host(remoteDir: "~/other-prbar"))
+            try expect(moved.root != first.root && moved.root?.hasPrefix(ssh.home.path + "/other-prbar/") == true, moved.root ?? "-")
+            await cache.forget("devbox")
+            try Data().write(to: ssh.home.appendingPathComponent("slow"))
+            let host = try ssh.host()
+            let probe = Task { try await cache.info(for: host) }
+            try await Task.sleep(nanoseconds: 700_000_000)
+            await cache.forget("DevBox")
+            _ = try await probe.value
+            let after = await cache.last("devbox")
+            try expectEqual(after, nil)
+        },
     ]
 }

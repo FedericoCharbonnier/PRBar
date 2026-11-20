@@ -163,21 +163,36 @@ public enum RunnerProbe {
     }
 }
 
-/// Verificación antes de cada trabajo: 5 min si salió bien, 60 s si falló (decisión J.7.11).
+/// Verificación antes de cada trabajo: 5 min si salió bien, 60 s si falló (decisión J.7.11). Una entrada vale solo
+/// para el mismo destino (nombre, dirección y carpeta): un destino editado o sacado y vuelto a agregar con el mismo
+/// nombre nunca recibe la raíz, las rutas o el login de otro. `forget` también descarta lo que traiga una
+/// verificación que ya estaba en curso.
 public actor RunnerHealthCache {
     public static let successTTL: TimeInterval = 300
     public static let failureTTL: TimeInterval = 60
 
-    private var entries: [String: (at: Date, result: Result<RunnerHostInfo, Error>)] = [:]
+    private struct Entry {
+        let destination: RunnerDestination
+        let at: Date
+        let result: Result<RunnerHostInfo, Error>
+    }
+
+    private var entries: [String: Entry] = [:]
+    /// Sube con cada `forget` de ese nombre.
+    private var generations: [String: Int] = [:]
 
     public init() {}
 
     public func info(for host: SSHHost, force: Bool = false, now: Date = Date()) async throws -> RunnerHostInfo {
         let key = host.name.lowercased()
-        if !force, let entry = entries[key] {
+        // `fallbackToLocal` no cambia lo que encuentra la verificación.
+        var destination = host.destination
+        destination.fallbackToLocal = true
+        if !force, let entry = entries[key], entry.destination == destination {
             let ttl = (try? entry.result.get()) != nil ? Self.successTTL : Self.failureTTL
             if now.timeIntervalSince(entry.at) < ttl { return try entry.result.get() }
         }
+        let generation = generations[key, default: 0]
         let result: Result<RunnerHostInfo, Error>
         do {
             let info = try await RunnerProbe.check(host, now: now)
@@ -185,10 +200,16 @@ public actor RunnerHealthCache {
         } catch {
             result = .failure(error)
         }
-        entries[key] = (now, result)
+        // Un `forget` mientras verificaba: el destino cambió (o se sacó) y esto ya no vale para el próximo trabajo.
+        if generations[key, default: 0] == generation { entries[key] = Entry(destination: destination, at: now, result: result) }
         return try result.get()
     }
 
     public func last(_ name: String) -> RunnerHostInfo? { try? entries[name.lowercased()]?.result.get() }
-    public func forget(_ name: String) { entries[name.lowercased()] = nil }
+
+    public func forget(_ name: String) {
+        let key = name.lowercased()
+        entries[key] = nil
+        generations[key, default: 0] += 1
+    }
 }
