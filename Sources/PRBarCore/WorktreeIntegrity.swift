@@ -41,13 +41,24 @@ public enum WorktreeIntegrity {
     /// (en nanosegundos) e inodo, con `lstat`. Sirve para ver cambios que `git status` no muestra.
     public struct Snapshot: Equatable, Sendable {
         public struct Entry: Equatable, Sendable {
-            let type: UInt16
-            let size: Int64
-            let modified: Int64
-            let inode: UInt64
+            public let type: UInt16
+            public let size: Int64
+            public let modified: Int64
+            public let inode: UInt64
+
+            public init(type: UInt16, size: Int64, modified: Int64, inode: UInt64) {
+                self.type = type
+                self.size = size
+                self.modified = modified
+                self.inode = inode
+            }
         }
 
         public let entries: [String: Entry]
+
+        public init(entries: [String: Entry]) {
+            self.entries = entries
+        }
 
         public static func take(_ root: URL) -> Snapshot {
             var entries: [String: Entry] = [:]

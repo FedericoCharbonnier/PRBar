@@ -221,7 +221,7 @@ public struct WorktreeManager: Sendable {
         "[symlink to \(target) omitted by PRBar]\n"
     }
 
-    private static func neutralizeSymlink(at relativePath: String, in worktree: URL) throws {
+    static func neutralizeSymlink(at relativePath: String, in worktree: URL) throws {
         let components = relativePath.split(separator: "/", omittingEmptySubsequences: false)
         guard !relativePath.hasPrefix("/"), !components.contains(where: { $0.isEmpty || $0 == "." || $0 == ".." }) else {
             throw PRBarError.invalidResponse("invalid path in the PR: \(relativePath)")

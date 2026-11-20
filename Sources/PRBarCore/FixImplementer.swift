@@ -752,7 +752,7 @@ public struct FixImplementer: Sendable {
         }
 
         /// `root` y todo lo de adentro (sin seguir symlinks ni mirar metadatos de macOS).
-        private static func addTree(_ root: String, to entries: inout [String: String]) {
+        static func addTree(_ root: String, to entries: inout [String: String]) {
             entries[root] = describe(root)
             walk(root) { path, _ in
                 entries[path] = describe(path)
@@ -761,7 +761,7 @@ public struct FixImplementer: Sendable {
         }
 
         /// En `modules/` (submódulos, a cualquier profundidad): `config`, `config.worktree` y `hooks/`.
-        private static func addModules(_ root: String, to entries: inout [String: String], configs: inout [String]) {
+        static func addModules(_ root: String, to entries: inout [String: String], configs: inout [String]) {
             walk(root) { path, isDirectory in
                 let name = (path as NSString).lastPathComponent
                 if isDirectory {
@@ -781,7 +781,7 @@ public struct FixImplementer: Sendable {
 
         /// Recorre `root` sin seguir symlinks ni entrar ni mirar metadatos de macOS. `visit(ruta, esCarpeta)`;
         /// si devuelve false no se entra en esa carpeta.
-        private static func walk(_ root: String, visit: (String, Bool) -> Bool) {
+        static func walk(_ root: String, visit: (String, Bool) -> Bool) {
             var stack = [root]
             while let directory = stack.popLast() {
                 guard let names = try? FileManager.default.contentsOfDirectory(atPath: directory) else { continue }

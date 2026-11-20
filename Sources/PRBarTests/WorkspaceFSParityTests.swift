@@ -1,0 +1,98 @@
+import Foundation
+import PRBarCore
+
+/// Un worktree con todo lo que mira el guardián: archivos, carpetas, nombre NFD, metadatos de macOS, symlinks, `.git`
+/// anidados (carpeta y archivo), y un `.git` de arriba con config, hooks, info y módulos.
+private func makeTree() throws -> URL {
+    let root = try temporaryDirectory().resolvingSymlinksInPath().appendingPathComponent("wt")
+    let files = FileManager.default
+    func put(_ path: String, _ text: String, mode: Int = 0o644) throws {
+        let url = root.appendingPathComponent(path)
+        try files.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(text.utf8).write(to: url)
+        try files.setAttributes([.posixPermissions: mode], ofItemAtPath: url.path)
+    }
+    try put("a.txt", "a\n")
+    try put("dir/b.txt", "bb\n")
+    try put("e\u{0301}.txt", "nfd\n")
+    try put(".DS_Store", "x")
+    try put("dir/._b.txt", "x")
+    try put("sub/.git/config", "[core]\n")
+    try put("sub2/.git", "gitdir: /elsewhere\n")
+    try put(".git/config", "[include]\n\tpath = extra.conf\n")
+    try put(".git/extra.conf", "[user]\n")
+    try put(".git/hooks/pre-commit", "#!/bin/sh\n", mode: 0o755)
+    try put(".git/info/exclude", "*.log\n")
+    try put(".git/modules/m/config", "[core]\n")
+    try put(".git/modules/m/hooks/h", "#!/bin/sh\n", mode: 0o755)
+    try put(".git/modules/m/objects/x", "obj")
+    try files.createSymbolicLink(atPath: root.appendingPathComponent("link").path, withDestinationPath: "../outside/secret")
+    try files.createSymbolicLink(atPath: root.appendingPathComponent("dir/inner").path, withDestinationPath: "b.txt")
+    return root
+}
+
+enum WorkspaceFSParityTests {
+    static let cases: [TestCase] = [
+        TestCase("guardián perl = guardián local: snapshot, .git anidados, describe, árboles, módulos y lectura") {
+            let root = try makeTree()
+            defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
+            let local = LocalWorkspaceFS()
+            let perl = RemoteWorkspaceFS.local()
+            let a = try await local.snapshot(root.path)
+            let b = try await perl.snapshot(root.path)
+            try expectEqual(Set(a.entries.keys), Set(b.entries.keys))
+            for (key, entry) in a.entries {
+                let other = b.entries[key]!
+                try expect(entry.type == other.type && entry.size == other.size && entry.inode == other.inode, key)
+                try expect(abs(entry.modified - other.modified) < 2_000, "\(key): \(entry.modified) vs \(other.modified)")
+            }
+            let nestedLocal = try await local.nestedGitEntries(root.path)
+            let nestedPerl = try await perl.nestedGitEntries(root.path)
+            try expectEqual(nestedPerl, nestedLocal)
+            let git = root.appendingPathComponent(".git").path
+            let paths = [git, git + "/config", git + "/missing", root.appendingPathComponent("link").path, root.path]
+            let describeLocal = try await local.describe(paths)
+            let describePerl = try await perl.describe(paths)
+            try expectEqual(describePerl, describeLocal)
+            let treesLocal = try await local.describeTrees([git + "/hooks", git + "/info"])
+            let treesPerl = try await perl.describeTrees([git + "/hooks", git + "/info"])
+            try expectEqual(treesPerl, treesLocal)
+            let modulesLocal = try await local.modules(git + "/modules")
+            let modulesPerl = try await perl.modules(git + "/modules")
+            try expectEqual(modulesPerl.entries, modulesLocal.entries)
+            try expectEqual(modulesPerl.configs.sorted(), modulesLocal.configs.sorted())
+            let textLocal = try await local.readText(git + "/config", limit: 1 << 20)
+            let textPerl = try await perl.readText(git + "/config", limit: 1 << 20)
+            try expectEqual(textPerl, textLocal)
+            let noneLocal = try await local.readText(git + "/nope", limit: 1 << 20)
+            let nonePerl = try await perl.readText(git + "/nope", limit: 1 << 20)
+            try expectEqual(nonePerl, noneLocal)
+        },
+        TestCase("guardián perl = guardián local: neutralizar symlinks y borrar lo que creó Claude, confinado") {
+            let one = try makeTree()
+            let two = try makeTree()
+            defer {
+                try? FileManager.default.removeItem(at: one.deletingLastPathComponent())
+                try? FileManager.default.removeItem(at: two.deletingLastPathComponent())
+            }
+            try await LocalWorkspaceFS().neutralizeSymlinks(["link", "dir/inner", "missing"], in: one.path)
+            try await RemoteWorkspaceFS.local().neutralizeSymlinks(["link", "dir/inner", "missing"], in: two.path)
+            for path in ["link", "dir/inner"] {
+                let left = try String(contentsOf: one.appendingPathComponent(path), encoding: .utf8)
+                let right = try String(contentsOf: two.appendingPathComponent(path), encoding: .utf8)
+                try expectEqual(right, left)
+                try expect(left.hasPrefix("[symlink to "))
+            }
+            for fs: any WorkspaceFS in [LocalWorkspaceFS(), RemoteWorkspaceFS.local()] {
+                let tree = fs is LocalWorkspaceFS ? one : two
+                try Data("new".utf8).write(to: tree.appendingPathComponent("dir/created.tmp"))
+                try await fs.removeCreatedFile("dir/created.tmp", in: tree.path)
+                try expect(!FileManager.default.fileExists(atPath: tree.appendingPathComponent("dir/created.tmp").path))
+                for evil in ["../outside", "/etc/hosts", "dir/../../x", "", "dir//x"] {
+                    _ = try await expectThrows { try await fs.removeCreatedFile(evil, in: tree.path) }
+                }
+                _ = try await expectThrows { try await fs.neutralizeSymlinks(["../escape"], in: tree.path) }
+            }
+        },
+    ]
+}
