@@ -88,7 +88,7 @@ enum CLIIntegrationTests {
                 peer.close()
             }
             fake.start()
-            let mismatch = try await Task.detached {
+            let mismatch = await Task.detached {
                 VersionReport.versions(cli: "1.0.0") { try AppConnection.connect(socketURL: url) }
             }.value
             try expectEqual(mismatch.app, nil)
