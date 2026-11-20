@@ -148,6 +148,8 @@ public struct RespondPipeline: RespondPipelineRunning {
     private let gitEnvironment: [String: String]
     private let logURLProvider: @Sendable (UUID) -> URL
     private let originMatches: @Sendable (String, RepoRef) -> Bool
+    /// El disco del worktree (para el guardián y la cancelación): esta Mac o el host del trabajo.
+    private let workspaceFS: any WorkspaceFS
 
     /// `worktreeRoot`: donde van las carpetas de contexto (`AppPaths.worktreesDir`). `gitEnvironment` se suma
     /// al de cada git (los tests aíslan la configuración global). `logURLProvider` recibe el id del draft.
@@ -158,7 +160,8 @@ public struct RespondPipeline: RespondPipelineRunning {
         pluginCacheDirectory: URL = ClaudePlugins.defaultCacheDirectory, settings: ClaudeSettings = ClaudeSettings(),
         rules: [Rule] = [], gitEnvironment: [String: String] = [:],
         logURLProvider: @escaping @Sendable (UUID) -> URL,
-        originMatches: @escaping @Sendable (String, RepoRef) -> Bool = { WorktreeResolver.originMatches($0, repo: $1) }
+        originMatches: @escaping @Sendable (String, RepoRef) -> Bool = { WorktreeResolver.originMatches($0, repo: $1) },
+        workspaceFS: any WorkspaceFS = LocalWorkspaceFS()
     ) {
         self.processRunner = processRunner
         self.streamingRunner = streamingRunner
@@ -173,6 +176,7 @@ public struct RespondPipeline: RespondPipelineRunning {
         self.gitEnvironment = gitEnvironment.merging(["GIT_TERMINAL_PROMPT": "0"]) { _, forced in forced }
         self.logURLProvider = logURLProvider
         self.originMatches = originMatches
+        self.workspaceFS = workspaceFS
     }
 
     public func logURL(for id: UUID) -> URL { logURLProvider(id) }
@@ -254,7 +258,7 @@ public struct RespondPipeline: RespondPipelineRunning {
         let pluginDirs = try ClaudePlugins.locate(skills: settings.respondSkills, in: pluginCacheDirectory)
         let implementer = FixImplementer(claude: claude(pluginDirs: pluginDirs, token: token, logURL: logURL(for: draft.id)),
                                          runner: processRunner, gitPath: gitPath, environment: gitEnvironment,
-                                         settings: settings, rules: rules)
+                                         settings: settings, rules: rules, fs: workspaceFS)
         do {
             return try await implementer.implement(draft: draft, selections: selections, onProgress: onProgress)
         } catch {
@@ -268,12 +272,13 @@ public struct RespondPipeline: RespondPipelineRunning {
 
     /// Cuenta los commits nuevos (`startHeadOid..HEAD`) y si el árbol quedó sucio, con git endurecido. Si apareció
     /// un `.git` anidado no corre ningún git: no se sabe cuántos commits quedaron y el árbol cuenta como sucio.
-    func cancellation(of draft: RespondDraft) async -> RespondCancellation {
+    /// Con el `WorkspaceFS` del trabajo; un draft de un host sin el `WorkspaceFS` de ese host (solo el de esta Mac)
+    /// no se mira: cuenta como cambiado y sin commits conocidos.
+    public func cancellation(of draft: RespondDraft) async -> RespondCancellation {
         let worktree = URL(fileURLWithPath: draft.worktree.path, isDirectory: true)
-        // Hasta la Task 14 del Plan 14 el worktree está siempre en esta Mac.
-        guard ((try? await LocalWorkspaceFS().nestedGitEntries(worktree.path)) ?? ["?"]).isEmpty else {
-            return RespondCancellation(unpushedCommits: nil, path: draft.worktree.path, dirty: true)
-        }
+        let unknown = RespondCancellation(unpushedCommits: nil, path: draft.worktree.path, dirty: true)
+        if draft.runner != nil && workspaceFS is LocalWorkspaceFS { return unknown }
+        guard ((try? await workspaceFS.nestedGitEntries(worktree.path)) ?? ["?"]).isEmpty else { return unknown }
         let count = try? await git(worktree, ["rev-list", "--count", "\(draft.startHeadOid)..HEAD"])
         let status = try? await git(worktree, ["status", GitHardening.ignoreSubmodules, "--porcelain", "--untracked-files=all"])
         return RespondCancellation(

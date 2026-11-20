@@ -597,6 +597,27 @@ private final class ScriptedClaude: StreamingProcessRunning, @unchecked Sendable
     }
 }
 
+/// Un `WorkspaceFS` de mentira: sin `.git` anidados; anota dónde se los buscó.
+private final class StubWorkspaceFS: WorkspaceFS, @unchecked Sendable {
+    private let lock = NSLock()
+    private var roots: [String] = []
+    var nestedRoots: [String] { lock.withLock { roots } }
+    var home: String { "/home/u" }
+    func snapshot(_ root: String) async throws -> WorktreeIntegrity.Snapshot { WorktreeIntegrity.Snapshot(entries: [:]) }
+    func nestedGitEntries(_ root: String) async throws -> [String] {
+        lock.withLock { roots.append(root) }
+        return []
+    }
+    func describe(_ paths: [String]) async throws -> [String: String] { [:] }
+    func describeTrees(_ roots: [String]) async throws -> [String: String] { [:] }
+    func modules(_ root: String) async throws -> (entries: [String: String], configs: [String]) { ([:], []) }
+    func readText(_ path: String, limit: Int) async throws -> String? { nil }
+    func removeCreatedFile(_ relative: String, in root: String) async throws {}
+    func neutralizeSymlinks(_ relatives: [String], in root: String) async throws {}
+    func temporaryFilePath(_ prefix: String) throws -> String { "/home/u/.prbar/tmp/\(prefix)-x" }
+    func removeTemporaryFile(_ path: String) async {}
+}
+
 private struct E2E {
     let repo: TempGitRepo
     let api: FakeFeedbackAPI
@@ -680,6 +701,35 @@ enum RespondPipelineTests {
             try expectEqual(error as? PRBarError, .claudePluginMissing(plugin: "my-plugin", skill: "my-plugin:triage"))
             try expectEqual(git.calls.count, 0)
             try expectEqual(claude.calls.count, 0)
+        },
+        TestCase("respond pipeline: la cancelación mira el worktree con el WorkspaceFS del trabajo; uno remoto sin él cuenta como cambiado") {
+            let git = FakeProcessRunner { _, args in
+                if args.contains("rev-list") { return ok("2\n") }
+                return ok("")
+            }
+            func pipeline(_ fs: (any WorkspaceFS)?) -> RespondPipeline {
+                if let fs {
+                    return RespondPipeline(processRunner: git, streamingRunner: ScriptedClaude { _, _, _ in [] }, tokens: FakeTokens(),
+                                           api: FakeFeedbackAPI(), gitPath: "/usr/bin/git", claudePath: "/usr/local/bin/claude",
+                                           logURLProvider: { _ in URL(fileURLWithPath: "/tmp/x.log") }, workspaceFS: fs)
+                }
+                return RespondPipeline(processRunner: git, streamingRunner: ScriptedClaude { _, _, _ in [] }, tokens: FakeTokens(),
+                                       api: FakeFeedbackAPI(), gitPath: "/usr/bin/git", claudePath: "/usr/local/bin/claude",
+                                       logURLProvider: { _ in URL(fileURLWithPath: "/tmp/x.log") })
+            }
+            let worktree = ResolvedWorktree(path: "/home/u/.prbar/installs/x/work/r-7-respond-0a0b0c0d", origin: .dedicated)
+            let remote = RespondDraft(prID: "o/r#7", repo: RepoRef(owner: "o", name: "r"), number: 7, title: "T",
+                                      url: URL(string: "https://github.com/o/r/pull/7")!, headRef: "feature", account: "me",
+                                      worktree: worktree, startHeadOid: String(repeating: "a", count: 40), items: [], runner: "devbox")
+            // Sin el WorkspaceFS del host: ni git ni el disco de la Mac; no se sabe nada, cuenta como sucio.
+            let unknown = await pipeline(nil).cancellation(of: remote)
+            try expectEqual(unknown, RespondCancellation(unpushedCommits: nil, path: worktree.path, dirty: true))
+            try expectEqual(git.calls.count, 0)
+            // Con el del host: lo usa (sin .git anidados) y recién ahí corre git.
+            let hostFS = StubWorkspaceFS()
+            let known = await pipeline(hostFS).cancellation(of: remote)
+            try expectEqual(known, RespondCancellation(unpushedCommits: 2, path: worktree.path, dirty: false))
+            try expectEqual(hostFS.nestedRoots, [worktree.path])
         },
         TestCase("respond pipeline: un PR de fork falla sin tocar git ni Claude") {
             let claude = ScriptedClaude { _, _, _ in [] }
