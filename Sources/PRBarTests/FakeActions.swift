@@ -10,6 +10,9 @@ final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActi
     var failure: Error?
     /// Eventos que mandan los comandos con `wait`.
     var waitEvents: [CommandEvent] = []
+    /// Lo que devuelven `reviewShow` y `respondShow` (las preguntas de publicar, pushear y responder lo miran antes).
+    var reviewPhase: ReviewPhase?
+    var respondPhase: RespondPhase?
 
     private let link = PRLink(pr: "acme/api#1", url: URL(string: "https://github.com/acme/api/pull/1")!)
 
@@ -45,7 +48,7 @@ final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActi
     func reviewStart(pr: String, wait: Bool, events: CommandEventSink) async throws -> ReviewInfo {
         try record("reviewStart \(pr) wait=\(wait)"); if wait { emit(events) }; return ReviewInfo(prID: pr, phase: nil)
     }
-    func reviewShow(pr: String) throws -> ReviewInfo { try record("reviewShow \(pr)"); return ReviewInfo(prID: pr, phase: nil) }
+    func reviewShow(pr: String) throws -> ReviewInfo { try record("reviewShow \(pr)"); return ReviewInfo(prID: pr, phase: reviewPhase) }
     func reviewEdit(pr: String, finding: String, title: String?, body: String?) throws -> ReviewInfo {
         try record("reviewEdit \(pr) \(finding) title=\(title ?? "-") body=\(body ?? "-")"); return ReviewInfo(prID: pr, phase: nil)
     }
@@ -64,7 +67,7 @@ final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActi
 
     // MARK: RespondActions
     private func respondInfo(_ pr: String) -> RespondInfo {
-        RespondInfo(prID: pr, phase: nil, record: nil, selections: [:], runningTests: false, testCommand: nil)
+        RespondInfo(prID: pr, phase: respondPhase, record: nil, selections: [:], runningTests: false, testCommand: nil)
     }
     func respondStart(pr: String, wait: Bool, events: CommandEventSink) async throws -> RespondInfo {
         try record("respondStart \(pr) wait=\(wait)"); if wait { emit(events) }; return respondInfo(pr)
