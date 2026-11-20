@@ -96,11 +96,13 @@ public struct RemoteExec: Sendable {
 
     /// Absoluto (`/…`) o un nombre suelto (`git`, `perl`); nunca con `=` (env lo leería como variable), espacios
     /// ni `-` al principio.
+    /// Byte a byte: para `String`, `=` o `-` seguidos de una marca combinante no son `=` ni `-`.
     static func isValidExecutable(_ path: String) -> Bool {
-        guard !path.isEmpty, !path.hasPrefix("-"), !path.contains("="),
-              path.unicodeScalars.allSatisfy({ $0.value > 0x20 && $0.value != 0x7F }) else { return false }
-        if path.hasPrefix("/") { return !path.split(separator: "/").contains { $0 == ".." } }
-        return !path.contains("/")
+        let bytes = Array(path.utf8)
+        guard let first = bytes.first, first != UInt8(ascii: "-"), !bytes.contains(UInt8(ascii: "=")),
+              bytes.allSatisfy({ $0 > 0x20 && $0 != 0x7F }) else { return false }
+        if first == UInt8(ascii: "/") { return !PathBytes.components(bytes).contains { PathBytes.isDots($0) } }
+        return !bytes.contains(UInt8(ascii: "/"))
     }
 
     /// La lápida de Stop de un trabajo: `<trabajo>.cancel` al lado de `<trabajo>.pid`.
@@ -192,10 +194,11 @@ public struct RemoteRoot: Hashable, Sendable {
     public let path: String
 
     public init(verified path: String) throws {
-        let components = path.split(separator: "/", omittingEmptySubsequences: false)
-        guard path.hasPrefix("/"), !path.hasSuffix("/"), path.count <= 400, components.count >= 3,
-              components.dropFirst().allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }),
-              !path.unicodeScalars.contains(where: { $0.value < 0x20 || $0.value == 0x7F }) else {
+        let bytes = Array(path.utf8)
+        let components = PathBytes.components(bytes)
+        guard bytes.first == UInt8(ascii: "/"), bytes.last != UInt8(ascii: "/"), bytes.count <= 400, components.count >= 3,
+              components.dropFirst().allSatisfy({ !$0.isEmpty && !PathBytes.isDots($0) }),
+              !bytes.contains(where: { $0 < 0x20 || $0 == 0x7F }) else {
             throw RemoteRunnerError.outsideRoot(path)
         }
         self.path = path
@@ -219,12 +222,20 @@ public struct RemoteRoot: Hashable, Sendable {
         return ([path] + components).joined(separator: "/")
     }
 
-    /// Estrictamente adentro, sin `.`, `..` ni `//`.
-    public func contains(_ candidate: String) -> Bool {
-        guard candidate.hasPrefix(path + "/") else { return false }
-        let rest = candidate.dropFirst(path.count + 1).split(separator: "/", omittingEmptySubsequences: false)
-        return !rest.isEmpty && rest.allSatisfy { !$0.isEmpty && $0 != "." && $0 != ".." }
+    /// Lo que sigue a `<raíz>/`, en componentes de bytes, si `candidate` está estrictamente adentro (sin `.`, `..`
+    /// ni `//`). Byte a byte: `String` compara por equivalencia canónica (`é` = `e` + U+0301) y agrupa `/` o `.`
+    /// con una marca combinante, y el disco del host no.
+    private func inside(_ candidate: String) -> [ArraySlice<UInt8>]? {
+        let prefix = Array((path + "/").utf8)
+        let bytes = Array(candidate.utf8)
+        guard bytes.count > prefix.count, bytes.starts(with: prefix) else { return nil }
+        let rest = PathBytes.components(Array(bytes[prefix.count...]))
+        guard !rest.isEmpty, rest.allSatisfy({ !$0.isEmpty && !PathBytes.isDots($0) }) else { return nil }
+        return rest
     }
+
+    /// Estrictamente adentro, sin `.`, `..` ni `//`.
+    public func contains(_ candidate: String) -> Bool { inside(candidate) != nil }
 
     /// Un archivo suelto en `tmp/` (`<raíz>/tmp/<nombre>`, nombre `[A-Za-z0-9._-]`, sin `.`/`..`).
     public func isTemporaryFile(_ candidate: String) -> Bool {
@@ -240,7 +251,17 @@ public struct RemoteRoot: Hashable, Sendable {
     }
 
     /// Se puede borrar: adentro y al menos dos niveles abajo (`work/x`, nunca `work`).
-    public func isRemovable(_ candidate: String) -> Bool {
-        contains(candidate) && candidate.dropFirst(path.count + 1).split(separator: "/").count >= 2
+    public func isRemovable(_ candidate: String) -> Bool { (inside(candidate)?.count ?? 0) >= 2 }
+}
+
+/// Rutas como bytes (lo que ve el disco del host).
+enum PathBytes {
+    static func components(_ bytes: [UInt8]) -> [ArraySlice<UInt8>] {
+        bytes.split(separator: UInt8(ascii: "/"), omittingEmptySubsequences: false)
+    }
+
+    /// `.` o `..`.
+    static func isDots(_ component: ArraySlice<UInt8>) -> Bool {
+        component.elementsEqual([0x2E]) || component.elementsEqual([0x2E, 0x2E])
     }
 }

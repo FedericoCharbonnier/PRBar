@@ -93,7 +93,9 @@ enum RemoteExecTests {
             try expect(Int(pid).map { $0 > 1 } ?? false, pid)
         },
         TestCase("remote exec: programas y variables inválidos se rechazan") {
-            for bad in ["", "rel/path", "a=b", "/x=y", "-x", "/a b/c\n"] {
+            // Con marcas combinantes: para `String` "=\u{301}" o "-\u{301}" no es "=" ni "-", pero los bytes sí.
+            for bad in ["", "rel/path", "a=b", "/x=y", "-x", "/a b/c\n", "/x=\u{0301}y", "-\u{0301}x", "/a/../\u{0301}b",
+                        "a/\u{0301}b"] {
                 let error = try? RemoteExec(argv: [bad], environment: []).script()
                 try expect(error == nil, "aceptó \(bad)")
             }
@@ -113,6 +115,15 @@ enum RemoteExecTests {
             try expect(!root.contains("/home/fede/.prbar") && !root.contains("/home/fede/.prbarx/y") && !root.contains("/home/fede/.prbar/../x")
                        && !root.contains("/home/fede/.prbar/work/../../x"))
             try expect(root.isRemovable("/home/fede/.prbar/work/x") && !root.isRemovable("/home/fede/.prbar/work"))
+            // Byte a byte, nunca por grafemas ni equivalencia canónica.
+            let accented = try RemoteRoot(verified: "/home/fede/caf\u{e9}")
+            for bad in ["/home/fede/cafe\u{0301}/work/x", "/home/fede/caf\u{e9}/work/../\u{0301}x",
+                        "/home/fede/caf\u{e9}/work/..", "/home/fede/caf\u{e9}/work/./x"] {
+                try expect(!accented.contains(bad) && !accented.isRemovable(bad), "aceptó \(bad.unicodeScalars.map { String($0.value, radix: 16) })")
+            }
+            try expect(accented.isRemovable("/home/fede/caf\u{e9}/work/x\u{0301}"))
+            try expect(!root.isRemovable("/home/fede/.prbar/work/../\u{0301}") && !root.contains("/home/fede/.prbar/\u{0301}/../../x"))
+            try expect((try? RemoteRoot(verified: "/home/fede/x/../\u{0301}y")) == nil)
         },
     ]
 }
