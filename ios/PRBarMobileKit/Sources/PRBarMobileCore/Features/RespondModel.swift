@@ -163,9 +163,18 @@ public final class RespondModel {
         await perform(.respondImplement(pr: pr, wait: false))
     }
 
+    /// "Run Tests" after the fixes: the repo's test command runs on the Mac in the worktree Claude changed, so it
+    /// executes code there and asks for Face ID like a push (decision H1). Implementing and chatting never run them.
     public func runTests() async {
-        await perform(.respondTest(pr: pr, wait: false))
+        await perform(.respondTest(pr: pr, wait: false), reason: "Run tests on \(pr)")
     }
+
+    /// The fixes are ready, the repo has a test command and nothing else runs on the PR.
+    public var canRunTests: Bool {
+        phase == "readyToPush" && respond?.testCommand != nil && !isRunning && !isOffline && !isBusy
+    }
+
+    public var runTestsNeedsFaceID: Bool { AppCommand.respondTest(pr: pr, wait: false).needsPresence }
 
     public func stop() async {
         await perform(.respondCancel(pr: pr))

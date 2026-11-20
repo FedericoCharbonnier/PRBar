@@ -73,7 +73,7 @@ public final class SettingsModel {
     public func setRequirePresence(_ enabled: Bool) async {
         do {
             try await runner.run(.presenceRequirement(enabled: enabled),
-                                 reason: "Turn off Face ID for merge, push and approve")
+                                 reason: "Turn off Face ID for merge, push, approve and tests")
         } catch .presenceCancelled {
             return
         } catch .presenceKeyInvalid {

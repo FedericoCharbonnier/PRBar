@@ -42,7 +42,7 @@ import PRBarWire
         let sent = try #require(env.transport.sent.last)
         #expect(sent.command == .presenceRequirement(enabled: false))
         try env.verify(sent)
-        #expect(env.authorizer.reasons == ["Turn off Face ID for merge, push and approve"])
+        #expect(env.authorizer.reasons == ["Turn off Face ID for merge, push, approve and tests"])
     }
 
     @Test func unpairWipesAndGoesBackToPairing() async throws {

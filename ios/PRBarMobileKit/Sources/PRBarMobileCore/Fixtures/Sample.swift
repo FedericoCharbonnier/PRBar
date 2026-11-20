@@ -123,6 +123,7 @@ public enum Sample {
                                                                         outputTail: "Tests: 142 passed, 142 total") : nil,
                                pushed: false, pendingReplies: 2, pushBlockedByTests: false, mode: .feedback)
         info.startedAt = ago(2.5)
+        info.testCommand = "npm test"
         info.currentFile = "src/reports/export.ts"
         info.testSummary = phase == "readyToPush" ? "142 passed" : nil
         return info

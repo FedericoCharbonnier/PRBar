@@ -48,11 +48,35 @@ import PRBarWire
         #expect(model.stages.allSatisfy { $0.state == .done })
     }
 
-    @Test func runTests() async {
+    /// The test command runs code on the Mac (decision H1): Face ID like a push, never sent without the proof.
+    @Test func runTestsAsksForFaceID() async throws {
         let env = await env(phase: "readyToPush")
         let model = RespondModel(pr: pr, mode: .feedback, connection: env.connection, runner: env.runner)
+        #expect(model.canRunTests)
+        #expect(model.runTestsNeedsFaceID)
         await model.runTests()
-        #expect(env.transport.sentCommands == [.respondTest(pr: pr, wait: false)])
+        let sent = try #require(env.transport.sent.first)
+        #expect(sent.command == .respondTest(pr: pr, wait: false))
+        try env.verify(sent)
+        #expect(env.authorizer.reasons == ["Run tests on acme/web-app#475"])
+    }
+
+    @Test func runTestsCancelledFaceIDSendsNothing() async {
+        let env = await env(phase: "readyToPush")
+        env.authorizer.setFailure(.cancelled)
+        let model = RespondModel(pr: pr, mode: .feedback, connection: env.connection, runner: env.runner)
+        await model.runTests()
+        #expect(env.transport.sentCommands.isEmpty)
+        #expect(model.alert == nil)
+    }
+
+    @Test func implementingNeverRunsTests() async {
+        let env = await env(phase: "implementing")
+        let model = RespondModel(pr: pr, mode: .feedback, connection: env.connection, runner: env.runner)
+        #expect(!model.canRunTests)
+        await model.implement()
+        #expect(!env.transport.sentCommands.contains { $0.name == .respondTest })
+        #expect(env.authorizer.reasons.isEmpty)
     }
 
     @Test func pushAsksForFaceID() async throws {

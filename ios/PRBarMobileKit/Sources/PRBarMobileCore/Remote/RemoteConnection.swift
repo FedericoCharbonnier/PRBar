@@ -25,7 +25,7 @@ public final class RemoteConnection {
 
     public private(set) var state: State
     public private(set) var macName: String?
-    /// The Mac's `presencePolicy` for this device ("Require Face ID for merge, push and approve").
+    /// The Mac's `presencePolicy` for this device ("Require Face ID for merge, push, approve and tests").
     public private(set) var requirePresence = true
 
     public let transport: any RemoteTransport

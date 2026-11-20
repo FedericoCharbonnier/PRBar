@@ -413,6 +413,13 @@ struct RespondBottomBar: View {
                 GlassCapsuleButton("Undo", symbol: "arrow.uturn.backward", enabled: !model.isOffline) {
                     Task { await model.undo() }
                 }
+                if model.canRunTests {
+                    // The test command runs code on the Mac: Face ID, like a push (decision H1).
+                    GlassCapsuleButton("Tests", symbol: model.runTestsNeedsFaceID ? "faceid" : "checkmark.circle") {
+                        Task { await model.runTests() }
+                    }
+                    .accessibilityLabel(model.runTestsNeedsFaceID ? "Run tests, requires Face ID" : "Run tests")
+                }
             } else if model.mode == .feedback {
                 GlassCapsuleButton("Implement", symbol: "sparkles", enabled: !model.isOffline) {
                     Task { await model.implement() }

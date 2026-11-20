@@ -10,15 +10,23 @@ enum RemotePolicyTests {
             let allowed: Set<AppCommand.Name> = [.status, .listPRs, .resolvePR, .history, .historyShow, .reviewShow,
                 .respondShow, .respondDiff, .mergePreview, .chatShow, .resources, .usage, .ciList, .notifyList, .refresh,
                 .reviewStart, .reviewEdit, .reviewSetIncluded, .reviewSetComment, .reviewCancel, .reviewDismiss,
-                .respondStart, .respondSelect, .respondReset, .respondImplement, .respondTest, .respondReplyOnly,
+                .respondStart, .respondSelect, .respondReset, .respondImplement, .respondReplyOnly,
                 .respondCancel, .respondDismiss, .mergeDismiss, .chatSend, .chatUndo, .chatStop, .notifySet,
                 .notifySetEnabled, .ciFix]
-            let gated: Set<AppCommand.Name> = [.merge, .respondPush, .respondPushAnyway]
+            let gated: Set<AppCommand.Name> = [.merge, .respondPush, .respondPushAnyway, .respondTest]
             for name in AppCommand.Name.allCases {
                 let expected: RemotePolicy.Class = allowed.contains(name) ? .allowed : gated.contains(name) ? .gated
                     : [.reviewPublish, .remoteSetPresenceRequirement].contains(name) ? .dependsOnArguments : .denied
                 try expect(RemotePolicy.classify(name) == expected, "\(name)")
             }
+        },
+        TestCase("remote policy: lo que ejecuta código del repo en la Mac (tests, push) siempre es gated (H1)") {
+            try expectEqual(RemotePolicy.runsRepoCode, [.respondTest, .respondPush, .respondPushAnyway])
+            for name in RemotePolicy.runsRepoCode {
+                try expect(RemotePolicy.classify(name) == .gated, "\(name)")
+                try expect(RemotePolicy.gatedNames.contains(name), "\(name)")
+            }
+            try expectEqual(RemotePolicy.decide(.respondTest(pr: "a/b#1", wait: true)), .gated)
         },
         TestCase("remote policy: approve pide Face ID; comment y request changes no") {
             let approve = AppCommand.reviewPublish(pr: "a/b#1", event: .approve, only: nil, withComments: true,

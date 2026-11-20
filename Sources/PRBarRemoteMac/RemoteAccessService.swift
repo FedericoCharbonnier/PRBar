@@ -208,9 +208,9 @@ public final class RemoteAccessService: ObservableObject {
         env.tune(&config)
         let host = RemoteHost(configuration: config, devices: env.devices.devices.map(\.device),
                               linkFactory: env.linkFactory(relay), clock: env.clock,
-                              deviceHandler: { [weak self] command, device, events in
+                              deviceHandler: { [weak self] command, caller, events in
                                   guard let self else { return .failure(CommandFailure(.cancelled, "PRBar is quitting.")) }
-                                  return await self.handleRemote(command, device: device, events: events)
+                                  return await self.handleRemote(command, caller: caller, events: events)
                               })
         self.host = host
         let feed = RemoteStateFeed(host: host, actions: { [weak self] in self?.actions }, debounce: env.feedDebounce,
@@ -353,18 +353,27 @@ public final class RemoteAccessService: ObservableObject {
     /// El teléfono es un cliente más de `AppCommand` (spec P.1): mismos métodos de `AppModel` que la UI y `prbar`.
     /// `RemoteHost` ya aplicó la política y Face ID; acá se vuelve a mirar la política (defensa en profundidad) y
     /// `remoteSetPresenceRequirement` se aplica siempre al propio teléfono. Se loguea el nombre, nunca los argumentos.
-    public func handleRemote(_ command: AppCommand, device: PairedDevice, events: @escaping CommandEventSink) async
+    /// Ejecutar código del repo (tests, push) pide la prueba de Face ID de ese pedido (decisión H1): además de
+    /// `RemotePolicy` (gated), el puente lo vuelve a mirar y lo deja en `CommandOrigin` para Core.
+    public func handleRemote(_ command: AppCommand, caller: RemoteCaller, events: @escaping CommandEventSink) async
         -> Result<JSONValue, CommandFailure> {
+        let device = caller.device
         AppLog.write("iPhone \(device.deviceId.prefix(4)): \(command.name.rawValue)")
         guard RemotePolicy.decide(command) != .denied else {
             return .failure(CommandFailure(.unauthorized, RemotePolicy.deniedMessage))
+        }
+        if RemotePolicy.runsRepoCode.contains(command.name), !caller.mayRunRepoCode {
+            return .failure(CommandFailure(.unauthorized, RemotePolicy.presenceRequiredMessage))
         }
         var command = command
         if case .remoteSetPresenceRequirement(_, let enabled) = command {
             command = .remoteSetPresenceRequirement(device: device.deviceId, enabled: enabled)
         }
         guard let actions else { return .failure(CommandFailure(.invalidState, "PRBar isn’t ready yet. Try again.")) }
-        let result = await CommandDispatcher.run(command, on: actions, events: events)
+        let origin = CommandOrigin.phone(device: device.deviceId, mayRunRepoCode: caller.mayRunRepoCode)
+        let result = await CommandOrigin.$current.withValue(origin) {
+            await CommandDispatcher.run(command, on: actions, events: events)
+        }
         // Ni rutas locales ni herramientas hacia el teléfono (spec P.7).
         return result.map(RemoteRedaction.scrub)
     }

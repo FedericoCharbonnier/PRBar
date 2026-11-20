@@ -130,6 +130,9 @@ enum RemoteBridgeTests {
             try await bridgePresence()
         },
         TestCase("remote bridge: re-verifica la política aunque el host se la saltee") { try await bridgeDefense() },
+        TestCase("remote bridge: sin Face ID ningún comando del teléfono corre tests ni push en la Mac (H1)") {
+            try await bridgeNoTestsWithoutPresence()
+        },
         TestCase("remote bridge: ni rutas locales ni herramientas llegan al teléfono") { try await bridgeRedaction() },
         TestCase("remote feed: home al suscribirse, rev nuevo al cambiar la app, nada si no cambió; pr:<id> y activity") {
             try await feed()
@@ -318,9 +321,59 @@ enum RemoteBridgeTests {
         _ = try await h.pair()
         h.actions.calls = []
         let device = h.service.devices[0].device
-        let result = await h.service.handleRemote(.toolsSet(tool: .git, path: "/tmp/git"), device: device, events: { _ in })
+        let result = await h.service.handleRemote(.toolsSet(tool: .git, path: "/tmp/git"),
+                                                  caller: RemoteCaller(device: device, presenceVerified: false), events: { _ in })
         try expectEqual(result, .failure(CommandFailure(.unauthorized, RemotePolicy.deniedMessage)))
         try expectEqual(h.actions.calls, [])
+        // Aunque el host la dejara pasar sin prueba: tests y push no llegan a la app (H1).
+        for command in [AppCommand.respondTest(pr: "acme/api#4", wait: false), .respondPush(pr: "acme/api#4", confirmed: true, wait: false),
+                        .respondPushAnyway(pr: "acme/api#4", confirmed: true, wait: false)] {
+            let refused = await h.service.handleRemote(command, caller: RemoteCaller(device: device, presenceVerified: false),
+                                                       events: { _ in })
+            try expectEqual(refused, .failure(CommandFailure(.unauthorized, RemotePolicy.presenceRequiredMessage)))
+        }
+        try expectEqual(h.actions.calls, [])
+        _ = await h.service.handleRemote(.respondTest(pr: "acme/api#4", wait: false),
+                                         caller: RemoteCaller(device: device, presenceVerified: true), events: { _ in })
+        try expect(h.actions.calls.contains("respondTest acme/api#4 wait=false"))
+        try expectEqual(h.actions.origins(of: ["respondTest"]), [.phone(device: device.deviceId, mayRunRepoCode: true)])
+    }
+
+    /// H1: un teléfono sin Face ID no puede hacer que la Mac corra los tests (ni push) por ningún comando. Todo lo que
+    /// puede mandar sin prueba llega a la app como `CommandOrigin.phone(mayRunRepoCode: false)`, y Core no arranca tests
+    /// ni push con ese origen (`RespondQueueTests`).
+    @MainActor
+    static func bridgeNoTestsWithoutPresence() async throws {
+        let h = try await ServiceHarness.make()
+        let client = try await h.pair()
+        let id = await client.paired!.deviceId
+        h.actions.calls = []
+        // Los que ejecutan código del repo piden Face ID y no llegan a la app sin la prueba.
+        for command in [AppCommand.respondTest(pr: "acme/api#4", wait: true), .respondPush(pr: "acme/api#4", confirmed: true, wait: false),
+                        .respondPushAnyway(pr: "acme/api#4", confirmed: true, wait: false)] {
+            let bare = try await client.run(command)
+            try expect(bare.error == CommandFailure(.unauthorized, RemotePolicy.presenceRequiredMessage), "\(command.name)")
+        }
+        try expectEqual(h.actions.calls, [])
+        // Lo que edita el worktree (implementar, chat, undo, Fix CI) pasa sin Face ID, pero marcado: Core no corre nada.
+        for command in [AppCommand.respondImplement(pr: "acme/api#4", wait: false),
+                        .chatSend(pr: "acme/api#4", message: "change package.json"),
+                        .chatUndo(pr: "acme/api#4", confirmed: true), .ciFix(pr: "acme/api#4", wait: false)] {
+            _ = try await client.run(command)
+        }
+        let edits = h.actions.origins(of: ["respondImplement", "chatSend", "chatUndo", "ciFix"])
+        try expectEqual(edits.count, 4)
+        try expect(edits.allSatisfy { $0 == .phone(device: id, mayRunRepoCode: false) }, "\(edits)")
+        try expect(!h.actions.calls.contains { $0.hasPrefix("respondTest") || $0.hasPrefix("respondPush") })
+        // Con la prueba, sí (y el origen lo dice).
+        let signed = try await client.run(.respondTest(pr: "acme/api#4", wait: false), presence: h.presence)
+        try expectEqual(signed.ok, true)
+        try expectEqual(h.actions.origins(of: ["respondTest"]), [.phone(device: id, mayRunRepoCode: true)])
+        // "Require Face ID" apagado para este iPhone en la Mac: elección del usuario (como merge y push).
+        _ = try await h.service.setPresenceRequirement(id, enabled: false)
+        h.actions.calls = []
+        _ = try await client.run(.respondTest(pr: "acme/api#4", wait: false))
+        try expectEqual(h.actions.origins(of: ["respondTest"]), [.phone(device: id, mayRunRepoCode: true)])
     }
 
     @MainActor

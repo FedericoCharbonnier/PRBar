@@ -566,6 +566,7 @@ extension AppModel: RespondActions {
             throw CommandFailure(.invalidState, "There’s no test command for \(draft.repo.fullName). Set it with `prbar repo set \(draft.repo.fullName) --test-command …`.")
         }
         guard !respond.runningTests.contains(id) else { throw CommandFailure(.invalidState, "The tests are already running.") }
+        try throwIfMayNotRunRepoCode()
         try throwIfJobsBlocked()
         try throwIfChatting(id)
         runRespondTests(prID: id)
@@ -573,6 +574,14 @@ extension AppModel: RespondActions {
         guard wait else { return respondInfo(id) }
         try await waitForRespond(id, events: events)
         return respondInfo(id)
+    }
+
+    /// The test command and a push (git hooks) run code from the repository, which Claude may have changed: from an
+    /// iPhone only with a fresh Face ID proof (decision H1; `RemotePolicy` already gates them, this is the last check).
+    private func throwIfMayNotRunRepoCode() throws {
+        guard CommandOrigin.mayRunRepoCode else {
+            throw CommandFailure(.unauthorized, CommandOrigin.presenceRequiredMessage)
+        }
     }
 
     func respondDiff(pr: String) throws -> RespondDiff {
@@ -596,6 +605,7 @@ extension AppModel: RespondActions {
     /// los tests (`pushRespond`); si fallan no se pushea y la respuesta lo dice.
     private func pushAndReply(pr: String, anyway: Bool, wait: Bool, events: CommandEventSink) async throws -> RespondInfo {
         let id = try resolvePRID(pr)
+        try throwIfMayNotRunRepoCode()
         let record = try respondRecord(id)
         let gate = respondPushGate(prID: id)
         if let problem = RespondPushGate.commandCheck(

@@ -13,7 +13,7 @@ public extension AppCommand {
         try CommandProtocol.encoder.encode(self)
     }
 
-    /// "Require Face ID for merge, push and approve" from this iPhone.
+    /// "Require Face ID for merge, push, approve and tests" from this iPhone.
     static func presenceRequirement(enabled: Bool) -> AppCommand {
         .remoteSetPresenceRequirement(device: "", enabled: enabled)
     }

@@ -986,6 +986,33 @@ enum RespondPipelineTests {
             try expect(h.queue.pushAfterTests(prID: prID(1), testCommand: "make test"))
             try await h.events.wait(for: reached(1, "done"))
         },
+        TestCase("respond queue: desde un iPhone sin Face ID implementar no corre tests y ni tests ni push arrancan (H1)") { @MainActor in
+            let h = try Harness()
+            h.pipeline.testsPass = true
+            let phone = CommandOrigin.phone(device: "d1", mayRunRepoCode: false)
+            // Implementar desde el teléfono llega a readyToPush sin correr nada.
+            try await CommandOrigin.$current.withValue(phone) { try await h.toReadyToPush(1) }
+            await h.settle()
+            try expectEqual(h.pipeline.tests, [])
+            CommandOrigin.$current.withValue(phone) {
+                try? expect(!h.queue.runTests(prID: prID(1), testCommand: "make test"))
+                try? expect(!h.queue.pushAfterTests(prID: prID(1), testCommand: "make test"))
+                h.queue.publish(prID: prID(1))
+                h.queue.publish(prID: prID(1), ignoringCI: true)
+            }
+            try expect(h.queue.runningTests.isEmpty)
+            await h.settle()
+            try expectEqual(h.pipeline.tests, [])
+            try expectEqual(h.pipeline.pushes.count, 0)
+            guard case .readyToPush? = h.queue.phases[prID(1)] else { throw TestFailure(description: "esperaba readyToPush") }
+            // Con Face ID (o desde la Mac) sí, y el push de después de los tests no hereda el origen del teléfono.
+            let signed = CommandOrigin.phone(device: "d1", mayRunRepoCode: true)
+            let started = CommandOrigin.$current.withValue(signed) { h.queue.pushAfterTests(prID: prID(1), testCommand: "make test") }
+            try expect(started)
+            try await h.events.wait(for: reached(1, "done"))
+            try expectEqual(h.pipeline.tests, ["make test"])
+            try expectEqual(h.pipeline.pushes.count, 1)
+        },
         TestCase("respond queue: si los tests fallan no pushea; Push Anyway pushea y limpia el bloqueo") { @MainActor in
             let h = try Harness()
             try await h.toReadyToPush(1)

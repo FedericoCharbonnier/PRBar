@@ -28,12 +28,13 @@ public enum RemotePolicy {
             return .allowed
         // Acciones (sin secretos, rutas ni destinos)
         case .refresh, .reviewStart, .reviewEdit, .reviewSetIncluded, .reviewSetComment, .reviewCancel,
-             .reviewDismiss, .respondStart, .respondSelect, .respondReset, .respondImplement, .respondTest,
+             .reviewDismiss, .respondStart, .respondSelect, .respondReset, .respondImplement,
              .respondReplyOnly, .respondCancel, .respondDismiss, .mergeDismiss, .chatSend, .chatUndo, .chatStop,
              .notifySet, .notifySetEnabled, .ciFix:
             return .allowed
-        // Face ID (`prbar ci push [--anyway]` es `respondPush`/`respondPushAnyway`: también gated)
-        case .merge, .respondPush, .respondPushAnyway:
+        // Face ID (`prbar ci push [--anyway]` es `respondPush`/`respondPushAnyway`: también gated). `respondTest` corre
+        // el comando de tests del repo en el worktree que Claude pudo cambiar (decisión H1): ejecuta código en la Mac.
+        case .merge, .respondPush, .respondPushAnyway, .respondTest:
             return .gated
         case .reviewPublish, .remoteSetPresenceRequirement:
             return .dependsOnArguments
@@ -75,6 +76,12 @@ public enum RemotePolicy {
             }
         }
     }
+
+    /// Los comandos que pueden terminar ejecutando código del repo en la Mac (decisión H1): el comando de tests y el
+    /// push (corre los hooks de git del usuario y, con "Run tests before pushing", los tests). Todos son gated; la Mac
+    /// además lo vuelve a mirar con `CommandOrigin` en el lugar donde se ejecuta. Implementar, el chat, Undo y Fix CI
+    /// solo editan (Claude no tiene `Bash`) y nunca corren los tests solos.
+    public static let runsRepoCode: Set<AppCommand.Name> = [.respondTest, .respondPush, .respondPushAnyway]
 
     /// Los comandos que pueden pedir Face ID (para `presencePolicy`): los gated y los que lo son según los argumentos.
     public static var gatedNames: [AppCommand.Name] {

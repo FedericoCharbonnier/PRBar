@@ -5,7 +5,16 @@ import PRBarCore
 @MainActor
 final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActions, ConfigActions, SlackActions,
     ChatCommandActions, UpdateCommandActions, InstructionCommandActions, ResourceActions, RunnerActions, CIFixUsageActions {
-    var calls: [String] = []
+    var calls: [String] = [] {
+        didSet {
+            // Cada llamada con su `CommandOrigin` (vaciar `calls` vacía también los orígenes).
+            if calls.count > oldValue.count {
+                origins.append(contentsOf: repeatElement(CommandOrigin.current, count: calls.count - oldValue.count))
+            } else {
+                origins = Array(origins.prefix(calls.count))
+            }
+        }
+    }
     /// Si no es nil, los métodos que pueden fallar la lanzan.
     var failure: Error?
     /// Eventos que mandan los comandos con `wait`.
@@ -23,6 +32,14 @@ final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActi
     }
 
     private let link = PRLink(pr: "acme/api#1", url: URL(string: "https://github.com/acme/api/pull/1")!)
+
+    /// `CommandOrigin.current` de cada entrada de `calls` (el puente del iPhone lo pone alrededor del comando).
+    private(set) var origins: [CommandOrigin] = []
+
+    /// Los orígenes de las llamadas cuyo nombre empieza con alguno de `prefixes` (el feed también llama a la app).
+    func origins(of prefixes: [String]) -> [CommandOrigin] {
+        zip(calls, origins).filter { call, _ in prefixes.contains { call.hasPrefix($0 + " ") } }.map(\.1)
+    }
 
     private func record(_ call: String) throws {
         calls.append(call)

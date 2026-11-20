@@ -29,13 +29,29 @@ public enum RemoteHostEvent: Equatable, Sendable {
     case subscriptionsChanged(Set<String>)
 }
 
+/// Quién mandó un pedido: el dispositivo (como está registrado en la Mac) y si trajo una prueba de Face ID que la Mac
+/// verificó para este pedido (spec P.8). El puente lo convierte en `CommandOrigin` (decisión H1).
+public struct RemoteCaller: Sendable {
+    public var device: PairedDevice
+    public var presenceVerified: Bool
+
+    public init(device: PairedDevice, presenceVerified: Bool) {
+        self.device = device
+        self.presenceVerified = presenceVerified
+    }
+
+    /// Lo que el teléfono puede hacer que ejecute código del repo: con la prueba verificada, o si el usuario apagó
+    /// "Require Face ID" para ese iPhone en la Mac.
+    public var mayRunRepoCode: Bool { presenceVerified || !device.requirePresence }
+}
+
 /// La máquina de estado de la Mac (spec P y Q.1): una conexión con el relay, una sesión de Noise KK por teléfono,
 /// el emparejamiento, y cada `req` pasa por `RemotePolicy` → presencia → `handler` (el `CommandDispatcher` de la app).
 public actor RemoteHost {
     public typealias Handler = @Sendable (AppCommand, @escaping CommandEventSink) async -> Result<JSONValue, CommandFailure>
-    /// Como `Handler`, con el dispositivo que lo pidió (el puente de la Mac lo loguea y lo usa para que
-    /// `remoteSetPresenceRequirement` solo cambie al propio teléfono).
-    public typealias DeviceHandler = @Sendable (AppCommand, PairedDevice, @escaping CommandEventSink) async
+    /// Como `Handler`, con quién lo pidió (el puente de la Mac lo loguea, lo usa para que
+    /// `remoteSetPresenceRequirement` solo cambie al propio teléfono, y para `CommandOrigin`: H1).
+    public typealias DeviceHandler = @Sendable (AppCommand, RemoteCaller, @escaping CommandEventSink) async
         -> Result<JSONValue, CommandFailure>
 
     public struct Configuration: Sendable {
@@ -448,6 +464,8 @@ public actor RemoteHost {
         guard let command = try? request.command() else {
             return reply(CommandFailure.unknownCommand(app: config.appVersion))
         }
+        // Solo `true` si la prueba de Face ID de este pedido se verificó recién (no "el dispositivo no la exige").
+        var presenceVerified = false
         switch RemotePolicy.decide(command) {
         case .denied:
             eventSink.yield(.commandRefused(device: deviceId, name: command.name))
@@ -460,6 +478,7 @@ public actor RemoteHost {
                 eventSink.yield(.commandRefused(device: deviceId, name: command.name))
                 return reply(CommandFailure(.unauthorized, RemotePolicy.presenceRequiredMessage))
             }
+            presenceVerified = true
         case .gated, .allowed:
             break
         }
@@ -473,7 +492,8 @@ public actor RemoteHost {
             await pump.value
             return reply(CommandFailure(.unauthorized, RemotePolicy.deniedMessage))
         }
-        let result = await handler(command, device) { continuation.yield($0) }
+        let caller = RemoteCaller(device: device, presenceVerified: presenceVerified)
+        let result = await handler(command, caller) { continuation.yield($0) }
         continuation.finish()
         await pump.value
         switch result {

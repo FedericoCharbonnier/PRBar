@@ -98,7 +98,7 @@ shows the help of `review start`, the group’s default subcommand).
 | `prbar remote enable [--relay HOST] [--enroll-token-stdin]` | Allow iPhone remote control (default relay `prbar.fcharbonnier.duckdns.org`). The first time it asks for the relay’s enrollment token without echo (or reads it from stdin) and never stores it; enabling the same relay again doesn’t need it |
 | `prbar remote disable` | Turn it off (paired iPhones stay paired) |
 | `prbar remote pair` | Pair an iPhone: QR code in the terminal (needs a terminal), waits for the phone, then asks “Does your iPhone show 123 456?” |
-| `prbar remote devices [--json]`, `prbar remote devices --require-face-id <iphone> on\|off` | Paired iPhones / whether merge, push and approve need Face ID on one |
+| `prbar remote devices [--json]`, `prbar remote devices --require-face-id <iphone> on\|off` | Paired iPhones / whether merge, push, approve and tests need Face ID on one |
 | `prbar remote revoke <iphone> [--yes]` | Remove an iPhone (id, id prefix or name) |
 | `prbar remote keep-awake on\|off`, `prbar remote mailbox on\|off` | Keep this Mac awake while charging / leave the last encrypted state on the relay (7 days) |
 | `prbar remote app-link set <url>\|clear` | The TestFlight or App Store link Settings › iPhone shows as a QR (https, `testflight.apple.com` or `apps.apple.com`) |

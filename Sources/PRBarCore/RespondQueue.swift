@@ -208,9 +208,11 @@ public final class RespondQueue: ObservableObject {
     /// En `readyToPush`: corre el `testCommand` y guarda el `TestRun` en el resultado y en el registro. Lo que
     /// ejecuta lo escribió Claude: la UI lo llama solo cuando el usuario lo pide, después de ver el diff.
     /// Returns whether they started (not if something else runs on the PR, or the command is empty).
+    /// Never from an iPhone without a fresh Face ID proof (`CommandOrigin`, decision H1): what runs was written by Claude.
     @discardableResult
     public func runTests(prID: String, testCommand: String) -> Bool {
-        startTests(prID: prID, testCommand: testCommand, afterwards: nil)
+        guard CommandOrigin.mayRunRepoCode else { return false }
+        return startTests(prID: prID, testCommand: testCommand, afterwards: nil)
     }
 
     /// "Run tests before pushing" (spec E.5): runs the tests and, if they pass, pushes and replies (like `publish`).
@@ -219,10 +221,12 @@ public final class RespondQueue: ObservableObject {
     /// or the command is empty; the caller tells the user.
     @discardableResult
     public func pushAfterTests(prID: String, testCommand: String) -> Bool {
-        startTests(prID: prID, testCommand: testCommand) { [weak self] run in
+        guard CommandOrigin.mayRunRepoCode else { return false }
+        return startTests(prID: prID, testCommand: testCommand) { [weak self] run in
             guard let self else { return }
             if run.passed {
-                self.publish(prID: prID)
+                // The push was already allowed when the tests were asked for (the completion runs as the Mac's job).
+                self.startPush(prID: prID, ignoringCI: false)
             } else {
                 self.pushBlockedByTests.insert(prID)
             }
@@ -254,7 +258,14 @@ public final class RespondQueue: ObservableObject {
     /// readyToPush → pushing → done | failed. Desde `failed`, con fixes ya implementados, reintenta: no vuelve a
     /// pushear si ya se pusheó y solo publica las respuestas que faltan.
     /// `ignoringCI`: Fix CI's "Push Anyway" when its failing checks pass now (spec K.6.6).
+    /// A push runs the user's git hooks (a `pre-push` from a `core.hooksPath` inside the repo runs what Claude may have
+    /// written): never from an iPhone without a fresh Face ID proof (`CommandOrigin`, decision H1).
     public func publish(prID: String, ignoringCI: Bool = false) {
+        guard CommandOrigin.mayRunRepoCode else { return }
+        startPush(prID: prID, ignoringCI: ignoringCI)
+    }
+
+    private func startPush(prID: String, ignoringCI: Bool) {
         pushBlockedByTests.remove(prID)
         guard let record = records[prID], record.result != nil, canStart(prID) else { return }
         switch phases[prID] {

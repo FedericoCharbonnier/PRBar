@@ -68,7 +68,7 @@ struct SettingsContent: View {
             }
             caption("SECURITY")
             group {
-                toggleRow("Require Face ID for merge, push and approve", isOn: model.requirePresence) { on in
+                toggleRow("Require Face ID for merge, push, approve and tests", isOn: model.requirePresence) { on in
                     Task { await model.setRequirePresence(on) }
                 }
             }

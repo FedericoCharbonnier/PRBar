@@ -243,9 +243,9 @@ enum RemoteHardeningTests {
                 configuration: .init(accountId: account, relayHost: relay.host, macName: "Mac", appVersion: "1.2.0",
                                      keys: keys, backoff: { _ in .milliseconds(50) }),
                 devices: [], linkFactory: relay.factory(), clock: clock.function,
-                deviceHandler: { command, device, _ in
+                deviceHandler: { command, caller, _ in
                     await seen.record(command)
-                    await names.add(device.name)
+                    await names.add(caller.device.name)
                     return .success(.ok)
                 })
             try await host.connect()

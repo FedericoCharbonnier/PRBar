@@ -135,7 +135,7 @@ struct RemotePair: RemoteCommand {
     func render(_ result: JSONValue, _ output: Output) throws {
         let paired: RemotePairResult = try result.decode()
         if let device = paired.device {
-            output.line(output.paint("Paired \(device.name).", .green) + " It can now see your PRs and act for you; merge, push and approve need Face ID.")
+            output.line(output.paint("Paired \(device.name).", .green) + " It can now see your PRs and act for you; merge, push, approve and tests need Face ID.")
         } else {
             output.line("Pairing canceled.")
         }
@@ -145,7 +145,7 @@ struct RemotePair: RemoteCommand {
 struct RemoteDevices: RemoteCommand {
     static let configuration = CommandConfiguration(
         commandName: "devices", abstract: "Paired iPhones, or turn Face ID on or off for one (--require-face-id).")
-    @Option(name: .customLong("require-face-id"), help: "An iPhone (id, id prefix or name): set whether merge, push and approve need Face ID on it.")
+    @Option(name: .customLong("require-face-id"), help: "An iPhone (id, id prefix or name): set whether merge, push, approve and tests need Face ID on it.")
     var requireFaceID: String?
     @Argument(help: "With --require-face-id: on or off.") var setting: OnOff?
     @OptionGroup var global: GlobalOptions
@@ -166,7 +166,7 @@ struct RemoteDevices: RemoteCommand {
     func render(_ result: JSONValue, _ output: Output) throws {
         if let setting {
             let device: RemoteDeviceInfo = try result.decode()
-            output.line("Face ID for merge, push and approve on \(device.name): \(setting == .on ? "required" : "off").")
+            output.line("Face ID for merge, push, approve and tests on \(device.name): \(setting == .on ? "required" : "off").")
         } else {
             RemoteRender.devices(try result.decode(), output)
         }
