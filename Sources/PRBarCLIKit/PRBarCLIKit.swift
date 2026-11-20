@@ -15,7 +15,8 @@ public struct PRBarCommand: ParsableCommand {
         discussion: "Everything you can do in PRBar’s menu bar and windows. PRs: owner/repo#N, repo#N or the PR’s URL. See docs/cli.md.",
         version: AppConnection.cliVersion,
         subcommands: [
-            StatusCommand.self,
+            StatusCommand.self, PRsCommand.self, RefreshCommand.self, OpenCommand.self, HistoryGroup.self, AppGroup.self,
+            VersionCommand.self, DoctorCommand.self, CompletionCommand.self,
         ]
     )
 
