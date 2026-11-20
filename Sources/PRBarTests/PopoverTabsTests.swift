@@ -82,5 +82,14 @@ enum PopoverTabsTests {
                 try expectEqual(PopoverTabState(defaults: defaults).selected, .toReview)
             }
         },
+        TestCase("popover tabs: sin UserDefaults la pestaña se recuerda solo en memoria") {
+            try await MainActor.run {
+                let state = PopoverTabState(defaults: nil)
+                try expectEqual(state.selected, .toReview)
+                state.selected = .mine
+                try expectEqual(state.selected, .mine)
+                try expectEqual(PopoverTabState(defaults: nil).selected, .toReview)
+            }
+        },
     ]
 }

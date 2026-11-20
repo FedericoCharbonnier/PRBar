@@ -8,7 +8,8 @@ import SwiftUI
 /// Nothing real starts: each screen gets its own `AppModel` built with `startsServices: false` and in-memory
 /// fakes (`SnapshotFakes`), so there's no refresh, no `gh`/`git`/`claude`, no Slack, no notifications and no
 /// worktree cleanup. The stores that need files (config, state, history) use a scratch folder inside `<dir>`
-/// that is deleted before exiting, and the app log is turned off: nothing is written outside `<dir>`.
+/// that is deleted before exiting, the popover's tab is kept in memory (not in UserDefaults) and the app log is turned
+/// off: nothing is written outside `<dir>`.
 @MainActor
 enum SnapshotMode {
     static func run(_ options: SnapshotOptions) -> Never {
@@ -79,10 +80,15 @@ private final class SnapshotSession {
             return false
         }
         try await popover("popover", model: main)
+        main.popoverTab.selected = .mine
+        try await popover("popover-mine", model: main)
+        main.popoverTab.selected = .toReview
         main.reviews.cancelAll()
 
         let empty = try makeModel("empty", snapshot: fixtures.caughtUpSnapshot)
         try await popover("popover-empty", model: empty)
+        empty.popoverTab.selected = .mine
+        try await popover("popover-empty-mine", model: empty)
 
         try await reviewWindows(model: main)
         try await respondWindows(model: main)
@@ -128,7 +134,8 @@ private final class SnapshotSession {
             instructionsStore: InstructionsStore(fileURL: dir.appendingPathComponent("instructions.json")),
             instructionsChatBackend: SnapshotInstructionsChatBackend(),
             discardStats: DiscardStatsStore(fileURL: dir.appendingPathComponent("discard-stats.json")),
-            mergeHistory: MergeHistory(historyDir: historyDir)
+            mergeHistory: MergeHistory(historyDir: historyDir),
+            popoverDefaults: nil   // the popover's tab only in memory: the user's UserDefaults aren't touched
         )
         let model = AppModel(services: services, startsServices: false)
         model.applySnapshotState(tools: SnapshotFixtures.tools, ghAccounts: SnapshotFixtures.ghAccounts, launchAtLogin: true)

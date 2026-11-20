@@ -20,8 +20,10 @@ Every screen comes in `-light` and `-dark`, at 2x:
 | File | What it shows |
 | --- | --- |
 | `menubar-icon` | The menu bar icon with a badge of 5, on a menu-bar-like strip |
-| `popover` | The popover: To Review (one idle, one "Reviewing…"), Updated Since My Review (ready, 4 comments), My PRs with Feedback (Changes requested, Respond), Ready to Merge (one ready, one blocked), Other collapsed |
-| `popover-empty` | The "All Caught Up" state |
+| `popover` | The popover's To Review tab (selected; My PRs shows "3 •"): To Review (one idle, one "Reviewing…"), Updated Since My Review (ready, 4 comments), Other collapsed |
+| `popover-mine` | The My PRs tab: My PRs with Feedback (Changes requested, Respond), Ready to Merge (one ready, one blocked) and Waiting for Review (collapsed) |
+| `popover-empty` | The To Review tab with nothing to review ("Nothing to review 🎉"), Other collapsed |
+| `popover-empty-mine` | The My PRs tab with nothing to do ("No PRs of yours need anything"), Waiting for Review collapsed |
 | `review-window` | The Review window: Claude's summary, 3 kept findings (one expanded for editing), 2 discarded with reasons, a general comment, comments posted in Spanish |
 | `review-published` | The Review window after posting, with a rule suggestion from the findings you usually discard |
 | `review-chat` | The Review window with the chat open: a question that narrowed #2 and a finding Claude added (#6) |

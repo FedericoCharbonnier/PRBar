@@ -47,9 +47,9 @@ struct AppModelServices {
     var discardStats: DiscardStatsStore? = nil
     /// `nil`: `history/merge/` in Application Support (spec G.4).
     var mergeHistory: MergeHistory? = nil
-    /// Dónde se guarda la pestaña del popover (spec H.1). `nil`: `UserDefaults.standard`. El modo de capturas usa uno
-    /// propio para no tocar el del usuario.
-    var popoverDefaults: UserDefaults? = nil
+    /// Dónde se guarda la pestaña del popover (spec H.1). `nil`: solo en memoria; lo usa el modo de capturas para no
+    /// tocar el del usuario ni escribir fuera de su carpeta.
+    var popoverDefaults: UserDefaults? = .standard
 
     static func live(runner: SystemProcessRunner) -> AppModelServices {
         let accounts = AccountProvider(runner: runner, ghPath: nil)
@@ -239,7 +239,7 @@ final class AppModel: ObservableObject {
         self.chatBackendOverride = services.chatBackend
         self.instructionsChatBackendOverride = services.instructionsChatBackend
         self.updateTransport = services.updateTransport
-        self.popoverTab = PopoverTabState(defaults: services.popoverDefaults ?? .standard)
+        self.popoverTab = PopoverTabState(defaults: services.popoverDefaults)
         self.prStore = PRStore(
             builder: SnapshotBuilder(api: services.api, tokens: services.accounts),
             configStore: configStore,

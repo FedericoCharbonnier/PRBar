@@ -56,7 +56,7 @@ public enum PopoverSection: String, Codable, CaseIterable, Sendable, Identifiabl
     public var subtitle: String? {
         switch self {
         case .otherToReview: "drafts and nothing to do"
-        case .waitingForReview: "no new feedback, not ready to merge"
+        case .waitingForReview: "waiting on reviewers"
         default: nil
         }
     }
@@ -126,15 +126,16 @@ public enum PopoverTabs {
 public final class PopoverTabState: ObservableObject {
     public nonisolated static let defaultsKey = "popoverTab"
 
-    private let defaults: UserDefaults
+    private let defaults: UserDefaults?
 
     @Published public var selected: PopoverTab {
-        didSet { defaults.set(selected.rawValue, forKey: Self.defaultsKey) }
+        didSet { defaults?.set(selected.rawValue, forKey: Self.defaultsKey) }
     }
 
-    public init(defaults: UserDefaults = .standard) {
+    /// `defaults == nil`: se recuerda solo en memoria (el modo de capturas, que no escribe fuera de su carpeta).
+    public init(defaults: UserDefaults? = .standard) {
         self.defaults = defaults
-        selected = defaults.string(forKey: Self.defaultsKey).flatMap(PopoverTab.init(rawValue:)) ?? .toReview
+        selected = defaults?.string(forKey: Self.defaultsKey).flatMap(PopoverTab.init(rawValue:)) ?? .toReview
     }
 }
 
