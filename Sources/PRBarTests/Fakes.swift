@@ -191,6 +191,17 @@ struct FakeAPI: GitHubAPI {
         if let onMerge { await onMerge() }
         return try mergeResult.get()
     }
+
+    /// Lo que devuelve `mergeDetail` (nil = un error de GraphQL).
+    var mergeDetailResult: Result<MergeDetail, PRBarError>?
+    /// Llamadas a `mergeDetail` (PR id).
+    let mergeDetailCalls = Box<[String]>([])
+
+    func mergeDetail(repo: RepoRef, number: Int, token: String) async throws -> MergeDetail {
+        mergeDetailCalls.value.append("\(repo.fullName)#\(number)")
+        guard let mergeDetailResult else { throw PRBarError.graphQL("no detail") }
+        return try mergeDetailResult.get()
+    }
 }
 
 struct FakeTokens: TokenProviding {
@@ -384,6 +395,9 @@ final class FakeFeedbackAPI: GitHubAPI, @unchecked Sendable {
         return URL(string: "https://github.com/\(repo.fullName)/pull/\(number)#issuecomment-\(n)")!
     }
     func mergePullRequest(id: String, method: MergeMethod, expectedHeadOid: String, token: String) async throws -> Date? {
+        throw PRBarError.http(status: 404, message: "no")
+    }
+    func mergeDetail(repo: RepoRef, number: Int, token: String) async throws -> MergeDetail {
         throw PRBarError.http(status: 404, message: "no")
     }
 }

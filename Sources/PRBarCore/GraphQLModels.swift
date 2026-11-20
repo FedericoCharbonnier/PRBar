@@ -40,6 +40,36 @@ enum Queries {
     }
     """
 
+    /// La ventana de Merge (spec G.3). `isRequired` necesita el PR: se pasa el número.
+    static let mergeDetail = """
+    query($owner: String!, $name: String!, $number: Int!) {
+      repository(owner: $owner, name: $name) {
+        pullRequest(number: $number) {
+          number title body url additions deletions changedFiles
+          baseRefName headRefName headRefOid mergeable mergeStateStatus reviewDecision
+          author { login avatarUrl __typename }
+          commits { totalCount }
+          latestOpinionatedReviews(first: 50) { nodes { author { login avatarUrl __typename } state submittedAt } }
+          latestReviews(first: 50) { nodes { author { login avatarUrl __typename } state submittedAt } }
+          reviewRequests(first: 20) { nodes { requestedReviewer { ... on User { login } ... on Team { name } } } }
+          reviewThreads(first: 100) { totalCount nodes { isResolved } }
+          files(first: 100) { totalCount nodes { path additions deletions changeType } }
+          statusCheckRollup {
+            state
+            contexts(first: 100) {
+              totalCount
+              nodes {
+                __typename
+                ... on CheckRun { name status conclusion detailsUrl startedAt completedAt isRequired(pullRequestNumber: $number) }
+                ... on StatusContext { context state targetUrl createdAt isRequired(pullRequestNumber: $number) }
+              }
+            }
+          }
+        }
+      }
+    }
+    """
+
     static let viewerRepositories = """
     query($cursor: String) {
       viewer {
@@ -341,4 +371,136 @@ struct MergeMutationData: Decodable {
         let mergedAt: Date?
     }
     let mergePullRequest: Payload?
+}
+
+/// Respuesta de `Queries.mergeDetail`. Casi todo opcional: lo que falte se muestra vacío.
+struct MergeDetailQueryData: Decodable {
+    struct Repository: Decodable { let pullRequest: PRMergeDetailNode? }
+    let repository: Repository?
+}
+
+struct PRMergeDetailNode: Decodable {
+    struct Review: Decodable {
+        let author: ActorNode?
+        let state: String
+        let submittedAt: Date?
+    }
+    struct ReviewRequest: Decodable {
+        struct Reviewer: Decodable {
+            let login: String?
+            let name: String?
+        }
+        let requestedReviewer: Reviewer?
+    }
+    struct Thread: Decodable { let isResolved: Bool? }
+    struct ThreadConnection: Decodable {
+        let totalCount: Int?
+        let nodes: [Thread?]?
+    }
+    struct File: Decodable {
+        let path: String
+        let additions: Int?
+        let deletions: Int?
+        let changeType: String?
+    }
+    struct FileConnection: Decodable {
+        let totalCount: Int?
+        let nodes: [File?]?
+    }
+    struct Context: Decodable {
+        let typename: String?
+        // CheckRun
+        let name: String?
+        let status: String?
+        let conclusion: String?
+        let detailsUrl: URL?
+        let startedAt: Date?
+        let completedAt: Date?
+        // StatusContext
+        let context: String?
+        let state: String?
+        let targetUrl: URL?
+        let createdAt: Date?
+        let isRequired: Bool?
+
+        enum CodingKeys: String, CodingKey {
+            case typename = "__typename"
+            case name, status, conclusion, detailsUrl, startedAt, completedAt, context, state, targetUrl, createdAt, isRequired
+        }
+
+        var check: MergeCheck? {
+            if typename == "StatusContext" || (typename == nil && context != nil) {
+                guard let context else { return nil }
+                return MergeCheck(name: context, kind: .status, state: MergeCheck.State(statusState: state),
+                                  isRequired: isRequired ?? false, url: targetUrl, startedAt: createdAt)
+            }
+            guard let name else { return nil }
+            return MergeCheck(name: name, kind: .checkRun, state: MergeCheck.State(checkStatus: status, conclusion: conclusion),
+                              isRequired: isRequired ?? false, url: detailsUrl, startedAt: startedAt, completedAt: completedAt)
+        }
+    }
+    struct ContextConnection: Decodable {
+        let totalCount: Int?
+        let nodes: [Context?]?
+    }
+    struct Rollup: Decodable { let contexts: ContextConnection? }
+    struct Count: Decodable { let totalCount: Int? }
+    struct ReviewNodes: Decodable { let nodes: [Review?]? }
+    struct RequestNodes: Decodable { let nodes: [ReviewRequest?]? }
+
+    let number: Int
+    let title: String
+    let body: String?
+    let url: URL?
+    let additions: Int?
+    let deletions: Int?
+    let changedFiles: Int?
+    let baseRefName: String
+    let headRefName: String
+    let headRefOid: String
+    let mergeable: String?
+    let mergeStateStatus: String?
+    let reviewDecision: String?
+    let author: ActorNode?
+    let commits: Count?
+    let latestOpinionatedReviews: ReviewNodes?
+    let latestReviews: ReviewNodes?
+    let reviewRequests: RequestNodes?
+    let reviewThreads: ThreadConnection?
+    let files: FileConnection?
+    let statusCheckRollup: Rollup?
+
+    func toDetail() -> MergeDetail {
+        let prAuthor = author?.login
+        // Por autor (sin el del PR, que "comenta" al responder hilos): la opinión vigente gana sobre un comentario
+        // posterior (spec F.8.2); quien solo comentó aparece como Commented.
+        var reviews: [MergeReviewSummary] = []
+        func add(_ node: Review?) {
+            guard let node, let login = node.author?.login, login != prAuthor,
+                  !reviews.contains(where: { $0.author == login }),
+                  let state = MergeReviewSummary.State(graphQL: node.state) else { return }
+            reviews.append(MergeReviewSummary(author: login, avatarURL: node.author?.avatarUrl, state: state,
+                                              submittedAt: node.submittedAt))
+        }
+        (latestOpinionatedReviews?.nodes ?? []).forEach(add)
+        (latestReviews?.nodes ?? []).forEach(add)
+        reviews.sort { ($0.submittedAt ?? .distantPast) > ($1.submittedAt ?? .distantPast) }
+        let threads = (reviewThreads?.nodes ?? []).compactMap { $0 }
+        let files = (self.files?.nodes ?? []).compactMap { $0 }.map {
+            MergeChangedFile(path: $0.path, additions: $0.additions ?? 0, deletions: $0.deletions ?? 0,
+                             change: MergeChangedFile.Change(patchStatus: $0.changeType))
+        }
+        let checks = (statusCheckRollup?.contexts?.nodes ?? []).compactMap { $0?.check }
+        return MergeDetail(
+            number: number, title: title, body: body ?? "", url: url, author: prAuthor ?? "ghost",
+            authorAvatarURL: author?.avatarUrl, baseRef: baseRefName, headRef: headRefName, headOid: headRefOid,
+            additions: additions ?? 0, deletions: deletions ?? 0, commitCount: commits?.totalCount,
+            mergeable: MergeableState(graphQL: mergeable), status: MergeStateStatus(graphQL: mergeStateStatus),
+            reviewDecision: ReviewDecision(graphQL: reviewDecision), reviews: reviews,
+            pendingReviewers: (reviewRequests?.nodes ?? []).compactMap { $0?.requestedReviewer.flatMap { $0.login ?? $0.name } },
+            checks: checks, checksTotal: max(statusCheckRollup?.contexts?.totalCount ?? 0, checks.count),
+            unresolvedThreads: threads.filter { $0.isResolved == false }.count,
+            totalThreads: max(reviewThreads?.totalCount ?? 0, threads.count),
+            files: files, changedFiles: max(changedFiles ?? 0, self.files?.totalCount ?? 0, files.count))
+    }
 }

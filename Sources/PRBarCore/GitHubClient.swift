@@ -112,6 +112,8 @@ public protocol GitHubAPI: Sendable {
     /// Mergea el PR (`mergePullRequest`) solo si su head sigue siendo `expectedHeadOid`. Devuelve `mergedAt`.
     /// Errores: `MergeError` (head cambiado, sin permiso, no mergeable) o `PRBarError` (red, token, rate limit).
     func mergePullRequest(id: String, method: MergeMethod, expectedHeadOid: String, token: String) async throws -> Date?
+    /// Lo que muestra la ventana de Merge (spec G.3): descripción, reviews, checks, hilos y archivos.
+    func mergeDetail(repo: RepoRef, number: Int, token: String) async throws -> MergeDetail
 }
 
 public struct GitHubClient: GitHubAPI {
@@ -317,6 +319,15 @@ public struct GitHubClient: GitHubAPI {
         }
         guard pr.merged else { throw MergeError.notMergeable("GitHub didn’t merge the PR") }
         return pr.mergedAt
+    }
+
+    public func mergeDetail(repo: RepoRef, number: Int, token: String) async throws -> MergeDetail {
+        let data: MergeDetailQueryData = try await graphQL(
+            Queries.mergeDetail, jsonVariables: ["owner": repo.owner, "name": repo.name, "number": number], token: token)
+        guard let pr = data.repository?.pullRequest else {
+            throw PRBarError.graphQL("Couldn't find the PR \(repo.fullName)#\(number)")
+        }
+        return pr.toDetail()
     }
 
     /// POST de JSON que devuelve el `html_url` de lo creado. `perform` solo vuelve con un 2xx: lo publicado ya está

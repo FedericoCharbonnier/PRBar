@@ -55,6 +55,7 @@ struct SnapshotGitHubAPI: GitHubAPI {
     func mergePullRequest(id: String, method: MergeMethod, expectedHeadOid: String, token: String) async throws -> Date? {
         throw SnapshotFakes.refused
     }
+    func mergeDetail(repo: RepoRef, number: Int, token: String) async throws -> MergeDetail { throw SnapshotFakes.refused }
 }
 
 /// The channel list of the Repos tab; nothing is ever posted.
