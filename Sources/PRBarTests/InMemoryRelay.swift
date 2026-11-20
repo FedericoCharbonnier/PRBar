@@ -75,6 +75,15 @@ actor InMemoryRelay {
         accounts[acct]?.deviceLinks[device] = nil
     }
 
+    /// El relay corta la conexión de la Mac (se reinició, por ejemplo).
+    func closeMac(_ acct: String) {
+        guard let mac = accounts[acct]?.mac else { return }
+        mac.closeByRelay(code: 1012, reason: "restart")
+        disconnected(mac)
+    }
+
+    func setPushStatus(_ status: Int) { pushStatus = status }
+
     /// Relay que perdió su base: ya no conoce al dispositivo (rechaza su `auth` con 4401).
     func forgetDevice(_ acct: String, _ device: String) {
         accounts[acct]?.devices[device] = nil

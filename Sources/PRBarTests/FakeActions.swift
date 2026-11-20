@@ -32,7 +32,12 @@ final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActi
     private func emit(_ events: CommandEventSink) { waitEvents.forEach(events) }
 
     // MARK: StatusActions
-    func status() async throws -> StatusInfo { try record("status"); return StatusInfo(appVersion: "test") }
+    /// Lo que devuelve `status()` (el feed del iPhone mira si cambió).
+    var statusVersion = "test"
+    var badge = 0
+    func status() async throws -> StatusInfo {
+        try record("status"); return StatusInfo(appVersion: statusVersion, badgeCount: badge)
+    }
     func listPRs(list: PRListFilter?, account: String?, tab: PopoverTab?) throws -> [PRInfo] {
         try record("listPRs \(list?.rawValue ?? "-") \(account ?? "-") \(tab?.rawValue ?? "-")"); return []
     }
