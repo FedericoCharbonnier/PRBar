@@ -181,6 +181,34 @@ enum CLIParsingTests {
                                 .claudeSet(changes: ClaudeChanges(respondSkill: "x", model: .set(value: "sonnet"))))
                 try expect(rejects(["claude", "set"]))
             },
+            TestCase("cli parse: slack") {
+                try expectEqual(try parsed(["slack", "show"]), .slackShow)
+                try expectEqual(try parsed(["slack", "enable"]), .slackSetEnabled(enabled: true))
+                try expectEqual(try parsed(["slack", "disable"]), .slackSetEnabled(enabled: false))
+                try expectEqual(try parsed(["slack", "provider", "connector"]), .slackSetProvider(provider: .claudeConnector))
+                try expectEqual(try parsed(["slack", "provider", "token"]), .slackSetProvider(provider: .userToken))
+                SlackTokenInput.read = { _ in "xoxp-test" }
+                try expectEqual(try parsed(["slack", "token", "set", "--stdin"]), .slackTokenSet(token: "xoxp-test"))
+                try expectEqual(try parsed(["slack", "token", "clear"]), .slackTokenClear)
+                try expectEqual(try parsed(["slack", "set", "react-start", "off"]), .slackSetToggle(toggle: .reactStart, enabled: false))
+                try expectEqual(try parsed(["slack", "set", "rounds", "on"]), .slackSetToggle(toggle: .rounds, enabled: true))
+                try expectEqual(try parsed(["slack", "emoji", "eyes", "eyes"]), .slackSetEmoji(kind: .eyes, name: "eyes"))
+                try expectEqual(try parsed(["slack", "search-days", "30"]), .slackSetSearchDays(days: 30))
+                try expectEqual(try parsed(["slack", "template", "list"]), .slackTemplateList)
+                try expectEqual(try parsed(["slack", "template", "show", "new-pr"]), .slackTemplateList)
+                try expectEqual(try parsed(["slack", "template", "set", "round", "commented x{n}"]),
+                                .slackTemplateSet(template: .round, text: "commented x{n}"))
+                try expectEqual(try parsed(["slack", "template", "reset", "update"]), .slackTemplateReset(template: .update))
+                try expectEqual(try parsed(["slack", "check"]), .slackCheck)
+                try expectEqual(try parsed(["slack", "test", "--yes"]), .slackSelfTest(confirmed: true))
+                try expectEqual(try parsed(["slack", "channels", "--reload"]), .slackChannels(reload: true))
+                try expect(rejects(["slack", "provider", "bot"]))
+                try expectEqual(try parsed(["slack", "set", "merged", "off"]), .slackSetToggle(toggle: .merged, enabled: false))
+                try expectEqual(try parsed(["slack", "template", "set", "merged", "Merged via {method}"]),
+                                .slackTemplateSet(template: .merged, text: "Merged via {method}"))
+                try expectEqual(try parsed(["slack", "template", "set", "myPR.merged", "Done"]), .slackTemplateSet(template: .merged, text: "Done"))
+                try expectEqual(try parsed(["slack", "template", "reset", "myPR.merged"]), .slackTemplateReset(template: .merged))
+            },
         ]
     }
 }

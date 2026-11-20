@@ -156,7 +156,16 @@ extension NotificationSettingName: ExpressibleByArgument {}
 extension ToolName: ExpressibleByArgument {}
 extension SlackToggleName: ExpressibleByArgument {}
 extension SlackEmojiKind: ExpressibleByArgument {}
-extension SlackTemplateName: ExpressibleByArgument {}
+extension SlackTemplateName: ExpressibleByArgument {
+    /// `myPR.merged` (el nombre del spec F.4) es un alias de `merged`.
+    public init?(argument: String) {
+        if argument == "myPR.merged" {
+            self = .merged
+        } else {
+            self.init(rawValue: argument)
+        }
+    }
+}
 
 /// Ayuda del argumento `<pr>`.
 let prHelp: ArgumentHelp = "owner/repo#N, repo#N or the PR’s URL."
