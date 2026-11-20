@@ -150,6 +150,7 @@ let allTests: [TestCase] = []
     + RemotePolicyTests.cases
     + RemoteEndToEndTests.cases
     + RelayIntegrationTests.cases
+    + RemoteHardeningTests.cases
     + ClaudeUsageTests.cases
     + CIFixTests.cases
 

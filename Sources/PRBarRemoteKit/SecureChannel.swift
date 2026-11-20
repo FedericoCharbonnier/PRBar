@@ -52,6 +52,8 @@ enum PairingMessage: Codable, Equatable, Sendable {
     case confirm
     /// "Codes Match" en la Mac.
     case result(PairingResult)
+    /// El teléfono recibió el resultado: recién entonces la Mac guarda el dispositivo (M1).
+    case ack
     case cancelled
 
     func encoded() throws -> Data { try CommandProtocol.encoder.encode(self) }

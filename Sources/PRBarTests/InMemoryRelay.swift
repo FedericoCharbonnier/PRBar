@@ -35,6 +35,15 @@ actor InMemoryRelay {
     /// Relay comprometido: no obedece `device.remove`.
     var ignoreDeviceRemoval = false
     var pushStatus = 200
+    /// Relay comprometido: deja pasar solo los primeros N mensajes del teléfono que empareja (p. ej. sin el acuse).
+    var pairForwardLimit: Int?
+    private var pairForwarded = 0
+    /// Todo lo que el relay le entregó a la Mac, en orden (para repetirlo como un relay malicioso).
+    private(set) var deliveredToMac: [RelayMessage] = []
+    /// Bytes de `b` que la Mac mandó a cada dispositivo.
+    private(set) var bytesToDevice: [String: Int] = [:]
+    /// Marcos `send` de la Mac a cada dispositivo.
+    private(set) var framesToDevice: [String: Int] = [:]
 
     init(clock: @escaping @Sendable () -> Date = { Date() }) {
         self.clock = clock
@@ -49,6 +58,27 @@ actor InMemoryRelay {
     }
 
     func setIgnoreDeviceRemoval(_ value: Bool) { ignoreDeviceRemoval = value }
+
+    func setPairForwardLimit(_ value: Int?) {
+        pairForwardLimit = value
+        pairForwarded = 0
+    }
+
+    /// Relay malicioso: le entrega a la Mac un mensaje inventado.
+    func injectToMac(_ acct: String, _ message: RelayMessage) {
+        accounts[acct]?.mac?.deliver(message)
+    }
+
+    /// Relay malicioso u olvidadizo: corta la conexión de un dispositivo con un código, sin darlo de baja.
+    func closeDevice(_ acct: String, _ device: String, code: Int) {
+        accounts[acct]?.deviceLinks[device]?.closeByRelay(code: code, reason: "closed by the relay")
+        accounts[acct]?.deviceLinks[device] = nil
+    }
+
+    /// Relay que perdió su base: ya no conoce al dispositivo (rechaza su `auth` con 4401).
+    func forgetDevice(_ acct: String, _ device: String) {
+        accounts[acct]?.devices[device] = nil
+    }
 
     func pairingSlot(_ account: String) -> String? { accounts[account]?.slot?.id }
 
@@ -155,6 +185,10 @@ actor InMemoryRelay {
         case .device(let acct, let id): fromDevice(message, acct: acct, id: id, link: link)
         case .pair(let acct, let pairing):
             guard case .send("mac", let sid, let b) = message else { return link.deliver(.error(reason: "forbidden")) }
+            if let limit = pairForwardLimit {
+                guard pairForwarded < limit else { return }
+                pairForwarded += 1
+            }
             toMac(.recv(from: "pair:\(pairing)", sid: sid, b: b), acct: acct, sid: sid, link: link)
         case .none:
             break
@@ -164,6 +198,7 @@ actor InMemoryRelay {
     private func toMac(_ message: RelayMessage, acct: String, sid: String, link: InMemoryRelayLink) {
         guard let mac = accounts[acct]?.mac else { return link.deliver(.undeliverable(to: "mac", sid: sid)) }
         lastToMac[acct] = message
+        deliveredToMac.append(message)
         mac.deliver(message)
     }
 
@@ -187,6 +222,10 @@ actor InMemoryRelay {
             let target = to.hasPrefix("pair:") ? accounts[acct]?.slot.flatMap { "pair:\($0.id)" == to ? $0.link : nil }
                 : accounts[acct]?.deviceLinks[to]
             guard let target else { return link.deliver(.undeliverable(to: to, sid: sid)) }
+            if !to.hasPrefix("pair:") {
+                bytesToDevice[to, default: 0] += b.count
+                framesToDevice[to, default: 0] += 1
+            }
             target.deliver(.recv(from: "mac", sid: sid, b: b))
         case .push(let id, _, _, _, _):
             pushes.append(message)

@@ -31,7 +31,7 @@ public enum RemoteError: Error, Equatable, Sendable, LocalizedError {
         case .pairingExpired: "This code expired or was already used. Show a new one on your Mac."
         case .handshakeFailed: "Couldn’t open a secure session with your Mac."
         case .sessionClosed: "The connection with your Mac was reset. Try again."
-        case .timeout: "Your Mac didn’t answer in time."
+        case .timeout: "Your Mac didn’t answer in time. Refresh to see whether it ran."
         }
     }
 }
@@ -222,12 +222,17 @@ public actor RemoteClient {
         switch decoded {
         case .result(let result):
             guard pairingFlow?.outcome == nil else { return }
+            // Acuse: la Mac guarda el dispositivo recién cuando lo recibe (M1).
+            if var transport = pairingFlow?.transport, let ack = try? transport.send.encrypt(try PairingMessage.ack.encoded()) {
+                pairingFlow?.transport = transport
+                try? pairingFlow?.link.send(.send(to: "mac", sid: flow.sid, b: ack))
+            }
             pairingFlow?.outcome = .success(result)
             pairingFlow?.resultWaiter?.resume(returning: result)
             pairingFlow?.resultWaiter = nil
         case .cancelled:
             failPairing(.pairingCancelled)
-        case .join, .confirm:
+        case .join, .confirm, .ack:
             failPairing(.pairingCancelled)
         }
     }
@@ -508,8 +513,10 @@ public actor RemoteClient {
         }
         let (stream, continuation) = AsyncThrowingStream<CommandResponse, Error>.makeStream()
         pending[id] = Pending(continuation: continuation)
-        sendFrame(.req(RemoteRequest(id: id, sentAt: clock(), cmd: cmd, presence: proof)))
         let timeout = config.requestTimeout
+        let sentAt = clock()
+        sendFrame(.req(RemoteRequest(id: id, sentAt: sentAt, cmd: cmd, presence: proof,
+                                     deadline: sentAt.addingTimeInterval(Double(timeout.components.seconds)))))
         Task { [weak self] in
             try? await Task.sleep(for: timeout)
             await self?.expire(id)

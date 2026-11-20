@@ -63,6 +63,7 @@ struct RemoteHarness {
 
     static func make(minimumRemoteVersion: Int = CommandProtocol.minimumRemoteVersion,
                      relayFactory: ((InMemoryRelay) -> RelayLinkFactory)? = nil,
+                     pairingAckTimeout: Duration = .seconds(3), limits: RemoteLimits = .standard,
                      handler: Handler? = nil) async throws -> RemoteHarness {
         let clock = RemoteTestClock()
         let relay = InMemoryRelay(clock: clock.function)
@@ -79,6 +80,7 @@ struct RemoteHarness {
         let host = RemoteHost(
             configuration: .init(accountId: account, relayHost: relay.host, macName: "Federico’s Mac", appVersion: "1.2.0",
                                  keys: keys, minimumRemoteVersion: minimumRemoteVersion, pushTimeout: .seconds(2),
+                                 pairingAckTimeout: pairingAckTimeout, limits: limits,
                                  backoff: { _ in .milliseconds(50) }),
             devices: [], linkFactory: factory, clock: clock.function, handler: handler ?? defaultHandler)
         try await host.connect()
@@ -87,10 +89,10 @@ struct RemoteHarness {
     }
 
     func client(commandProtocol: Int = CommandProtocol.version, paired: PairedMac? = nil,
-                keys: DeviceKeys? = nil) -> RemoteClient {
+                keys: DeviceKeys? = nil, requestTimeout: Duration = .seconds(10)) -> RemoteClient {
         RemoteClient(configuration: .init(appVersion: "1.2.0", deviceName: "Federico’s iPhone", model: "iPhone 17 Pro",
                                           commandProtocol: commandProtocol, handshakeTimeout: .seconds(3),
-                                          requestTimeout: .seconds(10)),
+                                          requestTimeout: requestTimeout),
                      paired: paired, keys: keys, linkFactory: factory, clock: clock.function)
     }
 
@@ -114,8 +116,9 @@ struct RemoteHarness {
     }
 
     /// Empareja un teléfono nuevo y conecta su sesión.
-    func pairedClient(commandProtocol: Int = CommandProtocol.version) async throws -> RemoteClient {
-        let client = client(commandProtocol: commandProtocol)
+    func pairedClient(commandProtocol: Int = CommandProtocol.version,
+                      requestTimeout: Duration = .seconds(10)) async throws -> RemoteClient {
+        let client = client(commandProtocol: commandProtocol, requestTimeout: requestTimeout)
         let qr = try await openPairing()
         async let join = nextJoin()
         let sas = try await client.startPairing(qr: qr, presenceKey: presence.publicKey)

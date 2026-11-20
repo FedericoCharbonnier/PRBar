@@ -43,16 +43,20 @@ public struct RemoteRequest: Codable, Equatable, Sendable {
     /// Los bytes JSON del `AppCommand` tal cual se firmaron (P.8): la Mac hashea esto y recién después decodifica.
     public var cmd: Data
     public var presence: PresenceProof?
+    /// Hasta cuándo espera el teléfono la respuesta: después la Mac ya no lo ejecuta (L3). Opcional por compatibilidad.
+    public var deadline: Date?
 
-    public init(id: Int, sentAt: Date, cmd: Data, presence: PresenceProof? = nil) {
+    public init(id: Int, sentAt: Date, cmd: Data, presence: PresenceProof? = nil, deadline: Date? = nil) {
         self.id = id
         self.sentAt = sentAt
         self.cmd = cmd
         self.presence = presence
+        self.deadline = deadline
     }
 
-    public init(id: Int, sentAt: Date, command: AppCommand, presence: PresenceProof? = nil) throws {
-        self.init(id: id, sentAt: sentAt, cmd: try CommandProtocol.encoder.encode(command), presence: presence)
+    public init(id: Int, sentAt: Date, command: AppCommand, presence: PresenceProof? = nil, deadline: Date? = nil) throws {
+        self.init(id: id, sentAt: sentAt, cmd: try CommandProtocol.encoder.encode(command), presence: presence,
+                  deadline: deadline)
     }
 
     public func command() throws -> AppCommand {
