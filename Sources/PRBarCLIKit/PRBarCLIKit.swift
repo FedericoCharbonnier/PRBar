@@ -16,7 +16,7 @@ public struct PRBarCommand: ParsableCommand {
         version: AppConnection.cliVersion,
         subcommands: [
             StatusCommand.self, PRsCommand.self, RefreshCommand.self, OpenCommand.self, HistoryGroup.self, AppGroup.self,
-            ReviewGroup.self,
+            ReviewGroup.self, RespondGroup.self,
             VersionCommand.self, DoctorCommand.self, CompletionCommand.self,
         ]
     )

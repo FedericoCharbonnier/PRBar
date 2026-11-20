@@ -87,6 +87,42 @@ enum CLIParsingTests {
                 try expectEqual(ReviewQuestion.text(event: .approve, pr: "acme/api#1", account: "me", comments: 0, general: false),
                                 "Approve acme/api#1 as @me without comments?")
             },
+            TestCase("cli parse: respond") {
+                try expectEqual(try parsed(["respond", "web#2", "--wait"]), .respondStart(pr: "web#2", wait: true))
+                try expectEqual(try parsed(["respond", "show", "web#2"]), .respondShow(pr: "web#2"))
+                try expectEqual(try parsed(["respond", "select", "web#2", "1", "2", "--implement"]),
+                                .respondSelect(pr: "web#2", items: ["1", "2"], change: RespondSelectionChange(implement: true)))
+                try expectEqual(try parsed(["respond", "select", "web#2", "1", "--reply-only", "--reply", "Thanks!"]),
+                                .respondSelect(pr: "web#2", items: ["1"], change: RespondSelectionChange(implement: false, reply: true, replyText: "Thanks!")))
+                try expectEqual(try parsed(["respond", "select", "web#2", "thread:A", "--skip"]),
+                                .respondSelect(pr: "web#2", items: ["thread:A"], change: RespondSelectionChange(implement: false, reply: false)))
+                try expectEqual(try parsed(["respond", "select", "web#2", "1", "--implement", "--no-reply", "--plan", "Do X"]),
+                                .respondSelect(pr: "web#2", items: ["1"], change: RespondSelectionChange(implement: true, reply: false, fixPlan: "Do X")))
+                try expectEqual(try parsed(["respond", "select", "web#2", "--reset"]), .respondReset(pr: "web#2"))
+                try expect(rejects(["respond", "select", "web#2", "--reset", "--skip"]))
+                try expect(rejects(["respond", "select", "web#2", "1", "--skip", "--reply", "x"]))
+                try expect(rejects(["respond", "select", "web#2", "--implement"]))
+                try expectEqual(try parsed(["respond", "implement", "web#2"]), .respondImplement(pr: "web#2", wait: false))
+                try expectEqual(try parsed(["respond", "test", "web#2", "--wait"]), .respondTest(pr: "web#2", wait: true))
+                try expectEqual(try parsed(["respond", "diff", "web#2", "--stat"]), .respondDiff(pr: "web#2"))
+                try expectEqual(try parsed(["respond", "push", "web#2", "--yes"]), .respondPush(pr: "web#2", confirmed: true, wait: false))
+                try expectEqual(try parsed(["respond", "reply-only", "web#2"], confirmed: false),
+                                .respondReplyOnly(pr: "web#2", confirmed: false, wait: false))
+                try expectEqual(try parsed(["respond", "cancel", "web#2"]), .respondCancel(pr: "web#2"))
+                try expectEqual(try parsed(["respond", "dismiss", "web#2"]), .respondDismiss(pr: "web#2"))
+            },
+            TestCase("cli: preguntas de push y respuestas (como la ventana)") {
+                var info = RespondInfo(prID: "acme/web#2", phase: nil, record: nil, selections: [:], runningTests: false, testCommand: nil)
+                info.account = "me"
+                info.headRef = "feature/x"
+                info.pendingReplies = 2
+                info.commits = [CommitDTO(item: "a", status: "committed", sha: "abc", summary: "s")]
+                try expectEqual(RespondQuestion.push(info), "Push 1 commit to feature/x and post 2 replies as @me?")
+                info.pushed = true
+                try expectEqual(RespondQuestion.push(info), "Post 2 pending replies as @me?")
+                info.replies = 1
+                try expectEqual(RespondQuestion.replyOnly(info), "Post 1 reply to acme/web#2 as @me? Nothing is pushed.")
+            },
         ]
     }
 }
