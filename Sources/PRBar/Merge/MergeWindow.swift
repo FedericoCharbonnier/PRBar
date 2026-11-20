@@ -509,14 +509,13 @@ private struct MergeConversationsSection: View {
     let prURL: URL
 
     var body: some View {
-        let unresolved = detail.unresolvedThreads
         MergeSection(title: "Conversations", systemImage: "bubble.left.and.bubble.right") {
-            if unresolved > 0 {
+            if detail.conversationsNeedAttention {
                 HStack(spacing: 8) {
-                    Label("\(unresolved) unresolved conversation\(unresolved == 1 ? "" : "s")",
-                          systemImage: "exclamationmark.bubble.fill")
+                    Label(detail.conversationsSummary, systemImage: "exclamationmark.bubble.fill")
                         .font(.callout.weight(.medium))
                         .foregroundStyle(Theme.orangeText)
+                        .fixedSize(horizontal: false, vertical: true)
                     Spacer()
                     ExternalLink("View on GitHub", destination: prURL).font(.callout)
                 }
@@ -524,8 +523,7 @@ private struct MergeConversationsSection: View {
                 .padding(.vertical, 7)
                 .background(RoundedRectangle(cornerRadius: Theme.Radius.button).fill(Color.yellow.opacity(0.18)))
             } else {
-                Label(detail.totalThreads == 0 ? "No review conversations" : "All conversations are resolved",
-                      systemImage: "checkmark.bubble")
+                Label(detail.conversationsSummary, systemImage: "checkmark.bubble")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }

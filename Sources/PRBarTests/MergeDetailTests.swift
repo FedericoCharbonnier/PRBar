@@ -162,6 +162,42 @@ enum MergeDetailTests {
             try expect(query.contains("... on Bot { login }") && query.contains("... on Mannequin { login }"), query)
             try expectEqual(detail.pendingReviewers, ["copilot-pull-request-reviewer", "old-user"])
         },
+        TestCase("merge detail: conversaciones más allá de la primera página no se dan por resueltas") {
+            // 150 hilos y GitHub dio 100, todos resueltos: no se puede decir "All conversations are resolved".
+            let nodes = Array(repeating: #"{"isResolved":true}"#, count: 100).joined(separator: ",")
+            let (many, _) = try await detail("""
+            {"number":7,"title":"T","url":"https://github.com/acme/api/pull/7","baseRefName":"main","headRefName":"x",
+             "headRefOid":"1111111111111111111111111111111111111111","reviewThreads":{"totalCount":150,"nodes":[\(nodes)]}}
+            """, number: 7)
+            try expectEqual(many.totalThreads, 150)
+            try expectEqual(many.checkedThreads, 100)
+            try expectEqual(many.uncheckedThreads, 50)
+            try expectEqual(many.conversationsSummary, "100 of 150 conversations are resolved — check the other 50 on GitHub")
+            try expect(many.conversationsNeedAttention)
+            var detail = many
+            detail.unresolvedThreads = 3
+            try expectEqual(detail.conversationsSummary, "At least 3 unresolved conversations")
+            detail.checkedThreads = 150
+            try expectEqual(detail.conversationsSummary, "3 unresolved conversations")
+            detail.unresolvedThreads = 1
+            try expectEqual(detail.conversationsSummary, "1 unresolved conversation")
+            detail.unresolvedThreads = 0
+            try expectEqual(detail.conversationsSummary, "All conversations are resolved")
+            try expect(!detail.conversationsNeedAttention)
+            detail.totalThreads = 0
+            try expectEqual(detail.conversationsSummary, "No review conversations")
+            detail.incomplete = [.conversations]
+            try expectEqual(detail.conversationsSummary, "Couldn’t check the review conversations — see GitHub")
+            try expect(detail.conversationsNeedAttention)
+            // Un JSON viejo, sin checkedThreads: se miraron todos.
+            let old = try JSONCoding.decoder.decode(MergeDetail.self, from: Data(#"{"number":3,"headOid":"abc","totalThreads":4}"#.utf8))
+            try expectEqual(old.checkedThreads, nil)
+            try expectEqual(old.uncheckedThreads, 0)
+            // La CLI usa el mismo texto.
+            var out = ""
+            MergePreviewRender.prSummary(many, Output(terminal: .plain, json: false, out: { out += $0 }, err: { _ in }))
+            try expect(out.contains("100 of 150 conversations are resolved"), out)
+        },
         TestCase("merge detail: resumen de checks (requeridos y no requeridos)") {
             func check(_ state: MergeCheck.State, required: Bool) -> MergeCheck {
                 MergeCheck(name: "c", kind: .checkRun, state: state, isRequired: required)

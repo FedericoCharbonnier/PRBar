@@ -93,8 +93,13 @@ enum MergeChatTests {
             }
             try expect(md.contains("Commit to merge (HEAD): \(head)"), md)
             try expect(md.contains("Checks: 1 failed (not required)"), md)
-            try expect(md.contains("Unresolved review conversations: 1 of 2"), md)
+            try expect(md.contains("Review conversations: 1 unresolved conversation (2 in total)"), md)
             try expect(md.contains("- and 2 more on GitHub"), md)
+            try expect(!md.contains("- Note:"), md)
+            var partial = hostileDetail()
+            partial.incomplete = [.checks]
+            let noted = MergeContextWriter.metadata(target: target, detail: partial)
+            try expect(noted.contains("- Note: Some checks couldn’t be loaded from GitHub."), noted)
         },
         TestCase("merge chat: el workspace existente recibe el pr.md del merge") {
             let root = try temporaryDirectory()

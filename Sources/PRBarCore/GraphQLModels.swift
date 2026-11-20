@@ -521,6 +521,7 @@ struct PRMergeDetailNode: Decodable {
             checks: checks, checksTotal: max(statusCheckRollup?.contexts?.totalCount ?? 0, checks.count),
             unresolvedThreads: threads.filter { $0.isResolved == false }.count,
             totalThreads: max(reviewThreads?.totalCount ?? 0, threads.count),
+            checkedThreads: threads.count < (reviewThreads?.totalCount ?? 0) ? threads.count : nil,
             files: files, changedFiles: max(changedFiles ?? 0, self.files?.totalCount ?? 0, files.count))
     }
 }

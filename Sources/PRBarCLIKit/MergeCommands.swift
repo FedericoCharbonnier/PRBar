@@ -72,12 +72,7 @@ public enum MergePreviewRender {
         if detail.moreChecks > 0 { output.line("  and \(detail.moreChecks) more on GitHub") }
 
         output.line()
-        let unresolved = detail.unresolvedThreads
-        if unresolved > 0 {
-            output.line(output.paint("\(unresolved) unresolved conversation\(unresolved == 1 ? "" : "s")", .yellow))
-        } else {
-            output.line(output.paint(detail.totalThreads == 0 ? "No review conversations" : "All conversations are resolved", .dim))
-        }
+        output.line(output.paint(detail.conversationsSummary, detail.conversationsNeedAttention ? .yellow : .dim))
 
         output.line()
         output.line(output.paint("Files (\(detail.changedFiles))", .bold) + "  +\(detail.additions) −\(detail.deletions)")

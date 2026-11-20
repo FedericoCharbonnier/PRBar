@@ -27,8 +27,12 @@ public struct MergeDetail: Codable, Equatable, Sendable {
     public var checks: [MergeCheck]
     /// `contexts.totalCount`: puede ser más que `checks` (se piden 100).
     public var checksTotal: Int
+    /// Sin resolver entre los hilos que se miraron (`checkedThreads`).
     public var unresolvedThreads: Int
     public var totalThreads: Int
+    /// Los hilos que trajo la consulta (los primeros 100) cuando son menos que `totalThreads`; `nil` = se miraron
+    /// todos.
+    public var checkedThreads: Int?
     /// Los primeros `maxFiles` archivos.
     public var files: [MergeChangedFile]
     /// Todos los archivos del PR (`changedFiles`).
@@ -72,7 +76,8 @@ public struct MergeDetail: Codable, Equatable, Sendable {
                 baseRef: String, headRef: String, headOid: String, additions: Int, deletions: Int, commitCount: Int?,
                 mergeable: MergeableState, status: MergeStateStatus, reviewDecision: ReviewDecision,
                 reviews: [MergeReviewSummary], pendingReviewers: [String], checks: [MergeCheck], checksTotal: Int,
-                unresolvedThreads: Int, totalThreads: Int, files: [MergeChangedFile], changedFiles: Int) {
+                unresolvedThreads: Int, totalThreads: Int, checkedThreads: Int? = nil, files: [MergeChangedFile],
+                changedFiles: Int) {
         self.number = number
         self.title = title
         self.body = body
@@ -94,6 +99,7 @@ public struct MergeDetail: Codable, Equatable, Sendable {
         self.checksTotal = checksTotal
         self.unresolvedThreads = unresolvedThreads
         self.totalThreads = totalThreads
+        self.checkedThreads = checkedThreads
         self.files = files
         self.changedFiles = changedFiles
     }
@@ -125,6 +131,28 @@ public struct MergeDetail: Codable, Equatable, Sendable {
         return parts.joined(separator: " · ")
     }
 
+    /// Hilos que no se miraron (había más de los que trae la consulta).
+    public var uncheckedThreads: Int { checkedThreads.map { max(totalThreads - $0, 0) } ?? 0 }
+
+    /// Lo que dice la sección Conversations (y la CLI): nunca "todas resueltas" si hubo hilos sin mirar.
+    public var conversationsSummary: String {
+        func plural(_ n: Int) -> String { n == 1 ? "" : "s" }
+        if incomplete.contains(.conversations) { return "Couldn’t check the review conversations — see GitHub" }
+        let unresolved = unresolvedThreads
+        if unresolved > 0 {
+            return (uncheckedThreads > 0 ? "At least " : "") + "\(unresolved) unresolved conversation\(plural(unresolved))"
+        }
+        if uncheckedThreads > 0 {
+            return "\(totalThreads - uncheckedThreads) of \(totalThreads) conversations are resolved — check the other \(uncheckedThreads) on GitHub"
+        }
+        return totalThreads == 0 ? "No review conversations" : "All conversations are resolved"
+    }
+
+    /// Hay conversaciones sin resolver, o no se sabe.
+    public var conversationsNeedAttention: Bool {
+        unresolvedThreads > 0 || uncheckedThreads > 0 || incomplete.contains(.conversations)
+    }
+
     /// Archivos que no entraron (spec G.2.5: "and N more on GitHub").
     public var moreFiles: Int { max(changedFiles - files.count, 0) }
     /// Checks que no entraron.
@@ -133,7 +161,7 @@ public struct MergeDetail: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case number, title, body, url, author, authorAvatarURL, baseRef, headRef, headOid, additions, deletions, commitCount
         case mergeable, status, reviewDecision, reviews, pendingReviewers, checks, checksTotal, unresolvedThreads
-        case totalThreads, files, changedFiles, incomplete
+        case totalThreads, checkedThreads, files, changedFiles, incomplete
     }
 
     public init(from decoder: Decoder) throws {
@@ -159,6 +187,7 @@ public struct MergeDetail: Codable, Equatable, Sendable {
         checksTotal = (try? c.decodeIfPresent(Int.self, forKey: .checksTotal)) ?? checks.count
         unresolvedThreads = (try? c.decodeIfPresent(Int.self, forKey: .unresolvedThreads)) ?? 0
         totalThreads = (try? c.decodeIfPresent(Int.self, forKey: .totalThreads)) ?? 0
+        checkedThreads = (try? c.decodeIfPresent(Int.self, forKey: .checkedThreads)) ?? nil
         files = (try? c.decodeIfPresent(LossyArray<MergeChangedFile>.self, forKey: .files))?.elements ?? []
         changedFiles = (try? c.decodeIfPresent(Int.self, forKey: .changedFiles)) ?? files.count
         incomplete = (try? c.decodeIfPresent(LossyArray<Section>.self, forKey: .incomplete))?.elements ?? []
@@ -347,6 +376,7 @@ public enum MergeContextWriter {
             "- Changes: +\(detail.additions) −\(detail.deletions) in \(detail.changedFiles) file\(detail.changedFiles == 1 ? "" : "s")"
                 + (detail.commitCount.map { ", \($0) commit\($0 == 1 ? "" : "s")" } ?? ""),
             "- Review decision: \(detail.reviewDecision.rawValue)",
+        ] + (detail.incompleteNote.map { ["- Note: \($0)"] } ?? []) + [
             "",
             "## Description",
             "",
@@ -374,7 +404,7 @@ public enum MergeContextWriter {
         }
         if detail.moreChecks > 0 { lines.append("- and \(detail.moreChecks) more on GitHub") }
         lines += ["", "## Conversations", "",
-                  "Unresolved review conversations: \(detail.unresolvedThreads) of \(detail.totalThreads)",
+                  "Review conversations: \(detail.conversationsSummary) (\(detail.totalThreads) in total)",
                   "", "## Changed files (untrusted names)", ""]
         for file in detail.files {
             lines.append("- \(file.change.letter) \(line(file.path)) +\(file.additions) −\(file.deletions)")
