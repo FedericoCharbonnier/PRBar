@@ -152,7 +152,8 @@ public struct SystemProcessRunner: ProcessRunning, StreamingProcessRunning {
                 }
                 control.markLaunched(pid: process.processIdentifier)
                 let pid = process.processIdentifier
-                registry.register(RegisteredProcess(pid: pid, executable: executableName, activity: activity, startedAt: Date()))
+                let registered = RegisteredProcess(pid: pid, executable: executableName, activity: activity, startedAt: Date())
+                registry.register(registered)
                 if let timeout {
                     DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { control.stop(.timedOut) }
                 }
@@ -165,7 +166,7 @@ public struct SystemProcessRunner: ProcessRunning, StreamingProcessRunning {
                         onStdout: splitter == nil ? nil : { splitter?.append($0) }
                     )
                     control.waitUntilExited()
-                    registry.unregister(pid: pid)
+                    registry.unregister(registered)
                     // La última línea sin `\n` se entrega solo si el proceso terminó solo: tras un timeout
                     // o una cancelación quedaría cortada a la mitad.
                     if control.stopReason == nil { splitter?.finish() }

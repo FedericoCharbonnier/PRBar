@@ -73,7 +73,10 @@ public final class ProcessRegistry: Sendable {
     public init() {}
 
     public func register(_ process: RegisteredProcess) { state.withLock { $0[process.pid] = process } }
-    public func unregister(pid: Int32) { _ = state.withLock { $0.removeValue(forKey: pid) } }
+    /// Solo si sigue anotado ese mismo proceso: si el pid ya lo reusó otro (que se anotó después), no lo toca.
+    public func unregister(_ process: RegisteredProcess) {
+        state.withLock { if $0[process.pid] == process { $0[process.pid] = nil } }
+    }
     public func all() -> [RegisteredProcess] { state.withLock { Array($0.values) }.sorted { $0.pid < $1.pid } }
     public func byPID() -> [Int32: RegisteredProcess] { state.withLock { $0 } }
 }

@@ -29,6 +29,17 @@ enum ProcessActivityTests {
             let after = registry.all()
             try expect(after.isEmpty, "quedó anotado: \(after)")
         },
+        TestCase("activity: sacar un proceso que terminó no borra al que reusó su pid") {
+            let registry = ProcessRegistry()
+            let old = RegisteredProcess(pid: 7, executable: "git", activity: .review("acme/api#1"), startedAt: t0)
+            let reused = RegisteredProcess(pid: 7, executable: "claude", activity: .respond("acme/api#2"), startedAt: t0.addingTimeInterval(1))
+            registry.register(old)
+            registry.register(reused)
+            registry.unregister(old)
+            try expectEqual(registry.all(), [reused])
+            registry.unregister(reused)
+            try expectEqual(registry.all(), [])
+        },
         TestCase("activity: un proceso sin tarea queda anotado sin actividad") {
             let registry = ProcessRegistry()
             let runner = SystemProcessRunner(registry: registry)
