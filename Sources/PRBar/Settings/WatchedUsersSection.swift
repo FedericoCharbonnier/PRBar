@@ -59,7 +59,6 @@ struct WatchedUsersSection: View {
                 items: suggestions(entry.value),
                 loadState: entry.state,
                 placeholder: "Search users…",
-                width: 300,
                 title: \.user.login,
                 subtitle: subtitle,
                 avatar: { AnyView(AvatarView(login: $0.user.login, url: $0.user.avatarURL ?? Self.avatarURL($0.user.login), size: 20)) },

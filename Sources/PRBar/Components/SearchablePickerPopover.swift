@@ -1,4 +1,5 @@
 import AppKit
+import PRBarCore
 import SwiftUI
 
 /// Estado de carga de la lista de un `SearchablePickerPopover`.
@@ -18,7 +19,9 @@ enum PickerLoadState: Equatable {
 /// - `.single`: elegir una fila cierra el popover.
 /// - `.multiple`: cada fila es un checkbox y el popover queda abierto.
 ///
-/// Teclado: ↑/↓ mueven la selección, Return elige o marca, Esc cierra.
+/// Teclado: ↑/↓ mueven la selección, Return elige o marca, Esc cierra. The search field has focus when it opens.
+/// It opens at least 360 pt wide and shows about 14 rows before scrolling, never taller than the screen
+/// (`PickerListSizing`).
 struct SearchablePickerPopover<Item: Identifiable, TriggerLabel: View>: View {
     enum SelectionMode { case single, multiple }
 
@@ -43,7 +46,7 @@ struct SearchablePickerPopover<Item: Identifiable, TriggerLabel: View>: View {
     let triggerStyle: TriggerStyle
     let placeholder: String
     let width: CGFloat
-    /// Tallest the list grows before it scrolls.
+    /// Tallest the list grows before it scrolls (the screen may cap it lower).
     let maxListHeight: CGFloat
     let title: (Item) -> String
     let subtitle: ((Item) -> String?)?
@@ -65,8 +68,8 @@ struct SearchablePickerPopover<Item: Identifiable, TriggerLabel: View>: View {
         loadState: PickerLoadState = .loaded,
         triggerStyle: TriggerStyle = .button,
         placeholder: String = "Search…",
-        width: CGFloat = 320,
-        maxListHeight: CGFloat = 320,
+        width: CGFloat = PickerListSizing.minimumWidth,
+        maxListHeight: CGFloat = PickerListSizing.defaultMaxHeight,
         title: @escaping (Item) -> String,
         subtitle: ((Item) -> String?)? = nil,
         avatar: ((Item) -> AnyView)? = nil,
@@ -137,7 +140,6 @@ private struct PickerContent<Item: Identifiable, TriggerLabel: View>: View {
     @State private var highlighted = 0
     @State private var freeformBusy = false
     @State private var freeformError: String?
-    @State private var listHeight: CGFloat = 0
     @FocusState private var searchFocused: Bool
 
 
@@ -204,9 +206,10 @@ private struct PickerContent<Item: Identifiable, TriggerLabel: View>: View {
                 .padding(.vertical, 6)
             }
         }
-        .frame(width: picker.width)
+        .frame(width: PickerListSizing.width(requested: picker.width))
         .background(KeyMonitor(onKey: handleKey))
-        .onAppear { searchFocused = true }
+        // The popover's window becomes key after it appears: focus the search field once it has.
+        .onAppear { DispatchQueue.main.async { searchFocused = true } }
         .onChange(of: query) { _, _ in
             highlighted = 0
             freeformError = nil
@@ -303,16 +306,25 @@ private struct PickerContent<Item: Identifiable, TriggerLabel: View>: View {
                     }
                 }
                 .padding(4)
-                .background(GeometryReader { geometry in
-                    Color.clear.preference(key: ListHeightKey.self, value: geometry.size.height)
-                })
             }
-            .frame(height: min(max(listHeight, 32), picker.maxListHeight))
-            .onPreferenceChange(ListHeightKey.self) { listHeight = $0 }
+            .frame(height: listHeight)
             .onChange(of: highlighted) { _, index in
                 proxy.scrollTo(index)
             }
         }
+    }
+
+    /// Computed from the rows, not measured: a lazy list measured from inside its scroll view is 0 (or a few rows)
+    /// on the first layout, and the popover kept that size.
+    private var listHeight: CGFloat {
+        var subtitled = sections.flatMap(\.items).map { item in !(picker.subtitle?(item) ?? "").isEmpty }
+        if freeformText != nil { subtitled.append(freeformError != nil) }
+        let headers = picker.section == nil ? 0 : sections.count
+        let screen = (NSApp.keyWindow?.screen ?? NSScreen.main)?.visibleFrame.height
+        return PickerListSizing.listHeight(
+            contentHeight: PickerListSizing.contentHeight(subtitled: subtitled, sections: headers),
+            maxHeight: picker.maxListHeight, screenHeight: screen
+        )
     }
 
     private var sectionOffsets: [Int] {
@@ -339,7 +351,7 @@ private struct PickerContent<Item: Identifiable, TriggerLabel: View>: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(picker.title(item)).font(.body).lineLimit(1).truncationMode(.middle)
                     if let subtitle = picker.subtitle?(item), !subtitle.isEmpty {
-                        Text(subtitle).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                        Text(subtitle).font(.subheadline).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                     }
                 }
                 Spacer(minLength: 4)
@@ -351,11 +363,13 @@ private struct PickerContent<Item: Identifiable, TriggerLabel: View>: View {
             }
             .padding(.horizontal, 6)
             .padding(.vertical, 4)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: PickerListSizing.rowHeight - 1, alignment: .leading)
             .background(rowBackground(highlighted: highlighted && !disabled))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // The whole name when it's cut in the middle.
+        .help(picker.title(item))
         .disabled(disabled)
         .opacity(disabled ? 0.5 : 1)
     }
@@ -438,11 +452,6 @@ private struct PickerContent<Item: Identifiable, TriggerLabel: View>: View {
             return true
         }
     }
-}
-
-private struct ListHeightKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
 
 // MARK: - Teclado

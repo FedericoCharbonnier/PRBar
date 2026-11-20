@@ -65,3 +65,11 @@ Ajustes del Sistema › Escritorio y Dock › "Preferir pestañas al abrir docum
 - [ ] "En pantalla completa": con un Review en pantalla completa, abrir otro Review → se abre como pestaña. Sin pantalla completa → ventanas separadas.
 - [ ] "Nunca": todas separadas. Settings, Activity y Update nunca son pestañas.
 - [ ] Reabrir el review de un PR que ya tiene ventana (o pestaña) trae esa misma, no abre otra.
+
+## J. Listas desplegables con buscador
+- [ ] Settings › Repos › Add Repo… con una cuenta con muchos repos: el popover abre de ~440 pt de ancho y muestra unas 15 filas (con los encabezados de cada dueño); el resto con scroll. Nunca abre de una fila de alto.
+- [ ] Base branches › Choose… y People to follow › Add User…: al menos 360 pt de ancho, ~14 filas visibles; con pocas ramas, tan alto como ellas.
+- [ ] El buscador tiene el foco al abrir (se puede escribir enseguida); ↑/↓ mueven, Return elige, Esc cierra.
+- [ ] Un nombre largo se corta en el medio y el tooltip muestra el nombre completo.
+- [ ] En una pantalla chica (o con la ventana abajo) la lista no pasa el borde de la pantalla.
+- [ ] Mientras carga ("Loading…") o sin resultados ("No Results") el popover no queda diminuto.

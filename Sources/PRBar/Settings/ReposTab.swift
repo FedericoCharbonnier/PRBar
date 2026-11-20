@@ -512,7 +512,6 @@ struct BaseBranchesPicker: View {
             loadState: entry.state,
             triggerStyle: .accessory(title: "Choose…"),
             placeholder: "Search branches…",
-            width: 280,
             title: \.name,
             subtitle: { $0.name == entry.value.defaultBranch ? "Default branch" : nil },
             isSelected: { repo.baseBranches.contains($0.name) },
