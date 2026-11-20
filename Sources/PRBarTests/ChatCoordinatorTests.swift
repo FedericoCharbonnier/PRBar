@@ -40,6 +40,8 @@ final class FakeChatBackend: ChatBackend, @unchecked Sendable {
     var undoResult = RespondResult(items: [], diffStat: "before", tests: nil)
     var changedSince = false
     var note: String?
+    /// With `held`, a cancelled turn keeps running until `held` goes false (a process that takes a while to die).
+    var stubborn = false
 
     var inputs: [ChatTurnInput] { lock.withLock { _inputs } }
     var editing: Int { lock.withLock { _editing } }
@@ -62,7 +64,9 @@ final class FakeChatBackend: ChatBackend, @unchecked Sendable {
               onEvent: @escaping @Sendable (ClaudeStreamEvent) -> Void) async throws -> ChatTurnOutput {
         lock.withLock { _inputs.append(input) }
         onEvent(.toolUse(name: "Read", detail: "/tmp/wt/chat/src/a.ts"))
-        while held { try await Task.sleep(nanoseconds: 5_000_000) }
+        while held {
+            if stubborn { try? await Task.sleep(nanoseconds: 5_000_000) } else { try await Task.sleep(nanoseconds: 5_000_000) }
+        }
         try Task.checkCancellation()
         let next: Result<ChatTurnOutput, Error> = lock.withLock { _replies.isEmpty ? .success(output()) : _replies.removeFirst() }
         return try next.get()
@@ -403,6 +407,25 @@ enum ChatCoordinatorTests {
             try expectEqual(chat.session.messages.last?.text, ChatCoordinator.stoppedText)
             try expectEqual(chat.session.pending, false)
             try expect(chat.canSend)
+        },
+        TestCase("chat coordinator: de solo lectura con un turno en curso, lo corta y borra el workspace al terminar") { @MainActor in
+            let h = Harness()
+            h.backend.held = true
+            h.backend.stubborn = true
+            let chat = h.review()
+            chat.send("long question")
+            try await waitUntil { h.backend.inputs.count == 1 }
+            chat.markReadOnly()
+            try expect(chat.session.readOnly)
+            try expectEqual(chat.activity, "Stopping…")
+            // El worktree no se borra mientras Claude lo está leyendo.
+            try await Task.sleep(nanoseconds: 50_000_000)
+            try expectEqual(h.backend.cleanups, [])
+            try expect(chat.isRunning)
+            h.backend.held = false
+            try await h.finish(chat)
+            try await waitUntil { h.backend.cleanups == [chat.session.id] }
+            try expectEqual(chat.session.messages.last?.text, ChatCoordinator.stoppedText)
         },
         TestCase("chat coordinator: como mucho 2 chats a la vez en toda la app") { @MainActor in
             let h = Harness()

@@ -102,6 +102,8 @@ public final class ChatCoordinator: ObservableObject {
     private var turnID: UUID?
     private var stopping: UUID?
     private var undoing = false
+    /// `markReadOnly` llegó con un turno en curso: el workspace se borra cuando el turno termina de verdad.
+    private var discardWhenIdle = false
     private var highlightToken: UUID?
     private var workspaceRoot: URL?
 
@@ -452,11 +454,18 @@ public final class ChatCoordinator: ObservableObject {
     // MARK: Fin
 
     /// After posting or pushing: the conversation stays, read only, and its workspace is deleted.
+    /// The conversation ends (posted, pushed, merged…): it's saved read only and its workspace deleted. A running turn
+    /// is stopped first and the workspace goes once it really ended (Claude may be reading the worktree).
     public func markReadOnly() {
         guard !session.readOnly else { return }
         session.readOnly = true
         hooks.persist(self)
-        discardWorkspace()
+        if turnID != nil {
+            discardWhenIdle = true
+            stop()
+        } else {
+            discardWorkspace()
+        }
     }
 
     /// Deletes the chat's worktree (Review) or context and snapshot refs (Respond), in the background.
@@ -485,6 +494,10 @@ public final class ChatCoordinator: ObservableObject {
         self.activity = activity
         if !running { partialText = "" }
         hooks.runningChanged(running)
+        if !running, discardWhenIdle {
+            discardWhenIdle = false
+            discardWorkspace()
+        }
     }
 
     private func highlight(_ changes: [ChatChange]) {
