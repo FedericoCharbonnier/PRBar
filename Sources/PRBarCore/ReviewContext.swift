@@ -9,11 +9,14 @@ public struct ReviewContextWriter: Sendable {
     private let runner: ProcessRunning
     private let gitPath: String
     private let ghPath: String?
+    /// Dónde queda la carpeta de contexto: esta Mac o el host del worktree (spec J.3).
+    let files: any ContextFiles
 
-    public init(runner: ProcessRunning, gitPath: String, ghPath: String?) {
+    public init(runner: ProcessRunning, gitPath: String, ghPath: String?, files: any ContextFiles = LocalContextFiles()) {
         self.runner = runner
         self.gitPath = gitPath
         self.ghPath = ghPath
+        self.files = files
     }
 
     /// Escribe `workspace.diffFile` y `workspace.metadataFile` y devuelve el SHA del commit revisado (el que
@@ -53,9 +56,9 @@ public struct ReviewContextWriter: Sendable {
                 environment: ["GH_TOKEN": token], display: "gh pr diff \(pr.number) --repo \(pr.repo.fullName)"
             )
         }
-        try FileManager.default.createDirectory(at: workspace.contextDirectory, withIntermediateDirectories: true)
-        try Data(diff.utf8).write(to: workspace.diffFile)
-        try Data(Self.metadata(pr, headOid: headOid, description: description).utf8).write(to: workspace.metadataFile)
+        try await files.createDirectory(workspace.contextDirectory.path)
+        try await files.write(Data(diff.utf8), to: workspace.diffFile.path)
+        try await files.write(Data(Self.metadata(pr, headOid: headOid, description: description).utf8), to: workspace.metadataFile.path)
         return headOid
     }
 
