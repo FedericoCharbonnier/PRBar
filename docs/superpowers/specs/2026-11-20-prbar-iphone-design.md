@@ -1,0 +1,533 @@
+# PRBar para iPhone — control remoto de la Mac con cifrado de punta a punta
+
+Fecha: 2026-11-20. Extiende `2026-11-18-prbar-design.md` ("spec base"), `2026-11-19-prbar-chat-cli-updates-design.md`
+(sobre todo la parte **C**: `AppCommand`, `CommandProtocol`, `CommandDispatcher`, paridad UI ↔ CLI) y
+`2026-11-20-prbar-ci-fix-and-cost-design.md` (rama `feat/ci-cost`: Fix CI y costo de Claude, protocolo 6). Tres planes:
+
+| Parte | Plan |
+|---|---|
+| P. Protocolo compartido (`PRBarWire`, `PRBarRemoteKit`) y relay en el VPS | `2026-11-20-prbar-plan-17-remote-kit-and-relay.md` |
+| Q. Lado Mac: acceso remoto, emparejamiento, dispositivos, puente a `AppCommand`, pushes, CLI | `2026-11-20-prbar-plan-18-mac-remote-access.md` |
+| R. App de iOS (fases 1–3), extensión de notificaciones, Face ID | `2026-11-20-prbar-plan-19-ios-app.md` |
+
+Orden: 17 → 18 → 19 (la fase 1 de la 19 puede arrancar cuando 17 y las tasks de emparejamiento y estado de 18 estén).
+Los tres asumen `feat/ci-cost` ya mergeada (`CommandProtocol.version == 6`, `ciList`, `ciFix`, `usage`).
+
+Diseño visual: proyecto de diseño "PRBar iOS" (entrada `PRBar iOS.dc.html`). El resumen que siguen los implementadores
+es `DIGEST.md` (ver R.1); los ids de pantalla de este spec (`home`, `review:faceid`, …) son los del diseño.
+
+---
+
+## Decisiones del usuario (no se reabren)
+
+1. App **nativa de iOS** (cuenta de Apple Developer propia) + **relay en el VPS** del usuario. Un solo usuario; varios
+   dispositivos de ese usuario funcionan; equipos, más adelante.
+2. **Cifrado de punta a punta**: el relay ve solo texto cifrado opaco e ids de ruteo. También manda los pushes de APNs,
+   cuyo contenido visible se descifra en el teléfono (Notification Service Extension, `mutable-content`). Un VPS
+   comprometido no puede leer código ni PRs, ni mandar comandos.
+3. **Emparejamiento** con un QR que muestra la Mac + un **código de 6 dígitos** que se ve en los dos lados. Dispositivos
+   revocables desde Settings de la Mac.
+4. **Face ID** en el teléfono para **merge, push y approve** (ajuste del diseño: "Require Face ID for merge, push and
+   approve").
+5. **La Mac hace todo** (GitHub, Claude, Slack, push, merge). La Mac sale **hacia** el relay (WebSocket sobre TLS); no
+   abre puertos. Mac dormida o apagada → el teléfono muestra el estado offline con lo cacheado en gris.
+6. **Alcance**: todo lo que hace la app de la Mac, en fases. Fase 1: relay + emparejamiento + listas en vivo (las dos
+   pestañas) + notificaciones + offline. Fase 2: Review y publicar; Respond y Fix CI con diff/undo/push. Fase 3: Merge con
+   Face ID, chat con Claude, Activity, Settings (el subconjunto del diseño).
+7. **VPS**: Hetzner ARM64 (2 vCPU, 4 GB), `docker compose` + Traefik (`/root/stack/proxy`), red externa `coolify`, host
+   `prbar.fcharbonnier.duckdns.org`. Guía del server: `/root/stack/LEEME.md`.
+8. La Mac tiene solo Command Line Tools; el usuario instala Xcode para la app de iOS. **El relay y todo lo de la Mac se
+   construyen y testean sin Xcode.**
+
+---
+
+## P. Arquitectura y protocolo
+
+### P.1 Vista general
+
+```
+iPhone (PRBar iOS)                         VPS (prbar-relay, Go)                       Mac (PRBar.app)
+┌──────────────────────┐   wss (TLS por    ┌──────────────────────────┐   wss (sale    ┌───────────────────────┐
+│ SwiftUI + view models│   Traefik)        │ auth por desafío Ed25519 │   de la Mac)   │ RemoteAccessService    │
+│ RemoteClient ────────┼──────────────────►│ ruteo por ids            │◄───────────────┼─ RemoteHost (Kit)      │
+│  Noise KK (sesión)   │  ciphertext       │ buzón (TTL)              │  ciphertext    │  Noise KK, HPKE        │
+│ NSE: HPKE open       │◄── APNs ──────────┤ APNs (.p8 solo acá)      │                │  RemotePolicy          │
+│ Secure Enclave (P256)│                   │ sin contenido en logs    │                │  → CommandDispatcher   │
+└──────────────────────┘                   └──────────────────────────┘                │  → AppModel (lo mismo  │
+                                                                                       │    que la UI y la CLI) │
+                                                                                       └───────────────────────┘
+```
+
+- **El teléfono es otro cliente de `AppCommand`**, como `prbar`: no reimplementa lógica. Cada acción del teléfono es un
+  `AppCommand` que la Mac pasa por `CommandDispatcher.run` sobre el mismo `AppModel`. Lo nuevo es el transporte
+  (relay + cifrado), una **lista permitida** (P.7), la **atestación de presencia** (P.8) y un **feed de estado** que la
+  Mac empuja (P.6), porque la CLI hace polling y el teléfono necesita listas en vivo.
+- **Código compartido** (SwiftPM, compila en macOS con CLT y en iOS con Xcode):
+  - `PRBarWire` (target nuevo): los tipos `Codable` puros que viajan — `AppCommand`, `AppCommandTypes`, los structs de
+    `CommandResults`, `JSONValue`, `CommandRequest`/`CommandResponse`/`CommandEvent`/`CommandFailure`/`Hello`, y las
+    hojas que referencian (`Severity`, `PopoverTab`, `PopoverSection`, `MergeMethod`, `ReviewEvent`, …). Solo
+    `Foundation`. `PRBarCore` depende de `PRBarWire` y lo re-exporta (`@_exported import PRBarWire`): ningún archivo
+    existente cambia sus `import`.
+  - `PRBarRemoteKit` (target nuevo): cifrado (Noise, HPKE, SAS, presencia), framing, protocolo del relay, cliente de
+    WebSocket (`URLSessionWebSocketTask`), política (`RemotePolicy`), y las dos máquinas de estado: `RemoteHost` (Mac) y
+    `RemoteClient` (teléfono), cada una detrás de protocolos para testear sin red. Depende de `PRBarWire` y `CryptoKit`.
+  - Producto `.library(name: "PRBarRemoteKit")` que la app de iOS consume como paquete local.
+  - Ninguno de los dos importa `AppKit`, `Darwin` de sockets, `Process` ni `IOKit` (un test lo verifica con `grep`).
+- **Relay**: Go, binario estático en una imagen distroless (P.10). Nunca descifra nada.
+
+### P.2 Identidades y claves
+
+Todas las primitivas son de **CryptoKit** en los dos lados de Apple. Los nombres de las claves son los del código.
+
+| Dueño | Clave | Tipo | Dónde vive | Para qué |
+|---|---|---|---|---|
+| Mac | `macRelayKey` | Ed25519 (`Curve25519.Signing`) | Llavero de login (`KeychainStore`, servicio `PRBar Remote`) | Autenticarse ante el relay |
+| Mac | `macStatic` | X25519 (`Curve25519.KeyAgreement`) | idem | Estática de Noise (sesiones y emparejamiento) |
+| Mac | `macSealKey` | X25519 | idem | Remitente HPKE (modo auth) de pushes y buzón |
+| iPhone | `deviceRelayKey` | Ed25519 | Llavero, `AfterFirstUnlockThisDeviceOnly`, grupo compartido con la NSE | Autenticarse ante el relay |
+| iPhone | `deviceStatic` | X25519 | idem | Estática de Noise |
+| iPhone | `devicePushKey` | X25519 | idem (la NSE la necesita para descifrar) | Destinatario HPKE de pushes y buzón |
+| iPhone | `presenceKey` | P-256 en **Secure Enclave** (`SecureEnclave.P256.Signing`) con `[.privateKeyUsage, .biometryCurrentSet]` | Secure Enclave; nunca sale | Firmar la atestación de Face ID (P.8) |
+
+- Claves separadas por uso (no se reusa una X25519 para Noise y HPKE). Ninguna clave privada sale de su dispositivo.
+- La Mac guarda por dispositivo: `deviceId`, nombre y modelo (los manda el teléfono), `deviceStatic.pub`,
+  `devicePushKey.pub`, `presenceKey.pub` (x963), fecha de emparejamiento, `requirePresence` (P.8), último visto. En
+  `~/Library/Application Support/PRBar/remote/devices.json` (0600; solo claves públicas). El relay guarda solo
+  `deviceId`, `deviceRelayKey.pub` y el token de APNs.
+- `accountId`: 16 bytes al azar (base32 minúscula sin relleno, 26 caracteres) que la Mac elige al habilitar. `deviceId`:
+  igual, lo elige la Mac al emparejar.
+
+### P.3 Cuenta en el relay e inscripción
+
+- El relay solo acepta cuentas nuevas con un **token de inscripción** (`RELAY_ENROLL_TOKEN`, 32 bytes al azar, en el
+  `.env` del server). Sin eso cualquiera podría usar el relay (y los pushes del usuario).
+- `POST /v1/accounts` `{"enrollToken": "...", "macRelayKey": "<b64url 32B>"}` → `{"accountId": "..."}`. Comparación en
+  tiempo constante. Tope de cuentas (`RELAY_MAX_ACCOUNTS`, por defecto 4). 5 intentos fallidos por IP en 10 min →
+  bloqueo de 15 min.
+- La Mac pide el token una sola vez (Settings › iPhone o `prbar remote enable --relay H --enroll-token-stdin`) y no lo
+  guarda: después se autentica con `macRelayKey`.
+
+### P.4 Conexión al relay (WebSocket)
+
+`GET wss://<host>/v1/ws`, subprotocolo `prbar-relay.v1`. Marcos de texto JSON (claves cortas; el cifrado va en base64url
+sin relleno, campo `b`). Máximo 128 KiB por marco.
+
+1. Servidor → `{"t":"challenge","nonce":"<b64url 32B>","time":<unix>}`.
+2. Cliente (en ≤ 5 s) → uno de:
+   - Mac: `{"t":"auth","acct":"<accountId>","client":"mac","sig":"<b64url>"}`
+   - Teléfono: `{"t":"auth","acct":"…","client":"<deviceId>","sig":"…"}`
+   - Emparejamiento: `{"t":"auth","acct":"…","client":"pair","pairing":"<pairingId>","proof":"<b64url>"}`
+   `sig` = Ed25519 sobre `"PRBarRelayAuth v1\n" ‖ host ‖ "\n" ‖ acct ‖ "\n" ‖ client ‖ "\n" ‖ nonce` (bytes; `host` es
+   el host público del relay, para que una firma no sirva en otro relay). `proof` = HMAC-SHA256(`pairAuthKey`, `nonce`).
+3. Servidor → `{"t":"ready","mac":"online"|"offline","since":<unix>}` o cierra con un código (abajo).
+
+Después, **solo ruteo**:
+
+| Marco | Quién | Qué hace el relay |
+|---|---|---|
+| `{"t":"send","to":"mac"\|"<deviceId>"\|"pair:<pairingId>","sid":"<16 hex>","b":"…"}` | todos (un teléfono solo a `mac`; `pair` solo a `mac`; la Mac a sus dispositivos o a `pair:`) | Entrega `{"t":"recv","from":…,"sid":…,"b":…}` si el destino está conectado; si no, `{"t":"undeliverable","to":…,"sid":…}`. Orden FIFO por par origen→destino. |
+| `{"t":"presence",…}` | relay → clientes | A los teléfonos: `{"mac":"online"\|"offline","since":…}`. A la Mac: `{"device":"<id>","state":"online"\|"offline"}`. |
+| `{"t":"push","id":"<uuid>","to":"<deviceId>","collapse":"<≤64 hex>","thread":"<32 hex>","b":"…"}` | solo Mac | Arma y manda el push de APNs (P.9). Contesta `{"t":"pushResult","id":…,"status":<http>,"reason":"…"}`. |
+| `{"t":"mbox.put","to":"<deviceId>","slot":"home","b":"…"}` | solo Mac | Guarda el blob (reemplaza el del mismo slot). TTL 7 días, ≤ 512 KiB, ≤ 4 slots por dispositivo. |
+| `{"t":"mbox.get"}` | teléfono | `{"t":"mbox","items":[{"slot":…,"b":…,"at":<unix>}]}` |
+| `{"t":"apns","token":"<hex>","env":"sandbox"\|"production"}` | teléfono | Guarda/actualiza su token. |
+| `{"t":"pair.open","pairing":"<id>","authKey":"<b64url 32B>","expires":<unix>}` / `{"t":"pair.close","pairing":…}` | solo Mac | Abre/cierra la ranura de emparejamiento (en memoria, ≤ 5 min, una por cuenta). |
+| `{"t":"device.add","device":"<id>","relayKey":"<b64url>"}` / `{"t":"device.remove","device":…}` / `{"t":"devices"}` | solo Mac | Alta/baja (la baja cierra su conexión con 4403, borra token y buzón) / lista `{id, lastSeen}`. |
+| `{"t":"ping"}` → `{"t":"pong"}` | todos | Cada 20 s (además del ping de WebSocket). |
+
+Códigos de cierre: 4401 no autorizado · 4403 dispositivo dado de baja · 4408 sin `auth` a tiempo · 4409 reemplazado (el
+mismo cliente se conectó de nuevo: gana el último) · 4413 marco demasiado grande · 4429 límite de tasa.
+
+### P.5 Sesiones cifradas (Noise)
+
+- **Sesión normal: `Noise_KK_25519_ChaChaPoly_SHA256`.** Inicia el teléfono cuando el relay le dice que la Mac está
+  online (al conectar, o con `presence`). Las dos estáticas ya se conocen (emparejamiento). Prólogo:
+  `"PRBar Remote v1" ‖ accountId ‖ deviceId`. Dos mensajes (`-> e, es, ss` / `<- e, ee, se`): autenticación mutua y
+  secreto hacia adelante. Payload del primer mensaje: vacío (es repetible: nunca lleva comandos).
+- **`sid`**: 8 bytes al azar del iniciador (hex). La Mac mantiene `sid → sesión`; una sesión nueva del mismo dispositivo
+  reemplaza a la anterior.
+- **Transporte**: los `CipherState` de Noise (nonce = contador de 64 bits, estricto y en orden). Un mensaje fuera de
+  orden, repetido o que no autentica **cierra la sesión** (el teléfono reconecta y hace otro handshake). El relay
+  preserva el orden; no hay retransmisión dentro de una sesión.
+- **Rotación**: handshake nuevo en cada reconexión, a las 24 h de sesión, o a los 2²⁰ mensajes en cualquier dirección.
+  No se usa `Rekey()` de Noise.
+- **Tamaño**: un mensaje de Noise es ≤ 65 535 bytes. Cada marco de aplicación (P.6) se parte en **trozos**; el texto
+  plano de cada trozo es `flags(u8) ‖ len(u16 BE) ‖ datos ‖ ceros` hasta un múltiplo de 256 bytes (máximo 65 280 de
+  texto plano por trozo). `flags`: bit 0 = siguen más trozos, bit 1 = datos comprimidos (zlib de Foundation). Un marco
+  armado mide ≤ 16 MiB; más → se cierra la sesión.
+- **Compresión**: solo marcos `state` y resultados > 4 KiB. No llevan secretos (los tokens nunca salen de la Mac), así
+  que la fuga por tamaño comprimido (estilo CRIME) no expone nada que no sea ya del PR; el relleno a 256 achica la señal.
+- **Emparejamiento: `Noise_IKpsk2_25519_ChaChaPoly_SHA256`** (P.11): el teléfono conoce la estática de la Mac por el QR;
+  el PSK sale del secreto del QR.
+
+Vectores de prueba: los oficiales de Noise (formato de *cacophony*) para `Noise_KK_25519_ChaChaPoly_SHA256` y
+`Noise_IKpsk2_25519_ChaChaPoly_SHA256`, embebidos en los tests de `PRBarRemoteKit` (con efímeras fijas inyectadas).
+
+### P.6 Marcos de aplicación
+
+Dentro de la sesión, JSON (`CommandProtocol.encoder`: claves ordenadas, fechas ISO 8601). Un tipo por marco, `RemoteFrame`:
+
+| Marco | Dirección | Contenido |
+|---|---|---|
+| `hello` | ambos, primero | `{remoteProtocol: 1, commandProtocol: N, appVersion, deviceName?, macName?}` |
+| `req` | teléfono → Mac | `{id: Int, sentAt: Date, cmd: <bytes JSON de AppCommand, base64>, presence?: PresenceProof}` |
+| `res` | Mac → teléfono | `CommandResponse` tal cual (`id`, `ok`, `result`, `error`, `event`): los eventos `progress`/`text` del dispatcher llegan igual que a la CLI |
+| `sub` | teléfono → Mac | `{topics: [String]}` (reemplaza el conjunto anterior) |
+| `state` | Mac → teléfono | `{topic, rev: Int, data: JSONValue}` |
+| `chatDelta` | Mac → teléfono | `{pr, text}` para un chat que no inició el teléfono (p. ej. desde la Mac) |
+| `unpair` | teléfono → Mac | "Unpair this iPhone": la Mac lo da de baja como un Revoke |
+| `presencePolicy` | Mac → teléfono | `{requirePresence: Bool, gated: [AppCommand.Name]}` (con `hello` y al cambiar) |
+| `bye` | ambos | cierre ordenado |
+
+- **`cmd` va como bytes**: la Mac hashea exactamente lo que recibió (P.8) y recién después decodifica `AppCommand`.
+- **`sentAt`**: la Mac rechaza un `req` con más de **120 s** de antigüedad o más de 30 s en el futuro
+  (`CommandFailure(.invalidState, "This request expired. Try again.")`). Así el relay no puede retener un comando y
+  soltarlo después. Los ids de `req` son crecientes por sesión; uno repetido se rechaza.
+- **Tópicos** (los arma `RemoteStateFeed` en la Mac reusando los resultados de `AppCommand`):
+  - `home`: `RemoteHome {status: StatusInfo, prs: [PRInfo] (las dos pestañas, con tab y section), ci: [CIListEntry] (de ciList)}`
+    — es `status` + `listPRs(nil, nil, nil)` + `ciList`.
+  - `pr:<owner/repo#N>`: `RemotePRDetail {pr: PRInfo, review: ReviewInfo?, respond: RespondInfo?, merge: MergeInfo?, chat: ChatInfo?}`
+    — `reviewShow`/`respondShow`/`chatShow` sin errores de "no hay".
+  - `activity`: `ResourcesInfo` + `usage(nil)` + los últimos 20 `history`.
+  La Mac recalcula un tópico cuando cambia `AppModel` (observación con `withObservationTracking`, agrupado cada 300 ms) y
+  lo manda solo si cambió (`Equatable`), con `rev` creciente. `activity` se recalcula cada 5 s mientras esté suscrito.
+- **Versiones**: `remoteProtocol` (este documento, 1) cambia solo si cambia el framing. `commandProtocol` es
+  `CommandProtocol.version`. La Mac acepta un teléfono con `commandProtocol` entre
+  `CommandProtocol.minimumRemoteVersion` y el actual (los casos de `AppCommand` solo se agregan; un cambio que rompe sube
+  el mínimo). Fuera de rango → `hello` con error y el teléfono muestra "Update PRBar on your Mac" o "Update PRBar on this
+  iPhone". Al implementar, `CommandProtocol.version` sube a **7** (comandos `remote*`, Q.5) y `minimumRemoteVersion = 7`.
+
+### P.7 Qué comandos se permiten desde el teléfono
+
+`RemotePolicy` (en `PRBarRemoteKit`) clasifica **cada** `AppCommand.Name` con un `switch` exhaustivo: un caso nuevo no
+compila hasta que alguien decide. Clases: `.allowed`, `.gated` (Face ID, P.8), `.denied`.
+
+| Clase | Comandos |
+|---|---|
+| Lectura (allowed) | `status`, `listPRs`, `resolvePR`, `history`, `historyShow`, `reviewShow`, `respondShow`, `respondDiff`, `mergePreview`, `chatShow`, `resources`, `usage`, `ciList`, `notifyList` |
+| Acciones (allowed) | `refresh`, `reviewStart`, `reviewEdit`, `reviewSetIncluded`, `reviewSetComment`, `reviewPublish` (comment / request changes), `reviewCancel`, `reviewDismiss`, `respondStart`, `respondSelect`, `respondReset`, `respondImplement`, `respondTest`, `respondReplyOnly`, `respondCancel`, `respondDismiss`, `ciFix`, `mergeDismiss`, `chatSend`, `chatUndo`, `chatStop`, `notifySet`, `notifySetEnabled` |
+| Face ID (gated) | `merge`, `respondPush`, `respondPushAnyway`, `reviewPublish` con `event == .approve`, y `remoteSetPresenceRequirement(false)` |
+| Denegados | todo lo demás: ventanas y app (`open*`, `quit`, `openPopover`, `historyReopen`), cuentas/repos/follow, `tools*`, Slack (incluye tokens y `slackSelfTest`), `update*`, `runner*`, `rules*`, `claude*` de escritura, prompts, `cleanup`, `setLaunchAtLogin`, `setRefreshInterval`, `setDiskWarning`, `setUpdateInterval`, `chatProposal`, `configShow`, `claudeShow`, `toolsList`, `slackShow`, y todos los `remote*` |
+
+- Criterio: nada que cambie rutas de herramientas, tokens, destinos SSH, el updater, o que muestre secretos o rutas
+  locales; de Settings solo las notificaciones (el resto de Settings del teléfono es local al teléfono, R.6).
+- Un comando denegado contesta `CommandFailure(.unauthorized, "This can’t be done from iPhone. Use PRBar on your Mac.")`
+  y se loguea su `name` (nunca los argumentos).
+- `confirmed` sigue siendo obligatorio donde hoy lo es (el teléfono lo manda después de su hoja de confirmación).
+
+### P.8 Face ID: atestación de presencia firmada en el Secure Enclave
+
+- En el teléfono, las acciones gated piden Face ID (pantallas `review:faceid`, `merge:faceid`). La firma con
+  `presenceKey` **es** el Face ID: la clave tiene `.biometryCurrentSet`, así que el Secure Enclave no firma sin una
+  autenticación biométrica actual (sin código de desbloqueo como alternativa).
+- `PresenceProof {ts: Date, sig: Data}` va en el `req`. Lo firmado (ECDSA P-256/SHA-256, DER):
+  `"PRBarPresence v1" ‖ sessionHash(32) ‖ reqId(u64 BE) ‖ SHA256(cmd bytes) ‖ ts(i64 BE, ms)`.
+  `sessionHash` es el hash del handshake de Noise de esa sesión: la prueba no sirve en otra sesión, para otro comando, ni
+  para otro `req`.
+- La Mac, para un comando gated y un dispositivo con `requirePresence` (por defecto `true`): exige la prueba, verifica la
+  firma con la `presenceKey.pub` registrada al emparejar, `|ts − ahora| ≤ 60 s`, y que el `req` no se haya usado.
+  Si falla: `CommandFailure(.unauthorized, "Face ID is required for this on iPhone.")`. **La verificación es de la Mac**:
+  un teléfono modificado no puede saltearla.
+- `requirePresence` es por dispositivo y lo decide la Mac. El ajuste del teléfono ("Require Face ID for merge, push and
+  approve") manda `remoteSetPresenceRequirement(enabled:)`; **apagarlo es en sí gated** (hay que pasar Face ID para
+  apagarlo), prenderlo no.
+- Si cambian los rostros de Face ID, la clave queda inválida: el teléfono lo detecta (`SecKeyCreateSignature` falla con
+  `errSecItemNotFound`/biometría cambiada) y muestra "Face ID changed. Pair this iPhone again from your Mac." Re-emparejar
+  reemplaza al dispositivo (mismo nombre, `deviceId` nuevo).
+
+### P.9 Notificaciones push
+
+- **Quién decide**: la Mac, con el mismo `NotificationPlanner` de hoy (y las de Fix CI de `feat/ci-cost`). Cuando
+  `AppModel` entrega `PlannedNotification`s locales, `RemoteAccessService` también las manda a cada dispositivo con
+  token. Las preferencias son las de la Mac (`notifySet`, que el teléfono puede cambiar).
+- **Cifrado**: **HPKE modo auth** (RFC 9180) de CryptoKit, suite `DHKEM(X25519, HKDF-SHA256), HKDF-SHA256,
+  ChaCha20Poly1305` (`HPKE.Ciphersuite.Curve25519_SHA256_ChachaPoly`): remitente `macSealKey`, destinatario
+  `devicePushKey`, `info = "PRBar push v1" ‖ accountId ‖ deviceId`. Texto plano (JSON, relleno a múltiplo de 256, ≤ 2 816
+  bytes): `{v:1, id: UUID, createdAt, kind, title, body, threadId, pr?, deepLink, badge?}`. Encapsulado + cifrado en
+  base64 en el campo `e` del payload de APNs.
+- **Payload que arma el relay** (lo único que ven el relay y Apple):
+
+  ```json
+  {"aps":{"alert":{"title":"PRBar","body":"New activity on your Mac"},"mutable-content":1,"sound":"default",
+          "thread-id":"<thread>","category":"PR"},"e":"<b64>","v":1}
+  ```
+  Headers: `apns-push-type: alert`, `apns-priority: 10`, `apns-topic: <bundle id>`, `apns-expiration: now+86400`,
+  `apns-collapse-id: <collapse>`. `collapse` = hex de HMAC-SHA256(`pushIdKey`, `kind ‖ pr`) truncado a 32 bytes, y
+  `thread` = lo mismo con `"thread" ‖ pr` truncado a 16: opacos para el relay y para Apple, estables para agrupar y
+  reemplazar. `pushIdKey` = HKDF de la clave compartida HPKE estática (sale de `macSealKey` × `devicePushKey`), así que
+  los dos lados lo saben y nadie más.
+- **NSE** (`PRBarMobileNotifications`): abre el sobre con `devicePushKey` (llavero compartido), rechaza `createdAt` de
+  más de 24 h y `id` ya vistos (últimos 200 en el contenedor del grupo), y reemplaza título, cuerpo, `threadIdentifier`,
+  `badge` y `userInfo["deepLink"]`. **Si no puede descifrar** (clave borrada, dispositivo revocado, payload roto) queda lo
+  visible: "PRBar — New activity on your Mac". Nunca muestra texto sin descifrar.
+- **Acciones de la notificación** (pantalla `lock notifications` del diseño): todas `.foreground` (abren la app en la
+  pantalla del PR). Las gated nunca corren desde la notificación: abren la hoja con Face ID.
+- **APNs en el relay**: autenticación por token (JWT ES256 con la `.p8`, `kid` = Key ID, `iss` = Team ID, renovado cada
+  50 min), HTTP/2 a `api.push.apple.com` o `api.sandbox.push.apple.com` según el `env` del token. La `.p8` vive **solo**
+  en el VPS (`/root/stack/env/prbar-relay.p8`, montada de solo lectura). Un `410 Unregistered` o `400 BadDeviceToken`
+  borra el token y la Mac recibe el `pushResult`. Tope: 60 pushes/min por cuenta.
+
+### P.10 Relay: tecnología, persistencia, observabilidad
+
+- **Go** (un binario estático, `CGO_ENABLED=0`, `linux/arm64`) en `gcr.io/distroless/static-debian12:nonroot`.
+  Por qué: HTTP/2 para APNs y TLS-less detrás de Traefik vienen en la biblioteca estándar; un binario de ~10 MB y
+  ~15 MB de RAM entra cómodo en 4 GB compartidos; el build es reproducible con Docker en la Mac o en el server, sin
+  Xcode. Swift en Linux funcionaría pero la imagen y la RAM son mayores y el server no tiene toolchain. Dependencias:
+  `github.com/coder/websocket` y `go.etcd.io/bbolt` (versiones fijas en `go.sum`); el JWT ES256 se hace con
+  `crypto/ecdsa` de la estándar.
+- **Persistencia** (bbolt en el volumen `prbar-relay-data`, `/data/relay.db`):
+  - `accounts`: `accountId → {macRelayKey, createdAt}`
+  - `devices`: `accountId/deviceId → {relayKey, apnsToken?, apnsEnv?, lastSeen}`
+  - `mailbox`: `accountId/deviceId/slot → {blob, at}` (TTL 7 días; barrido cada hora)
+  - En memoria: conexiones, ranuras de emparejamiento, contadores de tasa, bloqueos por IP.
+  Sin backup: perderlo = volver a habilitar y emparejar. Nada de eso es secreto (claves públicas y tokens de APNs).
+- **Límites**: 10 upgrades de WebSocket por minuto por IP; 5 `auth` fallidos en 10 min → 15 min de bloqueo; por conexión
+  autenticada 50 marcos/s (ráfaga 200) y 4 MiB/s; 128 KiB por marco; 1 Mac + 10 dispositivos por cuenta; 64 conexiones en
+  total; ranura de emparejamiento: una por cuenta, 5 min, 3 intentos y se quema.
+  Un cliente al azar no puede ocupar el buzón de una Mac: sin firma de una clave registrada (o `proof` de una ranura
+  abierta) no pasa del `challenge`, y un `deviceId` conectado de nuevo solo reemplaza al anterior si firma con la misma clave.
+- **Observabilidad sin contenido**: logs JSON a stdout (Docker los rota): conexión abierta/cerrada (rol, prefijo de 4
+  caracteres de cuenta y dispositivo, duración, bytes), `auth` fallido (IP, motivo), resultado de push (status, motivo,
+  latencia), límites alcanzados, y cada 10 min un resumen (conexiones, marcos, pushes, tamaño del buzón). **Nunca**:
+  `b`, `e`, tokens de APNs (solo los 6 primeros hex de su SHA-256), ni payloads. `GET /healthz` → `ok` para el panel y
+  Traefik.
+- **Despliegue**: `/root/stack/prbar-relay/docker-compose.yml` con las labels de Traefik del `LEEME.md` (host
+  `prbar.fcharbonnier.duckdns.org`, red `coolify`, puerto interno 8080), `mem_limit: 128m`, `env_file:
+  /root/stack/env/prbar-relay.env` (`APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC`, `RELAY_ENROLL_TOKEN`,
+  `RELAY_PUBLIC_HOST`), la `.p8` como secreto de compose. Imagen `prbar-relay:vps` construida en el server con el código
+  subido por `rsync` (como dice el `LEEME.md`). Sin `ports:`.
+
+### P.11 Emparejamiento
+
+1. **Mac** (Settings › iPhone › "Pair iPhone…" o `prbar remote pair`): genera `pairingId` (10 bytes, base32) y `ps`
+   (32 bytes al azar). Deriva `pairAuthKey = HKDF-SHA256(ps, info "PRBar relay pairing v1")` y
+   `psk = HKDF-SHA256(ps, info "PRBar noise psk v1")`. Manda `pair.open` con `pairAuthKey` (el relay nunca ve `ps` ni
+   `psk`). Muestra el QR (`pair:welcome` → QR en la Mac); vence a los 5 min.
+2. **QR**: `prbar://pair?v=1&r=<host del relay>&a=<accountId>&p=<pairingId>&k=<ps b64url>&m=<macStatic.pub b64url>&n=<nombre de la Mac, url-encoded>`.
+   Con el esquema `prbar://` la cámara del sistema abre la app; dentro de la app, `pair:scan` lee el mismo formato.
+3. **Teléfono** genera sus claves (P.2), conecta como `pair` con `proof`, y manda el primer mensaje de
+   `Noise_IKpsk2` a `pair:`→`mac`, con payload cifrado `{deviceName, model, deviceRelayKey.pub, devicePushKey.pub,
+   presenceKey.pub}`. Prólogo: `"PRBar Pair v1" ‖ accountId ‖ pairingId`.
+4. **Mac** responde el segundo mensaje (mezcla el `psk`), y espera el primer mensaje de transporte del teléfono
+   (`{"confirm":true}`), que prueba que el teléfono tenía `ps`.
+5. **Código de 6 dígitos (SAS)** en los dos lados: `sas = UInt32(bigEndian: HKDF-SHA256(ikm: handshakeHash, info:
+   "PRBar SAS v1", 4 bytes)) % 1_000_000`, mostrado `"123 456"`. La Mac muestra el código, el nombre y el modelo del
+   teléfono con "Codes Match" / "Cancel"; el teléfono muestra el código con "Confirm on your Mac".
+6. **Codes Match** (o `y` en `prbar remote pair`): la Mac asigna `deviceId`, guarda las claves públicas, manda
+   `device.add` al relay, y por la sesión de emparejamiento `{deviceId, macName, macSealKey.pub, relayHost}`; cierra la
+   ranura (`pair.close`). El teléfono guarda todo, muestra `pair:paired`, pide permiso de notificaciones, registra el
+   token (`apns`) y abre una sesión KK normal.
+7. Cancelar, vencer, 3 `proof` fallidos o un segundo teléfono en la misma ranura → la ranura se quema y hay que generar
+   otro QR. El SAS defiende contra un QR fotografiado: el atacante tendría que ganar la carrera y además que el usuario
+   apruebe un código que su teléfono no muestra.
+
+### P.12 Revocación, rotación y reset
+
+- **Revoke** (Settings › iPhone, `prbar remote revoke <device>`, o "Unpair this iPhone" desde el teléfono): la Mac borra
+  el dispositivo (claves públicas incluidas), corta sus sesiones, deja de mandarle pushes y buzón, y manda
+  `device.remove`. El relay cierra su conexión con 4403; el teléfono borra sus claves y su caché y vuelve a
+  `pair:welcome` ("This iPhone was removed from <Mac>"). **Aunque el relay no obedezca**, la Mac ya no acepta su estática
+  en Noise: la revocación la hace cumplir la Mac.
+- **Rotación**: sesiones con secreto hacia adelante (P.5). Las claves de largo plazo se rotan re-emparejando.
+  **"Reset iPhone Access…"** en la Mac genera claves y cuenta nuevas (borra todos los dispositivos); para un relay
+  comprometido o una Mac clonada.
+- **Deshabilitar** (`prbar remote disable`): cierra la conexión y deja de reconectar; los dispositivos quedan
+  registrados (al habilitar vuelven a andar).
+
+### P.13 Modelo de amenazas
+
+| Actor | Puede | No puede (y por qué) |
+|---|---|---|
+| VPS/relay comprometido | Ver ids, tamaños aproximados (con relleno), horarios, IPs, tokens de APNs; cortar o demorar mensajes; borrar datos; mandar pushes con contenido falso visible solo como el texto genérico | Leer contenido (Noise/HPKE); mandar comandos (no tiene estáticas ni `presenceKey`); repetir comandos (contadores de Noise, `sentAt` ≤ 120 s, ids de `req`); falsificar notificaciones (HPKE auth con `macSealKey`; sin eso la NSE muestra el texto genérico); emparejar un teléfono suyo (necesita `ps` del QR y que el usuario apruebe el SAS en la Mac) |
+| Alguien en la red | Lo mismo que el relay menos ver ids (TLS) | — |
+| Cliente al azar en internet | Llegar al `challenge` | Crear cuentas (token de inscripción), ocupar buzones (firma), agotar recursos (límites por IP y conexión) |
+| Teléfono robado y desbloqueado | Ver listas, chatear, empezar reviews (lo que haría el dueño sin Face ID) | Merge, push, approve (Face ID en Secure Enclave verificado por la Mac); apagar Face ID (gated); cambiar tokens, herramientas, destinos SSH o actualizar (denegados). Mitigación: Revoke desde la Mac |
+| Teléfono robado y bloqueado | Nada: el llavero de la app es `AfterFirstUnlockThisDeviceOnly` y la caché tiene protección de datos | — |
+| Contenido de PRs ajenos | Llega al teléfono como texto | Ejecutar nada: el teléfono solo muestra texto (`Text` sin markdown activo para contenido ajeno, links sin auto-abrir) |
+| Apple (APNs) | Ver tokens, horarios, colapso/hilo opacos | Leer contenido |
+
+Fuera de alcance: una Mac comprometida (ya controla todo), malware en el teléfono con root.
+
+---
+
+## Q. Lado Mac
+
+### Q.1 `RemoteAccessService`
+
+- Vive en la app (`Sources/PRBar/Remote/`), usa `RemoteHost` de `PRBarRemoteKit`. Arranca con la app si está habilitado.
+- Conexión: `URLSessionWebSocketTask` saliente al relay; reconexión con backoff exponencial (1 s → 60 s, ±20 %),
+  inmediata al cambiar la red (`NWPathMonitor`) y al despertar (`NSWorkspace.didWakeNotification`). Sin puertos
+  entrantes.
+- Por cada sesión de un dispositivo: `RemoteCommandBridge` → `RemotePolicy` → verificación de presencia → 
+  `CommandDispatcher.run(command, on: appModel, events:)` (el **mismo** camino que la CLI) → `res`.
+- `RemoteStateFeed`: los tópicos de P.6. `RemotePushSender`: P.9. `RemoteMailbox`: cada vez que cambia `home`
+  (agrupado cada 60 s) guarda el último `RemoteHome` cifrado (HPKE auth, `info = "PRBar mailbox v1" ‖ accountId ‖
+  deviceId ‖ slot`, con `rev`) en el slot `home` de cada dispositivo, para que el teléfono tenga algo reciente aunque la
+  Mac se haya ido antes de que él abriera la app. El teléfono ignora un `rev` menor al último visto (el relay no puede
+  volver atrás el estado).
+- **"Keep this Mac awake while charging"** (apagado por defecto): con acceso remoto habilitado y la Mac en corriente
+  (`IOPSGetProvidingPowerSourceType == kIOPMACPowerKey`), toma `IOPMAssertionCreateWithName(
+  kIOPMAssertPreventUserIdleSystemSleep, "PRBar: iPhone remote access")`; la suelta en batería o al deshabilitar. La
+  pantalla puede apagarse. Tapa cerrada sin monitor externo: macOS duerme igual (se documenta).
+
+### Q.2 Settings › iPhone (pestaña nueva, `SettingsTabName.iphone`)
+
+- **Allow iPhone remote control** (toggle). Al prenderlo la primera vez: hoja con "Relay server" (host) y "Enrollment
+  token" (campo seguro), "Enable". Errores claros ("The relay refused the enrollment token.").
+- **Estado**: "Connected to prbar.… · 1 iPhone online" / "Connecting…" / "Offline — retrying in 30 s" / "Disabled".
+- **Pair iPhone…**: hoja con el QR (CoreImage `CIQRCodeGenerator`, corrección M), el vencimiento y "Scan this with the
+  Camera app or with PRBar on your iPhone". Cuando el teléfono se une: el código grande `123 456`, "Federico’s iPhone
+  (iPhone 17 Pro)", **Codes Match** / Cancel.
+- **Devices**: lista con nombre, modelo, "Paired Nov 20", "Last seen 5 min ago" / "Online", Face ID requerido (sí/no) y
+  **Revoke…** (confirmación).
+- **Keep this Mac awake while charging** (toggle) y **Reset iPhone Access…** (confirmación destructiva).
+
+### Q.3 CLI (paridad)
+
+```
+prbar remote status [--json]                       # habilitado, relay, conexión, dispositivos online
+prbar remote enable --relay HOST [--enroll-token-stdin]
+prbar remote disable
+prbar remote pair                                   # QR en la terminal (medios bloques), espera, muestra el código, pregunta
+prbar remote devices [--json]
+prbar remote revoke <device> [--yes]                # nombre o prefijo del id
+prbar remote keep-awake on|off
+prbar remote reset [--yes]
+```
+
+`AppCommand` nuevos (todos **denegados** desde el teléfono salvo `remoteSetPresenceRequirement`, que entra por el
+teléfono y es gated al apagar): `remoteStatus`, `remoteEnable(relay:enrollToken:)`, `remoteDisable`,
+`remotePairStart` (devuelve el texto del QR y el vencimiento), `remotePairWait(pairing:)` (evento con el código y el
+dispositivo cuando se une), `remotePairConfirm(pairing:confirmed:)`, `remoteDevices`, `remoteRevoke(device:confirmed:)`,
+`remoteSetKeepAwake(enabled:)`, `remoteReset(confirmed:)`, `remoteSetPresenceRequirement(device:enabled:)`.
+`CommandProtocol.version` → 7. El token de inscripción viaja de la CLI a la app (como `slack token set`), nunca al revés.
+
+---
+
+## R. App de iOS
+
+### R.1 Diseño y `DIGEST.md`
+
+El diseño es la referencia visual (pantallas, textos, tokens claro/oscuro, espaciados, SF Symbols, interacciones).
+`DIGEST.md` (en el scratchpad del diseño, y copiado a `ios/DESIGN.md` por la Task 0 del Plan 19) lo resume por id de
+pantalla: `home`, `home:mine`, `home:offline`, `pair:welcome`, `pair:scan`, `pair:paired`, `review`, `review:menu`,
+`review:faceid`, `review:posted`, `edit`, `respond`, `respond:fixci`, `respond:diff`, `merge`, `merge:faceid`,
+`merge:merged`, `chat:review`, `chat:respond`, `chat:merge`, `activity`, `settings`, `lock notifications`. Los archivos
+`MenuBar`, `Popover`, `ReviewWindow`, `SettingsWindow`, `HistoryWindow`, `IconStates`, `PRBar.dc.html` y
+`ReviewButtons` son el diseño de la app de la Mac (ya en `docs/design/`), no del teléfono.
+
+### R.2 Plataforma
+
+- **iOS 26 mínimo**, solo iPhone, Swift 6, SwiftUI. Por qué: el diseño es Liquid Glass (APIs de iOS 26: `glassEffect`,
+  `GlassEffectContainer`, barra de pestañas que se minimiza, botones `.glass`); el único usuario tiene un iPhone actual;
+  soportar iOS 18 duplicaría cada superficie con `if #available` y un segundo aspecto que nadie usaría. Si algún día hay
+  equipo, bajar el mínimo es un cambio acotado a las vistas.
+- Bundle ids: app `com.federico.prbar.ios`, extensión `com.federico.prbar.ios.notifications`. App Group
+  `group.com.federico.prbar.ios`. Grupo de llavero `$(AppIdentifierPrefix)com.federico.prbar.ios.shared`. Esquema de URL
+  `prbar`.
+- Proyecto: **XcodeGen** (`ios/project.yml` versionado; el `.xcodeproj` se genera con `Scripts/ios-generate.sh` y está
+  en `.gitignore`). Un agente no puede hacer clics en Xcode: con un YAML todo cambio de targets, capacidades y
+  dependencias es texto revisable, y `xcodebuild` compila y testea desde la terminal. La firma va en
+  `ios/Config/Local.xcconfig` (no versionado: `DEVELOPMENT_TEAM`).
+
+### R.3 Arquitectura
+
+- `PRBarRemoteKit` (paquete local `..`) para todo el protocolo. La app agrega:
+  - `RemoteConnection` (`@Observable @MainActor`): ciclo de vida — conecta al pasar a primer plano, se va a los 30 s de
+    pasar a segundo plano (`beginBackgroundTask`); sin conexiones en segundo plano (para eso están los pushes). Estado:
+    `.unpaired`, `.connecting`, `.online`, `.macOffline(since)`, `.relayUnreachable`, `.revoked`, `.incompatible(…)`.
+  - `RemoteTransport` (protocolo): `send(_ command: AppCommand, presence:) async throws -> JSONValue`,
+    `events(for id:) -> AsyncStream<CommandEvent>`, `subscribe(_ topics:)`, `states: AsyncStream<RemoteState>`. La real
+    usa `RemoteClient`; los tests usan `FakeTransport`.
+  - `AppStore` (`@Observable`): `home`, `details[pr]`, `activity`, `isStale`, `lastUpdated`; se alimenta de `state` y del
+    buzón; escribe la caché.
+  - Un view model por pantalla (`HomeModel`, `PairingModel`, `ReviewModel`, `RespondModel`, `MergeModel`, `ChatModel`,
+    `ActivityModel`, `SettingsModel`), cada uno con `RemoteTransport` + `AppStore` inyectados.
+  - `PresenceAuthorizer`: firma con la clave del Secure Enclave (y en tests, una P-256 de software).
+- **Caché**: JSON en el contenedor del App Group (`Cache/home.json`, `Cache/pr/<hash>.json`, ≤ 50 PRs, LRU), con
+  `FileProtectionType.completeUntilFirstUserAuthentication`. Se borra al desemparejar.
+- **Offline** (`home:offline`): con la Mac offline o el relay inalcanzable se muestra lo cacheado en gris, el banner con
+  "Last updated …" y las acciones deshabilitadas (no hay cola de comandos: un comando viejo ejecutado tarde sería peor
+  que no ejecutarlo; además `sentAt` lo rechazaría).
+- **Deep links**: `prbar://pr/<owner>/<repo>/<n>[?screen=review|respond|merge|chat]` desde notificaciones; `prbar://pair?…`
+  desde la cámara.
+
+### R.4 Fases
+
+| Fase | Pantallas | Comandos |
+|---|---|---|
+| 1 | `pair:*`, `home`, `home:mine`, `home:offline`, `lock notifications`, NSE | `sub home`, `refresh`, buzón, `apns` |
+| 2 | `review`, `review:menu`, `review:faceid`, `review:posted`, `edit`, `respond`, `respond:fixci`, `respond:diff`, `chat:review`, `chat:respond` (el chat es parte del flujo de diff/undo) | `review*`, `respond*`, `ciFix`, `chatSend/Undo/Stop/Show` |
+| 3 | `merge`, `merge:faceid`, `merge:merged`, `chat:merge`, `activity`, `settings` | `mergePreview`, `merge`, `mergeDismiss`, `resources`, `usage`, `history`, `notify*`, `remoteSetPresenceRequirement` |
+
+### R.5 Notificaciones
+
+NSE según P.9. La app registra la categoría `PR` con las acciones del diseño (todas `.foreground`). `UNUserNotificationCenter`
+delegado: con la app abierta en ese PR no muestra el banner. El badge lo pone la NSE con el valor descifrado.
+
+### R.6 Settings del teléfono
+
+Lo que muestre el diseño, con esta regla: lo que es de la Mac va por `AppCommand` permitido (`notifySet`,
+`notifySetEnabled`, `remoteSetPresenceRequirement`); lo demás es local (Mac emparejada, "Unpair this iPhone", versión).
+
+---
+
+## S. Testing
+
+- **Sin Xcode** (`swift run PRBarTests`): `PRBarRemoteKit` completo — vectores de Noise (KK e IKpsk2), vectores de HPKE
+  (RFC 9180 A.2, modo auth), SAS con vectores fijos, framing (trozos, relleno, compresión, límites), parser del QR,
+  `RemotePolicy` (exhaustiva: cada `AppCommand.Name` clasificado; tabla de P.7 como test), presencia (firma de una P-256
+  de software, bytes exactos, reloj, sesión, reuso), y **de punta a punta** `RemoteHost` ↔ `RemoteClient` sobre un
+  `InMemoryRelay` (Swift) que implementa P.4 a nivel de marcos: emparejamiento, sesión, comando, eventos, revocación,
+  Mac offline, rechazo de repeticiones. Del lado Mac: el puente con `FakeActions` (llama al método correcto, deniega lo
+  denegado, exige presencia), el feed, el sender de pushes, el buzón, la CLI (`prbar remote …`) y la paridad.
+- **Relay (Go)**: `go test ./...` (con Go de Homebrew o `docker run golang`): auth, ruteo, presencia, límites, buzón con
+  TTL, ranuras de emparejamiento, inscripción, JWT de APNs y el pedido HTTP/2 contra un APNs falso (`httptest` con TLS y
+  HTTP/2), logs sin contenido (un test busca el `b` en los logs y falla si aparece).
+- **Integración Swift ↔ Go**: un test de `PRBarTests` que, si `PRBAR_RELAY_BIN` apunta al binario del relay, lo levanta
+  en `127.0.0.1` y corre emparejamiento + sesión + push (con APNs falso) con `RemoteHost` y `RemoteClient` reales sobre
+  `ws://` (solo permitido con `allowInsecureTransportForTests`).
+- **No hay vectores Go ↔ Swift de cifrado**: el relay nunca cifra ni descifra. Los vectores son Swift ↔ Swift (Mac e iOS
+  usan el mismo código de `PRBarRemoteKit`).
+- **iOS** (`xcodebuild test`, simulador): view models con `FakeTransport`; la NSE con un sobre generado por
+  `RemoteHost` de prueba; Face ID con `PresenceAuthorizer` falso. QA manual en el iPhone con checklist
+  (`docs/qa/plan-19-checklist.md`).
+
+---
+
+## T. Lo que tiene que dar el usuario
+
+1. **Team ID** de Apple Developer.
+2. **Clave de APNs** (`.p8`) + su **Key ID** (Certificates, Identifiers & Profiles › Keys › Apple Push Notifications
+   service). Se copia directo al VPS; nunca al repo ni a la Mac más allá de la descarga.
+3. **App IDs** `com.federico.prbar.ios` (Push Notifications, App Groups) y `com.federico.prbar.ios.notifications` (App
+   Groups), y el App Group `group.com.federico.prbar.ios` (o dejar que Xcode los cree con "Automatically manage signing").
+4. **Xcode** instalado (26 o más nuevo) con la cuenta de desarrollador agregada.
+5. El **iPhone conectado por cable una vez**, con Modo de desarrollador activado, para instalar la build.
+6. **OK explícito** para desplegar en el VPS (task con compuerta en el Plan 17) y para el cambio de Traefik si hiciera
+   falta (ver preguntas).
+
+---
+
+## U. Decisiones (resumen)
+
+1. El teléfono es un cliente más de `AppCommand`; la Mac despacha con `CommandDispatcher` como para la CLI.
+2. Tipos del protocolo en `PRBarWire` (multiplataforma) y protocolo/cifrado en `PRBarRemoteKit`; se testean con SwiftPM.
+3. Noise KK para sesiones, Noise IKpsk2 para emparejar, HPKE auth para pushes y buzón; todo CryptoKit.
+4. SAS = HKDF del hash del handshake, 6 dígitos; la Mac confirma.
+5. Face ID = firma P-256 del Secure Enclave atada a sesión, comando, id y hora; la verifica la Mac.
+6. Lista permitida exhaustiva en código compartido; por defecto se deniega.
+7. Sin cola de comandos offline; con buzón de estado cifrado (último `home`) y caché local.
+8. Relay en Go/distroless con bbolt, inscripción por token, auth Ed25519 por desafío, logs sin contenido.
+9. iOS 26 mínimo; XcodeGen; bundle ids `com.federico.prbar.ios[.notifications]`.
+10. `CommandProtocol.version` 7 y `minimumRemoteVersion` para tolerar una app de iPhone un poco más vieja.
+
+## V. Preguntas abiertas
+
+1. ¿"Request changes" y "Comment" al publicar un review también deberían pedir Face ID? (Por defecto no: el diseño dice
+   merge, push y approve.)
+2. Traefik v3 tiene por defecto `readTimeout` de 60 s en los entrypoints; si corta los WebSocket largos (se prueba en la
+   task de despliegue), ¿se puede agregar `--entrypoints.https.transport.respondingTimeouts.readTimeout=0` al
+   `proxy/docker-compose.yml`? Si no, el relay sigue funcionando con reconexiones cada minuto.
+3. ¿Está bien guardar en el VPS el último estado cifrado (`home`) por 7 días para mostrarlo con la Mac apagada? (Por
+   defecto sí; se puede apagar con un ajuste.)
