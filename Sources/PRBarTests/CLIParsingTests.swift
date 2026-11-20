@@ -28,6 +28,12 @@ enum CLIParsingTests {
                 try expectEqual(try parsed(["prs", "--list", "to-review", "--account", "me"]), .listPRs(list: .toReview, account: "me"))
                 try expectEqual(try parsed(["prs", "--list", "ready-to-merge"]), .listPRs(list: .readyToMerge, account: nil))
                 try expectEqual(try parsed(["prs"]), .listPRs(list: nil, account: nil))
+                try expectEqual(try parsed(["prs", "--tab", "mine"]), .listPRs(list: nil, account: nil, tab: .mine))
+                try expectEqual(try parsed(["prs", "--tab", "to-review", "--list", "other"]), .listPRs(list: .other, account: nil, tab: .toReview))
+                try expectEqual(try parsed(["prs", "--tab", "mine", "--list", "ready-to-merge"]), .listPRs(list: .readyToMerge, account: nil, tab: .mine))
+                try expect(rejects(["prs", "--tab", "mine", "--list", "to-review"]))
+                try expect(rejects(["prs", "--tab", "to-review", "--list", "mine"]))
+                try expect(rejects(["prs", "--tab", "everything"]))
                 try expectEqual(try parsed(["refresh"]), .refresh)
                 try expectEqual(try parsed(["open", "api#3"]), .open(pr: "api#3", target: .browser))
                 try expectEqual(try parsed(["open", "api#3", "--review"]), .open(pr: "api#3", target: .review))
@@ -45,6 +51,9 @@ enum CLIParsingTests {
             },
             TestCase("cli parse: app") {
                 try expectEqual(try parsed(["app", "quit"]), .quit)
+                try expectEqual(try parsed(["app", "popover"]), .openPopover(tab: nil))
+                try expectEqual(try parsed(["app", "popover", "--tab", "mine"]), .openPopover(tab: .mine))
+                try expect(rejects(["app", "popover", "--tab", "x"]))
                 try expectEqual(try parsed(["app", "settings", "slack"]), .openSettings(tab: .slack))
                 try expectEqual(try parsed(["app", "settings", "instructions"]), .openSettings(tab: .instructions))
                 try expectEqual(try parsed(["app", "settings"]), .openSettings(tab: nil))

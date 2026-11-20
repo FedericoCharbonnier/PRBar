@@ -21,7 +21,7 @@ public enum CLIRouter {
     public static let commands: [CLICommandSpec] = [
         // Estado, historial, ventanas y app
         .init("status", [.status], ["status"]),
-        .init("prs", [.listPRs], ["prs", "--list", "mine"]),
+        .init("prs", [.listPRs], ["prs", "--list", "mine"], ["prs", "--tab", "to-review"]),
         .init("refresh", [.refresh], ["refresh"]),
         .init("open", [.open, .resolvePR], ["open", "api#1", "--posted"], ["open", "api#1", "--copy"],
               ["open", "api#1", "--merge"]),

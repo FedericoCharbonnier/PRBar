@@ -34,14 +34,15 @@ shows the help of `review start`, the group’s default subcommand).
 
 | Command | Does |
 |---|---|
-| `prbar status [--json]` | What the menu bar shows: counts, running jobs, issues |
-| `prbar prs [--list to-review\|updated\|mine\|ready-to-merge\|other] [--account L]` | The PRs |
+| `prbar status [--json]` | What the menu bar shows: counts (with the popover tabs’ totals, “To Review N · My PRs N”), running jobs, issues |
+| `prbar prs [--tab to-review\|mine] [--list to-review\|updated\|mine\|ready-to-merge\|other] [--account L]` | The PRs; `--tab` keeps one of the popover’s tabs and combines with `--list` (`--list other --tab mine` is Waiting for Review; a section from the other tab is a usage error). The Section column shows the popover’s section |
 | `prbar refresh` | Refresh now |
 | `prbar open <pr> [--review\|--respond\|--merge\|--posted\|--worktree] [--copy]` | Open the PR, its window (`--merge`: the Merge window of a PR of yours that’s Ready to Merge), the posted review or the worktree; `--copy` copies the link |
 | `prbar history [--repo R] [--kind review\|respond\|merge] [--search Q] [--limit N]` | History |
 | `prbar history show <id> [--open-log\|--reveal-log]` | One record (id or its first 4+ characters), with its chat |
 | `prbar history reopen <id>` | Open to Post |
 | `prbar app start\|quit\|settings [tab]\|history [id]` | The app (tabs: `general`, `claude`, `instructions`, `accounts`, `repos`, `slack`) |
+| `prbar app popover [--tab to-review\|mine]` | Open the menu bar popover, on that tab if given (the popover remembers it; ⌘1 / ⌘2). If PRBar can’t open it, the tab stays selected for the next time you click the menu bar icon |
 | `prbar app logs [--app\|--slack\|--update\|--instructions] [--path]` | Open a log (PRBar’s, the Slack connector’s, the last update’s, the Instructions chat’s) |
 | `prbar doctor [--json]` | Check the installation |
 | `prbar update --check` | Exit 0 if up to date, 10 if there’s a new version (prints it and its notes) |
@@ -154,7 +155,7 @@ nothing to return give `{"ok": true}`. New optional keys may appear; renaming or
 The socket is `~/Library/Application Support/PRBar/prbar.sock`, created with permissions 0600 in a 0700 folder. The
 app checks each connection’s user (`getpeereid`) and rejects anyone else, and `prbar` checks that the socket belongs
 to you before sending anything; there’s no network. A second PRBar doesn’t take over the socket of one that’s running. The first message is a
-handshake with the protocol version (3 since the Merge window): if `prbar` and the app don’t match, you get
+handshake with the protocol version (4 since the popover tabs): if `prbar` and the app don’t match, you get
 “prbar X can’t talk to PRBar Y — run `prbar update` or reinstall”. Tokens never travel from the app to the CLI;
 `prbar slack token set` sends the token you type to the app (never on the command line: it asks without echo or reads
 `--stdin`).

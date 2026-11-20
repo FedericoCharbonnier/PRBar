@@ -20,6 +20,9 @@ struct StatusCommand: RemoteCommand {
         }
         if let until = status.rateLimitedUntil, until > Date() { header += " · GitHub rate limit until \(ClockTime.hhmm(until))" }
         output.line(output.paint(header, .bold))
+        if let tabs = status.tabCounts {
+            output.line(PopoverTab.allCases.map { "\($0.title) \(tabs[$0.rawValue] ?? 0)" }.joined(separator: " · "))
+        }
         output.table(["Section", "PRs"], PRCategory.allCases.map { [$0.title, String(status.counts[$0.rawValue] ?? 0)] })
         if !status.jobs.isEmpty {
             output.line()
@@ -40,10 +43,18 @@ public protocol LocalCommand: ParsableCommand {}
 struct PRsCommand: RemoteCommand {
     static let configuration = CommandConfiguration(commandName: "prs", abstract: "The PRs in the menu bar.")
     @Option(help: "Only one section: to-review, updated, mine (my PRs with feedback), ready-to-merge or other.") var list: PRListFilter?
+    @Option(help: "Only one of the popover’s tabs: to-review or mine (⌘1 / ⌘2). With --list other, mine is Waiting for Review.")
+    var tab: PopoverTab?
     @Option(help: "Only this account’s PRs.") var account: String?
     @OptionGroup var global: GlobalOptions
 
-    func appCommand(confirmed: Bool) -> AppCommand { .listPRs(list: list, account: account) }
+    func validate() throws {
+        if let tab, let list, !PopoverTabs.sections(tab).contains(where: { $0.category == list.category }) {
+            throw ValidationError("--list \(list.rawValue) isn’t in the \(tab.title) tab.")
+        }
+    }
+
+    func appCommand(confirmed: Bool) -> AppCommand { .listPRs(list: list, account: account, tab: tab) }
 
     func render(_ result: JSONValue, _ output: Output) throws {
         let prs: [PRInfo] = try result.decode()
@@ -51,7 +62,8 @@ struct PRsCommand: RemoteCommand {
         output.table(["PR", "Title", "Author", "Section", "CI", "PRBar"], prs.map { pr in
             let prbar = [pr.review.map { "review: \($0)" }, pr.respond.map { "respond: \($0)" },
                          pr.merge.map { "merge: \($0)" }].compactMap { $0 }
-            return [pr.id, Render.truncate(pr.title, 50), pr.author, pr.category, pr.ci, prbar.joined(separator: ", ")]
+            return [pr.id, Render.truncate(pr.title, 50), pr.author, pr.section?.title ?? pr.category, pr.ci,
+                    prbar.joined(separator: ", ")]
         })
         for pr in prs {
             if let error = pr.mergeError { output.line(output.paint("! \(pr.id): \(error)", .red)) }
