@@ -11,7 +11,7 @@ struct WindowOptions {
     var sharedFrameKey: String?
     var miniaturizable = true
     /// Sin redimensionar, la ventana se abre siempre con el tamaño pedido (del frame guardado solo se usa la
-    /// posición). Configuración: cada pestaña tiene su tamaño.
+    /// posición).
     var resizable = true
     var allowsTabbing = true
     /// Only windows with the same identifier are grouped in tabs (reviews with reviews, not with History), when the
@@ -26,6 +26,8 @@ struct WindowOptions {
     var toolbarStyle: NSWindow.ToolbarStyle = .automatic
     /// Tamaño mínimo del contenido, para controladores que no lo informan (p. ej. pestañas de Configuración).
     var minContentSize: NSSize?
+    /// Tamaño máximo del contenido (Configuración: el ancho es fijo, solo crece en alto).
+    var maxContentSize: NSSize?
     /// Si la ventana tiene cambios sin guardar (`setUnsavedChanges`), cerrarla pide confirmación.
     var closeConfirmation: CloseConfirmation?
 }
@@ -136,6 +138,7 @@ final class WindowPresenter: NSObject, NSWindowDelegate {
         window.contentViewController = makeController()
         window.setContentSize(size)
         if let minSize = options.minContentSize { window.contentMinSize = minSize }
+        if let maxSize = options.maxContentSize { window.contentMaxSize = maxSize }
         window.delegate = self
         place(window, size: size, options: options)
         windows[id] = window

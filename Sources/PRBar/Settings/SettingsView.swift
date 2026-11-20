@@ -51,6 +51,11 @@ enum SettingsWindow {
         }
     }
 
+    /// The window grows only in height (the panes are laid out for 700 pt); each tab opens at its `contentSize`, and
+    /// can be made taller for long pages like Claude, or shorter down to the smallest tab (Accounts).
+    static let minContentSize = NSSize(width: 700, height: 300)
+    static let maxContentSize = NSSize(width: 700, height: CGFloat.greatestFiniteMagnitude)
+
     /// La pestaña que se eligió la última vez (General si no hay ninguna guardada).
     /// La ventana de Settings abierta (para cambiar de pestaña desde la CLI).
     @MainActor private static weak var current: NSTabViewController?
@@ -112,7 +117,7 @@ private final class SettingsTabViewController: NSTabViewController {
     func addTab<Content: View>(_ tab: SettingsWindow.Tab, model: AppModel, @ViewBuilder content: () -> Content) {
         let pane = SettingsPane(model: model, configStore: model.configStore, content: content())
         let hosting = NSHostingController(rootView: pane.modifier(DrawsAsKey(enabled: drawsAsKey)))
-        // Cada pestaña tiene su tamaño fijo; al elegirla, la ventana se anima a ese tamaño.
+        // Each tab has its own size; choosing it animates the window to that size (the user can then make it taller).
         hosting.sizingOptions = []
         hosting.preferredContentSize = tab.contentSize
         hosting.title = tab.title

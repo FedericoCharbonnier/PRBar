@@ -1123,8 +1123,9 @@ final class AppModel: ObservableObject {
         WindowPresenter.shared.present(
             id: "settings", title: "Settings", size: SettingsWindow.savedTab.contentSize,
             options: WindowOptions(
-                autosaveName: "SettingsWindow", miniaturizable: false, resizable: false, allowsTabbing: false, kind: .utility,
-                toolbarStyle: .preference
+                autosaveName: "SettingsWindow", miniaturizable: false, resizable: true, allowsTabbing: false, kind: .utility,
+                toolbarStyle: .preference, minContentSize: SettingsWindow.minContentSize,
+                maxContentSize: SettingsWindow.maxContentSize
             )
         ) {
             SettingsWindow.makeController(model: self)
