@@ -56,7 +56,9 @@ enum DiskCleanupTests {
                 CleanupCandidate(path: dirty.path, bytes: 1, kind: .respondWorktree, clone: repo.local.path, title: "dirty"),
             ])
             let executor = DiskCleanupExecutor(runner: SystemProcessRunner(), gitPath: TempGitRepo.git,
-                                               worktreeRoots: [repo.root], gitEnvironment: ["GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"],
+                                               worktreeRoots: [repo.root],
+                                               repos: [DiskScanInput.RespondDir(repo: "acme/local", path: dir.path, localPath: repo.local.path)],
+                                               gitEnvironment: ["GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"],
                                                registry: WorkspaceRegistry())
             let result = await executor.run(plan)
             try expectEqual(result.removed, [clean.path])
@@ -75,7 +77,7 @@ enum DiskCleanupTests {
             for url in [busy, outside] { try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true) }
             let registry = WorkspaceRegistry()
             registry.insert(busy.path)
-            let executor = DiskCleanupExecutor(runner: SystemProcessRunner(), gitPath: "/usr/bin/git", worktreeRoots: [root],
+            let executor = DiskCleanupExecutor(runner: SystemProcessRunner(), gitPath: "/usr/bin/git", worktreeRoots: [root], repos: [],
                                                gitEnvironment: [:], registry: registry)
             let result = await executor.run(CleanupPlan(candidates: [
                 CleanupCandidate(path: busy.path, bytes: 1, kind: .workspace, clone: nil, title: "busy"),

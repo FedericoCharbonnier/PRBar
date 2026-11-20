@@ -94,8 +94,10 @@ public struct DiskCleanupExecutor: Sendable {
     let registry: WorkspaceRegistry
     let updaterDirectories: [URL]
     let oldFileRoots: [URL]
+    let repos: [DiskScanInput.RespondDir]
 
-    public init(runner: ProcessRunning, gitPath: String, worktreeRoots: [URL], gitEnvironment: [String: String] = [:],
+    public init(runner: ProcessRunning, gitPath: String, worktreeRoots: [URL], repos: [DiskScanInput.RespondDir],
+                gitEnvironment: [String: String] = [:],
                 registry: WorkspaceRegistry = .shared,
                 updaterDirectories: [URL] = [AppPaths.updateSourceDir.appendingPathComponent(".build"), AppPaths.updateStagingDir],
                 oldFileRoots: [URL] = [AppPaths.historyDir, AppPaths.logFile.deletingLastPathComponent()]) {
@@ -103,6 +105,7 @@ public struct DiskCleanupExecutor: Sendable {
         self.gitPath = gitPath
         self.worktreeRoots = worktreeRoots.map(\.standardizedFileURL)
         self.gitEnvironment = gitEnvironment
+        self.repos = repos
         self.registry = registry
         self.updaterDirectories = updaterDirectories.map(\.standardizedFileURL)
         self.oldFileRoots = oldFileRoots.map(\.standardizedFileURL)
@@ -110,26 +113,54 @@ public struct DiskCleanupExecutor: Sendable {
 
     public func run(_ plan: CleanupPlan) async -> CleanupResult {
         var result = CleanupResult()
+        // Los worktrees que git lista en cada clone configurado (ruta canónica → clone): se piden una vez, al primero.
+        var listed: [String: String]?
         for candidate in plan.candidates {
-            let url = URL(fileURLWithPath: candidate.path).standardizedFileURL
-            if registry.contains(url.path) {
+            // Clave canónica: la misma que usan el registro y el escaneo (realpath de la carpeta + nombre).
+            let path = CanonicalPath.of(candidate.path)
+            let url = URL(fileURLWithPath: path)
+            let name = url.lastPathComponent
+            let realParent = CanonicalPath.realPath(url.deletingLastPathComponent().path)
+            if registry.contains(path) || registry.contains(candidate.path) {
                 result.skipped.append("\(candidate.title): in use")
                 continue
             }
             switch candidate.kind {
             case .workspace:
-                guard let root = worktreeRoots.first(where: { url.deletingLastPathComponent().path == $0.path }),
-                      WorktreeManager.isWorkspaceName(url.lastPathComponent) else {
+                guard WorktreeManager.isWorkspaceName(name), let realParent,
+                      worktreeRoots.contains(where: { CanonicalPath.realPath($0.path) == realParent }) else {
                     result.skipped.append("\(candidate.title): not in PRBar’s worktrees folder")
                     continue
                 }
-                let manager = WorktreeManager(runner: runner, gitPath: gitPath, root: root)
-                let clone = DiskScanner.cloneOfWorktree(url)
-                await manager.cleanup(ReviewWorkspace(directory: url, baseRef: nil, isDiffOnly: clone == nil), localPath: clone)
-                if FileManager.default.fileExists(atPath: url.path) { try? FileManager.default.removeItem(at: url) }
+                guard CanonicalPath.isDirectory(path) else {
+                    result.skipped.append("\(candidate.title): not a folder")
+                    continue
+                }
+                if listed == nil { listed = await listedWorktrees() }
+                if let clone = listed?[path] {
+                    // Un worktree de review/chat de un clone configurado: §8.5, con la raíz real (git guarda rutas reales).
+                    let manager = WorktreeManager(runner: runner, gitPath: gitPath, root: URL(fileURLWithPath: realParent))
+                    await manager.cleanup(ReviewWorkspace(directory: url, baseRef: nil, isDiffOnly: false), localPath: clone)
+                } else if CanonicalPath.exists(url.appendingPathComponent(".git").path) {
+                    // Un worktree que ningún clone configurado lista: no se sabe de quién es.
+                    result.skipped.append("\(candidate.title): a git worktree of a repo PRBar doesn’t have set up")
+                    continue
+                } else {
+                    try? FileManager.default.removeItem(at: url)
+                }
             case .respondWorktree:
-                guard WorktreeResolver.isRespondWorktreeName(url.lastPathComponent), let clone = candidate.clone else {
+                guard WorktreeResolver.isRespondWorktreeName(name), let realParent,
+                      let clone = repos.first(where: { $0.localPath != nil && CanonicalPath.realPath($0.path) == realParent })?.localPath else {
                     result.skipped.append("\(candidate.title): not a PRBar Respond worktree")
+                    continue
+                }
+                guard CanonicalPath.isDirectory(path) else {
+                    result.skipped.append("\(candidate.title): not a folder")
+                    continue
+                }
+                if listed == nil { listed = await listedWorktrees() }
+                guard listed?[path] == clone else {
+                    result.skipped.append("\(candidate.title): git doesn’t list it as a worktree of \(clone)")
                     continue
                 }
                 if let reason = await unpushedWork(url) {
@@ -137,24 +168,24 @@ public struct DiskCleanupExecutor: Sendable {
                     continue
                 }
                 let resolver = WorktreeResolver(runner: runner, gitPath: gitPath, environment: gitEnvironment)
-                await resolver.cleanup(ResolvedWorktree(path: url.path, origin: .dedicated, localPath: clone, ref: nil))
+                await resolver.cleanup(ResolvedWorktree(path: path, origin: .dedicated, localPath: clone, ref: nil))
             case .updaterBuild, .updaterStaging:
-                guard updaterDirectories.contains(where: { $0.path == url.path }) else {
+                guard CanonicalPath.isDirectory(path), updaterDirectories.contains(where: { CanonicalPath.of($0.path) == path }) else {
                     result.skipped.append("\(candidate.title): not the updater’s folder")
                     continue
                 }
                 try? FileManager.default.removeItem(at: url)
             case .oldFile:
                 var info = stat()
-                guard oldFileRoots.contains(where: { url.path.hasPrefix($0.path + "/") }),
-                      url.lastPathComponent != AppPaths.logFile.lastPathComponent,
-                      lstat(url.path, &info) == 0, info.st_mode & S_IFMT == S_IFREG else {
+                guard oldFileRoots.contains(where: { path.hasPrefix(CanonicalPath.of($0.path) + "/") }),
+                      name != AppPaths.logFile.lastPathComponent,
+                      lstat(path, &info) == 0, info.st_mode & S_IFMT == S_IFREG else {
                     result.skipped.append("\(candidate.title): not an old history or log file")
                     continue
                 }
                 try? FileManager.default.removeItem(at: url)
             }
-            if FileManager.default.fileExists(atPath: url.path) {
+            if CanonicalPath.exists(path) {
                 result.failed.append(candidate.title)
             } else {
                 result.removed.append(candidate.path)
@@ -164,16 +195,32 @@ public struct DiskCleanupExecutor: Sendable {
         return result
     }
 
+    /// Ruta canónica → clone, de `git worktree list --porcelain` de cada clone configurado. Si git falla en un clone,
+    /// sus worktrees no aparecen (y no se borran).
+    func listedWorktrees() async -> [String: String] {
+        var listed: [String: String] = [:]
+        for clone in Set(repos.compactMap(\.localPath)).sorted() {
+            guard let output = await git(clone, ["worktree", "list", "--porcelain"]) else { continue }
+            for path in WorktreeManager.worktreePaths(fromPorcelain: output) where listed[CanonicalPath.of(path)] == nil {
+                listed[CanonicalPath.of(path)] = clone
+            }
+        }
+        return listed
+    }
+
+    /// `git -C <directory>` endurecido; stdout sin espacios de los bordes, o nil si falló.
+    private func git(_ directory: String, _ arguments: [String]) async -> String? {
+        let result = try? await runner.run(gitPath, ["-C", directory] + GitHardening.arguments + arguments,
+                                           environment: gitEnvironment.merging(GitHardening.environment) { a, _ in a },
+                                           currentDirectory: nil, timeout: ProcessTimeouts.standard)
+        guard let result, result.status == 0 else { return nil }
+        return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// `nil` si se puede borrar; si no, el motivo. Cambios sin commitear, o commits que no están en ninguna rama,
     /// remoto, tag ni `refs/prbar/*` (decisión I.1.4). Si git falla, no se borra.
     func unpushedWork(_ worktree: URL) async -> String? {
-        func git(_ arguments: [String]) async -> String? {
-            let result = try? await runner.run(gitPath, ["-C", worktree.path] + GitHardening.arguments + arguments,
-                                               environment: gitEnvironment.merging(GitHardening.environment) { a, _ in a },
-                                               currentDirectory: nil, timeout: ProcessTimeouts.standard)
-            guard let result, result.status == 0 else { return nil }
-            return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
+        func git(_ arguments: [String]) async -> String? { await self.git(worktree.path, arguments) }
         guard let status = await git(["status", GitHardening.ignoreSubmodules, "--porcelain", "--untracked-files=all"]) else {
             return "couldn’t check it with git"
         }

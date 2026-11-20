@@ -150,31 +150,45 @@ public enum DiskScanner {
     public static func scan(_ input: DiskScanInput) -> DiskUsage {
         var items: [DiskItem] = []
         let files = FileManager.default
-        let active = Set(input.activePaths.map { URL(fileURLWithPath: $0).standardizedFileURL.path })
+        let active = Set(input.activePaths.map(CanonicalPath.of))
+        let activeIdentities = Set(input.activePaths.compactMap(CanonicalPath.identity))
+        // El clone sale de la configuración: el `.git` del worktree solo dice cuál de los configurados es.
+        let configuredClones = Dictionary(input.repoByClone.map { (CanonicalPath.of($0.key), (clone: $0.key, repo: $0.value)) },
+                                          uniquingKeysWith: { first, _ in first })
+        var seen = Set<String>()
 
-        func state(_ url: URL) -> DiskItemState {
-            if active.contains(url.standardizedFileURL.path) { return .active }
-            if let date = modified(url), input.now.timeIntervalSince(date) < freshInterval { return .active }
+        func state(_ path: String) -> DiskItemState {
+            if active.contains(path) { return .active }
+            if let identity = CanonicalPath.identity(path), activeIdentities.contains(identity) { return .active }
+            if let date = modified(URL(fileURLWithPath: path)), input.now.timeIntervalSince(date) < freshInterval { return .active }
             return .orphan
+        }
+
+        /// Las carpetas de verdad (nunca symlinks) de `directory` cuyo nombre acepta `isOwn`, con su ruta canónica y sin
+        /// repetir (dos repos pueden compartir `worktreeDir`).
+        func entries(of directory: String, _ isOwn: (String) -> Bool) -> [(path: String, name: String)] {
+            guard let real = CanonicalPath.realPath(directory) else { return [] }
+            return ((try? files.contentsOfDirectory(atPath: real)) ?? []).sorted().compactMap { name in
+                let path = (real as NSString).appendingPathComponent(name)
+                guard isOwn(name), CanonicalPath.isDirectory(path), seen.insert(path).inserted else { return nil }
+                return (path, name)
+            }
         }
 
         // Worktrees y carpetas de contexto de review/chat (raíz temporal).
         for root in input.worktreeRoots {
-            for entry in (try? files.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? [] {
-                let name = entry.lastPathComponent
-                guard WorktreeManager.isWorkspaceName(name) else { continue }
-                let clone = cloneOfWorktree(entry)
-                items.append(DiskItem(path: entry.standardizedFileURL.path, bytes: allocatedSize(entry), kind: .worktrees,
-                                      state: state(entry), repo: clone.flatMap { input.repoByClone[$0] }, clone: clone, title: name))
+            for entry in entries(of: root.path, WorktreeManager.isWorkspaceName) {
+                let url = URL(fileURLWithPath: entry.path)
+                let configured = cloneOfWorktree(url).flatMap { configuredClones[CanonicalPath.of($0)] }
+                items.append(DiskItem(path: entry.path, bytes: allocatedSize(url), kind: .worktrees, state: state(entry.path),
+                                      repo: configured?.repo, clone: configured?.clone, title: entry.name))
             }
         }
         // Worktrees de Responder (solo los que tienen nombre de PRBar).
         for dir in input.respondDirs {
-            let url = URL(fileURLWithPath: dir.path)
-            for entry in (try? files.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)) ?? []
-            where WorktreeResolver.isRespondWorktreeName(entry.lastPathComponent) {
-                items.append(DiskItem(path: entry.standardizedFileURL.path, bytes: allocatedSize(entry), kind: .worktrees,
-                                      state: state(entry), repo: dir.repo, clone: dir.localPath, title: entry.lastPathComponent))
+            for entry in entries(of: dir.path, WorktreeResolver.isRespondWorktreeName) {
+                items.append(DiskItem(path: entry.path, bytes: allocatedSize(URL(fileURLWithPath: entry.path)), kind: .worktrees,
+                                      state: state(entry.path), repo: dir.repo, clone: dir.localPath, title: entry.name))
             }
         }
         // Application Support.
@@ -185,27 +199,27 @@ public enum DiskScanner {
         let history = support.appendingPathComponent("history")
         let buildBytes = allocatedSize(build)
         if buildBytes > 0 {
-            items.append(DiskItem(path: build.standardizedFileURL.path, bytes: buildBytes, kind: .updater, state: .cache, title: "Updater builds"))
+            items.append(DiskItem(path: CanonicalPath.of(build.path), bytes: buildBytes, kind: .updater, state: .cache, title: "Updater builds"))
         }
         let sourceBytes = allocatedSize(source) - buildBytes
         if sourceBytes > 0 {
-            items.append(DiskItem(path: source.standardizedFileURL.path, bytes: sourceBytes, kind: .updater, state: .data, title: "Updater clone"))
+            items.append(DiskItem(path: CanonicalPath.of(source.path), bytes: sourceBytes, kind: .updater, state: .data, title: "Updater clone"))
         }
         let stagingBytes = allocatedSize(staging)
         if stagingBytes > 0 {
-            items.append(DiskItem(path: staging.standardizedFileURL.path, bytes: stagingBytes, kind: .updater, state: .cache, title: "Update staging"))
+            items.append(DiskItem(path: CanonicalPath.of(staging.path), bytes: stagingBytes, kind: .updater, state: .cache, title: "Update staging"))
         }
         let historyBytes = allocatedSize(history)
         if historyBytes > 0 {
-            items.append(DiskItem(path: history.standardizedFileURL.path, bytes: historyBytes, kind: .history, state: .data, title: "History"))
+            items.append(DiskItem(path: CanonicalPath.of(history.path), bytes: historyBytes, kind: .history, state: .data, title: "History"))
         }
         let rest = allocatedSize(support) - allocatedSize(source) - stagingBytes - historyBytes
         if rest > 0 {
-            items.append(DiskItem(path: support.standardizedFileURL.path, bytes: rest, kind: .appData, state: .data, title: "Settings and state"))
+            items.append(DiskItem(path: CanonicalPath.of(support.path), bytes: rest, kind: .appData, state: .data, title: "Settings and state"))
         }
         let logBytes = allocatedSize(input.logsDir)
         if logBytes > 0 {
-            items.append(DiskItem(path: input.logsDir.standardizedFileURL.path, bytes: logBytes, kind: .logs, state: .data, title: "Logs"))
+            items.append(DiskItem(path: CanonicalPath.of(input.logsDir.path), bytes: logBytes, kind: .logs, state: .data, title: "Logs"))
         }
         return DiskUsage(items: items, scannedAt: input.now)
     }
@@ -213,17 +227,37 @@ public enum DiskScanner {
 
 /// Las carpetas de worktrees y de contexto que tiene una corrida en curso (spec I: Clean Up nunca las toca). Las
 /// anotan `WorktreeManager.prepare`/`WorktreeResolver.prepare` antes de crearlas y las borran sus `cleanup`.
+/// Guarda la clave canónica (`CanonicalPath.of`, calculada al anotar, cuando la carpeta que la contiene ya existe) y
+/// `contains` además compara por inodo: se la reconoce por un symlink, con otras mayúsculas o por `/private/var`.
 public final class WorkspaceRegistry: Sendable {
     public static let shared = WorkspaceRegistry()
 
-    private let paths = OSAllocatedUnfairLock(initialState: Set<String>())
+    /// Ruta estandarizada con la que se anotó → clave canónica.
+    private let paths = OSAllocatedUnfairLock(initialState: [String: String]())
 
     public init() {}
 
-    private static func key(_ path: String) -> String { URL(fileURLWithPath: path).standardizedFileURL.path }
+    private static func standardized(_ path: String) -> String { URL(fileURLWithPath: path).standardizedFileURL.path }
 
-    public func insert(_ path: String) { _ = paths.withLock { $0.insert(Self.key(path)) } }
-    public func remove(_ path: String) { _ = paths.withLock { $0.remove(Self.key(path)) } }
-    public func contains(_ path: String) -> Bool { paths.withLock { $0.contains(Self.key(path)) } }
-    public func all() -> Set<String> { paths.withLock { $0 } }
+    public func insert(_ path: String) {
+        let key = CanonicalPath.of(path)
+        paths.withLock { $0[Self.standardized(path)] = key }
+    }
+
+    public func remove(_ path: String) {
+        let raw = Self.standardized(path)
+        let key = CanonicalPath.of(path)
+        paths.withLock { $0 = $0.filter { $0.key != raw && $0.value != key } }
+    }
+
+    public func contains(_ path: String) -> Bool {
+        let key = CanonicalPath.of(path)
+        let registered = all()
+        if registered.contains(key) { return true }
+        guard let identity = CanonicalPath.identity(path) else { return false }
+        return registered.contains { CanonicalPath.identity($0) == identity }
+    }
+
+    /// Las claves canónicas.
+    public func all() -> Set<String> { paths.withLock { Set($0.values) } }
 }

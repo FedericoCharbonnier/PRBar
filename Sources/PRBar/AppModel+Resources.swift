@@ -86,7 +86,8 @@ extension AppModel: ResourceActions {
         guard confirmed else { throw CommandFailure(.confirmationRequired, "Clean Up needs confirmation: run it again with --yes.") }
         guard let git = tools.git else { throw CommandFailure(.failed, PRBarError.toolNotFound("git").localizedDescription) }
         let executor = DiskCleanupExecutor(runner: runner, gitPath: git,
-                                           worktreeRoots: [AppPaths.worktreesDir, AppPaths.legacyWorktreesDir])
+                                           worktreeRoots: [AppPaths.worktreesDir, AppPaths.legacyWorktreesDir],
+                                           repos: diskScanInput().respondDirs)
         let result = await executor.run(plan)
         AppLog.write("Clean Up freed \(result.freedBytes) bytes; skipped \(result.skipped.count); failed \(result.failed.count)")
         resources.jobFinished()

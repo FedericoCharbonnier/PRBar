@@ -41,7 +41,7 @@ enum DiskUsageTests {
             try write(layout.respondDir.appendingPathComponent("web-2-respond-0a0b0c0d/f.txt"), bytes: 6_000)
             try write(layout.respondDir.appendingPathComponent("my-own-worktree/f.txt"), bytes: 9_000)   // del usuario
             let usage = DiskScanner.scan(layout.input(active: [active.path]))
-            func item(_ path: URL) -> DiskItem? { usage.items.first { $0.path == path.standardizedFileURL.path } }
+            func item(_ path: URL) -> DiskItem? { usage.items.first { $0.path == CanonicalPath.of(path.path) } }
             try expectEqual(item(active)?.state, .active)
             try expectEqual(item(orphan)?.state, .orphan)
             try expectEqual(item(layout.respondDir.appendingPathComponent("web-2-respond-0a0b0c0d"))?.repo, "acme/web")
@@ -71,7 +71,7 @@ enum DiskUsageTests {
             try write(fresh.appendingPathComponent("f"), bytes: 10)
             var input = layout.input()
             input.now = Date()
-            try expectEqual(DiskScanner.scan(input).items.first { $0.path == fresh.standardizedFileURL.path }?.state, .active)
+            try expectEqual(DiskScanner.scan(input).items.first { $0.path == CanonicalPath.of(fresh.path) }?.state, .active)
         },
         TestCase("disk: el registro de workspaces anota y borra") {
             let registry = WorkspaceRegistry()
