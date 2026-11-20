@@ -43,7 +43,7 @@ type Conn struct {
 	role role
 	acct string
 	// id: el deviceId (role device) o el pairingId (role pair).
-	id   string
+	id string
 
 	send      chan []byte
 	done      chan struct{}

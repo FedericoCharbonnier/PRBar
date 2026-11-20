@@ -408,10 +408,10 @@ Al mergear, el `switch` exhaustivo no compila hasta clasificarlos (`usage` y `ci
   respuesta se corta con un timer (cancelar el contexto de lectura cerraría sin el código 4408).
 
 **Go**: módulo `prbar-relay`, `go 1.26`; `github.com/coder/websocket v1.8.15`, `go.etcd.io/bbolt v1.5.0`
-(`golang.org/x/sys v0.45.0` indirecta). En la máquina donde se escribió no había Go (Homebrew no instala sin aceptar la
-licencia de Xcode y Docker no estaba corriendo): `go.sum` se armó con las sumas de `sum.golang.org` y el código del
-relay **no se compiló ni se testeó todavía**: antes de desplegar hay que correr `go mod tidy` (no debería cambiar nada),
-`go vet ./...`, `gofmt -l .` y `go test ./...`, y la integración Swift ↔ Go.
+(`golang.org/x/sys v0.45.0` indirecta), Go 1.27.4 de Homebrew. `go vet` y `gofmt -l` limpios, `go test -race
+-count=3 ./...` verde, y la integración Swift ↔ Go (`PRBAR_RELAY_BIN`) pasa contra el binario real. La integración no
+usa un APNs falso: sin APNs configurado el relay contesta el push con 410/503 y el test verifica que el pedido llega y
+vuelve (el pedido HTTP/2 a APNs se prueba en Go contra `httptest` con TLS y HTTP/2).
 
 ---
 
