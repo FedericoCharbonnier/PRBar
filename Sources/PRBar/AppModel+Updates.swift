@@ -15,7 +15,8 @@ extension AppModel {
         }
         WindowPresenter.shared.show(
             id: Self.updateWindowID, title: mode.title, size: UpdateWindow.size,
-            options: WindowOptions(autosaveName: "UpdateWindow", miniaturizable: false, resizable: false, allowsTabbing: false),
+            options: WindowOptions(autosaveName: "UpdateWindow", miniaturizable: false, resizable: false, allowsTabbing: false,
+                                   kind: .utility),
             contentID: mode.id
         ) {
             UpdateWindow(updates: self.updates, mode: mode, close: { WindowPresenter.shared.close(id: Self.updateWindowID) })

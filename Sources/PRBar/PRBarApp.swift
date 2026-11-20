@@ -29,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let model else { return }
         let statusItem = StatusItemController(model: model)
         self.statusItem = statusItem
+        WindowPresenter.shared.installMainMenu()
         model.showPopover = { [weak statusItem] in statusItem?.show() ?? false }
     }
 }

@@ -603,7 +603,8 @@ final class AppModel: ObservableObject {
         WindowPresenter.shared.show(
             id: windowID, title: "Review · \(draft.repo.name)#\(draft.number)", size: ReviewWindow.size,
             // Sin confirmación al cerrar: lo elegido vive en el coordinador del draft y no se pierde (plan 7, decisión 3).
-            options: WindowOptions(sharedFrameKey: "ReviewWindowFrame", bridgesToolbar: true, toolbarStyle: .unified),
+            options: WindowOptions(sharedFrameKey: "ReviewWindowFrame", tabbingIdentifier: "PRBar.review", bridgesToolbar: true,
+                                   toolbarStyle: .unified),
             contentID: draft.id.uuidString,
             replaceConfirmation: "The previous review has unposted changes. Replace it?"
         ) {
@@ -750,7 +751,9 @@ final class AppModel: ObservableObject {
     func openHistory(selecting recordID: UUID? = nil) {
         if let recordID { historySelectionRequest = recordID }
         WindowPresenter.shared.show(
-            id: "history", title: "History", size: HistoryWindow.size, options: WindowOptions(autosaveName: "HistoryWindow", bridgesToolbar: true, toolbarStyle: .unified)
+            id: "history", title: "History", size: HistoryWindow.size, options: WindowOptions(
+                autosaveName: "HistoryWindow", tabbingIdentifier: "PRBar.history", bridgesToolbar: true, toolbarStyle: .unified
+            )
         ) {
             HistoryWindow(model: self)
         }
@@ -1057,7 +1060,8 @@ final class AppModel: ObservableObject {
         WindowPresenter.shared.show(
             id: windowID, title: "Respond · \(draft.repo.name)#\(draft.number)", size: RespondWindow.size,
             // Sin confirmación al cerrar: las decisiones viven en el coordinador del draft (plan 7, decisión 3).
-            options: WindowOptions(sharedFrameKey: "RespondWindowFrame", bridgesToolbar: true, toolbarStyle: .unified),
+            options: WindowOptions(sharedFrameKey: "RespondWindowFrame", tabbingIdentifier: "PRBar.respond", bridgesToolbar: true,
+                                   toolbarStyle: .unified),
             contentID: draft.id.uuidString,
             replaceConfirmation: "The previous analysis has unused decisions. Replace it?"
         ) {
@@ -1113,7 +1117,7 @@ final class AppModel: ObservableObject {
         WindowPresenter.shared.present(
             id: "settings", title: "Settings", size: SettingsWindow.savedTab.contentSize,
             options: WindowOptions(
-                autosaveName: "SettingsWindow", miniaturizable: false, resizable: false, allowsTabbing: false,
+                autosaveName: "SettingsWindow", miniaturizable: false, resizable: false, allowsTabbing: false, kind: .utility,
                 toolbarStyle: .preference
             )
         ) {

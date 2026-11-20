@@ -11,6 +11,7 @@ AppLog.setDestination(TestEnvironment.logFile)
 let allTests: [TestCase] = []
     + SmokeTests.cases
     + StatusPanelTests.cases
+    + WindowSpacesTests.cases
     + ModelsTests.cases
     + ClassifierTests.cases
     + FormattingTests.cases

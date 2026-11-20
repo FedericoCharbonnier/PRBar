@@ -114,7 +114,8 @@ extension AppModel {
         let alreadyOpen = WindowPresenter.shared.isOpen(id: windowID)
         WindowPresenter.shared.show(
             id: windowID, title: "Merge · \(item.pr.repo.name)#\(item.pr.number)", size: MergeWindow.size,
-            options: WindowOptions(sharedFrameKey: "MergeWindowFrame", bridgesToolbar: true, toolbarStyle: .unified),
+            options: WindowOptions(sharedFrameKey: "MergeWindowFrame", tabbingIdentifier: "PRBar.merge", bridgesToolbar: true,
+                                   toolbarStyle: .unified),
             contentID: session.record.id.uuidString
         ) {
             MergeWindow(model: self, session: session)
