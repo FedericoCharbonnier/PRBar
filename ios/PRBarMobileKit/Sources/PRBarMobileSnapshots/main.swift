@@ -14,6 +14,7 @@ func render<V: View>(_ name: String, _ view: V, to directory: URL, height: CGFlo
             .background(Tokens.bg)
             .environment(\.colorScheme, scheme)
             .environment(\.isSnapshot, true)
+            .environment(\.clock, { Sample.now })
         let renderer = ImageRenderer(content: content)
         renderer.scale = 2
         renderer.proposedSize = ProposedViewSize(width: Metrics.phoneWidth, height: height)
@@ -29,13 +30,13 @@ func render<V: View>(_ name: String, _ view: V, to directory: URL, height: CGFlo
 }
 
 @MainActor
-func main() {
+func main() async {
     let output = CommandLine.arguments.dropFirst().first.map { URL(fileURLWithPath: $0) }
         ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("../snapshots")
     try? FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
-    for (name, view, height) in Snapshots.all() {
+    for (name, view, height) in await Snapshots.all() {
         render(name, view, to: output, height: height)
     }
 }
 
-MainActor.assumeIsolated { main() }
+await main()

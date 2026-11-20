@@ -1,11 +1,13 @@
 import SwiftUI
-import PRBarMobileCore
+import PRBarMobileUI
 
 @main
 struct PRBarMobileApp: App {
+    @State private var app = AppBootstrap.make()
+
     var body: some Scene {
         WindowGroup {
-            Text("PRBar")
+            RootView(app: app)
         }
     }
 }

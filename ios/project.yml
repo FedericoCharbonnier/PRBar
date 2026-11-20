@@ -55,10 +55,9 @@ targets:
     type: bundle.unit-test
     platform: iOS
     sources: [PRBarMobileTests]
+    # Only the host app: the kit is linked statically into the app, and the tests see its modules through it.
     dependencies:
       - target: PRBarMobile
-      - package: PRBarMobileKit
-        product: PRBarMobileKit
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.federico.prbar.ios.tests
