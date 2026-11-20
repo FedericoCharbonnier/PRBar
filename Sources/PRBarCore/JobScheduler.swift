@@ -8,6 +8,7 @@ import Foundation
 public final class JobScheduler<Key: Hashable & Sendable> {
     private struct Pending {
         let key: Key
+        let activity: ProcessActivity?
         let onStart: @MainActor () -> Void
         let work: @Sendable () async throws -> Void
         let onComplete: @MainActor (Result<Void, Error>) -> Void
@@ -34,12 +35,13 @@ public final class JobScheduler<Key: Hashable & Sendable> {
     /// corrida sacada de la cola no avisa nada: su `work` nunca corrió.
     @discardableResult
     public func enqueue(_ key: Key,
+                        activity: ProcessActivity? = nil,
                         onStart: @escaping @MainActor () -> Void,
                         work: @escaping @Sendable () async throws -> Void,
                         onComplete: @escaping @MainActor (Result<Void, Error>) -> Void,
                         onCancelledEnd: (@MainActor (Result<Void, Error>) -> Void)? = nil) -> Bool {
         guard !isActive(key) else { return false }
-        waiting.append(Pending(key: key, onStart: onStart, work: work, onComplete: onComplete, onCancelledEnd: onCancelledEnd))
+        waiting.append(Pending(key: key, activity: activity, onStart: onStart, work: work, onComplete: onComplete, onCancelledEnd: onCancelledEnd))
         startNext()
         return true
     }
@@ -81,10 +83,11 @@ public final class JobScheduler<Key: Hashable & Sendable> {
         let work = job.work
         let onComplete = job.onComplete
         let onCancelledEnd = job.onCancelledEnd
+        let activity = job.activity
         let task = Task { [weak self] in
             let result: Result<Void, Error>
             do {
-                try await work()
+                try await ProcessActivity.$current.withValue(activity) { try await work() }
                 result = .success(())
             } catch {
                 result = .failure(error)

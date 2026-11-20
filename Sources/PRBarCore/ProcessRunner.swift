@@ -75,8 +75,12 @@ public struct SystemProcessRunner: ProcessRunning, StreamingProcessRunning {
     /// Tiempo entre SIGTERM y SIGKILL (ambos al grupo de procesos).
     public let killGracePeriod: TimeInterval
 
-    public init(killGracePeriod: TimeInterval = 2) {
+    /// Dónde se anotan los procesos lanzados y su tarea (ventana Activity, spec I).
+    public let registry: ProcessRegistry
+
+    public init(killGracePeriod: TimeInterval = 2, registry: ProcessRegistry = .shared) {
         self.killGracePeriod = killGracePeriod
+        self.registry = registry
     }
 
     public func run(
@@ -133,6 +137,10 @@ public struct SystemProcessRunner: ProcessRunning, StreamingProcessRunning {
         let control = ProcessControl(grace: killGracePeriod)
         let command = ([URL(fileURLWithPath: executable).lastPathComponent] + arguments).joined(separator: " ")
 
+        let activity = ProcessActivity.current
+        let registry = self.registry
+        let executableName = URL(fileURLWithPath: executable).lastPathComponent
+
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<ProcessResult, Error>) in
                 process.terminationHandler = { _ in control.markExited() }
@@ -143,6 +151,8 @@ public struct SystemProcessRunner: ProcessRunning, StreamingProcessRunning {
                     return
                 }
                 control.markLaunched(pid: process.processIdentifier)
+                let pid = process.processIdentifier
+                registry.register(RegisteredProcess(pid: pid, executable: executableName, activity: activity, startedAt: Date()))
                 if let timeout {
                     DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { control.stop(.timedOut) }
                 }
@@ -155,6 +165,7 @@ public struct SystemProcessRunner: ProcessRunning, StreamingProcessRunning {
                         onStdout: splitter == nil ? nil : { splitter?.append($0) }
                     )
                     control.waitUntilExited()
+                    registry.unregister(pid: pid)
                     // La última línea sin `\n` se entrega solo si el proceso terminó solo: tras un timeout
                     // o una cancelación quedaría cortada a la mitad.
                     if control.stopReason == nil { splitter?.finish() }
