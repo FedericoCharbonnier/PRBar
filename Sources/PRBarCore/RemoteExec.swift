@@ -40,7 +40,7 @@ public enum RemoteRunnerError: Error, Equatable, LocalizedError {
         case .importMismatch(let detail): "The commits from the server don’t match what you reviewed: \(detail) Nothing was pushed."
         case .unsupportedEnvironment(let name): "Internal error: \(name) can’t be passed to git on a remote host."
         case .jobNotStopped(let host):
-            "PRBar lost the connection to \(host) and couldn’t confirm Claude stopped there. The worktree was left as is; PRBar will clean it up when it can reach \(host) again."
+            "Claude may still be running on \(host); PRBar won’t touch that worktree. (PRBar couldn’t confirm Claude stopped there; it cleans up leftovers on \(host) later.)"
         }
     }
 }

@@ -64,6 +64,8 @@ public struct ReviewPipeline: ReviewPipelineRunning {
     private let settings: ClaudeSettings
     private let rules: [Rule]
     private let logURLProvider: @Sendable (UUID) -> URL
+    /// El host donde corre (worktree, contexto y Claude allá); nil = esta Mac.
+    private let placement: RemotePlacement?
 
     /// `logURLProvider` recibe el `id` del draft. `ghPath` solo hace falta en modo solo diff. `api` trae la
     /// descripción del PR (para `pr.md` y el idioma de los comentarios). `settings`: los skills (solo se cargan sus
@@ -72,7 +74,7 @@ public struct ReviewPipeline: ReviewPipelineRunning {
         processRunner: ProcessRunning, streamingRunner: StreamingProcessRunning, tokens: TokenProviding,
         api: GitHubAPI = GitHubClient(), gitPath: String, ghPath: String?, claudePath: String, worktreeRoot: URL = AppPaths.worktreesDir,
         pluginCacheDirectory: URL = ClaudePlugins.defaultCacheDirectory, settings: ClaudeSettings = ClaudeSettings(),
-        rules: [Rule] = [], logURLProvider: @escaping @Sendable (UUID) -> URL
+        rules: [Rule] = [], logURLProvider: @escaping @Sendable (UUID) -> URL, placement: RemotePlacement? = nil
     ) {
         self.streamingRunner = streamingRunner
         self.tokens = tokens
@@ -85,6 +87,51 @@ public struct ReviewPipeline: ReviewPipelineRunning {
         self.settings = settings
         self.rules = rules
         self.logURLProvider = logURLProvider
+        self.placement = placement
+    }
+
+    /// Lo que cambia entre esta Mac y un host: preparar/limpiar el worktree, dónde va el contexto y con qué corre Claude.
+    private struct Parts: Sendable {
+        let prepare: @Sendable () async throws -> ReviewWorkspace
+        let cleanup: @Sendable (ReviewWorkspace) async -> Void
+        let writeContext: @Sendable (ReviewWorkspace, String) async throws -> String
+        let reviewer: ClaudeReviewer
+    }
+
+    private func parts(_ request: ReviewRequest, token: String, logURL: URL) async throws -> Parts {
+        let pr = request.item.pr
+        let settings = self.settings
+        guard let remote = placement else {
+            let pluginDirs = try ClaudePlugins.locate(skills: settings.reviewSkills, in: pluginCacheDirectory)
+            let worktrees = self.worktrees
+            let context = self.context
+            return Parts(
+                prepare: { try await worktrees.prepare(repo: pr.repo, number: pr.number, baseRef: request.baseRef, localPath: request.localPath) },
+                cleanup: { workspace in await worktrees.cleanup(workspace, localPath: request.localPath) },
+                writeContext: { workspace, description in
+                    try await context.write(pr: pr, workspace: workspace, token: token, description: description)
+                },
+                reviewer: ClaudeReviewer(runner: streamingRunner, claudePath: claudePath, pluginDirs: pluginDirs, toolPaths: toolPaths,
+                                         redacting: [token], logURL: logURL, settings: settings, rules: rules))
+        }
+        let pluginDirs = try await remote.plugins(skills: settings.reviewSkills)
+        let bare = try await remote.preparing { try await remote.workspaces.mirror(pr.repo) }
+        let spaces = remote.workspaces
+        let context = ReviewContextWriter(runner: remote.runner, gitPath: remote.gitPath, ghPath: nil, files: spaces.contextFiles)
+        return Parts(
+            prepare: {
+                try await remote.preparing {
+                    try await spaces.prepare(repo: pr.repo, number: pr.number, baseRef: request.baseRef, localPath: bare, name: nil,
+                                             pinnedHeadOid: nil)
+                }
+            },
+            cleanup: { workspace in await spaces.cleanup(workspace, localPath: bare) },
+            writeContext: { workspace, description in
+                try await remote.preparing { try await context.write(pr: pr, workspace: workspace, token: token, description: description) }
+            },
+            reviewer: ClaudeReviewer(runner: remote.runner, claudePath: remote.claudePath, pluginDirs: pluginDirs, toolPaths: [],
+                                     redacting: [token], logURL: logURL, settings: settings, rules: rules,
+                                     promptViaStandardInput: true))
     }
 
     public func run(_ request: ReviewRequest, onPhase: @escaping @MainActor @Sendable (ReviewPhase) -> Void) async throws -> ReviewDraft {
@@ -94,31 +141,27 @@ public struct ReviewPipeline: ReviewPipelineRunning {
 
         do {
             let token = try await tokens.token(for: request.item.account)
-            let pluginDirs = try ClaudePlugins.locate(skills: settings.reviewSkills, in: pluginCacheDirectory)
+            let parts = try await parts(request, token: token, logURL: logURL)
             try Task.checkCancellation()
             await onPhase(.preparing)
             let description = try await Self.description(of: pr, api: api, token: token)
             let language = PRLanguage.detect(description: description, title: pr.title)
-            let workspace = try await worktrees.prepare(repo: pr.repo, number: pr.number, baseRef: request.baseRef, localPath: request.localPath)
+            let workspace = try await parts.prepare()
 
             let result: (summary: String, items: [ReviewItem])
             let headOid: String
             do {
-                headOid = try await context.write(pr: pr, workspace: workspace, token: token, description: description ?? "")
+                headOid = try await parts.writeContext(workspace, description ?? "")
                 try Task.checkCancellation()
-                let reviewer = ClaudeReviewer(
-                    runner: streamingRunner, claudePath: claudePath, pluginDirs: pluginDirs,
-                    toolPaths: toolPaths, redacting: [token], logURL: logURL, settings: settings, rules: rules
-                )
-                result = try await reviewer.review(pr: pr, workspace: workspace, language: language,
+                result = try await parts.reviewer.review(pr: pr, workspace: workspace, language: language,
                                                    ignorePaths: request.ignorePaths) { stage, agents in
                     onPhase(stage == .reviewing ? .reviewing(agents: agents) : .filtering)
                 }
             } catch {
-                await cleanup(workspace, request)
+                await Self.cleanup(workspace, parts, after: error)
                 throw error
             }
-            await cleanup(workspace, request)
+            await Self.cleanup(workspace, parts, after: nil)
             try Task.checkCancellation()
 
             var draft = ReviewDraft(
@@ -131,6 +174,11 @@ public struct ReviewPipeline: ReviewPipelineRunning {
             draft.id = draftID
             return draft
         } catch {
+            if RemoteUnstoppedJobs.isNotStopped(error) {
+                // Claude puede seguir corriendo en el host: el error lo dice (también si fue un Stop).
+                let existingLog = FileManager.default.fileExists(atPath: logURL.path) ? logURL : nil
+                throw ReviewFailure(underlying: error, logURL: existingLog)
+            }
             if error is CancellationError || Task.isCancelled { throw CancellationError() }
             if let failure = error as? ReviewFailure { throw failure }
             let existingLog = FileManager.default.fileExists(atPath: logURL.path) ? logURL : nil
@@ -150,11 +198,13 @@ public struct ReviewPipeline: ReviewPipelineRunning {
         }
     }
 
-    /// Corre en una tarea aparte para que la cancelación del job no mate los `git` de la limpieza.
-    private func cleanup(_ workspace: ReviewWorkspace, _ request: ReviewRequest) async {
-        let worktrees = self.worktrees
-        await Task.detached {
-            await worktrees.cleanup(workspace, localPath: request.localPath)
-        }.value
+    /// Corre en una tarea aparte para que la cancelación del job no mate los `git` de la limpieza. Si no se pudo
+    /// confirmar que Claude paró en el host, el worktree queda como está (lo dice el error).
+    private static func cleanup(_ workspace: ReviewWorkspace, _ parts: Parts, after error: Error?) async {
+        if let error, RemoteUnstoppedJobs.isNotStopped(error) {
+            AppLog.write("Review: Claude may still be running in \(workspace.directory.path); leaving it as is.")
+            return
+        }
+        await Task.detached { await parts.cleanup(workspace) }.value
     }
 }

@@ -86,7 +86,7 @@ public struct ChatEngine: Sendable {
 
     /// `canRebuild`: whether the turn may run again in a new session after `--resume` fails. An edit turn passes
     /// false once the worktree changed (the conversation must not continue on a half-edited tree).
-    public func send(_ input: ChatTurnInput, canRebuild: @escaping @Sendable () -> Bool = { true },
+    public func send(_ input: ChatTurnInput, canRebuild: @escaping @Sendable () async -> Bool = { true },
                      onEvent: @escaping @Sendable (ClaudeStreamEvent) -> Void) async throws -> ChatTurnOutput {
         let deadline = now().addingTimeInterval(Self.timeout)
         if let existing = input.claudeSessionID {
@@ -100,7 +100,7 @@ public struct ChatEngine: Sendable {
             } catch {
                 // Only the CLI's "session not found": anything else (auth, rate limit, network, a crash) would be a
                 // second paid run and lose the conversation.
-                guard Self.isMissingSession(error), !Task.isCancelled, canRebuild() else { throw error }
+                guard Self.isMissingSession(error), !Task.isCancelled, await canRebuild() else { throw error }
                 claude.appendLog("--- couldn't resume the conversation (\(error.localizedDescription)); rebuilding it ---\n")
             }
             let id = newSessionID()

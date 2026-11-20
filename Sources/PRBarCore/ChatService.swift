@@ -81,11 +81,15 @@ public struct ChatService: ChatBackend {
     private let worktreeRoot: URL
     private let pluginCacheDirectory: URL
     private let gitEnvironment: [String: String]
+    /// The host the chat runs on (worktree, context and Claude there, spec J.3); nil = this Mac.
+    private let placement: RemotePlacement?
+    /// Brings a Respond chat's commits back to this Mac (decision J.7.9); only with `placement`.
+    private let importer: RemoteFixImport?
 
     public init(processRunner: ProcessRunning, streamingRunner: StreamingProcessRunning, tokens: TokenProviding, api: GitHubAPI,
                 gitPath: String, ghPath: String?, claudePath: String, settings: ClaudeSettings = ClaudeSettings(),
                 worktreeRoot: URL = AppPaths.worktreesDir, pluginCacheDirectory: URL = ClaudePlugins.defaultCacheDirectory,
-                gitEnvironment: [String: String] = [:]) {
+                gitEnvironment: [String: String] = [:], placement: RemotePlacement? = nil, importer: RemoteFixImport? = nil) {
         self.processRunner = processRunner
         self.streamingRunner = streamingRunner
         self.tokens = tokens
@@ -97,7 +101,14 @@ public struct ChatService: ChatBackend {
         self.worktreeRoot = worktreeRoot
         self.pluginCacheDirectory = pluginCacheDirectory
         self.gitEnvironment = gitEnvironment
+        self.placement = placement
+        self.importer = importer ?? placement.map { RemoteFixImport(spaces: $0.workspaces, localGit: gitPath, gitEnvironment: gitEnvironment) }
     }
+
+    /// Where the context folders are: this Mac or the host.
+    private var contextFiles: any ContextFiles { placement?.workspaces.contextFiles ?? LocalContextFiles() }
+    /// The worktree's disk, for the guard: this Mac or the host.
+    private var fs: any WorkspaceFS { placement?.fs ?? LocalWorkspaceFS() }
 
     // MARK: Workspace
 
@@ -106,14 +117,19 @@ public struct ChatService: ChatBackend {
         case .review(let draft):
             return try await pinnedWorkspace(account: draft.account, headOid: draft.headOid, request)
         case .respond(let draft):
-            return try respondWorkspace(draft, request)
+            return try await respondWorkspace(draft, request)
         case .merge(let target):
             // The review chat's worktree, on the head the merge window shows (spec G.4), with the merge's own `pr.md`.
             var workspace = try await pinnedWorkspace(account: target.account, headOid: target.headOid, request,
                                                       description: request.mergeDetail?.body)
             // Only a summary of the same commit: after a reload to a newer head, an older chat keeps the review `pr.md`.
             if let detail = request.mergeDetail, detail.headOid == target.headOid, let metadata = workspace.files.metadata {
-                try Data(MergeContextWriter.metadata(target: target, detail: detail).utf8).write(to: metadata, options: .atomic)
+                let data = Data(MergeContextWriter.metadata(target: target, detail: detail).utf8)
+                if placement == nil {
+                    try data.write(to: metadata, options: .atomic)
+                } else {
+                    try await contextFiles.write(data, to: metadata.path)   // Upload: `.part` + `mv`.
+                }
             }
             if workspace.note == Self.olderCommitNote { workspace.note = Self.olderMergeCommitNote }
             return workspace
@@ -128,7 +144,7 @@ public struct ChatService: ChatBackend {
     private func pinnedWorkspace(account: String, headOid pinned: String, _ request: ChatWorkspaceRequest,
                                  description known: String? = nil) async throws -> ChatWorkspace {
         if let path = request.session.worktreePath,
-           let existing = Self.existingReviewWorkspace(path: path, refs: request.session.worktreeRefs) {
+           let existing = await existingReviewWorkspace(path: path, refs: request.session.worktreeRefs) {
             return existing
         }
         guard let pr = request.pr else {
@@ -137,27 +153,62 @@ public struct ChatService: ChatBackend {
         let token = try await tokens.token(for: account)
         let description: String?
         if let known { description = known } else { description = try await ReviewPipeline.description(of: pr, api: api, token: token) }
-        let manager = WorktreeManager(runner: processRunner, gitPath: gitPath, root: worktreeRoot)
         let name = WorktreeManager.chatWorkspaceName(repo: pr.repo, number: pr.number, sessionID: request.session.id)
-        let workspace = try await manager.prepare(repo: pr.repo, number: pr.number, baseRef: pr.baseRef,
+        let workspace: ReviewWorkspace
+        let writer: ReviewContextWriter
+        let cleanup: @Sendable () async -> Void
+        if let remote = placement {
+            // The host's own mirror (there's no diff-only mode there).
+            let bare = try await remote.workspaces.mirror(pr.repo)
+            let spaces = remote.workspaces
+            workspace = try await spaces.prepare(repo: pr.repo, number: pr.number, baseRef: pr.baseRef, localPath: bare, name: name,
+                                                 pinnedHeadOid: pinned)
+            writer = ReviewContextWriter(runner: remote.runner, gitPath: remote.gitPath, ghPath: nil, files: spaces.contextFiles)
+            cleanup = { [workspace] in await spaces.cleanup(workspace, localPath: bare) }
+        } else {
+            let manager = WorktreeManager(runner: processRunner, gitPath: gitPath, root: worktreeRoot)
+            workspace = try await manager.prepare(repo: pr.repo, number: pr.number, baseRef: pr.baseRef,
                                                   localPath: request.localPath, name: name, pinnedHeadOid: pinned)
+            writer = ReviewContextWriter(runner: processRunner, gitPath: gitPath, ghPath: ghPath)
+            let localPath = request.localPath
+            cleanup = { [workspace] in await manager.cleanup(workspace, localPath: localPath) }
+        }
         let headOid: String
         do {
-            headOid = try await ReviewContextWriter(runner: processRunner, gitPath: gitPath, ghPath: ghPath)
-                .write(pr: pr, workspace: workspace, token: token, description: description ?? "")
+            headOid = try await writer.write(pr: pr, workspace: workspace, token: token, description: description ?? "")
         } catch {
-            let localPath = request.localPath
-            await Task.detached { await manager.cleanup(workspace, localPath: localPath) }.value
+            await Task.detached { await cleanup() }.value
             throw error
         }
-        var result = Self.chatWorkspace(workspace)
+        var result = await chatWorkspace(workspace)
         if headOid != pinned { result.note = Self.olderCommitNote }
         return result
     }
 
+    /// `chatWorkspace(_:)` with the diff read where it is (this Mac or the host).
+    private func chatWorkspace(_ workspace: ReviewWorkspace) async -> ChatWorkspace {
+        guard placement != nil else { return Self.chatWorkspace(workspace) }
+        let diff = await contextFiles.read(workspace.diffFile.path, limit: Self.maxRemoteDiffBytes).map { String(decoding: $0, as: UTF8.self) }
+        return Self.chatWorkspace(workspace, diff: diff ?? "")
+    }
+
+    /// The most of a remote `pr.diff` that's brought back to know the diff's files.
+    static let maxRemoteDiffBytes = 64 * 1024 * 1024
+
+    /// `existingReviewWorkspace(path:refs:)`, checked where the worktree is.
+    private func existingReviewWorkspace(path: String, refs: [String]) async -> ChatWorkspace? {
+        guard placement != nil else { return Self.existingReviewWorkspace(path: path, refs: refs) }
+        let workspace = Self.reviewWorkspace(path: path, refs: refs)
+        guard await contextFiles.exists(workspace.directory.path), await contextFiles.exists(workspace.diffFile.path) else { return nil }
+        return await chatWorkspace(workspace)
+    }
+
     static func chatWorkspace(_ workspace: ReviewWorkspace) -> ChatWorkspace {
-        let diff = (try? String(contentsOf: workspace.diffFile, encoding: .utf8)) ?? ""
-        return ChatWorkspace(
+        chatWorkspace(workspace, diff: (try? String(contentsOf: workspace.diffFile, encoding: .utf8)) ?? "")
+    }
+
+    static func chatWorkspace(_ workspace: ReviewWorkspace, diff: String) -> ChatWorkspace {
+        ChatWorkspace(
             directory: workspace.directory, contextDirectory: workspace.contextDirectory,
             files: ChatContextFiles(diff: workspace.diffFile, metadata: workspace.metadataFile),
             diffFiles: ChatActions.files(inDiff: diff), isDiffOnly: workspace.isDiffOnly,
@@ -186,26 +237,29 @@ public struct ChatService: ChatBackend {
     }
 
     /// Respond: Claude works in the respond's worktree. The context is written again on each turn.
-    private func respondWorkspace(_ draft: RespondDraft, _ request: ChatWorkspaceRequest) throws -> ChatWorkspace {
-        let files = FileManager.default
-        let context = worktreeRoot.appendingPathComponent(Self.respondContextName(draft, sessionID: request.session.id), isDirectory: true)
-        try files.createDirectory(at: context, withIntermediateDirectories: true)
+    private func respondWorkspace(_ draft: RespondDraft, _ request: ChatWorkspaceRequest) async throws -> ChatWorkspace {
+        try checkRunner(draft)
+        let files = contextFiles
+        let name = Self.respondContextName(draft, sessionID: request.session.id)
+        let context = URL(fileURLWithPath: try placement?.root.child(["work", name]) ?? worktreeRoot.appendingPathComponent(name).path,
+                          isDirectory: true)
+        try await files.createDirectory(context.path)
         let feedback = context.appendingPathComponent("feedback.json")
-        try RespondAnalyzer.encodeFeedback(draft.items.map(\.feedback)).write(to: feedback)
+        try await files.write(try RespondAnalyzer.encodeFeedback(draft.items.map(\.feedback)), to: feedback.path)
         var paths = ChatContextFiles(feedback: feedback)
         let metadata = context.appendingPathComponent("pr.md")
         if let pr = request.pr {
-            try Data(ReviewContextWriter.metadata(pr, headOid: draft.startHeadOid, description: "").utf8).write(to: metadata)
+            try await files.write(Data(ReviewContextWriter.metadata(pr, headOid: draft.startHeadOid, description: "").utf8), to: metadata.path)
             paths.metadata = metadata
         } else {
-            try? files.removeItem(at: metadata)
+            await files.removeTree(metadata.path)
         }
         let fixes = context.appendingPathComponent("fixes.diff")
         if let diff = request.respondResult?.diff {
-            try Data(diff.utf8).write(to: fixes)
+            try await files.write(Data(diff.utf8), to: fixes.path)
             paths.fixesDiff = fixes
         } else {
-            try? files.removeItem(at: fixes)
+            await files.removeTree(fixes.path)
         }
         return ChatWorkspace(directory: URL(fileURLWithPath: draft.worktree.path, isDirectory: true), contextDirectory: context,
                              files: paths, diffFiles: [], isDiffOnly: false, refs: [], note: nil)
@@ -220,25 +274,55 @@ public struct ChatService: ChatBackend {
 
     public func sendEditing(_ input: ChatTurnInput, draft: RespondDraft, result: RespondResult, sessionID: UUID, logURL: URL,
                             onEvent: @escaping @Sendable (ClaudeStreamEvent) -> Void) async throws -> (ChatTurnOutput, ChatFilesOutcome) {
+        try checkRunner(draft)
         let claude = try await claude(for: .respond(draft), logURL: logURL)
         let engine = ChatEngine(claude: claude)
-        let implementer = FixImplementer(claude: claude, runner: processRunner, gitPath: gitPath, environment: gitEnvironment)
-        let worktree = input.workingDirectory
-        return try await implementer.chatTurn(draft: draft, current: result, sessionID: sessionID, turn: input.turn) {
+        let implementer = await implementer(claude: claude, draft: draft)
+        let worktree = input.workingDirectory.path
+        let fs = self.fs
+        let (output, outcome) = try await implementer.chatTurn(draft: draft, current: result, sessionID: sessionID, turn: input.turn) {
             // The tree as Claude finds it: a failed `--resume` is only rebuilt if Claude didn't touch anything.
-            let before = WorktreeIntegrity.Snapshot.take(worktree)
+            let before = try? await fs.snapshot(worktree)
             return try await engine.send(input, canRebuild: {
-                before.changes(to: WorktreeIntegrity.Snapshot.take(worktree)).all.isEmpty
+                guard let before, let after = try? await fs.snapshot(worktree) else { return false }
+                return before.changes(to: after).all.isEmpty
             }, onEvent: onEvent)
         }
+        guard let changed = outcome.result else { return (output, outcome) }
+        // From a host: the result the user sees is computed on this Mac from the commits brought back.
+        let imported = try await importFromHost(draft: draft, result: changed)
+        return (output, ChatFilesOutcome(changedFiles: outcome.changedFiles, snapshot: outcome.snapshot, result: imported))
     }
 
     public func undoFiles(draft: RespondDraft, snapshot: ChatFileSnapshot, logURL: URL) async throws -> RespondResult {
-        try await implementer(logURL: logURL).undoChatTurn(draft: draft, snapshot: snapshot)
+        try checkRunner(draft)
+        let before = try await implementer(claude: gitOnlyClaude(logURL: logURL), draft: draft).undoChatTurn(draft: draft, snapshot: snapshot)
+        // The local copy of a host's commits goes back too (the push checks it's at the reviewed commit).
+        return try await importFromHost(draft: draft, result: before)
     }
 
     public func filesChangedSince(draft: RespondDraft, snapshot: ChatFileSnapshot) async -> Bool {
-        await implementer(logURL: URL(fileURLWithPath: "/dev/null")).chatFilesChangedSince(snapshot, draft: draft)
+        guard (try? checkRunner(draft)) != nil else { return true }
+        return await implementer(claude: gitOnlyClaude(logURL: URL(fileURLWithPath: "/dev/null")), draft: draft)
+            .chatFilesChangedSince(snapshot, draft: draft)
+    }
+
+    /// On a host: the worktree's HEAD brought to this Mac and the result recomputed here (`RemoteFixImport`). On this
+    /// Mac: `result` as is.
+    private func importFromHost(draft: RespondDraft, result: RespondResult) async throws -> RespondResult {
+        guard placement != nil, let importer else { return result }
+        let token = try await tokens.token(for: draft.account)
+        return try await importer.importFixes(draft: draft, localPath: draft.localPath, items: result.items,
+                                              integrity: result.gitIntegrity, token: token)
+    }
+
+    /// A Respond chat runs where its analysis ran (never a host's worktree with this Mac's git, or the other way).
+    private func checkRunner(_ draft: RespondDraft) throws {
+        guard draft.runner?.lowercased() != placement?.name.lowercased() else { return }
+        if let runner = draft.runner {
+            throw PRBarError.respond("This run happened on \(runner), which isn’t available now: the chat can’t use its worktree.")
+        }
+        throw PRBarError.respond("This run happened on this Mac: the chat can’t use its worktree on \(placement?.name ?? "the server").")
     }
 
     /// The same plugins as the review or the respond of that PR, the chat's model and the account's token only to
@@ -259,6 +343,11 @@ public struct ChatService: ChatBackend {
             skills = []
         }
         let token = try await tokens.token(for: account)
+        if let remote = placement {
+            // The same plugins, from the host's cache (§8.0 on the host).
+            let pluginDirs = try await remote.plugins(skills: skills)
+            return remote.claude(pluginDirs: pluginDirs, logURL: logURL, secrets: [token], model: settings.effectiveChatModel)
+        }
         let pluginDirs = try ClaudePlugins.locate(skills: skills, in: pluginCacheDirectory)
         return ClaudeRunner(runner: streamingRunner, claudePath: claudePath, pluginDirs: pluginDirs,
                             environment: ClaudeRunner.environment(toolPaths: [gitPath, claudePath] + (ghPath.map { [$0] } ?? [])),
@@ -266,10 +355,21 @@ public struct ChatService: ChatBackend {
     }
 
     /// Git only (undo, checks): the runner is only used to write the log.
-    private func implementer(logURL: URL) -> FixImplementer {
-        FixImplementer(claude: ClaudeRunner(runner: streamingRunner, claudePath: claudePath, pluginDirs: [], environment: [:],
-                                            logURL: logURL, redacting: []),
-                       runner: processRunner, gitPath: gitPath, environment: gitEnvironment)
+    private func gitOnlyClaude(logURL: URL) -> ClaudeRunner {
+        ClaudeRunner(runner: streamingRunner, claudePath: claudePath, pluginDirs: [], environment: [:], logURL: logURL, redacting: [])
+    }
+
+    /// The respond worktree's guard and git: on this Mac, or on the host (its git, the Perl guard, this Mac's commit
+    /// identity).
+    private func implementer(claude: ClaudeRunner, draft: RespondDraft) async -> FixImplementer {
+        guard let remote = placement else {
+            return FixImplementer(claude: claude, runner: processRunner, gitPath: gitPath, environment: gitEnvironment)
+        }
+        let identity = await RespondPipeline.commitIdentity(runner: processRunner, gitPath: gitPath, localPath: draft.localPath,
+                                                            environment: gitEnvironment)
+        return FixImplementer(claude: claude, runner: remote.runner, gitPath: remote.gitPath,
+                              environment: remote.gitEnvironment.merging(identity) { _, new in new }, fs: remote.fs,
+                              testShell: "/bin/sh", testRunner: RemoteLoginRunner(host: remote.host))
     }
 
     // MARK: Limpieza
@@ -279,14 +379,35 @@ public struct ChatService: ChatBackend {
         case .review, .merge:
             guard let path = session.worktreePath else { return }
             let workspace = Self.reviewWorkspace(path: path, refs: session.worktreeRefs)
+            if let remote = placement {
+                let repo: RepoRef
+                switch subject {
+                case .review(let draft): repo = draft.repo
+                case .merge(let target): repo = target.repo
+                case .respond(let draft): repo = draft.repo
+                }
+                guard let bare = try? remote.mirrorPath(repo) else { return }
+                await remote.workspaces.cleanup(workspace, localPath: bare)
+                return
+            }
             await WorktreeManager(runner: processRunner, gitPath: gitPath, root: worktreeRoot).cleanup(workspace, localPath: localPath)
         case .respond(let draft):
-            try? FileManager.default.removeItem(
-                at: worktreeRoot.appendingPathComponent(Self.respondContextName(draft, sessionID: session.id), isDirectory: true))
+            guard (try? checkRunner(draft)) != nil else {
+                AppLog.write("Chat: not cleaning up \(draft.worktree.path)’s chat: it ran on \(draft.runner ?? "this Mac").")
+                return
+            }
+            let name = Self.respondContextName(draft, sessionID: session.id)
+            if let remote = placement {
+                if let context = try? remote.root.child(["work", name]) { await remote.workspaces.contextFiles.removeTree(context) }
+            } else {
+                try? FileManager.default.removeItem(at: worktreeRoot.appendingPathComponent(name, isDirectory: true))
+            }
             // The turns' snapshot refs live in the clone's common dir (the worktree may be gone already).
             let repo = draft.worktree.localPath ?? draft.worktree.path
             let pattern = "refs/prbar/chat-\(session.id.uuidString.lowercased())-*"
-            let environment = GitHardening.environment.merging(gitEnvironment) { _, extra in extra }
+            let processRunner: ProcessRunning = placement?.runner ?? self.processRunner
+            let gitPath = placement?.gitPath ?? self.gitPath
+            let environment = placement?.gitEnvironment ?? GitHardening.environment.merging(gitEnvironment) { _, extra in extra }
             guard let list = try? await processRunner.run(
                 gitPath, ["-C", repo] + GitHardening.arguments + ["for-each-ref", "--format=%(refname)", pattern],
                 environment: environment, currentDirectory: nil, timeout: ProcessTimeouts.standard), list.status == 0 else { return }

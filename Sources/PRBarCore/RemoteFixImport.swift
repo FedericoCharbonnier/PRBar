@@ -108,7 +108,7 @@ public struct RemoteFixImport: Sendable {
         guard FixImplementer.isFullSHA(remoteHead) else { throw RemoteRunnerError.malformedOutput(host: spaces.host.name, what: "HEAD") }
 
         // El repo local: el clone del usuario (verificando su origin) o uno temporal mínimo.
-        let (repository, temporary) = try await localRepository(draft: draft, localPath: localPath)
+        let (repository, temporary, created) = try await localRepository(draft: draft, localPath: localPath)
         do {
             if (try? await local(repository, ["cat-file", "-e", "\(draft.startHeadOid)^{commit}"])) == nil {
                 // `--depth=1` solo en el clone temporal: en el del usuario lo volvería shallow.
@@ -150,15 +150,19 @@ public struct RemoteFixImport: Sendable {
             }
             // `fetch` del bundle (y no `bundle unbundle`) para que git revise cada objeto (fsck) antes de guardarlo
             // en el clone; uno corrupto o malicioso corta sin dejar nada.
+            // `+`: la ref propia también vuelve atrás (deshacer un turno del chat); se verifica justo después.
             try await local(repository, ["fetch", "--no-tags", "--no-write-fetch-head", "--no-recurse-submodules", bundle.path,
-                                         "\(remoteHead):\(Self.ref(draft))"],
+                                         "+\(remoteHead):\(Self.ref(draft))"],
                             config: ["-c", "transfer.fsckObjects=true", "-c", "fetch.fsckObjects=true"])
             let fetched = try await local(repository, ["rev-parse", "--verify", "\(Self.ref(draft))^{commit}"])
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard fetched == remoteHead else { throw RemoteRunnerError.importMismatch("the bundle’s commit isn’t the server’s HEAD.") }
             return try await summary(draft: draft, repository: repository, temporary: temporary, head: remoteHead, items: items, integrity: integrity)
         } catch {
-            if temporary { try? FileManager.default.removeItem(atPath: repository) }
+            if created {
+                try? FileManager.default.removeItem(atPath: repository)
+                WorkspaceRegistry.shared.remove(repository)
+            }
             throw error
         }
     }
@@ -167,21 +171,34 @@ public struct RemoteFixImport: Sendable {
         RemoteRunnerError.importMismatch("the fixes are too big to bring back (\(bytes / 1_048_576) MB, the limit is \(maxBundleBytes / 1_048_576) MB).")
     }
 
-    private func localRepository(draft: RespondDraft, localPath: String?) async throws -> (String, Bool) {
+    /// El repo, si es el clone temporal y si se creó recién (solo ese se borra si el import falla).
+    private func localRepository(draft: RespondDraft, localPath: String?) async throws -> (String, Bool, Bool) {
         if let localPath {
             let url = try await local(localPath, ["remote", "get-url", "origin"]).trimmingCharacters(in: .whitespacesAndNewlines)
             guard originMatches(url, draft.repo) else {
                 throw PRBarError.respond("The origin remote of \(localPath) is \(url), not github.com/\(draft.repo.fullName): not using it.")
             }
-            return (localPath, false)
+            return (localPath, false, false)
         }
-        let path = tempRoot.appendingPathComponent(draft.id.uuidString.lowercased()).path
+        let path = temporaryClonePath(draft)
         try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        // Ocupa disco de la Mac mientras dura la corrida: Clean Up no lo toca (spec I).
+        WorkspaceRegistry.shared.insert(path)
+        if FileManager.default.fileExists(atPath: path + "/objects") {
+            // Un import anterior de la misma corrida (otro turno del chat): se reusa.
+            return (path, true, false)
+        }
         let initialized = try await localRunner.run(localGit, ["init", "--bare", "-q", path], environment: gitEnvironment,
                                                     currentDirectory: nil, timeout: 60)
-        guard initialized.status == 0 else { throw PRBarError.respond("Couldn’t create a temporary clone to push from.") }
-        try await local(path, ["remote", "add", "origin", originURL(draft.repo)])
-        return (path, true)
+        do {
+            guard initialized.status == 0 else { throw PRBarError.respond("Couldn’t create a temporary clone to push from.") }
+            try await local(path, ["remote", "add", "origin", originURL(draft.repo)])
+        } catch {
+            try? FileManager.default.removeItem(atPath: path)
+            WorkspaceRegistry.shared.remove(path)
+            throw error
+        }
+        return (path, true, true)
     }
 
     private func summary(draft: RespondDraft, repository: String, temporary: Bool, head: String,
@@ -248,6 +265,21 @@ public struct RemoteFixImport: Sendable {
         }
     }
 
+    func temporaryClonePath(_ draft: RespondDraft) -> String {
+        tempRoot.appendingPathComponent(draft.id.uuidString.lowercased()).path
+    }
+
+    /// Lo mismo que `discard(_:)` sin el resultado (al descartar una corrida): la ref de la corrida en el clone del
+    /// usuario y el clone temporal. Nunca lanza.
+    public func discard(draft: RespondDraft) async {
+        if let localPath = draft.localPath {
+            _ = try? await local(localPath, ["update-ref", "-d", Self.ref(draft)])
+        }
+        let temporary = temporaryClonePath(draft)
+        await discard(RespondResult(items: [], diffStat: "", tests: nil,
+                                    remoteObjects: RemoteObjects(repoPath: temporary, temporary: true, ref: Self.ref(draft), treeOid: "")))
+    }
+
     /// Borra la ref local (y el clone temporal). Nunca lanza.
     public func discard(_ result: RespondResult) async {
         guard let objects = result.remoteObjects else { return }
@@ -261,6 +293,7 @@ public struct RemoteFixImport: Sendable {
                 return
             }
             try? FileManager.default.removeItem(at: url)
+            WorkspaceRegistry.shared.remove(url.path)
         } else if objects.ref.hasPrefix("refs/prbar/remote-") {
             _ = try? await local(objects.repoPath, ["update-ref", "-d", objects.ref])
         }

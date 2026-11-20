@@ -3,12 +3,13 @@ import Foundation
 /// Lo que hace falta para analizar el feedback de un PR propio.
 public struct RespondRequest: Sendable {
     public let item: ClassifiedPR
-    /// El clone del usuario (`RepoConfig.localPath`).
-    public let localPath: String
+    /// El clone del usuario (`RepoConfig.localPath`). Solo un destino remoto acepta nil (el worktree sale del mirror
+    /// del host, decisión J.7.14).
+    public let localPath: String?
     /// `RepoConfig.worktreeDir`; nil = `<localPath>-worktrees`.
     public let worktreeDir: String?
 
-    public init(item: ClassifiedPR, localPath: String, worktreeDir: String?) {
+    public init(item: ClassifiedPR, localPath: String?, worktreeDir: String?) {
         self.item = item
         self.localPath = localPath
         self.worktreeDir = worktreeDir
@@ -134,6 +135,7 @@ public protocol RespondPipelineRunning: Sendable {
 public struct RespondPipeline: RespondPipelineRunning {
     public static let noItemsMessage = "There are no unresolved comments"
     public static let forkMessage = "The PR comes from a fork: PRBar can't push to it"
+    public static let needsLocalPathMessage = "This repo needs a local folder to respond."
 
     private let processRunner: ProcessRunning
     private let streamingRunner: StreamingProcessRunning
@@ -150,6 +152,10 @@ public struct RespondPipeline: RespondPipelineRunning {
     private let originMatches: @Sendable (String, RepoRef) -> Bool
     /// El disco del worktree (para el guardián y la cancelación): esta Mac o el host del trabajo.
     private let workspaceFS: any WorkspaceFS
+    /// El host donde corre todo lo de Claude (worktree, análisis, fixes, tests); nil = esta Mac. GitHub y el push
+    /// siguen en la Mac: los fixes vuelven con `importer` (decisión J.7.9).
+    private let placement: RemotePlacement?
+    private let importer: RemoteFixImport?
 
     /// `worktreeRoot`: donde van las carpetas de contexto (`AppPaths.worktreesDir`). `gitEnvironment` se suma
     /// al de cada git (los tests aíslan la configuración global). `logURLProvider` recibe el id del draft.
@@ -161,7 +167,8 @@ public struct RespondPipeline: RespondPipelineRunning {
         rules: [Rule] = [], gitEnvironment: [String: String] = [:],
         logURLProvider: @escaping @Sendable (UUID) -> URL,
         originMatches: @escaping @Sendable (String, RepoRef) -> Bool = { WorktreeResolver.originMatches($0, repo: $1) },
-        workspaceFS: any WorkspaceFS = LocalWorkspaceFS()
+        workspaceFS: any WorkspaceFS = LocalWorkspaceFS(),
+        placement: RemotePlacement? = nil, importer: RemoteFixImport? = nil
     ) {
         self.processRunner = processRunner
         self.streamingRunner = streamingRunner
@@ -176,7 +183,12 @@ public struct RespondPipeline: RespondPipelineRunning {
         self.gitEnvironment = gitEnvironment.merging(["GIT_TERMINAL_PROMPT": "0"]) { _, forced in forced }
         self.logURLProvider = logURLProvider
         self.originMatches = originMatches
-        self.workspaceFS = workspaceFS
+        self.placement = placement
+        // Con un host, el disco del trabajo es el del host.
+        self.workspaceFS = placement?.fs ?? workspaceFS
+        self.importer = importer ?? placement.map {
+            RemoteFixImport(spaces: $0.workspaces, localGit: gitPath, gitEnvironment: gitEnvironment, originMatches: originMatches)
+        }
     }
 
     public func logURL(for id: UUID) -> URL { logURLProvider(id) }
@@ -197,58 +209,108 @@ public struct RespondPipeline: RespondPipelineRunning {
         guard !items.isEmpty else { throw PRBarError.respond(Self.noItemsMessage) }
         // On demand (the refresh doesn't bring it): context for Claude and the language of the replies.
         let description = try await ReviewPipeline.description(of: pr, api: api, token: token)
-        let pluginDirs = try ClaudePlugins.locate(skills: settings.respondSkills, in: pluginCacheDirectory)
-        try Task.checkCancellation()
-
         let headRef = feedback.headRefName
-        // Siempre un worktree propio y separado; su commit es la base de todo lo que sigue.
-        let (worktree, startHeadOid) = try await resolver.prepare(
-            localPath: request.localPath, repo: pr.repo, number: pr.number, headRef: headRef, worktreeDir: request.worktreeDir)
+        let pluginDirs: [String]
+        let worktree: ResolvedWorktree
+        let startHeadOid: String
+        if let remote = placement {
+            pluginDirs = try await remote.plugins(skills: settings.respondSkills)
+            try Task.checkCancellation()
+            // Siempre un worktree propio y separado en el host, del mirror de PRBar (también sin `localPath`).
+            (worktree, startHeadOid) = try await remote.preparing {
+                let bare = try await remote.workspaces.mirror(pr.repo)
+                return try await remote.workspaces.prepareRespond(localPath: bare, repo: pr.repo, number: pr.number, headRef: headRef,
+                                                                  worktreeDir: nil)
+            }
+        } else {
+            guard let localPath = request.localPath, !localPath.isEmpty else { throw PRBarError.respond(Self.needsLocalPathMessage) }
+            pluginDirs = try ClaudePlugins.locate(skills: settings.respondSkills, in: pluginCacheDirectory)
+            try Task.checkCancellation()
+            // Siempre un worktree propio y separado; su commit es la base de todo lo que sigue.
+            (worktree, startHeadOid) = try await resolver.prepare(
+                localPath: localPath, repo: pr.repo, number: pr.number, headRef: headRef, worktreeDir: request.worktreeDir)
+        }
         let worktreeURL = URL(fileURLWithPath: worktree.path, isDirectory: true)
         do {
             try Task.checkCancellation()
             return try await analyze(item: item, items: items, headRef: headRef, worktree: worktree, worktreeURL: worktreeURL,
                                      startHeadOid: startHeadOid, pluginDirs: pluginDirs, token: token, draftID: draftID,
-                                     description: description, onPhase: onPhase)
+                                     description: description, localPath: request.localPath, onPhase: onPhase)
         } catch {
             // Sin draft no hay nada que revisar: el worktree se borra (fuera de esta tarea, que puede estar cancelada).
-            let resolver = self.resolver
-            await Task.detached { await resolver.cleanup(worktree) }.value
+            // Salvo si Claude puede seguir corriendo en el host: ahí no se toca.
+            if RemoteUnstoppedJobs.isNotStopped(error) {
+                AppLog.write("Respond: Claude may still be running in \(worktree.path); leaving it as is.")
+                throw error
+            }
+            let pipeline = self
+            await Task.detached { await pipeline.removeWorktree(worktree) }.value
             throw error
+        }
+    }
+
+    /// Las etapas siguientes corren donde corrió el análisis (decisión J.7.10): nunca un worktree del host con git de
+    /// esta Mac ni al revés.
+    private func checkRunner(_ draft: RespondDraft) throws {
+        guard draft.runner?.lowercased() != placement?.name.lowercased() else { return }
+        if let runner = draft.runner {
+            throw PRBarError.respond("This analysis ran on \(runner), which isn’t available now. Analyze the PR again.")
+        }
+        throw PRBarError.respond("This analysis ran on this Mac. Analyze the PR again.")
+    }
+
+    /// El worktree de PRBar (en esta Mac o en el host). Nunca lanza.
+    private func removeWorktree(_ worktree: ResolvedWorktree) async {
+        if let remote = placement {
+            await remote.workspaces.cleanupRespond(worktree)
+        } else {
+            await resolver.cleanup(worktree)
         }
     }
 
     private func analyze(item: ClassifiedPR, items: [FeedbackItem], headRef: String, worktree: ResolvedWorktree,
                          worktreeURL: URL, startHeadOid: String, pluginDirs: [String], token: String, draftID: UUID,
-                         description: String?, onPhase: @escaping @MainActor @Sendable (RespondPhase) -> Void) async throws -> RespondDraft {
+                         description: String?, localPath: String?, onPhase: @escaping @MainActor @Sendable (RespondPhase) -> Void) async throws -> RespondDraft {
         let pr = item.pr
         let language = PRLanguage.detect(description: description, title: pr.title)
 
         await onPhase(.analyzing(agents: 0))
-        let contextDir = worktreeRoot.appendingPathComponent(
-            "\(pr.repo.owner)-\(pr.repo.name)-\(pr.number)-\(draftID.uuidString).respond-context", isDirectory: true)
+        let contextName = "\(pr.repo.owner)-\(pr.repo.name)-\(pr.number)-\(draftID.uuidString).respond-context"
+        let contextDir: URL
+        let files: any ContextFiles
+        if let remote = placement {
+            contextDir = URL(fileURLWithPath: try remote.root.child(["work", contextName]), isDirectory: true)
+            files = remote.workspaces.contextFiles
+        } else {
+            contextDir = worktreeRoot.appendingPathComponent(contextName, isDirectory: true)
+            files = LocalContextFiles()
+            WorkspaceRegistry.shared.insert(contextDir.path)
+        }
         let analyzer = RespondAnalyzer(claude: claude(pluginDirs: pluginDirs, token: token, logURL: logURL(for: draftID)),
-                                       settings: settings, rules: rules)
+                                       settings: settings, rules: rules, files: files)
         let relay = MainActorRelay<Int> { agents in onPhase(.analyzing(agents: agents)) }
         let analyzed: [RespondItem]
-        WorkspaceRegistry.shared.insert(contextDir.path)
+        let removeContext: @Sendable () async -> Void = { [placement] in
+            await Task.detached { await files.removeTree(contextDir.path) }.value
+            if placement == nil { WorkspaceRegistry.shared.remove(contextDir.path) }
+        }
         do {
-            defer {
-                try? FileManager.default.removeItem(at: contextDir)
-                WorkspaceRegistry.shared.remove(contextDir.path)
-            }
             analyzed = try await analyzer.analyze(pr: pr, items: items, worktree: worktreeURL, contextDir: contextDir,
                                                  description: description ?? "", language: language) { relay.send($0) }
         } catch {
             await relay.finish()
+            // Si Claude puede seguir corriendo en el host, su carpeta de contexto también queda.
+            if !RemoteUnstoppedJobs.isNotStopped(error) { await removeContext() }
             throw error
         }
+        await removeContext()
         await relay.finish()
         try Task.checkCancellation()
 
         return RespondDraft(
             id: draftID, prID: item.id, repo: pr.repo, number: pr.number, title: pr.title, url: pr.url, headRef: headRef,
-            account: item.account, worktree: worktree, startHeadOid: startHeadOid, items: analyzed, language: language)
+            account: item.account, worktree: worktree, startHeadOid: startHeadOid, items: analyzed, language: language,
+            runner: placement?.name, localPath: placement == nil ? nil : localPath)
     }
 
     // MARK: - Fixes y tests
@@ -258,14 +320,25 @@ public struct RespondPipeline: RespondPipelineRunning {
         guard draft.worktree.origin == .dedicated else {
             throw PRBarError.respond("This analysis is from an older version of PRBar. Analyze the PR again.")
         }
+        try checkRunner(draft)
         let token = try await tokens.token(for: draft.account)
-        let pluginDirs = try ClaudePlugins.locate(skills: settings.respondSkills, in: pluginCacheDirectory)
-        let implementer = FixImplementer(claude: claude(pluginDirs: pluginDirs, token: token, logURL: logURL(for: draft.id)),
-                                         runner: processRunner, gitPath: gitPath, environment: gitEnvironment,
-                                         settings: settings, rules: rules, fs: workspaceFS)
+        let pluginDirs: [String]
+        if let remote = placement {
+            pluginDirs = try await remote.plugins(skills: settings.respondSkills)
+        } else {
+            pluginDirs = try ClaudePlugins.locate(skills: settings.respondSkills, in: pluginCacheDirectory)
+        }
+        let implementer = await fixImplementer(claude: claude(pluginDirs: pluginDirs, token: token, logURL: logURL(for: draft.id)),
+                                               draft: draft)
         do {
-            return try await implementer.implement(draft: draft, selections: selections, onProgress: onProgress)
+            let result = try await implementer.implement(draft: draft, selections: selections, onProgress: onProgress)
+            guard let importer else { return result }
+            // El diff, los commits y los sensibles que ve el usuario se calculan en la Mac desde los objetos traídos.
+            return try await importer.importFixes(draft: draft, localPath: draft.localPath, items: result.items,
+                                                  integrity: result.gitIntegrity, token: token)
         } catch {
+            // Claude puede seguir corriendo en el host: el error lo dice (también si fue un Stop), y nada mira el worktree.
+            if RemoteUnstoppedJobs.isNotStopped(error) { throw error }
             guard error is CancellationError || Task.isCancelled else { throw error }
             // `FixImplementer` ya restauró el árbol (en su propia tarea). Lo que queda se mira fuera de esta tarea
             // cancelada, que no puede lanzar procesos.
@@ -282,6 +355,7 @@ public struct RespondPipeline: RespondPipelineRunning {
         let worktree = URL(fileURLWithPath: draft.worktree.path, isDirectory: true)
         let unknown = RespondCancellation(unpushedCommits: nil, path: draft.worktree.path, dirty: true)
         if draft.runner != nil && workspaceFS is LocalWorkspaceFS { return unknown }
+        if let remote = placement, RemoteUnstoppedJobs.shared.contains(host: remote.name, path: draft.worktree.path) { return unknown }
         guard ((try? await workspaceFS.nestedGitEntries(worktree.path)) ?? ["?"]).isEmpty else { return unknown }
         let count = try? await git(worktree, ["rev-list", "--count", "\(draft.startHeadOid)..HEAD"])
         let status = try? await git(worktree, ["status", GitHardening.ignoreSubmodules, "--porcelain", "--untracked-files=all"])
@@ -292,11 +366,14 @@ public struct RespondPipeline: RespondPipelineRunning {
     }
 
     public func runTests(draft: RespondDraft, testCommand: String) async -> TestRun {
+        do { try checkRunner(draft) } catch {
+            return TestRun(command: testCommand, passed: false, outputTail: error.localizedDescription)
+        }
         // Sin plugins ni Claude: el runner solo se usa para escribir el log de la corrida.
-        let implementer = FixImplementer(
+        let implementer = await fixImplementer(
             claude: ClaudeRunner(runner: streamingRunner, claudePath: claudePath, pluginDirs: [],
                                  environment: [:], logURL: logURL(for: draft.id), redacting: []),
-            runner: processRunner, gitPath: gitPath, environment: gitEnvironment)
+            draft: draft)
         return await implementer.runTests(worktree: URL(fileURLWithPath: draft.worktree.path, isDirectory: true),
                                           testCommand: testCommand)
     }
@@ -304,11 +381,22 @@ public struct RespondPipeline: RespondPipelineRunning {
     // MARK: - Push y respuestas
 
     public func push(draft: RespondDraft, result: RespondResult) async throws {
+        try checkRunner(draft)
+        if let importer, placement != nil {
+            // Desde la Mac, después de verificar de nuevo lo traído del host (decisión J.7.9).
+            try await importer.push(draft: draft, result: result, token: try await tokens.token(for: draft.account))
+            return
+        }
         try await publisher.push(draft: draft, result: result)
     }
 
     public func cleanup(draft: RespondDraft) async {
-        await resolver.cleanup(draft.worktree)
+        guard (try? checkRunner(draft)) != nil else {
+            AppLog.write("Respond: not cleaning up \(draft.worktree.path): it ran on \(draft.runner ?? "this Mac").")
+            return
+        }
+        await removeWorktree(draft.worktree)
+        if let importer, placement != nil { await importer.discard(draft: draft) }
     }
 
     public func postReplies(draft: RespondDraft, selections: [String: RespondSelection], result: RespondResult?,
@@ -335,16 +423,60 @@ public struct RespondPipeline: RespondPipelineRunning {
         WorktreeResolver(runner: processRunner, gitPath: gitPath, environment: gitEnvironment, originMatches: originMatches)
     }
 
+    /// El `FixImplementer` del trabajo: en esta Mac, o en el host (git y Claude allá, el guardián Perl, los tests con
+    /// `/bin/sh -lc` y el entorno de login del host, decisión J.7.13).
+    private func fixImplementer(claude: ClaudeRunner, draft: RespondDraft) async -> FixImplementer {
+        guard let remote = placement else {
+            return FixImplementer(claude: claude, runner: processRunner, gitPath: gitPath, environment: gitEnvironment,
+                                  settings: settings, rules: rules, fs: workspaceFS)
+        }
+        let identity = await Self.commitIdentity(runner: processRunner, gitPath: gitPath, localPath: draft.localPath,
+                                                 environment: gitEnvironment)
+        return FixImplementer(claude: claude, runner: remote.runner, gitPath: remote.gitPath,
+                              environment: remote.gitEnvironment.merging(identity) { _, new in new },
+                              settings: settings, rules: rules, fs: remote.fs, testShell: "/bin/sh",
+                              testRunner: RemoteLoginRunner(host: remote.host))
+    }
+
+    /// La identidad de commit de la Mac (`git config user.name`/`user.email`, del clone si hay; si no, la global) para
+    /// los commits del host (decisión J.7.5; no es un secreto). Vacía si no hay.
+    static func commitIdentity(runner: ProcessRunning, gitPath: String, localPath: String?,
+                               environment: [String: String]) async -> [String: String] {
+        func value(_ key: String) async -> String? {
+            let args = (localPath.map { ["-C", $0] } ?? []) + ["config", "--get", key]
+            guard let result = try? await runner.run(gitPath, args, environment: environment, currentDirectory: nil,
+                                                     timeout: ProcessTimeouts.standard), result.status == 0 else { return nil }
+            let text = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty, text.count <= 200, !text.contains(where: { $0.isNewline || $0 == "\0" }) else { return nil }
+            return text
+        }
+        var identity: [String: String] = [:]
+        if let name = await value("user.name") {
+            identity["GIT_AUTHOR_NAME"] = name
+            identity["GIT_COMMITTER_NAME"] = name
+        }
+        if let email = await value("user.email") {
+            identity["GIT_AUTHOR_EMAIL"] = email
+            identity["GIT_COMMITTER_EMAIL"] = email
+        }
+        return identity
+    }
+
     private func claude(pluginDirs: [String], token: String, logURL: URL) -> ClaudeRunner {
-        ClaudeRunner(runner: streamingRunner, claudePath: claudePath, pluginDirs: pluginDirs,
+        if let remote = placement {
+            return remote.claude(pluginDirs: pluginDirs, logURL: logURL, secrets: [token], model: settings.model)
+        }
+        return ClaudeRunner(runner: streamingRunner, claudePath: claudePath, pluginDirs: pluginDirs,
                      environment: ClaudeRunner.environment(toolPaths: [gitPath, claudePath]),
                      logURL: logURL, redacting: [token], model: settings.model)
     }
 
     private func git(_ worktree: URL, _ arguments: [String]) async throws -> String {
         let args = ["-C", worktree.path] + GitHardening.arguments + arguments
-        let result = try await processRunner.run(gitPath, args, environment: gitEnvironment, currentDirectory: nil,
-                                                 timeout: ProcessTimeouts.standard)
+        // En el worktree del trabajo: el del host corre allá.
+        let result = try await (placement?.runner ?? processRunner).run(
+            placement?.gitPath ?? gitPath, args, environment: placement?.gitEnvironment ?? gitEnvironment, currentDirectory: nil,
+            timeout: ProcessTimeouts.standard)
         guard result.status == 0 else {
             throw PRBarError.commandFailed(command: (["git"] + arguments.prefix(2)).joined(separator: " "),
                                            status: result.status,

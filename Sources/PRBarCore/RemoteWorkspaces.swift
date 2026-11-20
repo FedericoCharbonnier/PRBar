@@ -7,6 +7,8 @@ public protocol ContextFiles: Sendable {
     func write(_ data: Data, to path: String) async throws
     func removeTree(_ path: String) async
     func exists(_ path: String) async -> Bool
+    /// El contenido (hasta `limit` bytes), o nil si no se puede leer.
+    func read(_ path: String, limit: Int) async -> Data?
 }
 
 public struct LocalContextFiles: ContextFiles {
@@ -17,6 +19,10 @@ public struct LocalContextFiles: ContextFiles {
     public func write(_ data: Data, to path: String) async throws { try data.write(to: URL(fileURLWithPath: path)) }
     public func removeTree(_ path: String) async { try? FileManager.default.removeItem(atPath: path) }
     public func exists(_ path: String) async -> Bool { FileManager.default.fileExists(atPath: path) }
+    public func read(_ path: String, limit: Int) async -> Data? {
+        guard let data = FileManager.default.contents(atPath: path), data.count <= limit else { return nil }
+        return data
+    }
 }
 
 public struct RemoteContextFiles: ContextFiles {
@@ -37,6 +43,13 @@ public struct RemoteContextFiles: ContextFiles {
     public func exists(_ path: String) async -> Bool {
         guard root.contains(path), let quoted = try? ShellQuote.posix(path) else { return false }
         return (try? await host.runScript("[ -e \(quoted) ]", timeout: 30).status) == 0
+    }
+    public func read(_ path: String, limit: Int) async -> Data? {
+        guard root.contains(path), let local = try? LocalScratch.newFile() else { return nil }
+        defer { try? FileManager.default.removeItem(at: local) }
+        guard (try? await host.download(path, to: local, root: root)) != nil,
+              let data = FileManager.default.contents(atPath: local.path), data.count <= limit else { return nil }
+        return data
     }
 }
 
@@ -165,6 +178,10 @@ public struct RemoteWorkspaces: Sendable {
     /// refs y la carpeta de contexto. Nunca `git worktree prune`. Nunca lanza.
     public func cleanup(_ workspace: ReviewWorkspace, localPath: String?) async {
         let directory = workspace.directory.path
+        guard !RemoteUnstoppedJobs.shared.contains(host: host.name, path: directory) else {
+            AppLog.write("Remote (\(host.name)): Claude may still be running in \(directory); not cleaning it up.")
+            return
+        }
         try? await host.removeTree(workspace.contextDirectory.path, root: root)
         guard root.isRemovable(directory) else { return }
         if let bare = localPath, root.contains(bare) {
@@ -212,6 +229,10 @@ public struct RemoteWorkspaces: Sendable {
     public func cleanupRespond(_ worktree: ResolvedWorktree) async {
         guard worktree.origin == .dedicated, let bare = worktree.localPath, root.contains(bare),
               WorktreeResolver.isRespondWorktreeName((worktree.path as NSString).lastPathComponent) else { return }
+        guard !RemoteUnstoppedJobs.shared.contains(host: host.name, path: worktree.path) else {
+            AppLog.write("Remote (\(host.name)): Claude may still be running in \(worktree.path); not cleaning it up.")
+            return
+        }
         await gitLogged(bare, ["worktree", "remove", "--force", worktree.path])
         if let ref = worktree.ref, ref.hasPrefix("refs/prbar/respond-") { await gitLogged(bare, ["update-ref", "-d", ref]) }
         try? await host.removeTree(worktree.path, root: root)

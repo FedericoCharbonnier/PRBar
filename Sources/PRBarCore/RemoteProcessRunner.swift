@@ -77,7 +77,10 @@ public struct RemoteProcessRunner: ProcessRunning, StandardInputStreamingRunning
                 return true
             }.value
             guard stopped else {
-                AppLog.write("Remote (\(host.name)): couldn’t confirm the job stopped after: \((error as? LocalizedError)?.errorDescription ?? "\(error)")")
+                AppLog.write("Remote (\(host.name)): couldn’t confirm the job stopped after: \((error as? LocalizedError)?.errorDescription ?? "\(error)")"
+                             + (currentDirectory.map { "; leaving \($0.path) as is" } ?? ""))
+                // Claude puede seguir escribiendo ahí: ninguna limpieza de esta sesión lo toca.
+                if let currentDirectory { RemoteUnstoppedJobs.shared.insert(host: host.name, path: currentDirectory.path) }
                 throw RemoteRunnerError.jobNotStopped(host: host.name)
             }
             throw error
