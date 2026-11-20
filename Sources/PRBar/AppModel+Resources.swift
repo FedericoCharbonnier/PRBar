@@ -14,6 +14,8 @@ extension AppModel: ResourceActions {
                                           return DiskScanner.scan(input)
                                       })
         monitor.onDisk = { [weak self] disk in self?.checkDiskWarning(disk) }
+        // Con umbral, el disco se mide también sin nada abierto (al terminar un trabajo, a lo sumo cada 20 min).
+        monitor.backgroundDiskScans = { [weak self] in self?.configStore.config.resources.diskWarningGB != nil }
         return monitor
     }
 

@@ -2,10 +2,13 @@ import Combine
 import Foundation
 
 /// CPU/RAM cada `interval` (2 s) **solo** mientras haya una vista que los muestra (el popover o la ventana Activity),
-/// y el disco en segundo plano, a lo sumo cada 60 s y al terminar un trabajo (spec I, decisiones I.1.7–8).
+/// y el disco en segundo plano, a lo sumo cada 60 s y al terminar un trabajo (spec I, decisiones I.1.7–8). Con umbral
+/// de disco, al terminar un trabajo también sin nada abierto, a lo sumo cada 20 min y con prioridad baja.
 @MainActor
 public final class ResourceMonitor: ObservableObject {
     public static let diskMinInterval: TimeInterval = 60
+    /// Sin nada abierto (solo para el umbral de disco).
+    public static let backgroundDiskInterval: TimeInterval = 20 * 60
 
     @Published public private(set) var usage: ResourceUsage?
     @Published public private(set) var disk: DiskUsage?
@@ -17,20 +20,29 @@ public final class ResourceMonitor: ObservableObject {
     private let diskScan: @Sendable () async -> DiskUsage
     /// Después de cada cálculo de disco (el umbral, en la app).
     public var onDisk: ((DiskUsage) -> Void)?
+    /// Si hay que escanear en segundo plano al terminar un trabajo aunque no haya nada abierto (en la app: hay umbral de
+    /// disco; decisión I.1.8).
+    public var backgroundDiskScans: () -> Bool = { false }
 
     private var consumers: Set<String> = []
     private var samplingTask: Task<Void, Never>?
     private var previous: ProcessSample?
     private var diskTask: Task<Void, Never>?
+    /// Un trabajo terminó mientras se escaneaba: hay que escanear otra vez al terminar.
+    private var rescanWhenDone = false
+    private var lastBackgroundScan: Date?
     /// Modo de capturas: los números quedan fijos (no se muestrea ni se escanea nada real).
     private var frozen = false
 
+    private let now: () -> Date
+
     public init(sampler: ProcessSampler, registry: ProcessRegistry = .shared, interval: Duration = .seconds(2),
-                diskScan: @escaping @Sendable () async -> DiskUsage) {
+                diskScan: @escaping @Sendable () async -> DiskUsage, now: @escaping () -> Date = Date.init) {
         self.sampler = sampler
         self.registry = registry
         self.interval = interval
         self.diskScan = diskScan
+        self.now = now
     }
 
     public var isSampling: Bool { samplingTask != nil }
@@ -49,27 +61,47 @@ public final class ResourceMonitor: ObservableObject {
         }
     }
 
-    /// Un trabajo terminó: el disco cambió. Solo recalcula si alguien lo está mirando.
+    /// Un trabajo terminó: el disco cambió. Recalcula si alguien lo está mirando; si no, solo si hay umbral de disco
+    /// (`backgroundDiskScans`) y el último escaneo en segundo plano tiene más de 20 min.
     public func jobFinished() {
         guard !consumers.isEmpty else {
             disk?.scannedAt = .distantPast
+            guard backgroundDiskScans(), !frozen else { return }
+            if let last = lastBackgroundScan, now().timeIntervalSince(last) < Self.backgroundDiskInterval { return }
+            if diskTask != nil {
+                rescanWhenDone = true
+                return
+            }
+            lastBackgroundScan = now()
+            refreshDisk(force: true, priority: .background)
             return
         }
         refreshDisk(force: true)
     }
 
-    public func refreshDisk(force: Bool) {
-        guard diskTask == nil, !frozen else { return }
-        if !force, let disk, Date().timeIntervalSince(disk.scannedAt) < Self.diskMinInterval { return }
+    public func refreshDisk(force: Bool) { refreshDisk(force: force, priority: .utility) }
+
+    private func refreshDisk(force: Bool, priority: TaskPriority) {
+        guard !frozen else { return }
+        guard diskTask == nil else {
+            if force { rescanWhenDone = true }
+            return
+        }
+        if !force, let disk, now().timeIntervalSince(disk.scannedAt) < Self.diskMinInterval { return }
         scanningDisk = true
+        rescanWhenDone = false
         let scan = diskScan
         diskTask = Task { [weak self] in
-            let result = await Task.detached(priority: .utility) { await scan() }.value
+            let result = await Task.detached(priority: priority) { await scan() }.value
             guard let self else { return }
             self.disk = result
             self.scanningDisk = false
             self.diskTask = nil
             self.onDisk?(result)
+            if self.rescanWhenDone {
+                self.rescanWhenDone = false
+                if self.consumers.isEmpty { self.jobFinished() } else { self.refreshDisk(force: true) }
+            }
         }
     }
 
@@ -85,7 +117,7 @@ public final class ResourceMonitor: ObservableObject {
 
     /// Para `prbar resources`: el disco si tiene menos de 60 s; si no, lo calcula ahora.
     public func freshDisk() async -> DiskUsage {
-        if let disk, Date().timeIntervalSince(disk.scannedAt) < Self.diskMinInterval { return disk }
+        if let disk, now().timeIntervalSince(disk.scannedAt) < Self.diskMinInterval { return disk }
         let scan = diskScan
         let result = await Task.detached(priority: .utility) { await scan() }.value
         disk = result
