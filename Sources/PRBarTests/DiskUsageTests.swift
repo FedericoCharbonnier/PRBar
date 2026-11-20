@@ -68,6 +68,19 @@ enum DiskUsageTests {
             try expectEqual(sizes.buckets["update-staging"] ?? 0, 0)
             try expectEqual(sizes.buckets.values.reduce(0, +) + sizes.rest, DiskScanner.allocatedSize(base))
         },
+        TestCase("disk: dos repos con el mismo worktreeDir (o uno por un symlink) no cuentan dos veces sus worktrees") {
+            let base = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: base) }
+            let shared = base.appendingPathComponent("worktrees")
+            try write(shared.appendingPathComponent("web-2-respond-0a0b0c0d/f.txt"), bytes: 1_000)
+            try FileManager.default.createSymbolicLink(at: base.appendingPathComponent("alias"), withDestinationURL: shared)
+            let input = DiskScanInput(appSupport: base.appendingPathComponent("AppSupport"), worktreeRoots: [], logsDir: base.appendingPathComponent("Logs"),
+                                      respondDirs: [DiskScanInput.RespondDir(repo: "acme/web", path: shared.path, localPath: "/c/web"),
+                                                    DiskScanInput.RespondDir(repo: "acme/api", path: shared.path + "/", localPath: "/c/api"),
+                                                    DiskScanInput.RespondDir(repo: "acme/app", path: base.appendingPathComponent("alias").path, localPath: "/c/app")],
+                                      activePaths: [], now: Date().addingTimeInterval(3600))
+            try expectEqual(DiskScanner.scan(input).items.filter { $0.kind == .worktrees }.count, 1)
+        },
         TestCase("disk: no sigue symlinks") {
             let base = try temporaryDirectory()
             defer { try? FileManager.default.removeItem(at: base) }
