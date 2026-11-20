@@ -514,6 +514,101 @@ dispositivo cuando se une), `remotePairConfirm(pairing:confirmed:)`, `remoteDevi
 `remoteSetKeepAwake(enabled:)`, `remoteReset(confirmed:)`, `remoteSetPresenceRequirement(device:enabled:)`.
 `CommandProtocol.version` → 7. El token de inscripción viaja de la CLI a la app (como `slack token set`), nunca al revés.
 
+### Q.4 Decisiones de implementación (Plan 18)
+
+**Merge de `main` (plan 15, protocolo 6) antes del Plan 18.** `ClaudeUsage`, `UsageTask`, `UsageMonth`, `UsageFormat`,
+`RespondMode` y `CICheckFailure` pasaron a `PRBarWire` (los usan `ReviewInfo`, `RespondInfo`, `HistoryEntryInfo`,
+`ResourcesInfo` y `UsageInfo`); `ClaudeUsage.run(duration:tokens:cost:)` (usa `ClaudeTokenUsage`, que queda en Core) y
+las conversiones de registros (`HistoryEntryInfo(review:/respond:/merge:)`, los `init` de `ReviewInfo`/`RespondInfo`)
+quedan en Core como extensiones; los `clamped*`/`plus` de `ClaudeUsage` son públicos para que Core los use.
+`HistoryEntryInfo.listing` es puro y quedó en Wire. `RemotePolicy`: `usage` y `ciList` lectura, `ciFix` acción (los tres
+allowed); `prbar ci show/diff/test/push` son los comandos de Respond (`ci push` = `respondPush`/`respondPushAnyway`,
+gated). El merge dejó protocolo 6 y `minimumRemoteVersion` 6; el Plan 18 los sube a **7 y 7**.
+
+**Dónde vive el código.** Un target nuevo, **`PRBarRemoteMac`** (Core + RemoteKit), con `RemoteKeyStore`,
+`RemoteDeviceStore`, `RemoteAccessService` (conexión, emparejamiento, puente, feed, buzón, pushes, keep awake),
+`RemotePushPlanner`, `KeepAwake` y `RelayEnroller`. No en la app (los tests no pueden importar un ejecutable) ni en Core
+(así `prbar` no carga CryptoKit ni el protocolo del relay). En Core: `RemoteSettings`, `RemoteStateTopics`,
+`RemoteActions` y `QRCodeMatrix` (CoreImage, lo usan la app y la CLI). En Wire: los resultados `remote*` y los tipos de
+los tópicos (`RemoteTopic`, `RemoteHome`, `RemotePRDetail`, `RemoteActivity`) y `RemoteRedaction`, que la app de iOS
+decodifica. En la app: `AppModel+Remote` (adaptador de config, comandos, avisos del sistema y chats) y Settings › iPhone.
+
+**Config y claves.** `AppConfig.remote`: `enabled`, `relayHost` (`host[:puerto]` normalizado: acepta `https://`/`wss://`
+y barra final, nunca `http://`, rutas, usuarios ni IP salvo en tests), `accountId`, `keepAwakeWhileCharging`,
+`mailboxEnabled` (por defecto **sí**, V.3) y `appInstallURL`. El relay por defecto es
+`prbar.fcharbonnier.duckdns.org` (configurable en la hoja y con `--relay`). Decodificación tolerante; sin host o cuenta
+válidos, `enabled` queda en `false`. Las claves de la Mac, solo en el llavero (servicio `PRBar Remote`, cuentas
+`mac-relay`, `mac-noise`, `mac-seal`, `rawRepresentation` en base64); una clave rota falla (no se reemplaza en silencio).
+`remote/devices.json` guarda `StoredDevice {device, lastSeen, notificationsOff}`; se escribe ya con 0600 (archivo
+temporal + reemplazo) en una carpeta 0700; uno roto se aparta como `devices.json.broken-<fecha>`.
+
+**Habilitar.** `POST https://<host>/v1/accounts` con `URLSession` (15 s): 403 → "The relay refused the enrollment
+token.", 429 → "Too many attempts. Try again in 15 minutes.", 409 → "The relay has no room for another Mac.", red →
+"Couldn’t reach <host>.". El token no se guarda; volver a habilitar el mismo relay con la cuenta guardada no lo pide (la
+UI y `prbar remote enable` mandan el token vacío). Otra cuenta u otro relay borra los dispositivos de la anterior.
+
+**Conexión.** El primer `connect` lo reintenta el servicio (backoff 1 → 60 s); después reconecta `RemoteHost`. Al
+despertar y cuando vuelve la red (`NWPathMonitor`), si no está conectado se rehace la conexión sin esperar el backoff;
+antes de dormir y al salir se corta ordenado (el relay marca la Mac offline enseguida).
+
+**Emparejamiento.** `remotePairStart` → `{pairing, qr, expiresAt}`; `remotePairWait` devuelve la misma info con `code`
+("123 456"), `deviceName` y `model` cuando el teléfono se une (evento `progress` "Waiting for your iPhone…"), o falla si
+vence (5 min, timer del servicio además del relay), se cancela o se abre otra ranura. `remotePairConfirm(confirmed:
+false)` también cierra una ranura a la que nadie se unió. "Codes Match" espera el acuse del teléfono (P.15 M1).
+
+**El puente.** `RemoteHost` le pasa al handler el `PairedDevice` (`DeviceHandler`, agregado en RemoteKit); el puente
+loguea `iPhone <4>: <comando>`, vuelve a mirar `RemotePolicy` (defensa en profundidad), reemplaza el `device` de
+`remoteSetPresenceRequirement` por el del teléfono que lo pidió y llama a `CommandDispatcher.run` sobre el mismo
+`AppModel`. **Redacción**: a todo resultado y tópico que va al teléfono se le aplica `RemoteRedaction.scrub`: `logPath`,
+`worktree` y `path` quedan en su último componente y `tools` vacío (P.7: ni rutas locales ni herramientas; `status`
+traía las rutas de `gh`/`git`/`claude` y `resources` las carpetas del disco). Los tipos se siguen decodificando.
+
+**Feed.** `AppModel` es `ObservableObject` (Combine), no `@Observable`: en vez de `withObservationTracking`, el servicio
+recibe los `objectWillChange` de `AppModel`, `PRStore`, las colas de review/respond y `MergeQueue`, agrupados cada 300 ms.
+Se calculan solo los tópicos suscritos (como mucho 20 válidos por suscripción, `RemoteTopic.parse`) más `home` (lo usa
+el buzón); `RemoteHost.publish` manda solo lo que cambió. `activity` además cada 5 s mientras esté suscrito.
+`RemotePRDetail` no trae `merge`: `mergePreview` va a GitHub y no se recalcula en cada cambio (el teléfono lo pide al
+abrir Merge). `chatDelta`: la app mira el `partialText` de cada chat (Review, Respond, Merge) y manda lo nuevo a quien
+mire `pr:<id>`; también para chats que inició el teléfono (el teléfono ignora `chatDelta` de un PR con un `chatSend`
+propio en curso: Plan 19).
+
+**Buzón.** Cada 60 s, si `home` cambió, un `mbox.put` por dispositivo (HPKE, P.9). El `rev` lo pone `RemoteHost` como
+`max(rev + 1, milisegundos de reloj)`: crece aunque la app reinicie sin guardar nada (el plan proponía
+`RemoteSettings.mailboxRev`; no hace falta salvo que el reloj vuelva atrás). Apagado: el protocolo del relay no tiene
+"borrar", así que se pisa el slot con un estado vacío (el teléfono lo trata como "nada"; vence a los 7 días). Un
+dispositivo nuevo recibe el próximo aunque no haya cambiado.
+
+**Pushes.** `NotificationDelivery.onDeliver` (corre aunque no haya bundle) → `RemotePushPlanner`: mismo título y
+cuerpo, `kind` = `NotificationKind.rawValue`, `threadId` = el de la Mac, `badge` = `StatusInfo.badgeCount`, y
+`deepLink`: `newToReview`/`reviewedPRUpdated` → `?screen=review`, `myPRFeedback` → `respond`, `readyToMerge` → `merge`,
+`reviewFinished` → `respond` si es de Respond o Fix CI y `review` si no, `myPRApprovedOrCIFailed` → el PR sin
+pantalla, `updateAvailable`/`diskUsage` → `prbar://activity`, sin PR → `prbar://home`. 410/400 marcan el dispositivo
+"Notifications off"; un 200 lo vuelve a prender.
+
+**Comandos y CLI.** Además de los de Q.3: `remoteSetMailbox(enabled:)` (`prbar remote mailbox on|off`) y
+`remoteSetAppLink(url:)` (`prbar remote app-link set <url>|clear`); los dos denegados desde el teléfono.
+`remoteSetPresenceRequirement` es `dependsOnArguments` en `RemotePolicy` (`true` allowed, `false` gated) y está en
+`gatedNames`. `prbar remote pair` corre `remotePairStart` y `remotePairWait` en `prepare` y pregunta con la confirmación
+de siempre; contestar que no manda `remotePairConfirm(false)` (`RemoteCommand.declinedCommand`, nuevo); en la tabla de
+paridad, `CLICommandSpec.prepares` cuenta los comandos que manda antes. El QR de la terminal dibuja los módulos claros
+con medios bloques; con colores fuerza blanco sobre negro (se lee en temas claros y oscuros). `prbar remote enable`
+lee el token sin eco (vacío = reusar la cuenta) o con `--enroll-token-stdin`.
+
+**Settings › iPhone** (700 × 520): arriba **Get PRBar for iPhone** (QR del link de instalación con Copy Link y Open
+Link, o el texto de Xcode sin link); el QR de instalación se oculta mientras la hoja de emparejar está abierta (nunca
+los dos QR juntos). Después Remote Control (toggle, estado, Pair iPhone…), iPhones (nombre, modelo, "Paired …", "Online"
+o "Last seen …", "Require Face ID", Revoke…, aviso de notificaciones apagadas) y Options (keep awake, buzón, Reset
+iPhone Access…). Capturas: `settings-iphone` (conectado, dos iPhones, con link), `settings-iphone-off`,
+`settings-iphone-off-link`, `iphone-pair-qr`, `iphone-pair-code`, `iphone-enable`.
+
+**Revocar con el acceso apagado** solo borra el dispositivo en la Mac (no hay conexión para mandar `device.remove`);
+la Mac igual rechaza su estática, y un relay que lo siga conociendo solo le deja llegar al `challenge`/handshake fallido.
+
+**Tests.** `RemoteSettingsTests`, `RemoteBridgeTests` (servicio + `InMemoryRelay` + `FakeActions` + `RemoteClient`),
+`RemoteCLITests`, `RemoteHardeningTests` (P.15), y `RemoteMacIntegrationTests` contra el binario del relay en
+`127.0.0.1` (solo con `PRBAR_RELAY_BIN`). `RemoteSmokeTests` (solo con `PRBAR_PAIR_URL`) es el iPhone simulado de la QA
+manual. Nada habla con el relay desplegado (todavía no existe).
+
 ---
 
 ## R. App de iOS
