@@ -70,10 +70,15 @@ public final class PairingModel {
     @ObservationIgnored private var session: Task<Void, Never>?
     @ObservationIgnored private var mismatch = false
     @ObservationIgnored private var pendingQR: PairingQR?
+    @ObservationIgnored private let allowInsecureRelay: Bool
 
+    /// `allowInsecureRelayForTests`: accept a relay at an IP literal over `ws://` (the local relay of the end-to-end
+    /// test). Never in the app.
     public init(service: any PairingService, keychain: DeviceKeychain,
                 makePresenceKey: @escaping @Sendable () throws -> (keyData: Data, publicKey: Data),
-                notifications: any NotificationPermission, onPaired: @escaping @MainActor (PairedMac) -> Void) {
+                notifications: any NotificationPermission, allowInsecureRelayForTests: Bool = false,
+                onPaired: @escaping @MainActor (PairedMac) -> Void) {
+        allowInsecureRelay = allowInsecureRelayForTests
         self.service = service
         self.keychain = keychain
         self.makePresenceKey = makePresenceKey
@@ -102,7 +107,7 @@ public final class PairingModel {
     /// A code read by the scanner.
     public func scanned(_ text: String) {
         guard step == .scanning else { return }
-        guard let qr = try? PairingQR(url: text) else {
+        guard let qr = try? PairingQR(url: text, allowInsecure: allowInsecureRelay) else {
             scanError = Self.invalidQRMessage
             return
         }
@@ -112,7 +117,7 @@ public final class PairingModel {
     /// `prbar://pair?…` opened from anywhere (Camera, Safari, Messages): first the confirmation screen, with a warning
     /// when it would replace the pairing with `replacing`.
     public func open(_ url: URL, replacing: String? = nil) {
-        guard let qr = try? PairingQR(url: url.absoluteString) else {
+        guard let qr = try? PairingQR(url: url.absoluteString, allowInsecure: allowInsecureRelay) else {
             message = Self.invalidQRMessage
             step = .welcome
             return
