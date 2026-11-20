@@ -20,6 +20,12 @@ enum ScriptTests {
                 try expect(result.stderr.contains("Usage: Scripts/bundle.sh"), "\(arguments): \(result.stderr)")
             }
         },
+        TestCase("scripts: bundle.sh copia prbar a Helpers y lo enlaza con --install") {
+            let text = try String(contentsOfFile: script("bundle.sh"), encoding: .utf8)
+            try expect(text.contains("--product PRBarCLI"))
+            try expect(text.contains("Contents/Helpers/prbar"))
+            try expect(text.contains("PRBAR_BIN_DIR"))
+        },
         TestCase("scripts: release.sh no tiene errores de sintaxis") {
             let result = try await bash(["-n", script("release.sh")])
             try expectEqual(result.status, 0)
