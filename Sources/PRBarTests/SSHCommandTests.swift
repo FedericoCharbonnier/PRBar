@@ -43,6 +43,15 @@ enum SSHCommandTests {
                 try expect(config.contains(line), "falta \(line)")
             }
             try expect(!config.contains { $0.hasPrefix("sendenv ") }, "\(config.filter { $0.hasPrefix("sendenv") })")
+            // Un `RemoteCommand` en la config del usuario haría fallar cada comando de PRBar: se anula.
+            let base = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: base) }
+            let userConfig = base.appendingPathComponent("config")
+            try Data("Host devbox\n  RemoteCommand tmux attach\n".utf8).write(to: userConfig)
+            let withUserConfig = try await SystemProcessRunner().run("/usr/bin/ssh", ["-F", userConfig.path, "-G"] + args, environment: [:],
+                                                                     currentDirectory: nil, timeout: 10)
+            try expect(withUserConfig.status == 0, withUserConfig.stderr)
+            try expect(!withUserConfig.stdout.lowercased().contains("remotecommand"), withUserConfig.stdout)
         },
         TestCase("ssh: StrictHostKeyChecking solo se fuerza con el default de la config (ask)") {
             try expect(SSHCommandBuilder.enforcesHostKey(fromConfig: "hostname devbox\nstricthostkeychecking ask\n"))

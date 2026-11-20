@@ -9,8 +9,9 @@ public enum SSHCommandBuilder {
         "ClearAllForwardings=yes", "PermitLocalCommand=no", "RequestTTY=no", "ServerAliveInterval=15", "ServerAliveCountMax=4",
         "LogLevel=ERROR",
         // Ninguna variable local viaja (aunque la config del usuario diga `SendEnv`), sin túneles, sin quedar en
-        // segundo plano y una sesión normal con el stdin que da PRBar.
-        "SendEnv=-*", "Tunnel=no", "SessionType=default", "ForkAfterAuthentication=no", "StdinNull=no",
+        // segundo plano y una sesión normal con el stdin que da PRBar. Un `RemoteCommand` de la config (p. ej.
+        // `tmux attach`) haría fallar cada comando ("Cannot execute command-line and remote command"): se anula.
+        "SendEnv=-*", "Tunnel=no", "SessionType=default", "ForkAfterAuthentication=no", "StdinNull=no", "RemoteCommand=none",
     ]
 
     private static func target(_ destination: RunnerDestination) -> [String] {
