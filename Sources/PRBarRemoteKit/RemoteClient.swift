@@ -8,6 +8,9 @@ public enum RemoteError: Error, Equatable, Sendable, LocalizedError {
     case macOffline(since: Date?)
     case relayUnreachable
     case revoked
+    /// El relay cerró con 4401/4403. No es una revocación (eso lo dice solo la Mac, dentro de la sesión, M3): el
+    /// relay pudo perder su base o portarse mal. No se borra nada.
+    case relayRejected
     case incompatible(RemoteHello.Incompatibility)
     case pairingCancelled
     case pairingExpired
@@ -21,6 +24,7 @@ public enum RemoteError: Error, Equatable, Sendable, LocalizedError {
         case .macOffline: "Your Mac is offline."
         case .relayUnreachable: "Can’t reach the relay server."
         case .revoked: "This iPhone was removed from your Mac."
+        case .relayRejected: "The relay server didn’t accept this iPhone. Check iPhone access in PRBar on your Mac."
         case .incompatible(.updateMac): "Update PRBar on your Mac."
         case .incompatible(.updateIPhone): "Update PRBar on this iPhone."
         case .pairingCancelled: "Pairing was cancelled on your Mac."
@@ -39,6 +43,7 @@ public enum RemoteClientStatus: Equatable, Sendable {
     case online
     case macOffline(since: Date?)
     case relayUnreachable
+    case relayRejected
     case revoked
     case incompatible(RemoteHello.Incompatibility)
 }
@@ -263,8 +268,9 @@ public actor RemoteClient {
                 ready = try await link.connect()
             } catch let closed as RelayClosed where closed.code == RelayCloseCode.deviceRemoved.rawValue
                 || closed.code == RelayCloseCode.unauthorized.rawValue {
-                status = .revoked
-                throw RemoteError.revoked
+                // Solo un indicio: la revocación la dice la Mac con `bye(revoked)` dentro de la sesión (M3).
+                status = .relayRejected
+                throw RemoteError.relayRejected
             } catch {
                 status = .relayUnreachable
                 throw RemoteError.relayUnreachable
@@ -345,6 +351,8 @@ public actor RemoteClient {
             throw RemoteError.incompatible(incompatible)
         }
         status = .online
+        // Una sesión nueva puede ser de una Mac que reinició y numera desde 1 (L1): el orden vale dentro de la sesión.
+        stateRevs = [:]
         if !topics.isEmpty { sendFrame(.sub(topics: topics)) }
     }
 
@@ -352,9 +360,12 @@ public actor RemoteClient {
         guard link === ended else { return }
         link = nil
         let closed = error as? RelayClosed
-        if closed?.code == RelayCloseCode.deviceRemoved.rawValue {
-            status = .revoked
+        if status == .revoked {
             tearDown(.revoked)
+        } else if closed?.code == RelayCloseCode.deviceRemoved.rawValue {
+            // No es una revocación autenticada (M3): no se borra nada y la próxima operación reintenta.
+            status = .relayRejected
+            tearDown(.relayRejected)
         } else {
             if status != .revoked { status = .relayUnreachable }
             tearDown(.relayUnreachable)

@@ -328,8 +328,12 @@ compila hasta que alguien decide. Clases: `.allowed`, `.gated` (Face ID, P.8), `
 
 - **Revoke** (Settings › iPhone, `prbar remote revoke <device>`, o "Unpair this iPhone" desde el teléfono): la Mac borra
   el dispositivo (claves públicas incluidas), corta sus sesiones, deja de mandarle pushes y buzón, y manda
-  `device.remove`. El relay cierra su conexión con 4403; el teléfono borra sus claves y su caché y vuelve a
-  `pair:welcome` ("This iPhone was removed from <Mac>"). **Aunque el relay no obedezca**, la Mac ya no acepta su estática
+  `device.remove`. A una sesión abierta le manda `bye(revoked)` (autenticado por Noise): **solo eso** hace que el
+  teléfono borre sus claves y su caché y vuelva a `pair:welcome` ("This iPhone was removed from <Mac>"). El 4403 (o un
+  4401 al conectar) del relay no está autenticado (un relay malicioso, o uno que perdió su base, lo puede mandar): el
+  teléfono lo muestra como `relayRejected` ("The relay server didn’t accept this iPhone. Check iPhone access in PRBar on
+  your Mac."), no borra nada y reintenta en la próxima operación (P.15 M3). Si la Mac lo revocó mientras el teléfono no
+  estaba conectado, al conectar no llega el `bye`: el usuario lo confirma con "Unpair this iPhone". **Aunque el relay no obedezca**, la Mac ya no acepta su estática
   en Noise: la revocación la hace cumplir la Mac.
 - **Rotación**: sesiones con secreto hacia adelante (P.5). Las claves de largo plazo se rotan re-emparejando.
   **"Reset iPhone Access…"** en la Mac genera claves y cuenta nuevas (borra todos los dispositivos); para un relay
