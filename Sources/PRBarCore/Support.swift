@@ -143,6 +143,8 @@ public enum AppPaths {
     public static var instructionsFile: URL { appSupport.appendingPathComponent("instructions.json") }
     /// The findings the user discarded when posting, for the suggestions (spec E.4).
     public static var discardStatsFile: URL { appSupport.appendingPathComponent("discard-stats.json") }
+    /// El libro de uso de Claude (spec O): una entrada por corrida.
+    public static var usageFile: URL { appSupport.appendingPathComponent("usage.json") }
     /// The instructions chat's cwd: an empty folder, always the same so `--resume` finds the session (spec E.2).
     public static var instructionsChatDir: URL {
         FileManager.default.temporaryDirectory.appendingPathComponent("PRBar/instructions-chat", isDirectory: true)

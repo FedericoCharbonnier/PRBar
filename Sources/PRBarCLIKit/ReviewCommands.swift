@@ -22,6 +22,7 @@ enum ReviewRender {
         guard info.phase == "ready" else { return }
         if let title = info.title { output.line(title) }
         if info.outdated { output.line(output.paint("The PR changed since the review: comments will go in the review body.", .yellow)) }
+        if let usage = info.usage { output.line(output.paint("Claude: \(UsageFormat.summary(usage))", .dim)) }
         if let summary = info.summary, !summary.isEmpty { output.line(); output.line(summary) }
         output.line()
         let selected = info.findings.filter(\.included).count

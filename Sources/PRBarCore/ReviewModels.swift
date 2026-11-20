@@ -132,10 +132,12 @@ public struct ReviewDraft: Codable, Equatable, Sendable, Identifiable {
     public var chat: ChatSession?
     /// The window's state as the chat last left it (selection, edited texts, added findings, general comment).
     public var edits: ReviewEdits?
+    /// Claude's usage for the review (stage 1 and the filter, spec O). Nil in older history files.
+    public var usage: ClaudeUsage?
 
     public init(prID: String, repo: RepoRef, number: Int, title: String, url: URL, author: String,
                 headOid: String, account: String, summary: String, items: [ReviewItem], language: PRLanguage = .english,
-                chat: ChatSession? = nil, edits: ReviewEdits? = nil) {
+                chat: ChatSession? = nil, edits: ReviewEdits? = nil, usage: ClaudeUsage? = nil) {
         self.prID = prID
         self.repo = repo
         self.number = number
@@ -149,10 +151,11 @@ public struct ReviewDraft: Codable, Equatable, Sendable, Identifiable {
         self.language = language
         self.chat = chat
         self.edits = edits
+        self.usage = usage
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, prID, repo, number, title, url, author, headOid, account, summary, items, language, chat, edits
+        case id, prID, repo, number, title, url, author, headOid, account, summary, items, language, chat, edits, usage
     }
 
     public init(from decoder: Decoder) throws {
@@ -167,7 +170,11 @@ public struct ReviewDraft: Codable, Equatable, Sendable, Identifiable {
         id = try c.decode(UUID.self, forKey: .id)
         chat = (try? c.decodeIfPresent(ChatSession.self, forKey: .chat)) ?? nil
         edits = (try? c.decodeIfPresent(ReviewEdits.self, forKey: .edits)) ?? nil
+        usage = (try? c.decodeIfPresent(ClaudeUsage.self, forKey: .usage)) ?? nil
     }
+
+    /// The review and its chat (spec O.4.4); nil if neither has data (older history files).
+    public var totalUsage: ClaudeUsage? { ClaudeUsage.sum([usage, chat?.usage]) }
 
     /// Findings to choose from: the filter kept them and the user's settings don't hide them.
     public var keptCount: Int { items.filter { $0.keep && !$0.isHidden }.count }

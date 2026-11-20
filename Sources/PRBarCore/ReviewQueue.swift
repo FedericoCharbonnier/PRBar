@@ -31,9 +31,15 @@ public final class ReviewQueue: ObservableObject {
             self?.phases[prID] = .preparing
         }, work: { [weak self] in
             do {
-                draft.value = try await pipeline.run(request) { [weak self] phase in
-                    self?.update(prID, job: jobID, phase: phase)
+                // Claude's usage for the review goes in its draft (spec O.4.4).
+                let sink = ClaudeUsageSink()
+                var ran = try await sink.measure {
+                    try await pipeline.run(request) { [weak self] phase in
+                        self?.update(prID, job: jobID, phase: phase)
+                    }
                 }
+                if sink.total.runs > 0 { ran.usage = sink.total }
+                draft.value = ran
             } catch {
                 if RemoteUnstoppedJobs.isNotStopped(error) { await self?.notStopped(prID, error) }
                 throw error

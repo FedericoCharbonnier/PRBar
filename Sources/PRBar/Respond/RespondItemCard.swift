@@ -154,6 +154,10 @@ struct RespondItemHeader: View {
     let feedback: FeedbackItem
 
     static func location(_ feedback: FeedbackItem) -> String {
+        if feedback.kind == .ciChecks {
+            let count = feedback.comments.count
+            return count == 1 ? "Failing check" : "\(count) failing checks"
+        }
         guard let path = feedback.path else { return "General comment" }
         return feedback.line.map { "\(path):\($0)" } ?? path
     }

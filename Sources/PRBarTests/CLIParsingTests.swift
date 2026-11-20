@@ -20,6 +20,20 @@ func rejects(_ arguments: [String]) -> Bool {
 enum CLIParsingTests {
     static var cases: [TestCase] {
         [
+            TestCase("cli parse: ci y usage (specs K y O)") {
+                try expectEqual(try parsed(["ci"]), .ciList)
+                try expectEqual(try parsed(["ci", "fix", "api#3", "--wait"]), .ciFix(pr: "api#3", wait: true))
+                try expectEqual(try parsed(["ci", "show", "api#3"]), .respondShow(pr: "api#3"))
+                try expectEqual(try parsed(["ci", "push", "api#3", "--yes"]), .respondPush(pr: "api#3", confirmed: true, wait: false))
+                try expectEqual(try parsed(["ci", "push", "api#3", "--anyway", "--yes"]), .respondPushAnyway(pr: "api#3", confirmed: true, wait: false))
+                try expectEqual(try parsed(["ci", "cancel", "api#3"]), .respondCancel(pr: "api#3"))
+                try expectEqual(try parsed(["usage"]), .usage(month: nil))
+                try expectEqual(try parsed(["usage", "--month", "2026-03"]), .usage(month: "2026-03"))
+                try expect(rejects(["usage", "--month", "2026-13"]))
+                try expect(rejects(["usage", "--month", "march"]))
+                try expectEqual(try parsed(["history", "--kind", "ci-fix"]), .history(repo: nil, kind: .ciFix, limit: nil, search: nil))
+                try expectEqual(try parsed(["claude", "prompt", "show", "ci-fix"]), .claudePromptShow(stage: .ciFix))
+            },
             TestCase("cli parse: status") {
                 try expectEqual(try parsed(["status"]), .status)
                 try expectEqual(try parsed(["status", "--json"]), .status)

@@ -129,21 +129,48 @@ struct PRRowView: View {
         }
     }
 
+    /// The PR's Respond slot holds a Fix CI (spec K).
+    private var hasCIFix: Bool { respond.modes[item.id] == .ciFix && respond.phases[item.id] != nil }
+    /// "Fix CI" goes on the row: a PR of mine whose CI failed, with nothing in its Respond slot.
+    private var offersFixCI: Bool { model.isCIFixCandidate(item) && respond.phases[item.id] == nil }
+
     @ViewBuilder
     private var trailingAccessory: some View {
-        switch item.category {
-        case .myFeedback:
+        if hasCIFix {
             RespondButton(
                 phase: respond.phases[item.id], runningTests: respond.runningTests.contains(item.id),
-                unavailableReason: model.respondUnavailableReason(item), hasRecord: respond.records[item.id] != nil,
-                actions: respondActions
+                unavailableReason: model.ciFixUnavailableReason(item), hasRecord: respond.records[item.id] != nil,
+                actions: ciFixActions, isCI: true
             )
+        } else {
+            categoryAccessory
+        }
+    }
+
+    @ViewBuilder
+    private var categoryAccessory: some View {
+        switch item.category {
+        case .myFeedback:
+            HStack(spacing: 6) {
+                if offersFixCI {
+                    FixCIButton(unavailableReason: model.ciFixUnavailableReason(item)) { model.startCIFix(item) }
+                }
+                RespondButton(
+                    phase: respond.phases[item.id], runningTests: respond.runningTests.contains(item.id),
+                    unavailableReason: model.respondUnavailableReason(item), hasRecord: respond.records[item.id] != nil,
+                    actions: respondActions
+                )
+            }
         case .toReview, .updatedSinceMyReview:
             ReviewButton(phase: reviews.phases[item.id], unavailableReason: model.jobsBlockedReason, actions: reviewActions)
         case .readyToMerge:
             MergeButton(phase: merges.phases[item.id], availability: model.mergeOptions(item).availability, actions: mergeActions)
         default:
-            EmptyView()
+            if offersFixCI {
+                FixCIButton(unavailableReason: model.ciFixUnavailableReason(item)) { model.startCIFix(item) }
+            } else {
+                EmptyView()
+            }
         }
     }
 
@@ -170,7 +197,19 @@ struct PRRowView: View {
                 EmptyView()
             }
         }
-        if item.category == .myFeedback {
+        if model.isCIFixCandidate(item) || hasCIFix {
+            Divider()
+            if hasCIFix {
+                if respond.phases[item.id]?.isActive == true {
+                    Button("Cancel Fix CI", action: ciFixActions.cancel).disabled(respond.phases[item.id] == .pushing)
+                }
+                Button("View Fix CI", action: ciFixActions.open).disabled(respond.records[item.id] == nil)
+            } else {
+                Button("Fix CI with Claude") { model.startCIFix(item) }
+                    .disabled(model.ciFixUnavailableReason(item) != nil)
+            }
+        }
+        if item.category == .myFeedback && !hasCIFix {
             Divider()
             let actions = respondActions
             let phase = respond.phases[item.id]
@@ -232,6 +271,26 @@ struct PRRowView: View {
                     model.openRespond(prID: item.id)
                 } else {
                     model.startRespond(item)
+                }
+            },
+            dismiss: { model.dismissRespond(prID: item.id) }
+        )
+    }
+
+    private var ciFixActions: RespondButtonActions {
+        let model = self.model
+        let item = self.item
+        let respond = self.respond
+        return RespondButtonActions(
+            start: { model.startCIFix(item) },
+            cancel: { model.cancelRespond(prID: item.id) },
+            open: { model.openRespond(prID: item.id) },
+            retry: {
+                // With a fix already made, the window retries the push without losing it.
+                if respond.records[item.id]?.result != nil {
+                    model.openRespond(prID: item.id)
+                } else {
+                    model.startCIFix(item)
                 }
             },
             dismiss: { model.dismissRespond(prID: item.id) }

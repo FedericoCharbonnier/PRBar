@@ -127,6 +127,21 @@ final class FakeTransport: HTTPTransport, @unchecked Sendable {
         return (Data(next.body.utf8), response)
     }
 
+    /// `downloadTail` calls: what to keep and the hard cap.
+    private(set) var downloads: [(keep: Int, limit: Int)] = []
+
+    func sendWithoutRedirects(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        try await send(request)
+    }
+
+    func downloadTail(_ request: URLRequest, keepingLast keep: Int, maxBytes limit: Int) async throws -> (Data, HTTPURLResponse) {
+        downloads.append((keep, limit))
+        let (data, response) = try await send(request)
+        var buffer = TailBuffer(keep: keep, limit: limit)
+        try buffer.append(data)
+        return (buffer.tail, response)
+    }
+
     func bodyString(_ index: Int) -> String {
         String(decoding: requests[index].httpBody ?? Data(), as: UTF8.self)
     }
@@ -325,7 +340,7 @@ final class FakeSecrets: SecretStore, @unchecked Sendable {
 
 /// GitHub falso para "Responder": `feedback` programable y graba cada respuesta publicada. `failPosts` tiene
 /// los números de post (desde 1, contando todos los intentos) que fallan con un 502.
-final class FakeFeedbackAPI: GitHubAPI, @unchecked Sendable {
+final class FakeFeedbackAPI: GitHubAPI, CIChecksAPI, @unchecked Sendable {
     enum Post: Equatable { case reply(commentID: Int, body: String), issue(body: String) }
 
     private let lock = NSLock()
@@ -399,5 +414,25 @@ final class FakeFeedbackAPI: GitHubAPI, @unchecked Sendable {
     }
     func mergeDetail(repo: RepoRef, number: Int, token: String) async throws -> MergeDetail {
         throw PRBarError.http(status: 404, message: "no")
+    }
+
+    // CI (spec K)
+    /// Los checks de cada head; un head que no está → sin checks.
+    var checks: [String: [CICheckRun]] = [:]
+    var jobLogs: [Int: String] = [:]
+    private var _checkCalls: [String] = []
+    var checkCalls: [String] { lock.withLock { _checkCalls } }
+    /// Se llama dentro de `checkRuns`, antes de devolver (p. ej. para mover el head del PR mientras baja los logs).
+    var onCheckRuns: (@Sendable () -> Void)?
+
+    func checkRuns(repo: RepoRef, headOid: String, token: String) async throws -> [CICheckRun] {
+        lock.withLock { _checkCalls.append(headOid) }
+        onCheckRuns?()
+        return checks[headOid] ?? []
+    }
+
+    func actionsJobLog(repo: RepoRef, jobID: Int, token: String) async throws -> String {
+        guard let log = jobLogs[jobID] else { throw PRBarError.http(status: 410, message: "gone") }
+        return log
     }
 }

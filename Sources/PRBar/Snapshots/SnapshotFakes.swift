@@ -103,17 +103,20 @@ struct SnapshotRespondPipeline: RespondPipelineRunning {
     let result: RespondResult
     let tests: TestRun
     let logDirectory: URL
+    /// Fix CI (spec K): what `analyze` in CI mode and its fix return.
+    var ciDraft: RespondDraft? = nil
+    var ciResult: RespondResult? = nil
 
     func analyze(_ request: RespondRequest, draftID: UUID,
                  onPhase: @escaping @MainActor @Sendable (RespondPhase) -> Void) async throws -> RespondDraft {
-        var draft = self.draft
+        var draft = request.mode == .ciFix ? (ciDraft ?? self.draft) : self.draft
         draft.id = draftID
         return draft
     }
 
     func implement(draft: RespondDraft, selections: [String: RespondSelection],
                    onProgress: @escaping @MainActor @Sendable (Int, Int) -> Void) async throws -> RespondResult {
-        result
+        draft.isCIFix ? (ciResult ?? result) : result
     }
 
     func runTests(draft: RespondDraft, testCommand: String) async -> TestRun { tests }

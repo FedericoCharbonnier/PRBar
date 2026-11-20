@@ -120,6 +120,13 @@ public enum CommandDispatcher {
         case .respondDismiss(let pr):
             try actions.respondDismiss(pr: pr)
             return .ok
+        // Fix CI y uso de Claude (specs K y O)
+        case .ciList:
+            return try encode(actions.ciList())
+        case .ciFix(let pr, let wait):
+            return try encode(await actions.ciFix(pr: pr, wait: wait, events: events))
+        case .usage(let month):
+            return try encode(actions.usage(month: month))
         // Ready to Merge
         case .merge(let pr, let method, let confirmed, let expectedHeadOid):
             try requireConfirmation(confirmed, "Merging a pull request")

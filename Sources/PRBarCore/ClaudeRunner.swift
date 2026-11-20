@@ -241,6 +241,11 @@ public struct ClaudeRunner: Sendable {
         return paths.contains { path in denied.contains { path == $0 || path.hasPrefix($0 + "/") } }
     }
 
+    /// Lo que costó un intento: el tiempo de reloj desde que arrancó y lo que dijo la línea `result`, si vino.
+    static func usage(of result: ClaudeResult?, since started: Date, now: Date = Date()) -> ClaudeUsage {
+        .run(duration: now.timeIntervalSince(started), tokens: result?.usage, cost: result?.costUSD)
+    }
+
     static func retryPrompt(_ prompt: String, detail: String) -> String {
         prompt + "\n\nThe previous attempt returned an invalid result (\(detail)). Reply only with the requested structured output."
     }
@@ -339,6 +344,9 @@ public struct ClaudeRunner: Sendable {
         }
         log.append(invocation.logHeader + "\n")
         onEvent(.agentStarted(total: 0))
+        // Duración, tokens y costo de cada intento (spec O): también si falla, con lo que haya.
+        let started = Date()
+        let stage = ClaudeUsageStage.name(fromLogHeader: invocation.logHeader)
 
         let parser = OSAllocatedUnfairLock(initialState: ClaudeStreamParser())
         let log = self.log
@@ -366,8 +374,11 @@ public struct ClaudeRunner: Sendable {
             }
         } catch {
             log.append("--- \(error) ---\n")
+            let partial = parser.withLock { $0.result }
+            ClaudeUsageCenter.shared.record(Self.usage(of: partial, since: started), stage: stage)
             throw error
         }
+        ClaudeUsageCenter.shared.record(Self.usage(of: parser.withLock { $0.result }, since: started), stage: stage)
 
         if !result.stderr.isEmpty { log.append("--- stderr ---\n" + result.stderr + (result.stderr.hasSuffix("\n") ? "" : "\n")) }
         let finalParser = parser.withLock { $0 }

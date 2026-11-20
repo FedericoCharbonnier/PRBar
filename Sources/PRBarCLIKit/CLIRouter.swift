@@ -27,7 +27,7 @@ public enum CLIRouter {
         .init("cleanup", [.cleanup, .cleanupPreview], ["cleanup", "--older-than", "30d", "--yes"], ["cleanup", "--preview"]),
         .init("open", [.open, .resolvePR], ["open", "api#1", "--posted"], ["open", "api#1", "--copy"],
               ["open", "api#1", "--merge"]),
-        .init("history list", [.history], ["history", "--kind", "respond"], ["history", "list"]),
+        .init("history list", [.history], ["history", "--kind", "respond"], ["history", "list"], ["history", "--kind", "ci-fix"]),
         .init("history show", [.historyShow], ["history", "show", "1a2b3c4d"]),
         .init("history reopen", [.historyReopen], ["history", "reopen", "1a2b3c4d"]),
         .init("app start", [], ["app", "start"]),
@@ -62,6 +62,18 @@ public enum CLIRouter {
         .init("respond reply-only", [.respondReplyOnly], ["respond", "reply-only", "web#2", "--yes"]),
         .init("respond cancel", [.respondCancel], ["respond", "cancel", "web#2"]),
         .init("respond dismiss", [.respondDismiss], ["respond", "dismiss", "web#2"]),
+        // Fix CI (spec K): show, diff, test, push, cancel y dismiss son los de Respond.
+        .init("ci list", [.ciList], ["ci"], ["ci", "list"]),
+        .init("ci fix", [.ciFix], ["ci", "fix", "web#2"], ["ci", "fix", "web#2", "--wait"]),
+        .init("ci show", [.respondShow], ["ci", "show", "web#2", "--full"]),
+        .init("ci diff", [.respondDiff], ["ci", "diff", "web#2", "--stat"]),
+        .init("ci test", [.respondTest], ["ci", "test", "web#2"]),
+        .init("ci push", [.respondPush, .respondPushAnyway],
+              ["ci", "push", "web#2", "--yes"], ["ci", "push", "web#2", "--anyway", "--yes"]),
+        .init("ci cancel", [.respondCancel], ["ci", "cancel", "web#2"]),
+        .init("ci dismiss", [.respondDismiss], ["ci", "dismiss", "web#2"]),
+        // Uso de Claude (spec O)
+        .init("usage", [.usage], ["usage"], ["usage", "--month", "2026-10"]),
         // Chat (plan 6)
         .init("chat", [.chatSend, .chatShow, .chatUndo, .chatStop],
               ["chat", "api#1", "hi"], ["chat", "api#1", "--show"], ["chat", "api#1", "--undo"], ["chat", "api#1", "--stop"]),

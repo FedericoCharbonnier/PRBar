@@ -24,15 +24,15 @@ public enum RemotePolicy {
         switch name {
         // Lectura
         case .status, .listPRs, .resolvePR, .history, .historyShow, .reviewShow, .respondShow, .respondDiff,
-             .mergePreview, .chatShow, .resources, .notifyList:
+             .mergePreview, .chatShow, .resources, .usage, .ciList, .notifyList:
             return .allowed
         // Acciones (sin secretos, rutas ni destinos)
         case .refresh, .reviewStart, .reviewEdit, .reviewSetIncluded, .reviewSetComment, .reviewCancel,
              .reviewDismiss, .respondStart, .respondSelect, .respondReset, .respondImplement, .respondTest,
              .respondReplyOnly, .respondCancel, .respondDismiss, .mergeDismiss, .chatSend, .chatUndo, .chatStop,
-             .notifySet, .notifySetEnabled:
+             .notifySet, .notifySetEnabled, .ciFix:
             return .allowed
-        // Face ID
+        // Face ID (`prbar ci push [--anyway]` es `respondPush`/`respondPushAnyway`: también gated)
         case .merge, .respondPush, .respondPushAnyway:
             return .gated
         case .reviewPublish:

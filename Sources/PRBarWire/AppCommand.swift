@@ -45,6 +45,14 @@ public enum AppCommand: Codable, Equatable, Sendable {
     case respondReplyOnly(pr: String, confirmed: Bool, wait: Bool)
     case respondCancel(pr: String)
     case respondDismiss(pr: String)
+    // Fix CI (spec K). Show, diff, test, push, cancel and dismiss are the Respond commands.
+    /// Mis PRs con el CI fallido y su Fix CI.
+    case ciList
+    /// "Fix CI" en la fila: lee los checks, prepara el worktree e implementa.
+    case ciFix(pr: String, wait: Bool)
+    // Uso de Claude (spec O)
+    /// `YYYY-MM`; nil = este mes.
+    case usage(month: String?)
     // Ready to Merge (spec F)
     /// `method == nil` = el método por defecto del repo. Mergea sin diálogo: la CLI ya confirmó (`--yes`).
     /// `expectedHeadOid`: el head que la CLI mostró (`mergePreview`); si el PR cambió, la app no mergea.
@@ -183,6 +191,7 @@ public enum AppCommand: Codable, Equatable, Sendable {
         case openPopover
         case resources, cleanupPreview, cleanup, setDiskWarning
         case runnersList, runnerAdd, runnerSet, runnerRemove, runnerTest, runnerDefault
+        case ciList, ciFix, usage
     }
 
     public var name: Name {
@@ -219,6 +228,9 @@ public enum AppCommand: Codable, Equatable, Sendable {
         case .respondReplyOnly: .respondReplyOnly
         case .respondCancel: .respondCancel
         case .respondDismiss: .respondDismiss
+        case .ciList: .ciList
+        case .ciFix: .ciFix
+        case .usage: .usage
         case .merge: .merge
         case .mergePreview: .mergePreview
         case .mergeDismiss: .mergeDismiss

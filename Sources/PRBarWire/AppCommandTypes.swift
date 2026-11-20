@@ -19,6 +19,8 @@ public enum PRListFilter: String, Codable, CaseIterable, Sendable {
 
 public enum HistoryKind: String, Codable, CaseIterable, Sendable {
     case review, respond, merge
+    /// Fix CI (spec K): a Respond run in CI mode.
+    case ciFix = "ci-fix"
 }
 
 /// `prbar open <pr> --…`.
@@ -182,9 +184,10 @@ public enum SuggestionAction: String, Codable, CaseIterable, Sendable {
 
 extension PromptStage {
     /// El nombre en la CLI: `review`, `filter`, `analysis`, `implementation`, `chat-review`, `chat-respond`,
-    /// `chat-merge`, `chat-instructions`.
+    /// `chat-merge`, `chat-instructions`, `ci-fix`.
     public var cliName: String {
         switch self {
+        case .ciFix: "ci-fix"
         case .reviewChat: "chat-review"
         case .respondChat: "chat-respond"
         case .mergeChat: "chat-merge"
