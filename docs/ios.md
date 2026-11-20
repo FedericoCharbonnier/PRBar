@@ -8,9 +8,14 @@ spec R.7 (`docs/superpowers/specs/2026-11-20-prbar-iphone-design.md`).
 
 ```
 cd ios/PRBarMobileKit
-swift test                       # view models, store, cache, keychain, pairing, Face ID logic
-swift run PRBarMobileSnapshots   # every screen id, light and dark, to ios/snapshots/
+swift test                       # view models, store, cache, keychain, pairing, Face ID logic, LiveTransport
+swift run PRBarMobileSnapshots   # every screen id, light and dark, to ios/snapshots/ (demo data)
 ```
+
+End to end on this Mac, no simulator: `Scripts/ios-e2e.sh` (needs Go) builds the relay into a temporary folder, runs
+it on 127.0.0.1 and drives the phone's view models over `LiveTransport` against a real `RemoteAccessService` with
+fixture PRs: pairing (QR, code, acknowledgement), home, review toggle, approve and merge with Face ID proofs (software
+key), chat, revoke, and a relay 4403 that must not unpair. Without `PRBAR_RELAY_BIN` the suite is skipped.
 
 `Scripts/ios-build-check.sh` compiles the app for the simulator, for the device SDK (unsigned) and the test bundle
 without a run destination (it leaves out the asset catalog, which needs a simulator runtime). Build products go to
@@ -36,7 +41,13 @@ and the notification extension arrive with plan 19 Task 8.
 
 ## State of the app
 
-Until the relay transport (plans 17 and 18) is wired in `ios/PRBarMobile/App/AppBootstrap.swift`, the app runs on
-demo data: pairing "succeeds" with code 482 913 a few seconds after scanning any valid `prbar://pair` QR, and the lists,
-review, respond, merge, chat, activity and settings show the design's sample PRs. The keychain, the cache and Face ID
-are the real ones.
+The app talks to the Mac through the relay (`LiveTransport` and `LivePairingService` in
+`ios/PRBarMobile/App/AppBootstrap.swift`): pair it from PRBar › Settings › iPhone › Pair iPhone… (or `prbar remote
+pair`) on a Mac with iPhone access enabled. The keychain, the cache and Face ID are the real ones.
+
+Launch with `-demo` (Xcode › Scheme › Arguments, or `xcrun simctl launch <device> com.federico.prbar.ios -demo`) for
+the design's sample data without network or keychain: pairing "succeeds" with code 482 913 a few seconds after
+scanning any valid `prbar://pair` QR, and every screen shows the sample PRs (screenshots).
+
+Still missing: push notifications and the notification extension (plan 19 Task 8, needs the Team ID), and the
+checklists on a real iPhone.

@@ -679,36 +679,66 @@ Lo que muestre el diseño, con esta regla: lo que es de la Mac va por `AppComman
 
 ### R.7 Decisiones de implementación (Plan 19)
 
-Estado: implementado contra el protocolo (`RemoteTransport`) con datos de prueba; falta enchufar el relay (planes 17 y
-18) y lo que requiere al usuario (Team ID, iPhone).
+Estado: la app habla con la Mac por el relay (`LiveTransport`, `LivePairingService`); falta lo que requiere al usuario
+(Team ID, iPhone) y las notificaciones (Task 8).
 
 - **Dónde vive el código.** La lógica y las vistas están en el paquete `ios/PRBarMobileKit` (targets
   `PRBarMobileCore`, `PRBarMobileUI`, `PRBarMobileSnapshots`), que compila para iOS 26 **y macOS 26**: los tests de los
-  view models corren con `swift test` en la Mac, sin simulador (93 tests), y `swift run PRBarMobileSnapshots` dibuja
-  cada pantalla en claro y oscuro a `ios/snapshots/` (ignorado). El target de Xcode (`ios/PRBarMobile`) solo tiene el
-  arranque (`AppBootstrap`), el gesto de volver y los recursos. Proyecto `PRBarMobile` por XcodeGen como dice el plan.
+  view models corren con `swift test` en la Mac, sin simulador, y `swift run PRBarMobileSnapshots` dibuja cada pantalla
+  en claro y oscuro a `ios/snapshots/` (ignorado). El target de Xcode (`ios/PRBarMobile`) solo tiene el arranque
+  (`AppBootstrap`), el gesto de volver y los recursos. Proyecto `PRBarMobile` por XcodeGen como dice el plan.
 - **La costura con el relay.** `RemoteTransport` (conectar, `sub`, `send` con firma de presencia, buzón, `unpair`,
-  eventos) y `PairingService` (unirse a la ranura, código, resultado). Hoy los implementan `FakeTransport` y
-  `FakePairingService` (respuestas de la muestra del diseño); `AppBootstrap.make()` es el único lugar a cambiar cuando
-  existan `RemoteClient` (plan 17) y la Mac (plan 18). El transporte arma él mismo el `PresenceProof` (conoce
+  eventos) y `PairingService` (unirse a la ranura, código, resultado). `AppBootstrap.make()` arma `LiveTransport` y
+  `LivePairingService`; con el argumento `-demo` arma `FakeTransport`/`FakePairingService` con la muestra del diseño
+  (capturas, previews y tests siguen usando el fake). El transporte arma él mismo el `PresenceProof` (conoce
   `sessionHash` y reserva el `reqId`): los view models le pasan un `PresenceSigner` solo si el comando es gated
   (`RemotePolicy`) y la Mac exige presencia (`presencePolicy`).
-- **Comandos que el branch todavía no tiene.** `RemoteCommand` = `AppCommand` + `ciFix`, `usage` y
-  `remoteSetPresenceRequirement(enabled:)`, codificados igual que el `Codable` sintetizado de `AppCommand`
-  (`{"ciFix":{…}}`). Cuando lleguen a `PRBarWire` esos casos se borran. `remoteSetPresenceRequirement` va sin `device`:
-  desde el teléfono el dispositivo es la sesión.
-- **Tópicos.** `RemoteHome`, `RemotePRDetail`, `RemoteActivity` se decodifican en el teléfono con la forma de P.6; el
-  `respond` se lee además como `RespondExtras` para los campos de `feat/ci-cost` (`mode`, `ciChecks`). Cada pantalla
-  retiene su tópico mientras está visible (`activity` solo con Activity abierta). `rev`: por sesión para los `state`;
-  el del buzón se compara con el último `home` guardado.
-- **Datos que el diseño muestra y ningún comando da (tareas para el Plan 18).** Opcionales en los tópicos; sin ellos la
-  UI los oculta o usa un texto genérico: nombre visible de cada autor (`people`), cantidad de comentarios de un review
-  listo (`findingCounts`, "4 comments"), aprobaciones de mis PRs (`approvals`, "Approved by 2"), checks fallidos por PR en
-  `ciList` (`failedChecks`), en Fix CI la duración y el extracto de log de cada check, el total de checks ("2 of 9"),
-  el archivo que se está editando y el resumen de tests, la hora de inicio de un Respond (cronómetro), cantidad de
-  archivos del PR ("· 5 files"), totales de la Mac para las tarjetas de Activity (núcleos, RAM total, disco libre/total:
-  `ResourcesInfo` solo trae lo de PRBar), jobs en curso con tiempo y costo (`running`), mensajes de chat del mes, el
-  extracto de código en `edit`, y el canal de Slack de `merge:merged` ("Posted in #web-reviews").
+- **`LiveTransport`** (sobre `RemoteClient`). El cliente se arma con lo que hay en el llavero al conectar y se rearma si
+  cambia el emparejamiento (otra Mac, o un emparejamiento nuevo después de una revocación). `RemoteClient` ganó
+  `statusUpdates` (cada cambio de estado) y `lastRelayCloseCode`: cada estado pasa a un `LinkState`; mientras la app
+  quiere estar conectada, un relay caído se reintenta con backoff (1, 2, 4, 8, 16 y 30 s) y una Mac que vuelve
+  (`presence` online) se reconecta enseguida. Un código de cierre del relay (44xx) es `relayRejected(closeCode:)`, un
+  problema de conexión; solo `bye(revoked)` dentro de la sesión es `.revoked` y borra claves y caché (M3). Un handshake
+  sin respuesta (una Mac que no reconoce al teléfono) también es un problema de conexión. Pedidos con `deadline`
+  (L3), eventos en orden, `CommandFailure` tal cual a la UI, `chatDelta` y tópicos reenviados, buzón `home` abierto (un
+  slot vacío = nada). La app ignora el `chatDelta` de un PR mientras corre su propio `chatSend` (ya le llega como eventos).
+- **`LivePairingService`.** Un `RemoteClient` por intento, hacia el relay del QR, con las claves que generó la app
+  (`startPairing(…, keys:)`, nuevo): se guardan en el llavero recién con el resultado de la Mac, al que RemoteKit
+  contesta con el acuse cifrado (M1). "Codes Don't Match" suelta la ranura (`cancelPairing()`, nuevo).
+- **Tipos compartidos.** El teléfono usa directamente `AppCommand` (`ciFix`, `usage` y
+  `remoteSetPresenceRequirement` ya están; este último va con `device` vacío: el puente pone el de la sesión),
+  `PairedMac` de RemoteKit (en el llavero, en vez de `StoredPairedMac`; `StoredDeviceKeys` queda porque guarda además la
+  clave de presencia, con `deviceKeys()` para RemoteKit) y los tópicos de PRBarWire (`RemoteHome`, `RemotePRDetail`,
+  `RemoteActivity`, `CIListEntry`, `CICheckFailure`, `UsageInfo`). Se borraron `RemoteCommand`, `RespondExtras`,
+  `CIEntry`, `CICheck`, `UsageDigest`, `SystemStats` y `RunningJob`.
+- **Tópicos.** Cada pantalla retiene su tópico mientras está visible (`activity` solo con Activity abierta). `rev`: por
+  sesión para los `state`; el del buzón se compara con el último `home` guardado.
+- **Datos que el diseño muestra (campos opcionales, sin cambiar el protocolo).** La Mac los llena con lo que ya
+  tiene, sin pedidos nuevos a GitHub; sin ellos la UI usa su texto genérico:
+  - `PRInfo.authorName` (nombre visible del autor; `... on User { name }` en la consulta de PRs abiertos que ya se hacía,
+    guardado en `state.json`), `PRInfo.changedFiles` (`changedFiles` en la misma consulta; "· 5 files") y
+    `PRInfo.approvals` (revisores cuyo último review que cuenta es un approve; "Approved by 2").
+  - `RemoteHome.findingCounts` (comentarios incluidos de un review listo; "4 comments").
+  - `CIListEntry.failedChecks` (de un Fix CI ya corrido sobre ese head; si no, "Checks failed").
+  - `CICheckFailure.durationSeconds` (`started_at`/`completed_at` de los check runs que el Fix CI ya pide) y
+    `logExcerpt` (las últimas 8 líneas del log ya saneado); `RespondInfo.totalChecks` ("2 of 9", checks del head),
+    `startedAt` (cronómetro, el `startedAt` del registro) y `testSummary` ("142 passed", de la salida de los tests:
+    Jest, Vitest, pytest, Mocha, XCTest, Swift Testing, cargo).
+  - `RemotePRDetail.slackChannel` (canal del aviso de merge si Slack y ese aviso están prendidos; "Posted in
+    #api-reviews"; un id sin nombre no se muestra).
+  - `RemoteActivity.system` (`MacSystemSampler` en PRBarRemoteMac: núcleos, RAM usada/total, disco libre/total) y
+    `running` (los trabajos de `status` con la hora del proceso de Claude más viejo de cada uno).
+  - Mensajes de chat del mes: cada mensaje es una corrida, así que alcanza con `byKind["chat"].runs`.
+  - **Quedan sin llenar**: `RespondInfo.currentFile` (declarado; la cola de Responder no sigue las herramientas de
+    Claude), el costo de un trabajo en curso (Claude lo informa recién al terminar), el extracto de código en `edit`, y
+    los nombres de los revisores que no son autores de un PR visible (no se piden).
+  La redacción de rutas (`RemoteRedaction`) sigue corriendo sobre cada tópico.
+- **Punta a punta sin simulador.** `Scripts/ios-e2e.sh` compila el relay en una carpeta temporal y corre
+  `PRBarMobileEndToEndTests` (solo macOS, con `PRBAR_RELAY_BIN`): un `RemoteAccessService` con `FixtureActions`
+  (librería nueva `PRBarRemoteFixtures`) en 127.0.0.1 y los view models del teléfono sobre `LiveTransport`: empareja
+  (QR, código, acuse), llega `home` con los datos nuevos, cambia un finding, aprueba y mergea con prueba de presencia,
+  chatea (el texto llega una sola vez y después un `chatDelta` de la Mac en vivo), la Mac revoca (claves y caché
+  borradas) y un 4403 del relay (la Mac manda `device.remove` sin `bye`) deja las claves.
 - **Copy que no está en el diseño** (de la app de la Mac cuando existe): vacíos de las pestañas (`PopoverTabs.emptyState`),
   "Cancel this review?" / "Keep Running" / "Cancel Review" / "Dismiss", "Undo Claude’s changes?" con el mensaje de
   `confirmationRequired`, "Review with Claude" (plan). Inventado: QR inválido ("This isn't a PRBar pairing code…"),
@@ -726,7 +756,7 @@ Estado: implementado contra el protocolo (`RemoteTransport`) con datos de prueba
   explícito, y después el código de 6 dígitos; un intento fallido no toca las claves existentes (se guardan recién con
   la confirmación de la Mac). (M3) Los códigos de cierre del relay (4401/4403/…) no prueban nada: son
   `LinkState.relayRejected` → problema de conexión con Try Again; las claves se borran solo con un `bye(revoked)` dentro
-  de la sesión cifrada (`LinkState.revoked`, lo emitirá `RemoteClient`) o con Unpair. Las claves privadas viven solo en
+  de la sesión cifrada (`LinkState.revoked`, lo emite `LiveTransport`) o con Unpair. Las claves privadas viven solo en
   el llavero (la de presencia en el Secure Enclave; en el llavero va su `dataRepresentation`); la caché del App Group
   tiene solo datos de PRs.
 - **Face ID.** `SecureEnclavePresence` evalúa primero la biometría con `LAContext` (cancelar es un `LAError` limpio) y
