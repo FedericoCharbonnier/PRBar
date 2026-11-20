@@ -101,11 +101,15 @@ public struct RespondDraft: Codable, Equatable, Sendable, Identifiable {
     public let items: [RespondItem]
     /// The PR's language (from its description): the replies are published in it. English in old history files.
     public let language: PRLanguage
+    /// Destino remoto donde vive el worktree (spec J); nil = esta Mac.
+    public var runner: String?
+    /// El clone local del repo al analizar (para traer los fixes, J.7.9); nil sin carpeta local.
+    public var localPath: String?
 
     public init(
         id: UUID = UUID(), prID: String, repo: RepoRef, number: Int, title: String, url: URL, headRef: String,
         account: String, worktree: ResolvedWorktree, startHeadOid: String, items: [RespondItem],
-        language: PRLanguage = .english
+        language: PRLanguage = .english, runner: String? = nil, localPath: String? = nil
     ) {
         self.id = id
         self.prID = prID
@@ -119,10 +123,13 @@ public struct RespondDraft: Codable, Equatable, Sendable, Identifiable {
         self.startHeadOid = startHeadOid
         self.items = items
         self.language = language
+        self.runner = runner
+        self.localPath = localPath
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, prID, repo, number, title, url, headRef, account, worktree, startHeadOid, items, language
+        case runner, localPath
     }
 
     public init(from decoder: Decoder) throws {
@@ -134,7 +141,9 @@ public struct RespondDraft: Codable, Equatable, Sendable, Identifiable {
             headRef: try c.decode(String.self, forKey: .headRef), account: try c.decode(String.self, forKey: .account),
             worktree: try c.decode(ResolvedWorktree.self, forKey: .worktree),
             startHeadOid: try c.decode(String.self, forKey: .startHeadOid), items: try c.decode([RespondItem].self, forKey: .items),
-            language: (try? c.decodeIfPresent(PRLanguage.self, forKey: .language)) ?? .english)
+            language: (try? c.decodeIfPresent(PRLanguage.self, forKey: .language)) ?? .english,
+            runner: try c.decodeIfPresent(String.self, forKey: .runner),
+            localPath: try c.decodeIfPresent(String.self, forKey: .localPath))
     }
 }
 
@@ -253,10 +262,12 @@ public struct RespondResult: Codable, Equatable, Sendable {
     /// Dependency manifests changed since `startHeadOid` (spec E.5): any change, except `package.json`, which
     /// counts only if a dependency section changed. Nil in records of earlier versions.
     public let dependencyChanges: [String]?
+    /// Los commits de un fix remoto ya traídos a la Mac (spec J); nil = el worktree está en esta Mac.
+    public var remoteObjects: RemoteObjects?
 
     public init(items: [ItemResult], diffStat: String, tests: TestRun?, sensitiveChanges: [String] = [],
                 headOid: String? = nil, gitIntegrity: String? = nil, diff: String? = nil, diffTruncated: Bool? = nil,
-                commits: [CommitInfo]? = nil, dependencyChanges: [String]? = nil) {
+                commits: [CommitInfo]? = nil, dependencyChanges: [String]? = nil, remoteObjects: RemoteObjects? = nil) {
         self.items = items
         self.diffStat = diffStat
         self.tests = tests
@@ -267,6 +278,25 @@ public struct RespondResult: Codable, Equatable, Sendable {
         self.diffTruncated = diffTruncated
         self.commits = commits
         self.dependencyChanges = dependencyChanges
+        self.remoteObjects = remoteObjects
+    }
+}
+
+/// Los commits de un fix remoto, ya traídos a la Mac (decisión J.7.9).
+public struct RemoteObjects: Codable, Equatable, Sendable {
+    /// El repo local donde están los objetos: el clone del usuario o un clone temporal de PRBar.
+    public var repoPath: String
+    /// `true` si `repoPath` es un clone temporal (se borra al terminar).
+    public var temporary: Bool
+    public var ref: String
+    /// El árbol del commit traído (`<sha>^{tree}`): se re-verifica antes del push.
+    public var treeOid: String
+
+    public init(repoPath: String, temporary: Bool, ref: String, treeOid: String) {
+        self.repoPath = repoPath
+        self.temporary = temporary
+        self.ref = ref
+        self.treeOid = treeOid
     }
 }
 

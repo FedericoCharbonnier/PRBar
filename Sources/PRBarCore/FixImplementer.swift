@@ -110,43 +110,44 @@ public struct FixImplementer: Sendable {
     /// The result of the fixes (`start..HEAD`): diff stat, sensitive files, the full diff (capped), the commits with
     /// their messages, HEAD and `integrity` (git's digest, the push's baseline). Never runs tests (`tests` is nil).
     private func summarize(_ worktree: URL, start: String, items: [ItemResult], integrity: String?) async throws -> RespondResult {
-        let diffStat = try await git(worktree, ["diff", GitHardening.ignoreSubmodules, "--no-ext-diff", "--no-color", "--stat", "\(start)..HEAD"])
-        let changed = try await git(worktree, ["diff", GitHardening.ignoreSubmodules, "--no-ext-diff", "--no-renames", "--name-only", "-z", "\(start)..HEAD"])
-        let paths = changed.split(separator: "\0").map(String.init)
-        let sensitive = paths.filter(Self.isSensitive).sorted()
         try await checkNoNestedGit(worktree, allowed: [])
-        // I3: lo que se va a pushear, entero, para que el usuario lo vea antes de correr tests o pushear.
-        let fullDiff = try await git(worktree, ["diff", GitHardening.ignoreSubmodules, "--text", "--no-textconv", "--no-ext-diff",
-                                                "--no-color", "\(start)..HEAD"])
-        let (diff, truncated) = Self.capDiff(fullDiff)
-        let log = try await git(worktree, ["log", "--reverse", "--format=%H%x00%B%x1e", "\(start)..HEAD"])
-        return RespondResult(items: items, diffStat: diffStat.trimmingCharacters(in: .newlines), tests: nil,
-                             sensitiveChanges: sensitive, headOid: try await head(worktree),
-                             gitIntegrity: integrity, diff: diff, diffTruncated: truncated,
-                             commits: Self.commits(fromLog: log),
-                             dependencyChanges: await dependencyChanges(paths, worktree: worktree, start: start))
+        return try await Self.summarize(repository: worktree, start: start, head: try await head(worktree), items: items,
+                                        integrity: integrity) { repository, arguments in
+            try await self.git(repository, arguments)
+        }
     }
 
-    /// The changed manifests (see `RespondResult.dependencyChanges`), sorted.
-    private func dependencyChanges(_ paths: [String], worktree: URL, start: String) async -> [String] {
-        var changes: [String] = []
+    /// El resultado de `start..head` en `repository` (un worktree o un repo cualquiera, p. ej. el clone local donde se
+    /// trajeron los fixes de un host): `--stat`, diff completo (cortado), commits, sensibles y dependencias.
+    /// `items`/`integrity` se copian. `git` corre git endurecido en `repository`.
+    static func summarize(repository: URL, start: String, head: String, items: [ItemResult], integrity: String?,
+                          git: (URL, [String]) async throws -> String) async throws -> RespondResult {
+        let range = "\(start)..\(head)"
+        let diffStat = try await git(repository, ["diff", GitHardening.ignoreSubmodules, "--no-ext-diff", "--no-color", "--stat", range])
+        let changed = try await git(repository, ["diff", GitHardening.ignoreSubmodules, "--no-ext-diff", "--no-renames", "--name-only", "-z", range])
+        let paths = changed.split(separator: "\0").map(String.init)
+        let sensitive = paths.filter(isSensitive).sorted()
+        // I3: lo que se va a pushear, entero, para que el usuario lo vea antes de correr tests o pushear.
+        let fullDiff = try await git(repository, ["diff", GitHardening.ignoreSubmodules, "--text", "--no-textconv", "--no-ext-diff",
+                                                  "--no-color", range])
+        let (diff, truncated) = capDiff(fullDiff)
+        let log = try await git(repository, ["log", "--reverse", "--format=%H%x00%B%x1e", range])
+        // The changed manifests (see `RespondResult.dependencyChanges`), sorted. A file at a commit is
+        // `git cat-file blob <rev>:<path>`, or nil if it isn't there.
+        var dependencies: [String] = []
         for path in paths where DependencyManifests.isManifest(path) {
             if DependencyManifests.isPackageJSON(path) {
-                let before = await blob(worktree, "\(start):\(path)")
-                let after = await blob(worktree, "HEAD:\(path)")
+                let before = (try? await git(repository, ["cat-file", "blob", "\(start):\(path)"])).map { Data($0.utf8) }
+                let after = (try? await git(repository, ["cat-file", "blob", "\(head):\(path)"])).map { Data($0.utf8) }
                 guard DependencyManifests.packageJSONDependenciesChanged(before: before, after: after) else { continue }
             }
-            changes.append(path)
+            dependencies.append(path)
         }
-        return changes.sorted()
-    }
-
-    /// A file at a commit (`git cat-file blob <rev>:<path>`, hardened), or nil if it isn't there.
-    private func blob(_ worktree: URL, _ spec: String) async -> Data? {
-        let args = ["-C", worktree.path] + GitHardening.arguments + ["cat-file", "blob", spec]
-        guard let result = try? await runner.run(gitPath, args, environment: environment, currentDirectory: nil,
-                                                 timeout: ProcessTimeouts.standard), result.status == 0 else { return nil }
-        return Data(result.stdout.utf8)
+        return RespondResult(items: items, diffStat: diffStat.trimmingCharacters(in: .newlines), tests: nil,
+                             sensitiveChanges: sensitive, headOid: head,
+                             gitIntegrity: integrity, diff: diff, diffTruncated: truncated,
+                             commits: commits(fromLog: log),
+                             dependencyChanges: dependencies.sorted())
     }
 
     /// Líneas del diff que se guardan en el resultado y muestra la UI; el resto se ve en el worktree.

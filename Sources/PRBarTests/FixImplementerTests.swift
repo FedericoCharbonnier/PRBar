@@ -288,7 +288,7 @@ enum FixImplementerTests {
             try expect(result.gitIntegrity?.count == 64, "\(String(describing: result.gitIntegrity))")
             let diffCall = try recorder.calls.first { $0.arguments.contains("--text") } ?? { throw TestFailure(description: "sin git diff --text") }()
             try expectEqual(Array(diffCall.arguments.dropFirst(2)), GitHardening.arguments + [
-                "diff", "--ignore-submodules=all", "--text", "--no-textconv", "--no-ext-diff", "--no-color", "\(start)..HEAD",
+                "diff", "--ignore-submodules=all", "--text", "--no-textconv", "--no-ext-diff", "--no-color", "\(start)..\(try repo.head())",
             ])
         },
         TestCase("fix implementer: I3, el diff se corta en 5000 líneas y lo avisa") {
