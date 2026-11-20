@@ -139,6 +139,8 @@ struct RespondWindow: View {
         .onChange(of: hasUnsavedChanges, initial: true) { _, unsaved in reportUnsaved(unsaved) }
         .onChange(of: chatLock, initial: true) { _, reason in chat.setLock(reason) }
         .onChange(of: isFinished, initial: true) { _, finished in if finished { chat.markReadOnly() } }
+        // View › Show Chat (⇧⌘C) in the menu bar.
+        .windowCommand(.toggleChat, enabled: model.chatEnabled, isOn: showsChat && model.chatEnabled) { showsChat.toggle() }
         .inspector(isPresented: Binding(get: { showsChat && model.chatEnabled }, set: { showsChat = $0 })) {
             ChatPanel(chat: chat, unavailableReason: model.chatUnavailableReason(for: chat),
                       notice: nil,

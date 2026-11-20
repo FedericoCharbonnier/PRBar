@@ -264,6 +264,12 @@ final class AppModel: ObservableObject {
         guard startsServices else { return }
         startCommandServer()
         WindowPresenter.shared.openSettings = { [weak self] in self?.openSettings() }
+        WindowPresenter.shared.openHistory = { [weak self] in self?.openHistory() }
+        WindowPresenter.shared.openActivity = { [weak self] in self?.openActivityWindow() }
+        WindowCommandCenter.shared.refreshPRs = { [weak self] in
+            guard let self else { return }
+            Task { await self.prStore.refresh() }
+        }
         notifications?.onOpenReview = { [weak self] prID, recordID in self?.openFromNotification(prID: prID, recordID: recordID) }
         notifications?.onOpenRespond = { [weak self] prID in self?.openRespondFromNotification(prID: prID) }
         notifications?.onOpenUpdate = { [weak self] in self?.openUpdateWindow() }

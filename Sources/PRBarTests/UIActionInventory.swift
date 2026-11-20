@@ -39,6 +39,17 @@ enum UIActionInventory {
         .init("AppMenu.swift", "MenuItem", "Select All", 1, .viewOnly("text editing")),
         .init("AppMenu.swift", "MenuItem", "Minimize", 1, .viewOnly("window management")),
         .init("AppMenu.swift", "MenuItem", "Close", 1, .viewOnly("window management")),
+        .init("AppMenu.swift", "MenuItem", "Zoom", 1, .viewOnly("window management")),
+        .init("AppMenu.swift", "MenuItem", "Bring All to Front", 1, .viewOnly("window management")),
+        .init("AppMenu.swift", "MenuItem", "Enter Full Screen", 1, .viewOnly("window management")),
+        .init("AppMenu.swift", "MenuItem", "Show Chat", 1, .cli(["chat"])),   // ⇧⌘C, the toolbar's Chat button
+        .init("AppMenu.swift", "MenuItem", "Refresh", 1, .cli(["merge", "refresh"])),   // ⌘R: the Merge window (--preview) or the PR list
+        .init("AppMenu.swift", "ClosureMenuItem", "History", 1, .cli(["app history"])),   // ⌘Y
+        .init("AppMenu.swift", "ClosureMenuItem", "PRBar Activity", 1, .cli(["resources"])),
+        .init("AppMenu.swift", "ClosureMenuItem", "Keyboard Shortcuts", 1, .viewOnly("lists the shortcuts")),
+        .init("AppMenu.swift", "ClosureMenuItem", "Show Log", 1, .cli(["app logs"])),
+        .init("Components/WindowCommands.swift", "Component:WindowAccessor", "-", 1, .viewOnly("finds the window a View menu command acts on")),
+        .init("Components/WindowCommands.swift", "Component:WindowCommandModifier", "-", 1, .viewOnly("registers a window’s View menu commands (Show Chat, Refresh)")),
         // PRBar Activity (plan 13, spec I)
         .init("Activity/ActivityWindow.swift", "Button", "Stop", 2, .cli(["review cancel", "respond cancel", "chat", "rules chat", "update"])),   // por tarea; el de update deshabilitado
         .init("Activity/ActivityWindow.swift", "Button", "Refresh", 1, .cli(["resources"])),

@@ -45,8 +45,10 @@ struct CloseConfirmation {
 final class WindowPresenter: NSObject, NSWindowDelegate {
     static let shared = WindowPresenter()
 
-    /// Acción de "Configuración…" (⌘,) del menú de la app. La asigna `AppModel`.
+    /// Acciones del menú de la app ("Settings…" ⌘,, "History" ⌘Y, "PRBar Activity"). Las asigna `AppModel`.
     var openSettings: (() -> Void)?
+    var openHistory: (() -> Void)?
+    var openActivity: (() -> Void)?
 
     private var windows: [String: NSWindow] = [:]
     /// Qué contenido muestra cada ventana (ver `contentID` en `present`).
@@ -54,7 +56,11 @@ final class WindowPresenter: NSObject, NSWindowDelegate {
     private var windowOptions: [String: WindowOptions] = [:]
     /// Ventanas con cambios sin guardar (p. ej. una review con hallazgos editados), según lo informa su contenido.
     private var unsavedChanges: Set<String> = []
-    private lazy var mainMenu = AppMenu.build(openSettings: { [weak self] in self?.openSettings?() })
+    private lazy var mainMenu = AppMenu.build(AppMenu.Actions(
+        openSettings: { [weak self] in self?.openSettings?() },
+        openHistory: { [weak self] in self?.openHistory?() },
+        openActivity: { [weak self] in self?.openActivity?() }
+    ))
     private var spaceObserver: NSObjectProtocol?
 
     override init() {

@@ -52,6 +52,12 @@ struct MergeWindow: View {
         .onChange(of: showsChat && model.chatEnabled, initial: true) { _, shown in
             if shown && session.chat == nil { _ = model.mergeChat(prID: prID) }
         }
+        // View › Show Chat (⇧⌘C) in the menu bar.
+        .windowCommand(.toggleChat, enabled: model.chatEnabled, isOn: showsChat && model.chatEnabled) { showsChat.toggle() }
+        // View › Refresh (⌘R).
+        .windowCommand(.refresh, enabled: !(window.isLoading || isFinished)) {
+            Task { await model.refreshMergeWindow(prID: prID) }
+        }
         .inspector(isPresented: Binding(get: { showsChat && model.chatEnabled }, set: { showsChat = $0 })) {
             chatPanel
                 .inspectorColumnWidth(min: 320, ideal: chatWidth, max: 480)

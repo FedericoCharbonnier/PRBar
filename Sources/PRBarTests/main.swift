@@ -12,6 +12,7 @@ let allTests: [TestCase] = []
     + SmokeTests.cases
     + StatusPanelTests.cases
     + WindowSpacesTests.cases
+    + KeyboardShortcutListTests.cases
     + ModelsTests.cases
     + ClassifierTests.cases
     + FormattingTests.cases
