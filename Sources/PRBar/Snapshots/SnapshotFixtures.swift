@@ -525,7 +525,7 @@ extension SnapshotFixtures {
                  head: "feat/idempotency-keys", ci: .success, adds: 96, dels: 14, updated: -30, category: .readyToMerge,
                  account: Self.personal, lastCommit: -60 * 3,
                  reviews: [PRReview(author: "tomas-r", isBot: false, state: .approved, submittedAt: date(minutes: -40))]),
-            status: .clean, commits: 3
+            status: .unstable, commits: 3
         )
     }
 
@@ -565,5 +565,74 @@ extension SnapshotFixtures {
                                 commitCount: commits)
         )
         return ClassifiedPR(pr: approved, category: .readyToMerge, account: base.account)
+    }
+}
+
+// MARK: Merge window (plan 11)
+
+extension SnapshotFixtures {
+    /// What the Merge window of api#322 shows: approved, one check that isn't required failing, one conversation open.
+    var idempotencyDetail: MergeDetail {
+        let pr = idempotencyKeys.pr
+        func check(_ name: String, _ state: MergeCheck.State, required: Bool, seconds: Int?, kind: MergeCheck.Kind = .checkRun) -> MergeCheck {
+            let started = date(minutes: -170)
+            return MergeCheck(name: name, kind: kind, state: state, isRequired: required,
+                              url: URL(string: "https://github.com/acme/api/actions/runs/1\(name.count)"),
+                              startedAt: started, completedAt: seconds.map { started.addingTimeInterval(TimeInterval($0)) })
+        }
+        return MergeDetail(
+            number: pr.number, title: pr.title,
+            body: """
+            Payment retries could charge a customer twice when the provider times out **after** accepting the charge.
+
+            This adds an `Idempotency-Key` header to every retry, derived from the order ID, and keeps the keys for 24 h.
+
+            - Retries reuse the key of the first attempt
+            - Keys expire with the order
+            - New metric: `payments.retry.duplicate_prevented`
+
+            Closes #301.
+            """,
+            url: pr.url, author: pr.author, authorAvatarURL: nil, baseRef: pr.baseRef, headRef: pr.headRef, headOid: pr.headOid,
+            additions: pr.additions, deletions: pr.deletions, commitCount: 3, mergeable: .mergeable, status: .unstable,
+            reviewDecision: .approved,
+            reviews: [
+                MergeReviewSummary(author: "tomas-r", avatarURL: nil, state: .approved, submittedAt: date(minutes: -40)),
+                MergeReviewSummary(author: "lucia-m", avatarURL: nil, state: .approved, submittedAt: date(minutes: -75)),
+                MergeReviewSummary(author: "ana-p", avatarURL: nil, state: .commented, submittedAt: date(minutes: -150)),
+            ],
+            pendingReviewers: ["payments-team"],
+            checks: [
+                check("build", .passed, required: true, seconds: 134),
+                check("unit-tests", .passed, required: true, seconds: 242),
+                check("integration-tests", .passed, required: false, seconds: 368),
+                check("lint", .failed, required: false, seconds: 41),
+                check("codecov/patch", .passed, required: false, seconds: nil, kind: .status),
+                check("deploy-preview", .running, required: false, seconds: nil),
+            ],
+            checksTotal: 6, unresolvedThreads: 1, totalThreads: 3,
+            files: [
+                MergeChangedFile(path: "src/payments/idempotency.ts", additions: 48, deletions: 0, change: .added),
+                MergeChangedFile(path: "src/payments/retry.ts", additions: 19, deletions: 9, change: .modified),
+                MergeChangedFile(path: "src/payments/provider/client.ts", additions: 6, deletions: 2, change: .modified),
+                MergeChangedFile(path: "src/metrics/payments.ts", additions: 4, deletions: 0, change: .modified),
+                MergeChangedFile(path: "src/payments/legacyRetry.ts", additions: 0, deletions: 3, change: .removed),
+                MergeChangedFile(path: "test/payments/idempotency.test.ts", additions: 17, deletions: 0, change: .added),
+                MergeChangedFile(path: "docs/payments.md", additions: 2, deletions: 0, change: .modified),
+            ],
+            changedFiles: 7)
+    }
+
+    /// The chat of api#322's Merge window: why lint failed and whether it matters.
+    var mergeChat: ChatSession {
+        var session = ChatSession(prID: idempotencyKeys.id, kind: .merge)
+        session.claudeSessionID = UUID(uuidString: "5A1E2B3C-4D5E-4F60-8A7B-9C0D1E2F3A4B")
+        session.messages = [
+            ChatMessage(role: .user, text: "Why did lint fail? Is it safe to merge anyway?", createdAt: date(minutes: -6)),
+            ChatMessage(role: .assistant,
+                        text: "Lint flags an unused import in `src/payments/retry.ts` (`clamp`): it doesn’t change behavior and the check isn’t required. The open conversation asks for a test of a retry after the key expired, which `idempotency.test.ts` doesn’t cover yet.",
+                        createdAt: date(minutes: -5)),
+        ]
+        return session
     }
 }

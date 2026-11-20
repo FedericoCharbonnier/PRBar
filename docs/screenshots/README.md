@@ -29,7 +29,8 @@ Every screen comes in `-light` and `-dark`, at 2x:
 | `respond-choose` | Respond: choosing what to do with 3 comments (fix, reply, fix + reply) |
 | `respond-ready-to-push` | Respond: 2 commits, the diff, the `package.json` warning, tests passed, Push and Reply |
 | `respond-chat` | Respond, ready to push, with the chat open: a reply drafted for a reviewer and a change to the fixes’ code |
-| `merge-confirm` | The confirmation before merging: PR, commits, merge method popup and "Squash and Merge" |
+| `merge-window` | The Merge window: description, reviews, checks, unresolved conversations, files, and the bar with the method, the head and "Squash and Merge" |
+| `merge-chat` | The Merge window with the read-only chat open |
 | `history` | The History window with 6 reviews and responses, one selected |
 | `settings-general`, `settings-claude`, `settings-instructions`, `settings-accounts`, `settings-repos`, `settings-slack` | Each Settings tab, configured |
 | `notification` | **An illustration** of the "Review Ready" notification, not a capture of the real macOS banner |

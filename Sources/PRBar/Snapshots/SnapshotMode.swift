@@ -86,6 +86,7 @@ private final class SnapshotSession {
 
         try await reviewWindows(model: main)
         try await respondWindows(model: main)
+        try await mergeWindows(model: main)
         try await history()
         try await settings()
         try await notification()
@@ -261,6 +262,29 @@ private final class SnapshotSession {
         }
         try await window("respond-chat", title: title, size: NSSize(width: 1180, height: 1140)) {
             RespondWindow(model: model, prID: prID, draft: draft, chat: model.respondChat(for: draft), showsChat: true, close: {})
+        }
+    }
+
+    /// The Merge window of api#322 (spec G.2), with its summary loaded, without and with the chat (spec G.4).
+    private func mergeWindows(model: AppModel) async throws {
+        let item = fixtures.idempotencyKeys
+        let title = "Merge · \(item.pr.repo.name)#\(item.pr.number)"
+        var record = MergeRecord(item: item, startedAt: fixtures.date(minutes: -8))
+        let detail = fixtures.idempotencyDetail
+        let session = MergeSession(window: MergeWindowModel(prID: item.id, recordID: record.id, detail: detail) { detail },
+                                   record: record)
+        model.mergeSessions[item.id] = session
+        try await window("merge-window", title: title, size: NSSize(width: 760, height: 1100)) {
+            MergeWindow(model: model, session: session)
+        }
+        record = MergeRecord(item: item, startedAt: fixtures.date(minutes: -8))
+        record.chat = fixtures.mergeChat
+        let chatSession = MergeSession(window: MergeWindowModel(prID: item.id, recordID: record.id, detail: detail) { detail },
+                                       record: record)
+        model.mergeSessions[item.id] = chatSession
+        _ = model.mergeChat(prID: item.id)
+        try await window("merge-chat", title: title, size: NSSize(width: 1180, height: 1100)) {
+            MergeWindow(model: model, session: chatSession, showsChat: true)
         }
     }
 
