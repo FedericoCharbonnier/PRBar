@@ -271,6 +271,28 @@ private struct ThrowingRunner: ProcessRunning {
 
 enum FixImplementerTests {
     static let cases: [TestCase] = [
+        TestCase("fixes: Fix CI usa el prompt CI, un solo commit con el mensaje de Claude (o \"Fix CI\") aun en modo single") {
+            let repo = try FixRepo.make()
+            defer { repo.remove() }
+            let (ci, context) = CIFixItem.make(headOid: try repo.head(), failing: [ciRun("build", id: 1)],
+                                               logs: [1: "error: README must say adiós"], secrets: [],
+                                               prURL: URL(string: "https://github.com/o/r/pull/7")!)
+            var ciDraft = try draft(repo, items: [ci])
+            ciDraft.mode = .ciFix
+            ciDraft.ci = context
+            let claude = fakeClaude([Script(marker: "README must say adiós", action: edit("README.md", "adiós\n"),
+                                            line: fixLine("done", summary: "build failed on README; fixed it.", message: ""))])
+            var settings = ClaudeSettings()
+            settings.respond.commitMode = .single
+            let result = try await run(implementer(claude, log: try logURL(), settings: settings), ciDraft,
+                                       [ci.id: RespondSelection.defaults(for: ci)])
+            try expectEqual(result.items.map(\.status), [.committed])
+            try expectEqual(try repo.subjects().first, "Fix CI")
+            let text = prompt(of: claude.calls[0].arguments)
+            try expect(text.contains("Its CI failed on these checks: build"))
+            try expect(text.contains("<<<CI_LOG_"))
+            try expect(!text.contains("Original comment"))
+        },
         TestCase("fix implementer: dos ítems dan dos commits con los mensajes de Claude, diffStat y progreso") {
             let repo = try FixRepo.make()
             defer { repo.remove() }

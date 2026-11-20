@@ -100,7 +100,7 @@ public struct FixImplementer: Sendable {
                                                   guarded: guarded))
             await onProgress(index + 1, work.count)
         }
-        if settings.respond.commitMode == .single {
+        if settings.respond.commitMode == .single && !draft.isCIFix {
             results = try await squash(results, draft: draft, worktree: worktree, start: start)
         }
 
@@ -196,11 +196,13 @@ public struct FixImplementer: Sendable {
         let nestedBefore = Set(try await fs.nestedGitEntries(worktree.path))
         let snapshot = try await fs.snapshot(worktree.path)
 
+        let effectiveRules = RulesPrompt.effective(rules, repo: draft.repo, stage: .respond)
+        let isCI = item.feedback.kind == .ciChecks
         let invocation = ClaudeInvocation(
-            prompt: Self.prompt(item: item, fixPlan: fixPlan, settings: settings,
-                                rules: RulesPrompt.effective(rules, repo: draft.repo, stage: .respond)),
+            prompt: isCI ? CIFixPrompt.prompt(item: item, draft: draft, settings: settings, rules: effectiveRules)
+                         : Self.prompt(item: item, fixPlan: fixPlan, settings: settings, rules: effectiveRules),
             schema: RespondSchemas.fix, tools: Self.tools,
-            workingDirectory: worktree, timeout: Self.fixTimeout, logHeader: "=== fix \(item.id) ==="
+            workingDirectory: worktree, timeout: Self.fixTimeout, logHeader: isCI ? "=== CI fix ===" : "=== fix \(item.id) ==="
         )
         let output: FixOutput
         do {
@@ -588,6 +590,8 @@ public struct FixImplementer: Sendable {
     /// One per comment with a template (spec E.5): the template with `{comment}`, `{n} = 1`. Otherwise (no template, or
     /// a single commit, which is squashed afterwards) Claude's message, as always.
     private func perCommentMessage(item: RespondItem, draft: RespondDraft, claudeMessage: String) -> String {
+        // Fix CI (spec K): Claude's message; the review-feedback templates don't apply.
+        if item.feedback.kind == .ciChecks { return CIFixPrompt.commitMessage(claudeMessage) }
         guard settings.respond.commitMode == .perComment, let template = settings.respond.effectiveCommitTemplate else {
             return Self.commitMessage(claudeMessage, reviewer: item.feedback.reviewer)
         }
