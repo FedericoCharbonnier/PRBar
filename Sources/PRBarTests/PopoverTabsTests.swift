@@ -33,6 +33,42 @@ enum PopoverTabsTests {
             try expectEqual(PopoverTabs.section(of: item(.other, author: "me")), .waitingForReview)
             try expectEqual(PopoverTabs.section(of: item(.readyToMerge, author: "me")), .readyToMerge)
         },
+        TestCase("popover tabs: \"mío\" es solo de la cuenta desde la que se ve (H.4.1)") {
+            // Un PR de mi otra cuenta visto desde esta es ajeno: va a To Review.
+            let fromOtherAccount = item(.other, author: "dev-sam-work", account: "dev-sam")
+            try expect(!PopoverTabs.isMine(fromOtherAccount))
+            try expectEqual(PopoverTabs.section(of: fromOtherAccount), .otherToReview)
+            try expectEqual(PopoverTabs.tab(of: item(.toReview, author: "dev-sam-work", account: "dev-sam")), .toReview)
+            try expect(PopoverTabs.isMine(item(.other, author: "Dev-Sam-Work", account: "dev-sam-work")))
+        },
+        TestCase("popover tabs: con dos cuentas, los PRs de cada una van a My PRs") {
+            let snapshot = Snapshot(items: [
+                item(.readyToMerge, author: "dev-sam", account: "dev-sam", number: 1),
+                item(.myFeedback, author: "dev-sam-work", account: "dev-sam-work", number: 2),
+                item(.other, author: "dev-sam-work", account: "dev-sam-work", number: 3),
+                item(.toReview, author: "dev-sam", account: "dev-sam-work", number: 4),
+                item(.other, author: "ana", account: "dev-sam", number: 5),
+            ], fetchedAt: t0)
+            try expectEqual(PopoverTabs.counts(in: snapshot), [.toReview: 1, .mine: 2])
+            try expectEqual(PopoverTabs.items(.waitingForReview, in: snapshot).map(\.pr.number), [3])
+            try expectEqual(PopoverTabs.items(.otherToReview, in: snapshot).map(\.pr.number), [5])
+            try expectEqual(PopoverTabs.items(.toReview, in: snapshot).map(\.pr.number), [4])
+        },
+        TestCase("popover tabs: prbar prs filtra por --list, --tab y --account") {
+            let items = mixed.items
+            func numbers(_ list: PRListFilter?, _ tab: PopoverTab?, _ account: String? = nil) -> [Int] {
+                PRListing.filter(items, list: list, tab: tab, account: account).map(\.pr.number)
+            }
+            try expectEqual(numbers(nil, nil), [1, 2, 3, 4, 5, 6])
+            try expectEqual(numbers(nil, .toReview), [1, 2, 5])
+            try expectEqual(numbers(nil, .mine), [3, 4, 6])
+            try expectEqual(numbers(.other, nil), [5, 6])
+            try expectEqual(numbers(.other, .mine), [6])
+            try expectEqual(numbers(.other, .toReview), [5])
+            try expectEqual(numbers(.readyToMerge, .mine), [4])
+            try expectEqual(numbers(nil, nil, "ME"), [1, 2, 3, 4, 5, 6])
+            try expectEqual(numbers(nil, nil, "other"), [])
+        },
         TestCase("popover tabs: secciones de cada pestaña, en orden, con las calladas al final") {
             try expectEqual(PopoverTabs.sections(.toReview), [.toReview, .updatedSinceMyReview, .otherToReview])
             try expectEqual(PopoverTabs.sections(.mine), [.myFeedback, .readyToMerge, .waitingForReview])

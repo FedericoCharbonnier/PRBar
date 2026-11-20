@@ -17,6 +17,18 @@ public enum PRListFilter: String, Codable, CaseIterable, Sendable {
     }
 }
 
+/// Los filtros de `prbar prs` (`listPRs`): `--list` por categoría, `--tab` por pestaña del popover y `--account`.
+/// `--list other --tab mine` es Waiting for Review; `--list other --tab to-review`, el Other de To Review.
+public enum PRListing {
+    public static func filter(_ items: [ClassifiedPR], list: PRListFilter?, tab: PopoverTab?,
+                              account: String?) -> [ClassifiedPR] {
+        items
+            .filter { item in list.map { item.category == $0.category } ?? true }
+            .filter { item in tab.map { PopoverTabs.tab(of: item) == $0 } ?? true }
+            .filter { item in account.map { item.account.caseInsensitiveCompare($0) == .orderedSame } ?? true }
+    }
+}
+
 public enum HistoryKind: String, Codable, CaseIterable, Sendable {
     case review, respond, merge
 }

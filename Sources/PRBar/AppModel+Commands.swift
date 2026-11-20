@@ -96,10 +96,7 @@ extension AppModel: StatusActions {
         if let account, !configStore.config.accounts.contains(where: { $0.login.caseInsensitiveCompare(account) == .orderedSame }) {
             throw CommandFailure(.notFound, "There’s no account \(account). Run `prbar account list`.")
         }
-        return snapshot.items
-            .filter { item in list.map { item.category == $0.category } ?? true }
-            .filter { item in tab.map { PopoverTabs.tab(of: item) == $0 } ?? true }
-            .filter { item in account.map { item.account.caseInsensitiveCompare($0) == .orderedSame } ?? true }
+        return PRListing.filter(snapshot.items, list: list, tab: tab, account: account)
             .map { PRInfo(item: $0, review: reviews.phases[$0.id], respond: respond.phases[$0.id], merge: merges.phases[$0.id]) }
     }
 
