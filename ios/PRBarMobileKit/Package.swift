@@ -1,11 +1,11 @@
 // swift-tools-version:6.0
 import PackageDescription
 
-// The iPhone app's logic and views (plan 19). It builds on macOS too, so the view models, formatting and state tests
+// The iPhone app's logic and views (plan 19). It builds on macOS 26 too, so the view models, formatting and state tests
 // run with `swift test` on the Mac without a simulator, and `swift run PRBarMobileSnapshots` renders screens to PNG.
 let package = Package(
     name: "PRBarMobileKit",
-    platforms: [.macOS(.v14), .iOS("26.0")],
+    platforms: [.macOS("26.0"), .iOS("26.0")],
     products: [
         .library(name: "PRBarMobileKit", targets: ["PRBarMobileCore", "PRBarMobileUI"]),
     ],
