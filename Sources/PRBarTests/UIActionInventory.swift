@@ -113,7 +113,7 @@ enum UIActionInventory {
         .init("Merge/MergeWindow.swift", "ExternalLink", #"and \(detail.moreFiles) more on GitHub"#, 1, .cli(["open"])),
         .init("Merge/MergeWindow.swift", "Component:StaleHeadBanner", "-", 1, .cli(["merge"])),   // Reload
         // Actualizaciones (plan 8)
-        .init("Popover/UpdateRow.swift", "Button", "-", 1, .cli(["update"])),   // "PRBar x is available — Update…"
+        .init("Popover/UpdateButton.swift", "Button", "-", 1, .cli(["update"])),   // the header's "Update" capsule
         .init("Settings/UpdatesSection.swift", "Toggle", "Check automatically", 1, .cli(["config set"])),   // update-interval 0
         .init("Settings/UpdatesSection.swift", "Picker", "Frequency", 1, .cli(["config set"])),   // update-interval N
         .init("Settings/UpdatesSection.swift", "Button", "Check for Updates", 1, .cli(["update"])),   // --check
@@ -337,7 +337,7 @@ enum UIActionInventory {
         .init("Popover/PopoverView.swift", "Component:MessageView", "checkmark.seal", 1, .viewOnly("a tab’s empty state, no action")),
         .init("Popover/StatusItemController.swift", "Component:PopoverPanelContent", "-", 1, .viewOnly("hosts the popover in the menu bar panel")),
         .init("Popover/PopoverView.swift", "Component:SectionHeader", "-", 1, .viewOnly("collapses a section")),
-        .init("Popover/PopoverView.swift", "Component:UpdateRow", "-", 1, .cli(["update"])),
+        .init("Popover/PopoverView.swift", "Component:UpdateButton", "-", 1, .cli(["update"])),
         .init("Chat/ChatPanel.swift", "Component:ChatMessageRow", "-", 2, .cli(["chat", "rules chat"])),   // Undo (--undo)
         .init("Chat/ChatPanel.swift", "Component:RuleProposalActions", "-", 1, .cli(["rules proposal save", "rules proposal dismiss"])),
         .init("Chat/ChatPanel.swift", "Component:StageChip", "-", 1, .cli(["rules proposal save"])),   // --applies-to

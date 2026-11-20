@@ -13,7 +13,7 @@ struct PopoverView: View {
     @State private var collapsed: Set<PopoverSection> = [.otherToReview, .waitingForReview]
     /// The height the panel can take on this screen (`.infinity` in snapshot mode).
     @Environment(\.popoverAvailableHeight) private var availableHeight
-    /// Everything but the PR list (header, tabs, footer, update row), measured: the list gets what's left.
+    /// Everything but the PR list (header, tabs, footer), measured: the list gets what's left.
     @State private var totalHeight: CGFloat = 0
     @State private var listHeight: CGFloat = 0
 
@@ -32,7 +32,6 @@ struct PopoverView: View {
                 Divider()
                 ResourceFooter(monitor: model.resources) { model.openActivityWindow() }
             }
-            UpdateRow(updates: model.updates) { model.openUpdateWindow() }
         }
         .frame(width: Theme.popoverWidth)
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { totalHeight = $0 }
@@ -59,13 +58,13 @@ struct PopoverView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 7) {
-                Text("PRBar").font(.headline).foregroundStyle(.primary)
-                TimelineView(.periodic(from: .now, by: 30)) { _ in
-                    Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
-                }
+            // The full "Update" capsule if it fits next to the title and subtitle; else its icon-only form; else the
+            // subtitle gives way (truncates).
+            ViewThatFits(in: .horizontal) {
+                titleAndUpdate(compactUpdate: false)
+                titleAndUpdate(compactUpdate: true)
+                titleAndUpdate(compactUpdate: true, truncatesSubtitle: true)
             }
-            Spacer()
             TimelineView(.periodic(from: .now, by: 30)) { context in
                 let limitedUntil = rateLimitedUntil(at: context.date)
                 IconButton(
@@ -102,6 +101,22 @@ struct PopoverView: View {
         .padding(.trailing, 8)
         .padding(.vertical, 9)
         .background { keyboardShortcuts }
+    }
+
+    /// "PRBar  updated 2 min ago" and, when a new version is offered or installing, the Update button at the right.
+    private func titleAndUpdate(compactUpdate: Bool, truncatesSubtitle: Bool = false) -> some View {
+        HStack(spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 7) {
+                Text("PRBar").font(.headline).foregroundStyle(.primary).fixedSize()
+                TimelineView(.periodic(from: .now, by: 30)) { _ in
+                    Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: !truncatesSubtitle, vertical: false)
+                }
+            }
+            Spacer(minLength: 0)
+            UpdateButton(updates: model.updates, compact: compactUpdate) { model.openUpdateWindow() }
+        }
     }
 
     /// El control solo tiene sentido con la lista de PRs (decisión H.4.6): no con "Set Up an Account", "GitHub CLI
