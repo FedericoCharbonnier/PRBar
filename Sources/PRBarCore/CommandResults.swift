@@ -494,6 +494,13 @@ public struct HistoryEntryInfo: Codable, Equatable, Sendable {
                   startedAt: record.startedAt, finishedAt: record.finishedAt)
     }
 
+    /// Un merge desde PRBar (spec G.4): `merged`, `failed` u `open` (no se mergeó).
+    public init(merge record: MergeRecord) {
+        self.init(id: record.id, kind: .merge, pr: record.prID, repo: record.repo.fullName, number: record.number,
+                  title: record.title, status: record.status.rawValue, startedAt: record.startedAt,
+                  finishedAt: record.finishedAt)
+    }
+
     /// Búsqueda de la ventana de Historial: título, repo o número ("482" o "#482"). `query` ya en minúsculas.
     public func matches(_ query: String) -> Bool {
         let query = query.trimmingCharacters(in: .whitespaces).lowercased()
@@ -534,13 +541,16 @@ public struct HistoryDetail: Codable, Equatable, Sendable {
     public var canReopen: Bool
     /// "Show Response" (`prbar open <pr> --respond`).
     public var canOpen: Bool
-    /// La conversación con Claude de ese review o análisis (la sección "Chat" del historial), si hubo.
+    /// La conversación con Claude de ese review, análisis o merge (la sección "Chat" del historial), si hubo.
     public var chat: ChatInfo?
+    /// Merge: el método y el head mergeado (o intentado).
+    public var mergeMethod: MergeMethod?
+    public var headOid: String?
 
     public init(entry: HistoryEntryInfo, prURL: URL, summary: String? = nil, errorMessage: String? = nil,
                 findings: [FindingInfo] = [], generalComment: String? = nil, action: String? = nil, reviewURL: URL? = nil,
                 replies: [PostedReplyInfo] = [], pushed: Bool = false, logPath: String? = nil, canReopen: Bool = false,
-                canOpen: Bool = false, chat: ChatInfo? = nil) {
+                canOpen: Bool = false, chat: ChatInfo? = nil, mergeMethod: MergeMethod? = nil, headOid: String? = nil) {
         self.entry = entry
         self.prURL = prURL
         self.summary = summary
@@ -555,6 +565,8 @@ public struct HistoryDetail: Codable, Equatable, Sendable {
         self.canReopen = canReopen
         self.canOpen = canOpen
         self.chat = chat
+        self.mergeMethod = mergeMethod
+        self.headOid = headOid
     }
 
     public init(review record: ReviewRecord, logPath: String?, canReopen: Bool) {
@@ -575,6 +587,14 @@ public struct HistoryDetail: Codable, Equatable, Sendable {
                       session.messages.isEmpty ? nil
                           : ChatInfo(pr: record.draft.prID, session: session) { edits.number(of: $0, in: record.draft) }
                   })
+    }
+
+    public init(merge record: MergeRecord, logPath: String?) {
+        self.init(entry: HistoryEntryInfo(merge: record), prURL: record.url, errorMessage: record.errorMessage, logPath: logPath,
+                  chat: record.chat.flatMap { session in
+                      session.messages.isEmpty ? nil : ChatInfo(pr: record.prID, session: session) { _ in nil }
+                  },
+                  mergeMethod: record.method, headOid: record.headOid)
     }
 
     public init(respond record: RespondRecord, logPath: String?, canOpen: Bool) {

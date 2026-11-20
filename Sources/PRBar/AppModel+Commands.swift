@@ -114,8 +114,9 @@ extension AppModel: StatusActions {
 
     func historyList(repo: String?, kind: HistoryKind?, limit: Int?, search: String?) -> [HistoryEntryInfo] {
         var entries: [HistoryEntryInfo] = []
-        if kind != .respond { entries += history.all().map(HistoryEntryInfo.init(review:)) }
-        if kind != .review { entries += respondHistory.all().map(HistoryEntryInfo.init(respond:)) }
+        if kind == nil || kind == .review { entries += history.all().map(HistoryEntryInfo.init(review:)) }
+        if kind == nil || kind == .respond { entries += respondHistory.all().map(HistoryEntryInfo.init(respond:)) }
+        if kind == nil || kind == .merge { entries += mergeHistory.all().map(HistoryEntryInfo.init(merge:)) }
         let filtered = entries
             .filter { entry in repo.map { entry.repo.caseInsensitiveCompare($0) == .orderedSame } ?? true }
             .filter { $0.matches(search ?? "") }
@@ -126,6 +127,7 @@ extension AppModel: StatusActions {
     private enum HistoryHit {
         case review(ReviewRecord)
         case respond(RespondRecord)
+        case merge(MergeRecord)
     }
 
     /// Un registro por su id completo o por un prefijo único (de al menos 4 caracteres).
@@ -133,7 +135,8 @@ extension AppModel: StatusActions {
         let needle = text.lowercased()
         let reviewHits = history.all().filter { $0.id.uuidString.lowercased().hasPrefix(needle) }
         let respondHits = respondHistory.all().filter { $0.id.uuidString.lowercased().hasPrefix(needle) }
-        let total = reviewHits.count + respondHits.count
+        let mergeHits = mergeHistory.all().filter { $0.id.uuidString.lowercased().hasPrefix(needle) }
+        let total = reviewHits.count + respondHits.count + mergeHits.count
         guard needle.count >= 4, total > 0 else {
             throw CommandFailure(.notFound, "There’s no history record \(text). Run `prbar history`.")
         }
@@ -141,7 +144,8 @@ extension AppModel: StatusActions {
             throw CommandFailure(.invalidUsage, "\(text) matches \(total) records: use more characters of the id.")
         }
         if let record = reviewHits.first { return .review(record) }
-        return .respond(respondHits[0])
+        if let record = respondHits.first { return .respond(record) }
+        return .merge(mergeHits[0])
     }
 
     private func canReopen(_ record: ReviewRecord) -> Bool {
@@ -164,6 +168,8 @@ extension AppModel: StatusActions {
         case .respond(let record):
             return HistoryDetail(respond: record, logPath: existingPath(respondHistory.logURL(for: record.id)),
                                  canOpen: respond.records[record.draft.prID]?.id == record.id)
+        case .merge(let record):
+            return HistoryDetail(merge: record, logPath: existingPath(mergeHistory.logURL(for: record.id)))
         }
     }
 
@@ -237,6 +243,7 @@ extension AppModel: StatusActions {
         switch try historyRecord(id) {
         case .review(let record): openHistory(selecting: record.id)
         case .respond(let record): openHistory(selecting: record.id)
+        case .merge(let record): openHistory(selecting: record.id)
         }
     }
 

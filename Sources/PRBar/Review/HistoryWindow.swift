@@ -52,11 +52,13 @@ struct HistoryWindow: View {
                     record: record, logURL: model.respondHistory.logURL(for: record.id),
                     canOpen: canOpen(record), open: { model.openRespond(prID: record.draft.prID) }
                 )
+            case .merge(let record)?:
+                MergeHistoryDetailView(record: record, logURL: model.mergeHistory.logURL(for: record.id))
             case nil:
                 MessageView(
                     icon: "clock.arrow.circlepath", title: records.isEmpty ? "No History" : "Select a Record",
                     text: records.isEmpty
-                        ? "Claude’s reviews and feedback responses appear here when they finish."
+                        ? "Claude’s reviews, feedback responses and merges appear here when they finish."
                         : "Its details appear here."
                 )
                 .frame(maxHeight: .infinity)
@@ -111,6 +113,7 @@ struct HistoryWindow: View {
         switch entry {
         case .review(let record): reviewContextMenu(for: record)
         case .respond(let record): respondContextMenu(for: record)
+        case .merge(let record): mergeContextMenu(for: record)
         }
     }
 
@@ -129,6 +132,20 @@ struct HistoryWindow: View {
         if canOpen(record) {
             Divider()
             Button("Show Response") { model.openRespond(prID: record.draft.prID) }
+        }
+    }
+
+    @ViewBuilder
+    private func mergeContextMenu(for record: MergeRecord) -> some View {
+        Button("Open PR on GitHub") { NSWorkspace.shared.open(record.url) }
+        Button("Copy PR Link") {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(record.url.absoluteString, forType: .string)
+        }
+        let logURL = model.mergeHistory.logURL(for: record.id)
+        if FileManager.default.fileExists(atPath: logURL.path) {
+            Divider()
+            Button("Show Log in Finder") { NSWorkspace.shared.activateFileViewerSelecting([logURL]) }
         }
     }
 
@@ -186,7 +203,8 @@ struct HistoryWindow: View {
 
     /// Reviews y respuestas, de la más nueva a la más vieja.
     private func loadEntries() -> [HistoryEntry] {
-        (model.history.all().map(HistoryEntry.review) + model.respondHistory.all().map(HistoryEntry.respond))
+        (model.history.all().map(HistoryEntry.review) + model.respondHistory.all().map(HistoryEntry.respond)
+            + model.mergeHistory.all().map(HistoryEntry.merge))
             .sorted { $0.startedAt > $1.startedAt }
     }
 }
@@ -195,11 +213,13 @@ struct HistoryWindow: View {
 enum HistoryEntry: Identifiable {
     case review(ReviewRecord)
     case respond(RespondRecord)
+    case merge(MergeRecord)
 
     var id: UUID {
         switch self {
         case .review(let record): record.id
         case .respond(let record): record.id
+        case .merge(let record): record.id
         }
     }
 
@@ -212,6 +232,7 @@ enum HistoryEntry: Identifiable {
         switch self {
         case .review(let record): record.draft.repo
         case .respond(let record): record.draft.repo
+        case .merge(let record): record.repo
         }
     }
 
@@ -219,6 +240,7 @@ enum HistoryEntry: Identifiable {
         switch self {
         case .review(let record): record.draft.number
         case .respond(let record): record.draft.number
+        case .merge(let record): record.number
         }
     }
 
@@ -226,6 +248,7 @@ enum HistoryEntry: Identifiable {
         switch self {
         case .review(let record): record.draft.title
         case .respond(let record): record.draft.title
+        case .merge(let record): record.title
         }
     }
 
@@ -233,6 +256,7 @@ enum HistoryEntry: Identifiable {
         switch self {
         case .review(let record): record.startedAt
         case .respond(let record): record.startedAt
+        case .merge(let record): record.startedAt
         }
     }
 }
@@ -261,6 +285,7 @@ private struct HistoryRow: View {
             switch record {
             case .review(let review): StatusPill.record(review)
             case .respond(let respond): StatusPill.respond(respond)
+            case .merge(let merge): StatusPill.merge(merge)
             }
         }
         .padding(.vertical, 3)
@@ -268,12 +293,16 @@ private struct HistoryRow: View {
     }
 
     private var kindIcon: some View {
-        let isRespond = if case .respond = record { true } else { false }
-        return Image(systemName: isRespond ? "arrowshape.turn.up.left" : "text.magnifyingglass")
+        let (icon, label) = switch record {
+        case .review: ("text.magnifyingglass", "Review")
+        case .respond: ("arrowshape.turn.up.left", "Feedback response")
+        case .merge: ("arrow.triangle.merge", "Merge")
+        }
+        return Image(systemName: icon)
             .font(.caption)
             .foregroundStyle(.secondary)
-            .help(isRespond ? "Feedback response" : "Review")
-            .accessibilityLabel(isRespond ? "Feedback response" : "Review")
+            .help(label)
+            .accessibilityLabel(label)
     }
 }
 

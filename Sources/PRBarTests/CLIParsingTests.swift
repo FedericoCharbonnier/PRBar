@@ -38,6 +38,7 @@ enum CLIParsingTests {
                 try expectEqual(try parsed(["history", "--repo", "acme/api", "--kind", "review", "--limit", "5", "--search", "login"]),
                                 .history(repo: "acme/api", kind: .review, limit: 5, search: "login"))
                 try expectEqual(try parsed(["history"]), .history(repo: nil, kind: nil, limit: nil, search: nil))
+                try expectEqual(try parsed(["history", "--kind", "merge"]), .history(repo: nil, kind: .merge, limit: nil, search: nil))
                 try expectEqual(try parsed(["history", "show", "1a2b3c4d"]), .historyShow(id: "1a2b3c4d"))
                 try expectEqual(try parsed(["history", "reopen", "1a2b3c4d"]), .historyReopen(id: "1a2b3c4d"))
             },

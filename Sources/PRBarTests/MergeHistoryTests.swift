@@ -53,5 +53,26 @@ enum MergeHistoryTests {
             try expectEqual(made.status, .open)
             try expectEqual(made.url, item.pr.url)
         },
+        TestCase("merge history: la CLI ve el merge (lista, búsqueda y detalle con método, head y chat)") {
+            var item = record(42, startedAt: t0)
+            item.status = .merged
+            item.method = .rebase
+            item.headOid = "abcdef1234"
+            var chat = ChatSession(prID: item.prID, kind: .merge)
+            chat.messages = [ChatMessage(role: .user, text: "Safe?", createdAt: t0),
+                             ChatMessage(role: .assistant, text: "Yes.", createdAt: t0)]
+            item.chat = chat
+            let info = HistoryEntryInfo(merge: item)
+            try expectEqual(info.kind, .merge)
+            try expectEqual(info.status, "merged")
+            try expect(info.matches("#42"))
+            try expect(info.matches("PR 42"))
+            let detail = HistoryDetail(merge: item, logPath: nil)
+            try expectEqual(detail.mergeMethod, .rebase)
+            try expectEqual(detail.headOid, "abcdef1234")
+            try expectEqual(detail.chat?.kind, "merge")
+            try expectEqual(detail.chat?.messages.count, 2)
+            try expectEqual(HistoryDetail(merge: record(43, startedAt: t0), logPath: nil).chat, nil)
+        },
     ]
 }

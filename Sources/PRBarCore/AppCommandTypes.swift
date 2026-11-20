@@ -18,7 +18,7 @@ public enum PRListFilter: String, Codable, CaseIterable, Sendable {
 }
 
 public enum HistoryKind: String, Codable, CaseIterable, Sendable {
-    case review, respond
+    case review, respond, merge
 }
 
 /// `prbar open <pr> --…`.

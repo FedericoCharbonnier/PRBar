@@ -109,14 +109,14 @@ struct OpenCommand: RemoteCommand {
 
 struct HistoryGroup: ParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "history", abstract: "Claude’s reviews and feedback responses.",
+        commandName: "history", abstract: "Claude’s reviews, feedback responses and merges.",
         subcommands: [HistoryList.self, HistoryShow.self, HistoryReopen.self], defaultSubcommand: HistoryList.self)
 }
 
 struct HistoryList: RemoteCommand {
     static let configuration = CommandConfiguration(commandName: "list", abstract: "List the history (also: prbar history).")
     @Option(help: "Only this repo (owner/repo).") var repo: String?
-    @Option(help: "review or respond.") var kind: HistoryKind?
+    @Option(help: "review, respond or merge.") var kind: HistoryKind?
     @Option(help: "Title, repo or number (like the window’s search).") var search: String?
     @Option(help: "At most this many records (default 50).") var limit: Int?
     @OptionGroup var global: GlobalOptions
@@ -149,6 +149,8 @@ struct HistoryShow: RemoteCommand {
         output.line(entry.title)
         var pairs: [(String, String)] = [("PR", detail.prURL.absoluteString), ("Started", Render.date(entry.startedAt))]
         if let action = detail.action { pairs.append(("Action", action)) }
+        if let method = detail.mergeMethod { pairs.append(("Method", method.rawValue)) }
+        if let head = detail.headOid { pairs.append(("Head", String(head.prefix(7)))) }
         if let url = detail.reviewURL { pairs.append(("Review", url.absoluteString)) }
         if let error = detail.errorMessage { pairs.append(("Error", error)) }
         if let log = detail.logPath { pairs.append(("Log", log)) }
