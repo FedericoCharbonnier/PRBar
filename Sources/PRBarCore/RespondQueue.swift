@@ -104,7 +104,7 @@ public final class RespondQueue: ObservableObject {
         case nil, .ready?, .failed?, .done?: break
         default: return
         }
-        guard canStart(prID) else { return }
+        guard canStart(prID), openRunConflict(prID: prID, starting: mode) == nil else { return }
         modes[prID] = mode
         pushBlockedByCI[prID] = nil
         let request = RespondRequest(item: item, localPath: localPath, worktreeDir: worktreeDir, mode: mode)
@@ -157,6 +157,19 @@ public final class RespondQueue: ObservableObject {
     }
 
     public func mode(of prID: String) -> RespondMode { modes[prID] ?? records[prID]?.draft.mode ?? .feedback }
+
+    /// Spec K.2.1: the PR's slot holds one open run (any phase but `done`). Starting the other kind (Fix CI over a
+    /// feedback analysis or the reverse) would silently replace it and lose its decisions, so it has to be dismissed
+    /// first. Returns the open run's mode when it differs from `mode`; nil = `mode` can start (or replace a run of its
+    /// own kind, as before).
+    public func openRunConflict(prID: String, starting mode: RespondMode) -> RespondMode? {
+        switch phases[prID] {
+        case nil, .done?: return nil
+        default:
+            let open = self.mode(of: prID)
+            return open == mode ? nil : open
+        }
+    }
 
     /// ready → implementing(d, t) → readyToPush | failed.
     public func implement(prID: String, selections: [String: RespondSelection]) {

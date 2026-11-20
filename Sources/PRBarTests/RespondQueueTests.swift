@@ -1017,5 +1017,34 @@ enum RespondPipelineTests {
             let saved = h.history.all().first { $0.draft.number == 3 }
             try expectEqual(saved?.usage?.costUSD, 0.2)
         },
+        TestCase("respond queue: Fix CI no reemplaza un Respond abierto ni al revés (spec K.2.1)") { @MainActor in
+            let h = try Harness()
+            // Un análisis de feedback en `ready`: Fix CI no lo pisa.
+            try await h.toReady(1)
+            let draft = try h.draft(1)
+            try expectEqual(h.queue.openRunConflict(prID: prID(1), starting: .ciFix), .feedback)
+            try expectEqual(h.queue.openRunConflict(prID: prID(1), starting: .feedback), nil)
+            h.queue.analyze(classified(1), localPath: "/repos/r", worktreeDir: nil, mode: .ciFix)
+            await h.settle()
+            try expectEqual(h.queue.phases[prID(1)], .ready(draft))
+            try expectEqual(h.queue.mode(of: prID(1)), .feedback)
+            // Un Fix CI que quedó en `ready`: Respond no lo pisa.
+            h.queue.analyze(classified(2), localPath: "/repos/r", worktreeDir: nil, mode: .ciFix)
+            try await h.events.wait(for: [.started("analyze:\(prID(2))")])
+            // Mientras corre también cuenta como abierto.
+            try expectEqual(h.queue.openRunConflict(prID: prID(2), starting: .feedback), .ciFix)
+            h.pipeline.completeAnalysis(2)
+            try await h.events.wait(for: reached(2, "ready"))
+            let ciDraft = try h.draft(2)
+            h.queue.analyze(classified(2), localPath: "/repos/r", worktreeDir: nil)
+            await h.settle()
+            try expectEqual(h.queue.phases[prID(2)], .ready(ciDraft))
+            try expectEqual(h.queue.mode(of: prID(2)), .ciFix)
+            // Descartado (o terminado), el otro modo puede arrancar.
+            h.queue.dismiss(prID: prID(1))
+            try expectEqual(h.queue.openRunConflict(prID: prID(1), starting: .ciFix), nil)
+            h.queue.analyze(classified(1), localPath: "/repos/r", worktreeDir: nil, mode: .ciFix)
+            try expectEqual(h.queue.modes[prID(1)], .ciFix)
+        },
     ]
 }

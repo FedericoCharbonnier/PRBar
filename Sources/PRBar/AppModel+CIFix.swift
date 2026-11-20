@@ -15,6 +15,7 @@ extension AppModel {
             return reason.replacingOccurrences(of: "to respond with Claude", with: "to fix the CI with Claude")
         }
         let prID = item.id
+        if let reason = respondSlotConflictReason(prID, starting: .ciFix) { return reason }
         if respond.phases[prID]?.isActive == true || respond.runningTests.contains(prID) {
             return "\(prID) is already being worked on: wait or cancel it."
         }
@@ -25,6 +26,16 @@ extension AppModel {
             return "\(prID) has changes that weren’t pushed: open it to retry or dismiss it."
         }
         return nil
+    }
+
+    /// Spec K.2.1: a Respond and a Fix CI share the PR's slot; neither replaces an open run (any phase but done) of the
+    /// other kind, so the user's decisions or unpushed fix are never lost without a word.
+    func respondSlotConflictReason(_ prID: String, starting mode: RespondMode) -> String? {
+        switch respond.openRunConflict(prID: prID, starting: mode) {
+        case .feedback?: "\(prID) has a Respond run open: finish or dismiss it before fixing the CI."
+        case .ciFix?: "\(prID) has a Fix CI run open: finish or dismiss it before responding."
+        case nil: nil
+        }
     }
 
     /// "Fix CI": reads the failing checks and their logs on this Mac, prepares the worktree (here or on the repo's host)

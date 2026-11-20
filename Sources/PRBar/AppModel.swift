@@ -996,7 +996,7 @@ final class AppModel: ObservableObject {
     /// Analiza el feedback sin resolver del PR (spec §14). Un registro anterior terminado (listo, publicado o
     /// fallido) se reemplaza; uno con fixes sin pushear no (la cola lo ignora).
     func startRespond(_ item: ClassifiedPR) {
-        guard respondUnavailableReason(item) == nil else { return }
+        guard respondUnavailableReason(item) == nil, respondSlotConflictReason(item.id, starting: .feedback) == nil else { return }
         let localPath = localPath(for: item)
         let worktreeDir = repoConfig(account: item.account, repo: item.pr.repo)?.worktreeDir
         respond.analyze(item, localPath: localPath, worktreeDir: worktreeDir)

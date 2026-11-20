@@ -496,6 +496,9 @@ extension AppModel: RespondActions {
         if let reason = respondUnavailableReason(item) {
             throw CommandFailure(.invalidState, "\(reason) Or run `prbar repo set \(item.pr.repo.fullName) --path …`.")
         }
+        if let reason = respondSlotConflictReason(item.id, starting: .feedback) {
+            throw CommandFailure(.invalidState, "\(reason) (`prbar ci dismiss \(item.id)`)")
+        }
         let phase = respond.phases[item.id]
         if phase?.isActive == true || respond.runningTests.contains(item.id) {
             throw CommandFailure(.invalidState, "\(item.id) is already being worked on: wait or cancel it (`prbar respond cancel \(item.id)`).")
@@ -685,6 +688,9 @@ extension AppModel: CIFixUsageActions {
         }
         guard item.pr.ciState == .failure else {
             throw CommandFailure(.invalidState, "\(id)’s CI isn’t failing (as of the last refresh). Run `prbar refresh` if it just failed.")
+        }
+        if let reason = respondSlotConflictReason(id, starting: .ciFix) {
+            throw CommandFailure(.invalidState, "\(reason) (`prbar respond dismiss \(id)`)")
         }
         if let reason = ciFixUnavailableReason(item) { throw CommandFailure(.invalidState, reason) }
         startCIFix(item)
