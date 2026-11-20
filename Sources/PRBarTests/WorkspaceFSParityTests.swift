@@ -131,5 +131,18 @@ enum WorkspaceFSParityTests {
                 _ = try await expectThrows { try await fs.removeCreatedFile("nodir/gone.tmp", in: one.path) }
             }
         },
+        TestCase("guardián perl: los archivos temporales (el índice del chat) quedan en la carpeta temporal de esa máquina") {
+            let tmp = try temporaryDirectory().appendingPathComponent("remote-tmp")
+            defer { try? FileManager.default.removeItem(at: tmp.deletingLastPathComponent()) }
+            try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+            let fs = RemoteWorkspaceFS.local(temporaryDirectory: tmp.path)
+            let path = try fs.temporaryFilePath("chat-index")
+            try expect(path.hasPrefix(tmp.path + "/chat-index-"), path)
+            try Data("x".utf8).write(to: URL(fileURLWithPath: path))
+            await fs.removeTemporaryFile(path)
+            try expect(!FileManager.default.fileExists(atPath: path))
+            let local = try LocalWorkspaceFS().temporaryFilePath("chat-index")
+            try expect(local.hasPrefix(FileManager.default.temporaryDirectory.path), local)
+        },
     ]
 }

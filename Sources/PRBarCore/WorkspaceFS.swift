@@ -19,6 +19,10 @@ public protocol WorkspaceFS: Sendable {
     func readText(_ path: String, limit: Int) async throws -> String?
     func removeCreatedFile(_ relative: String, in root: String) async throws
     func neutralizeSymlinks(_ relatives: [String], in root: String) async throws
+    /// Una ruta nueva para un archivo temporal en esa máquina (el índice de git de un snapshot del chat).
+    func temporaryFilePath(_ prefix: String) throws -> String
+    /// Borra un archivo de `temporaryFilePath`. Nunca lanza.
+    func removeTemporaryFile(_ path: String) async
 }
 
 public struct LocalWorkspaceFS: WorkspaceFS {
@@ -65,6 +69,12 @@ public struct LocalWorkspaceFS: WorkspaceFS {
     public func neutralizeSymlinks(_ relatives: [String], in root: String) async throws {
         for path in relatives { try WorktreeManager.neutralizeSymlink(at: path, in: URL(fileURLWithPath: root, isDirectory: true)) }
     }
+
+    public func temporaryFilePath(_ prefix: String) throws -> String {
+        FileManager.default.temporaryDirectory.appendingPathComponent("\(prefix)-\(UUID().uuidString)").path
+    }
+
+    public func removeTemporaryFile(_ path: String) async { try? FileManager.default.removeItem(atPath: path) }
 }
 
 /// El guardián en otra máquina: el script Perl de `RemoteGuard` recolecta y este tipo arma los mismos valores que
@@ -74,17 +84,25 @@ public struct RemoteWorkspaceFS: WorkspaceFS {
 
     public let home: String
     let label: String
+    /// Donde van los archivos temporales en esa máquina (en un host, `<raíz>/tmp`).
+    let temporaryDirectory: String
+    let removeTemporary: @Sendable (String) async -> Void
     let runGuard: GuardRunner
 
-    public init(home: String, label: String, runGuard: @escaping GuardRunner) {
+    public init(home: String, label: String, temporaryDirectory: String = FileManager.default.temporaryDirectory.path,
+                removeTemporary: @escaping @Sendable (String) async -> Void = { try? FileManager.default.removeItem(atPath: $0) },
+                runGuard: @escaping GuardRunner) {
         self.home = home
         self.label = label
+        self.temporaryDirectory = temporaryDirectory
+        self.removeTemporary = removeTemporary
         self.runGuard = runGuard
     }
 
-    /// Por ssh: `perl - <args>` con el guardián por stdin y `env -i` (sin `PERL5OPT`).
-    public static func ssh(host: SSHHost, home: String) -> RemoteWorkspaceFS {
-        RemoteWorkspaceFS(home: home, label: host.name) { arguments in
+    /// Por ssh: `perl - <args>` con el guardián por stdin y `env -i` (sin `PERL5OPT`). Los temporales, en `<raíz>/tmp`.
+    public static func ssh(host: SSHHost, home: String, root: RemoteRoot) -> RemoteWorkspaceFS {
+        RemoteWorkspaceFS(home: home, label: host.name, temporaryDirectory: root.tmp,
+                          removeTemporary: { path in await host.removeFiles([path], root: root) }) { arguments in
             let script = try RemoteGuard.localScriptFile()
             return try await host.run(RemoteExec(argv: ["perl", "-"] + arguments, environment: RemoteEnvironment.perl(),
                                                  standardInput: .passThrough), timeout: 300, standardInput: script)
@@ -92,8 +110,9 @@ public struct RemoteWorkspaceFS: WorkspaceFS {
     }
 
     /// El mismo script corrido en la Mac (tests de paridad).
-    public static func local(perl: String = "/usr/bin/perl") -> RemoteWorkspaceFS {
-        RemoteWorkspaceFS(home: NSHomeDirectory(), label: "this Mac") { arguments in
+    public static func local(perl: String = "/usr/bin/perl",
+                             temporaryDirectory: String = FileManager.default.temporaryDirectory.path) -> RemoteWorkspaceFS {
+        RemoteWorkspaceFS(home: NSHomeDirectory(), label: "this Mac", temporaryDirectory: temporaryDirectory) { arguments in
             try await SystemProcessRunner().runWithFiles(perl, ["-"] + arguments, environment: ["PERL5OPT": ""], currentDirectory: nil,
                                                          timeout: 300, standardInput: try RemoteGuard.localScriptFile(),
                                                          standardOutput: nil, onStdoutLine: nil)
@@ -176,6 +195,12 @@ public struct RemoteWorkspaceFS: WorkspaceFS {
     public func removeCreatedFile(_ relative: String, in root: String) async throws {
         _ = try await records(["rmcreated", root, relative])
     }
+
+    public func temporaryFilePath(_ prefix: String) throws -> String {
+        temporaryDirectory + "/" + prefix + "-" + UUID().uuidString.lowercased()
+    }
+
+    public func removeTemporaryFile(_ path: String) async { await removeTemporary(path) }
 
     public func neutralizeSymlinks(_ relatives: [String], in root: String) async throws {
         guard !relatives.isEmpty else { return }

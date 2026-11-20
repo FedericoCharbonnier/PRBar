@@ -14,6 +14,7 @@ public enum RemoteRunnerError: Error, Equatable, LocalizedError {
     case malformedOutput(host: String, what: String)
     case importMismatch(String)
     case jobNotStopped(host: String)
+    case unsupportedEnvironment(String)
 
     /// El host de un `.jobNotStopped`.
     public var jobHost: String? {
@@ -37,6 +38,7 @@ public enum RemoteRunnerError: Error, Equatable, LocalizedError {
         case .guardFailed(let host, let detail): "PRBar’s integrity check failed on \(host): \(detail)"
         case .malformedOutput(let host, let what): "\(host) returned an unexpected \(what)."
         case .importMismatch(let detail): "The commits from the server don’t match what you reviewed: \(detail) Nothing was pushed."
+        case .unsupportedEnvironment(let name): "Internal error: \(name) can’t be passed to git on a remote host."
         case .jobNotStopped(let host):
             "PRBar lost the connection to \(host) and couldn’t confirm Claude stopped there. The worktree was left as is; PRBar will clean it up when it can reach \(host) again."
         }
@@ -163,7 +165,14 @@ public enum RemoteEnvironment {
             if SystemProcessRunner.unheritedVariables.contains(name) || name.hasSuffix("_TOKEN") {
                 throw RemoteRunnerError.secretInEnvironment(name)
             }
-            guard gitPassthrough.contains(name) else { continue }
+            if name == "GIT_INDEX_FILE" {
+                // Solo el índice temporal de un snapshot del chat, nunca el de un worktree.
+                guard root.isTemporaryFile(value) else { throw RemoteRunnerError.unsupportedEnvironment(name) }
+            } else if !gitPassthrough.contains(name) {
+                // Una variable de git que no está en la lista cambiaría qué hace git (GIT_DIR, GIT_SSH_COMMAND, …).
+                if name.hasPrefix("GIT_") { throw RemoteRunnerError.unsupportedEnvironment(name) }
+                continue
+            }
             result.removeAll { $0.name == name }
             result.append(.literal(name, value))
         }
@@ -215,6 +224,19 @@ public struct RemoteRoot: Hashable, Sendable {
         guard candidate.hasPrefix(path + "/") else { return false }
         let rest = candidate.dropFirst(path.count + 1).split(separator: "/", omittingEmptySubsequences: false)
         return !rest.isEmpty && rest.allSatisfy { !$0.isEmpty && $0 != "." && $0 != ".." }
+    }
+
+    /// Un archivo suelto en `tmp/` (`<raíz>/tmp/<nombre>`, nombre `[A-Za-z0-9._-]`, sin `.`/`..`).
+    public func isTemporaryFile(_ candidate: String) -> Bool {
+        let prefix = Array((tmp + "/").utf8)
+        let bytes = Array(candidate.utf8)
+        guard bytes.count > prefix.count, bytes.starts(with: prefix) else { return false }
+        let name = bytes.dropFirst(prefix.count)
+        guard name.first != UInt8(ascii: "-"), !name.elementsEqual(".".utf8), !name.elementsEqual("..".utf8) else { return false }
+        return name.allSatisfy { byte in
+            (byte >= 0x30 && byte <= 0x39) || (byte >= 0x41 && byte <= 0x5A) || (byte >= 0x61 && byte <= 0x7A)
+                || byte == UInt8(ascii: ".") || byte == UInt8(ascii: "_") || byte == UInt8(ascii: "-")
+        }
     }
 
     /// Se puede borrar: adentro y al menos dos niveles abajo (`work/x`, nunca `work`).

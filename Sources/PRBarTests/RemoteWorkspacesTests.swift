@@ -5,7 +5,7 @@ func remoteWorkspaces(_ host: SSHHost, _ info: RunnerHostInfo, _ root: RemoteRoo
                       extraURLs: [String] = []) -> RemoteWorkspaces {
     RemoteWorkspaces(host: host, root: root, gitPath: info.gitPath!,
                      runner: RemoteProcessRunner(host: host, root: root, toolDirectories: info.toolDirectories),
-                     fs: RemoteWorkspaceFS.ssh(host: host, home: (root.path as NSString).deletingLastPathComponent),
+                     fs: RemoteWorkspaceFS.ssh(host: host, home: (root.path as NSString).deletingLastPathComponent, root: root),
                      gitEnvironment: ["GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1",
                                       "GIT_AUTHOR_NAME": "PRBar Tests", "GIT_AUTHOR_EMAIL": "tests@prbar.invalid",
                                       "GIT_COMMITTER_NAME": "PRBar Tests", "GIT_COMMITTER_EMAIL": "tests@prbar.invalid"],
@@ -71,7 +71,7 @@ enum RemoteWorkspacesTests {
             defer { ssh.remove() }
             let spaces = RemoteWorkspaces(host: host, root: root, gitPath: info.gitPath!,
                                           runner: RemoteProcessRunner(host: host, root: root, toolDirectories: info.toolDirectories),
-                                          fs: RemoteWorkspaceFS.ssh(host: host, home: ssh.home.path),
+                                          fs: RemoteWorkspaceFS.ssh(host: host, home: ssh.home.path, root: root),
                                           remoteURLs: { _ in ["/nonexistent/repo.git"] }, originMatches: { _, _ in true })
             let error = try await expectThrows {
                 let bare = try await spaces.mirror(RepoRef(owner: "acme", name: "api"))

@@ -245,6 +245,20 @@ private final class RecordingWorkspaceFS: WorkspaceFS, @unchecked Sendable {
         try await base.removeCreatedFile(relative, in: root)
     }
     func neutralizeSymlinks(_ relatives: [String], in root: String) async throws { try await base.neutralizeSymlinks(relatives, in: root) }
+    func temporaryFilePath(_ prefix: String) throws -> String { try base.temporaryFilePath(prefix) }
+    func removeTemporaryFile(_ path: String) async { await base.removeTemporaryFile(path) }
+}
+
+/// Runner real que anota el entorno de cada llamada.
+private final class EnvironmentRecordingRunner: ProcessRunning, @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [[String: String]?] = []
+    var environments: [[String: String]?] { lock.withLock { recorded } }
+
+    func run(_ executable: String, _ arguments: [String], environment: [String: String]?, currentDirectory: URL?, timeout: TimeInterval?) async throws -> ProcessResult {
+        lock.withLock { recorded.append(environment) }
+        return try await SystemProcessRunner().run(executable, arguments, environment: environment, currentDirectory: currentDirectory, timeout: timeout)
+    }
 }
 
 /// Runner que siempre lanza `error`.
@@ -1104,6 +1118,25 @@ enum FixImplementerTests {
             try expectEqual(try repo.git(["rev-parse", "\(snapshot.ref)^{tree}"]).trimmingCharacters(in: .whitespacesAndNewlines),
                             snapshot.tree)
             try expectEqual(try repo.git(["rev-parse", "\(start)^{tree}"]).trimmingCharacters(in: .whitespacesAndNewlines), snapshot.tree)
+        },
+        TestCase("fix implementer: el índice temporal del snapshot del chat lo da el WorkspaceFS (en un host, <raíz>/tmp)") {
+            let repo = try FixRepo.make()
+            defer { repo.remove() }
+            let tmp = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: tmp) }
+            fixImplementerFS = RemoteWorkspaceFS.local(temporaryDirectory: tmp.path)
+            defer { fixImplementerFS = LocalWorkspaceFS() }
+            let recorder = EnvironmentRecordingRunner()
+            _ = try await implementer(fakeClaude([]), log: try logURL(), runner: recorder)
+                .chatTurn(draft: try draft(repo, items: []), current: RespondResult(items: [], diffStat: "", tests: nil),
+                          sessionID: UUID(), turn: 1) { () async throws -> String in
+                    try edit("README.md", "chat\n")(repo.dir)
+                    return "ok"
+                }
+            let indexes = recorder.environments.compactMap { $0?["GIT_INDEX_FILE"] }
+            try expect(indexes.count == 3 && Set(indexes).count == 1, "\(indexes)")
+            try expect(indexes[0].hasPrefix(tmp.path + "/"), indexes[0])
+            try expect(!FileManager.default.fileExists(atPath: indexes[0]), "el índice temporal quedó")
         },
         TestCase("fix implementer: chatTurn sin cambios no commitea ni deja la ref") {
             let repo = try FixRepo.make()

@@ -48,6 +48,23 @@ enum RemoteExecTests {
             }
             try expectEqual(leak as? RemoteRunnerError, .secretInEnvironment("GH_TOKEN"))
         },
+        TestCase("remote exec: una variable GIT_* desconocida es un error; GIT_INDEX_FILE solo dentro de <raíz>/tmp") {
+            let root = try RemoteRoot(verified: "/remote/home/.prbar")
+            for name in ["GIT_DIR", "GIT_SSH_COMMAND", "GIT_CONFIG_PARAMETERS", "GIT_EXEC_PATH", "GIT_CONFIG_COUNT", "GIT_WORK_TREE"] {
+                let error = try await expectThrows { _ = try RemoteEnvironment.git(passing: [name: "x"], pathDirectories: [], root: root) }
+                try expectEqual(error as? RemoteRunnerError, .unsupportedEnvironment(name))
+            }
+            let inside = root.tmp + "/chat-index-1"
+            let env = try RemoteEnvironment.git(passing: ["GIT_INDEX_FILE": inside], pathDirectories: [], root: root)
+            try expect(env.contains(.literal("GIT_INDEX_FILE", inside)), "\(env)")
+            for outside in [root.work + "/x/.git/index", "/tmp/index", root.tmp, root.tmp + "/../work/i", root.tmp + "/a/b", "relative",
+                            root.tmp + "/x\u{0301}/../i"] {
+                let error = try await expectThrows {
+                    _ = try RemoteEnvironment.git(passing: ["GIT_INDEX_FILE": outside], pathDirectories: [], root: root)
+                }
+                try expectEqual(error as? RemoteRunnerError, .unsupportedEnvironment("GIT_INDEX_FILE"))
+            }
+        },
         TestCase("remote exec: argumentos y cwd hostiles llegan intactos; nada se ejecuta") {
             let base = try temporaryDirectory()
             defer { try? FileManager.default.removeItem(at: base) }

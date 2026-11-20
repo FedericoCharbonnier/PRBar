@@ -542,12 +542,19 @@ public struct FixImplementer: Sendable {
     /// Spec B.6: the worktree (tracked and untracked, not ignored) as a tree, through a temporary index so the real
     /// one isn't touched.
     private func snapshotTree(_ worktree: URL) async throws -> String {
-        let index = FileManager.default.temporaryDirectory.appendingPathComponent("prbar-chat-index-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: index) }
-        let env = ["GIT_INDEX_FILE": index.path]
-        try await git(worktree, ["read-tree", "HEAD"], extraEnvironment: env)
-        try await git(worktree, ["add", "-A"], extraEnvironment: env)
-        return try await git(worktree, ["write-tree"], extraEnvironment: env).trimmingCharacters(in: .whitespacesAndNewlines)
+        // En la máquina del worktree (en un host, `<raíz>/tmp`): un índice local no existe allá y git usaría el real.
+        let index = try fs.temporaryFilePath("prbar-chat-index")
+        let env = ["GIT_INDEX_FILE": index]
+        do {
+            try await git(worktree, ["read-tree", "HEAD"], extraEnvironment: env)
+            try await git(worktree, ["add", "-A"], extraEnvironment: env)
+            let tree = try await git(worktree, ["write-tree"], extraEnvironment: env).trimmingCharacters(in: .whitespacesAndNewlines)
+            await fs.removeTemporaryFile(index)
+            return tree
+        } catch {
+            await fs.removeTemporaryFile(index)
+            throw error
+        }
     }
 
     // MARK: - Commits
