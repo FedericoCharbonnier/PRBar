@@ -56,7 +56,7 @@ public enum PopoverSection: String, Codable, CaseIterable, Sendable, Identifiabl
     public var subtitle: String? {
         switch self {
         case .otherToReview: "drafts and nothing to do"
-        case .waitingForReview: "waiting on reviewers"
+        case .waitingForReview: "nothing to do right now"
         default: nil
         }
     }

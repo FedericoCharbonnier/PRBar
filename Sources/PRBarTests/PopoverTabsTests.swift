@@ -34,6 +34,7 @@ enum PopoverTabsTests {
             try expect(!PopoverSection.readyToMerge.isQuiet)
             try expectEqual(PopoverSection.waitingForReview.title, "Waiting for Review")
             try expectEqual(PopoverSection.otherToReview.title, "Other")
+            try expectEqual(PopoverSection.waitingForReview.subtitle, "nothing to do right now")
             for section in PopoverSection.allCases { try expect(PopoverTabs.sections(section.tab).contains(section)) }
         },
         TestCase("popover tabs: items por sección") {
