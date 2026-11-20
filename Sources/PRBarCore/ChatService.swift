@@ -111,7 +111,8 @@ public struct ChatService: ChatBackend {
             // The review chat's worktree, on the head the merge window shows (spec G.4), with the merge's own `pr.md`.
             var workspace = try await pinnedWorkspace(account: target.account, headOid: target.headOid, request,
                                                       description: request.mergeDetail?.body)
-            if let detail = request.mergeDetail, let metadata = workspace.files.metadata {
+            // Only a summary of the same commit: after a reload to a newer head, an older chat keeps the review `pr.md`.
+            if let detail = request.mergeDetail, detail.headOid == target.headOid, let metadata = workspace.files.metadata {
                 try Data(MergeContextWriter.metadata(target: target, detail: detail).utf8).write(to: metadata, options: .atomic)
             }
             if workspace.note == Self.olderCommitNote { workspace.note = Self.olderMergeCommitNote }
