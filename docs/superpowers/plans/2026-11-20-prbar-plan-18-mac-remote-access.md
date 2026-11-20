@@ -281,7 +281,15 @@ case remoteSetPresenceRequirement(device: String, enabled: Bool)
   - "Keep this Mac awake while charging" → `remote keep-awake`
   - "Reset iPhone Access…" → `remote reset`
   - "Enable" en la hoja → `remote enable`
-- [ ] **Step 2: Snapshots** nuevos en `Sources/PRBar/Snapshots`: pestaña deshabilitada, conectada con 2 dispositivos,
+  - **Sección "Get PRBar for iPhone"** (arriba de todo, pedido del usuario 2026-11-20): explica que existe la app de
+    iPhone, muestra un **QR con el link de instalación** (TestFlight público o App Store) + botón "Copy Link" y
+    "Open Link". El link vive en la config (`remote.appInstallURL`, https obligatorio, host allowlist
+    `testflight.apple.com` / `apps.apple.com`) y se cambia con `prbar remote app-link set <url>|clear`
+    (inventory: "Copy Link" → `remote app-link`). Sin link configurado: texto "The iPhone app isn't on TestFlight yet —
+    install it from Xcode (see docs/iphone.md)" y sin QR. Debajo, separado, el flujo "Pair iPhone…" (QR de
+    emparejamiento, distinto y efímero). Los dos QR nunca se muestran juntos en la misma vista para no confundirlos:
+    el de instalación es permanente y público; el de emparejamiento es secreto y vence.
+- [ ] **Step 2: Snapshots** nuevos en `Sources/PRBar/Snapshots`: pestaña deshabilitada (con y sin link de instalación), conectada con 2 dispositivos,
   hoja con QR, hoja con código. `Scripts/snapshots.sh "$TMPDIR/prbar-snapshots" both` y mirarlas.
 - [ ] **Step 3:** `swift run PRBarTests "ui parity"` verde. **Commit** `"Add Settings › iPhone with pairing and devices"`.
 
