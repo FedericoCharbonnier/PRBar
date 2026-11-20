@@ -115,8 +115,23 @@ public enum PopoverTabs {
         "\(tab.title) \(count)" + (!selected && count > 0 ? " •" : "")
     }
 
-    public static func accessibilityLabel(_ tab: PopoverTab, count: Int) -> String {
-        "\(tab.title), \(count) \(count == 1 ? "needs" : "need") your action"
+    /// Lo que lee VoiceOver de una pestaña: el `•` no se lee, así que se dice con palabras.
+    public static func accessibilityLabel(_ tab: PopoverTab, count: Int, selected: Bool) -> String {
+        "\(tab.title), \(needs(count))" + (!selected && count > 0 ? ", has pending items" : "")
+    }
+
+    /// Valor del control entero: describe las dos pestañas por si el segmentado nativo ignora las etiquetas de
+    /// cada segmento ("To Review selected, 3 need your action; My PRs, 2 need your action, has pending items").
+    public static func accessibilityValue(counts: [PopoverTab: Int], selected: PopoverTab) -> String {
+        PopoverTab.allCases.map { tab in
+            let count = counts[tab] ?? 0
+            return tab == selected ? "\(tab.title) selected, \(needs(count))"
+                                   : accessibilityLabel(tab, count: count, selected: false)
+        }.joined(separator: "; ")
+    }
+
+    private static func needs(_ count: Int) -> String {
+        "\(count) \(count == 1 ? "needs" : "need") your action"
     }
 }
 

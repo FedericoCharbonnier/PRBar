@@ -90,12 +90,14 @@ struct PopoverView: View {
         return Picker("Tab", selection: $tabs.selected) {
             ForEach(PopoverTab.allCases) { tab in
                 Text(PopoverTabs.label(tab, count: counts[tab] ?? 0, selected: tab == tabs.selected))
-                    .accessibilityLabel(PopoverTabs.accessibilityLabel(tab, count: counts[tab] ?? 0))
+                    .accessibilityLabel(PopoverTabs.accessibilityLabel(tab, count: counts[tab] ?? 0,
+                                                                       selected: tab == tabs.selected))
                     .tag(tab)
             }
         }
         .pickerStyle(.segmented)
         .labelsHidden()
+        .accessibilityValue(PopoverTabs.accessibilityValue(counts: counts, selected: tabs.selected))
         .help("⌘1 To Review · ⌘2 My PRs")
     }
 

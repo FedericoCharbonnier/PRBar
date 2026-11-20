@@ -58,8 +58,19 @@ enum PopoverTabsTests {
             try expectEqual(PopoverTabs.label(.mine, count: 2, selected: false), "My PRs 2 •")
             try expectEqual(PopoverTabs.label(.mine, count: 2, selected: true), "My PRs 2")
             try expectEqual(PopoverTabs.label(.toReview, count: 0, selected: false), "To Review 0")
-            try expectEqual(PopoverTabs.accessibilityLabel(.mine, count: 1), "My PRs, 1 needs your action")
-            try expectEqual(PopoverTabs.accessibilityLabel(.toReview, count: 3), "To Review, 3 need your action")
+            try expectEqual(PopoverTabs.accessibilityLabel(.mine, count: 1, selected: true), "My PRs, 1 needs your action")
+            try expectEqual(PopoverTabs.accessibilityLabel(.toReview, count: 3, selected: true), "To Review, 3 need your action")
+            try expectEqual(PopoverTabs.accessibilityLabel(.mine, count: 2, selected: false),
+                            "My PRs, 2 need your action, has pending items")
+            try expectEqual(PopoverTabs.accessibilityLabel(.mine, count: 0, selected: false), "My PRs, 0 need your action")
+        },
+        TestCase("popover tabs: el valor de accesibilidad del control describe las dos pestañas") {
+            try expectEqual(PopoverTabs.accessibilityValue(counts: [.toReview: 3, .mine: 2], selected: .toReview),
+                            "To Review selected, 3 need your action; My PRs, 2 need your action, has pending items")
+            try expectEqual(PopoverTabs.accessibilityValue(counts: [.toReview: 0, .mine: 1], selected: .mine),
+                            "To Review, 0 need your action; My PRs selected, 1 needs your action")
+            try expectEqual(PopoverTabs.accessibilityValue(counts: [:], selected: .toReview),
+                            "To Review selected, 0 need your action; My PRs, 0 need your action")
         },
         TestCase("popover tabs: la pestaña elegida se guarda en UserDefaults (popoverTab)") {
             try await MainActor.run {
