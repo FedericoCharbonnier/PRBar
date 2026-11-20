@@ -1,4 +1,5 @@
 import Foundation
+import PRBarCLIKit
 import PRBarCore
 
 private let clean = PRMergeState(nodeID: "PR_7", mergeable: .mergeable, status: .clean)
@@ -54,6 +55,29 @@ enum MergeFlowTests {
                             CommandFailure(.invalidState, "This repo doesn’t allow Rebase and Merge"))
             try expectEqual(failure(check(options: options(methods: [], default: nil)))?.code, .invalidState)
             try expectEqual(check(phase: .failed(method: .squash, error: .headChanged)), .success(.squash))
+        },
+        TestCase("merge flow (CLI): la vista previa dice por qué no se puede todavía, sin fallar") {
+            func preview(_ pr: ClassifiedPR = item(), method: MergeMethod? = nil, options opts: MergeOptions = options(),
+                         blocked: String? = nil, phase: MergePhase? = nil) -> MergeFlow.PreviewCheck {
+                MergeFlow.previewCheck(pr, method: method, options: opts, blockedReason: blocked, phase: phase)
+            }
+            try expectEqual(preview(), MergeFlow.PreviewCheck(method: .squash, problem: nil))
+            try expectEqual(preview(method: .merge), MergeFlow.PreviewCheck(method: .merge, problem: nil))
+            let feedback = preview(item(category: .myFeedback))
+            try expectEqual(feedback.method, .squash)
+            try expect(feedback.problem?.contains("isn’t in Ready to Merge") == true, "\(feedback)")
+            try expectEqual(preview(method: .rebase), MergeFlow.PreviewCheck(method: .rebase, problem: "This repo doesn’t allow Rebase and Merge"))
+            try expectEqual(preview(blocked: "Installing an update").problem, "Installing an update")
+            let none = preview(options: options(methods: [], default: nil))
+            try expectEqual(none.method, .merge)
+            try expect(none.problem != nil)
+            // La vista previa lo lleva y lo muestra.
+            let info = MergePreviewInfo(item: item(category: .myFeedback), method: feedback.method, options: options(),
+                                        deletesBranch: false, phase: nil, problem: feedback.problem)
+            try expectEqual(info.problem, feedback.problem)
+            var out = ""
+            MergePreviewRender.summary(info, Output(terminal: .plain, json: false, out: { out += $0 }, err: { _ in }))
+            try expect(out.contains("Can’t merge yet: "), out)
         },
         TestCase("merge flow (CLI): la vista previa muestra lo del diálogo") {
             let state = PRMergeState(nodeID: "PR_7", mergeable: .mergeable, status: .unstable, commitCount: 3)

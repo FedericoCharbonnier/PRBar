@@ -867,9 +867,12 @@ public struct MergePreviewInfo: Codable, Equatable, Sendable {
     public var detail: MergeDetail?
     /// Por qué no está `detail`.
     public var detailError: String?
+    /// Por qué todavía no se puede mergear (`MergeFlow.previewCheck`); `nil` = se puede. Una app vieja no lo manda: en
+    /// ese caso la vista previa de un PR que no se puede mergear es un error.
+    public var problem: String?
 
     public init(item: ClassifiedPR, method: MergeMethod, options: MergeOptions, deletesBranch: Bool, phase: MergePhase?,
-                detail: MergeDetail? = nil, detailError: String? = nil) {
+                detail: MergeDetail? = nil, detailError: String? = nil, problem: String? = nil) {
         let pr = item.pr
         self.pr = item.id
         title = pr.title
@@ -884,6 +887,7 @@ public struct MergePreviewInfo: Codable, Equatable, Sendable {
         previousError = phase?.message
         self.detail = detail
         self.detailError = detailError
+        self.problem = problem
     }
 }
 

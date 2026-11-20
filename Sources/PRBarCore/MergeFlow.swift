@@ -50,6 +50,33 @@ public enum MergeFlow {
         return .success(chosen)
     }
 
+    /// Lo que muestra `prbar merge --preview`: el método y, si todavía no se puede mergear, por qué.
+    public struct PreviewCheck: Equatable, Sendable {
+        public var method: MergeMethod
+        public var problem: String?
+
+        public init(method: MergeMethod, problem: String?) {
+            self.method = method
+            self.problem = problem
+        }
+    }
+
+    /// La vista previa (spec G.5/G.8) muestra el resumen aunque el PR todavía no se pueda mergear: lo que diría
+    /// `commandCheck` va como `problem`. El método es el pedido, o el por defecto del repo (o el primero permitido, o
+    /// Merge si el repo no permite ninguno).
+    public static func previewCheck(
+        _ item: ClassifiedPR, method: MergeMethod?, options: MergeOptions, blockedReason: String?, phase: MergePhase?
+    ) -> PreviewCheck {
+        switch commandCheck(item, method: method, options: options, blockedReason: blockedReason, phase: phase,
+                            expectedHeadOid: nil) {
+        case .success(let chosen):
+            return PreviewCheck(method: chosen, problem: nil)
+        case .failure(let failure):
+            return PreviewCheck(method: method ?? options.defaultMethod ?? options.methods.first ?? .merge,
+                                problem: failure.message)
+        }
+    }
+
     /// Por qué el botón Merge de la ventana está deshabilitado (spec G.2, F.8.19: nunca un silencio); `nil` = se puede.
     /// `current`: el PR en el snapshot actual. `shownHead`: el head que muestra la ventana (nil = cargando). `stale`: un
     /// refresco vio otro head. En orden: una actualización instalándose, el PR fuera de la lista, cargando, head nuevo,

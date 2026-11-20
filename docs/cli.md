@@ -68,7 +68,7 @@ shows the help of `review start`, the group’s default subcommand).
 | `prbar chat <pr> ["message"]` | Chat with Claude about the review, the Respond analysis or, for a PR that’s Ready to Merge, the PR before merging (read only, like the Merge window’s chat); without a message in a terminal, an interactive chat (`/undo`, `/show`, `/stop`, `/quit`); without a terminal the message comes from stdin |
 | `prbar chat <pr> --undo [--yes]\|--show\|--stop` | Undo Claude’s last change (asks if it would discard your manual edits), print the conversation, stop the answer |
 | `prbar merge <pr> [--method squash\|merge\|rebase] [--yes]` | Merge a PR of yours that’s Ready to Merge (the repo’s method unless `--method`) |
-| `prbar merge <pr> --preview [--method M]` | What would be merged, without merging: the Merge window’s summary (description, reviews, checks, unresolved conversations, files; `--json` has all of it), branches, commits, head and the note |
+| `prbar merge <pr> --preview [--method M]` | What would be merged, without merging: the Merge window’s summary (description, reviews, checks, unresolved conversations, files; `--json` has all of it), branches, commits, head and the note; also for a PR that can’t be merged yet (with why, exit 6) |
 | `prbar merge <pr> --dismiss` | Dismiss the row’s merge error |
 | `prbar config show`, `prbar config set refresh-interval 1\|2\|5\|10`, `… launch-at-login on\|off`, `… update-interval 0\|6\|12\|24\|168` (hours; 0 = check manually only) | General |
 | `prbar account list\|reload`, `prbar account enable\|disable <login>` | Accounts |
@@ -115,7 +115,9 @@ In a terminal (stdin and stdout are a TTY, no `--json`): colored tables (`NO_COL
 - `merge`: what the app’s Merge window shows (title, head → base, commits, head SHA, method, the note about failing
   checks, a previous error, and the PR’s description, reviews, checks, unresolved conversations and files), then a
   confirmation. `prbar merge` only merges the head it showed: if someone pushes in between, the app refuses
-  (exit 6) and you run it again. With `--yes` it prints the head it’s merging to stderr.
+  (exit 6) and you run it again. With `--yes` it prints the head it’s merging to stderr. A PR that can’t be merged yet
+  fails with the reason (exit 6); `--preview` still prints its summary with “Can’t merge yet: …” (`problem` in
+  `--json`) and exits 6.
 - `repo remove`, `slack token clear`: a confirmation (only in a terminal).
 
 Without a terminal (a script, a pipe, `--json`) `prbar` never asks. Commands that post, push or approve

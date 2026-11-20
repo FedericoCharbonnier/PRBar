@@ -17,6 +17,7 @@ public enum MergePreviewRender {
         details.append("head \(preview.headOid.prefix(7))")
         output.line("  " + details.joined(separator: " · "))
         output.line("  \(preview.method.actionTitle)" + (preview.deletesBranch ? " · deletes \(preview.headRef) afterwards" : ""))
+        if let problem = preview.problem { output.line("  " + output.paint("Can’t merge yet: \(problem)", .red)) }
         if let note = preview.note { output.line("  " + output.paint("Note: \(note)", .yellow)) }
         if let error = preview.previousError { output.line("  " + output.paint("Last attempt failed: \(error)", .dim)) }
         if let detail = preview.detail {
@@ -116,6 +117,7 @@ struct MergeCommand: RemoteCommand {
     mutating func prepare(_ connection: AppConnection, _ output: Output) throws {
         guard !dismiss, !preview else { return }
         let info: MergePreviewInfo = try connection.run(.mergePreview(pr: pr, method: method)).decode()
+        if let problem = info.problem { throw CommandFailure(.invalidState, problem) }
         shown = info
         if global.yes { output.note("Merging \(info.pr) at \(info.headOid.prefix(7)) (\(info.method.actionTitle))…") }
     }
@@ -137,5 +139,11 @@ struct MergeCommand: RemoteCommand {
         if preview { return MergePreviewRender.summary(try result.decode(), output) }
         let merged: MergeInfo = try result.decode()
         output.line("Merged \(merged.pr) (\(merged.method.rawValue)): \(merged.url.absoluteString)")
+    }
+
+    /// `--preview` de un PR que todavía no se puede mergear muestra el resumen y sale con 6 (como antes, sin resumen).
+    func exitCode(for result: JSONValue) throws -> Int32 {
+        guard preview, (try? result.decode() as MergePreviewInfo)?.problem != nil else { return CLIExit.ok }
+        return CLIExit.invalidState
     }
 }

@@ -668,13 +668,13 @@ extension AppModel: MergeActions {
     }
 
     /// Lo que muestra la ventana de Merge, para `prbar merge --preview` y la confirmación de `prbar merge` (spec G.5):
-    /// lo del snapshot y el resumen que se pide a GitHub. El head que se va a mergear es el del snapshot (el que valida
+    /// lo del snapshot y el resumen que se pide a GitHub, también si todavía no se puede mergear (`problem`; la CLI no
+    /// mergea). El head que se va a mergear es el del snapshot (el que valida
     /// `merge`); si GitHub ya tiene otro, refresca una vez y, si siguen distintos, no muestra un resumen de otro head
     /// (`detailError`; plan 11, decisión 10).
     func mergePreview(pr: String, method: MergeMethod?) async throws -> MergePreviewInfo {
         let id = try resolvePRID(pr)
         var item = try classifiedPR(id)
-        _ = try check(item, method: method)
         var detail: MergeDetail?
         var detailError: String?
         do {
@@ -691,18 +691,13 @@ extension AppModel: MergeActions {
                 detailError = "GitHub has newer commits than PRBar’s list. Run `prbar refresh` and try again."
             }
         }
-        let chosen = try check(item, method: method)
+        let options = mergeOptions(item)
+        let checked = MergeFlow.previewCheck(item, method: method, options: options, blockedReason: jobsBlockedReason,
+                                             phase: merges.phases[id])
         let settings = prStore.snapshot?.repoMergeSettings[Snapshot.scope(account: item.account, repo: item.pr.repo)]
-        return MergePreviewInfo(item: item, method: chosen, options: mergeOptions(item),
+        return MergePreviewInfo(item: item, method: checked.method, options: options,
                                 deletesBranch: settings?.deleteBranchOnMerge ?? false, phase: merges.phases[id],
-                                detail: detail, detailError: detailError)
-    }
-
-    private func check(_ item: ClassifiedPR, method: MergeMethod?) throws -> MergeMethod {
-        try MergeFlow.commandCheck(
-            item, method: method, options: mergeOptions(item), blockedReason: jobsBlockedReason,
-            phase: merges.phases[item.id], expectedHeadOid: nil
-        ).get()
+                                detail: detail, detailError: detailError, problem: checked.problem)
     }
 
     func mergeDismiss(pr: String) throws {

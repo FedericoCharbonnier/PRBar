@@ -279,6 +279,17 @@ enum CLIIntegrationTests {
         let dismissed = try await runCLI(["merge", "acme/api#4", "--dismiss"], socket: harness.url)
         try expectEqual(dismissed.code, 0)
         try expect(harness.fake.calls.contains { $0.hasPrefix("mergeDismiss acme/api#4") }, "\(harness.fake.calls)")
+        // Todavía no se puede: --preview muestra el resumen y el motivo (sale con 6); merge falla sin mergear.
+        harness.fake.previewProblem = "This PR isn’t ready to merge"
+        let blockedPreview = try await runCLI(["merge", "acme/api#4", "--preview"], socket: harness.url)
+        try expectEqual(blockedPreview.code, 6)
+        try expect(blockedPreview.out.contains("3 commits") && blockedPreview.out.contains("Can’t merge yet: This PR isn’t ready to merge"),
+                   blockedPreview.out)
+        let calls = harness.fake.calls.count
+        let refused = try await runCLI(["merge", "acme/api#4", "--yes"], socket: harness.url)
+        try expectEqual(refused.code, 6)
+        try expect(refused.err.contains("This PR isn’t ready to merge"), refused.err)
+        try expect(!harness.fake.calls.dropFirst(calls).contains { $0.hasPrefix("merge ") }, "\(harness.fake.calls)")
     }
 
     private static func noApp() async throws {

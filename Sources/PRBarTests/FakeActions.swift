@@ -13,6 +13,8 @@ final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActi
     /// Lo que devuelven `reviewShow` y `respondShow` (las preguntas de publicar, pushear y responder lo miran antes).
     var reviewPhase: ReviewPhase?
     var respondPhase: RespondPhase?
+    /// Lo que `mergePreview` dice que impide mergear (`MergePreviewInfo.problem`).
+    var previewProblem: String?
     /// Si no es nil, merge, publicar el review y las llamadas a Slack tardan esto (cancelable, como `URLSession`).
     var networkDelay: Duration?
 
@@ -120,7 +122,8 @@ final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActi
                                            head: "c0ffee1234", merge: state), category: .readyToMerge, account: "me")
         let options = MergeOptions(availability: .enabled(note: "Some checks are failing"), methods: [.squash, .merge],
                                    defaultMethod: .squash)
-        return MergePreviewInfo(item: item, method: method ?? .squash, options: options, deletesBranch: true, phase: nil)
+        return MergePreviewInfo(item: item, method: method ?? .squash, options: options, deletesBranch: true, phase: nil,
+                                problem: previewProblem)
     }
 
     // MARK: ConfigActions
