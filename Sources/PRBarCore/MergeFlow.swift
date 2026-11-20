@@ -67,6 +67,21 @@ public enum MergeFlow {
         return .success(chosen)
     }
 
+    /// Por qué el botón Merge de la ventana está deshabilitado (spec G.2, F.8.19: nunca un silencio); `nil` = se puede.
+    /// `current`: el PR en el snapshot actual. `shownHead`: el head que muestra la ventana (nil = cargando). `stale`: un
+    /// refresco vio otro head. En orden: una actualización instalándose, el PR fuera de la lista, cargando, head nuevo,
+    /// y lo que diga `MergePolicy` (Ready to Merge, `mergeStateStatus`, permiso, método).
+    public static func windowProblem(
+        current: ClassifiedPR?, options: MergeOptions?, method: MergeMethod?, shownHead: String?, stale: Bool,
+        blockedReason: String?
+    ) -> String? {
+        if let blockedReason { return blockedReason }
+        guard let current else { return "This PR isn’t in PRBar’s list anymore." }
+        guard shownHead != nil, let options else { return "Loading…" }
+        if stale { return MergeWindowModel.staleText }
+        return MergePolicy.problem(current, method: method, options: options)?.localizedDescription
+    }
+
     /// Qué hace Retry después de refrescar.
     public enum RetryRoute: Equatable, Sendable {
         /// Pedir de nuevo (`request`) con el PR refrescado y el mismo método.
