@@ -36,6 +36,8 @@ public enum PromptIssue: Hashable, Sendable {
 /// always wraps it with the fixed part (`PromptWrapper`), so editing it never changes tools, permissions or schema.
 public enum PromptStage: String, CaseIterable, Codable, Identifiable, Sendable {
     case review, filter, analysis, implementation, reviewChat, respondChat, mergeChat, instructionsChat
+    /// Fix CI (spec K.3): diagnoses the failing checks and fixes the code in one run.
+    case ciFix
 
     public var id: String { rawValue }
 
@@ -49,6 +51,7 @@ public enum PromptStage: String, CaseIterable, Codable, Identifiable, Sendable {
         case .respondChat: "Respond chat"
         case .mergeChat: "Merge chat"
         case .instructionsChat: "Instructions chat"
+        case .ciFix: "CI fix"
         }
     }
 
@@ -56,7 +59,7 @@ public enum PromptStage: String, CaseIterable, Codable, Identifiable, Sendable {
     public var ruleStage: RuleStage? {
         switch self {
         case .review, .filter, .reviewChat: .review
-        case .analysis, .implementation, .respondChat, .mergeChat: .respond
+        case .analysis, .implementation, .respondChat, .mergeChat, .ciFix: .respond
         case .instructionsChat: nil
         }
     }
@@ -82,6 +85,7 @@ public enum PromptStage: String, CaseIterable, Codable, Identifiable, Sendable {
     static let assessment = PromptVariable(name: "assessment", summary: "Claude’s assessment of the comment")
     static let fixPlan = PromptVariable(name: "fix_plan", summary: "The plan you approved")
     static let repos = PromptVariable(name: "repos", summary: "Your configured repos")
+    static let checks = PromptVariable(name: "checks", summary: "The names of the failing checks")
 
     public var variables: [PromptVariable] {
         switch self {
@@ -100,6 +104,8 @@ public enum PromptStage: String, CaseIterable, Codable, Identifiable, Sendable {
             [Self.pr, Self.repo, Self.title, Self.author, Self.rules]
         case .instructionsChat:
             [Self.repos]
+        case .ciFix:
+            [Self.pr, Self.repo, Self.title, Self.checks, Self.rules]
         }
     }
 
@@ -110,7 +116,7 @@ public enum PromptStage: String, CaseIterable, Codable, Identifiable, Sendable {
         case .filter: ["findings_json"]
         case .analysis: ["feedback_path"]
         case .implementation: ["fix_plan"]
-        case .reviewChat, .respondChat, .mergeChat, .instructionsChat: []
+        case .reviewChat, .respondChat, .mergeChat, .instructionsChat, .ciFix: []
         }
     }
 
@@ -179,6 +185,13 @@ public enum PromptStage: String, CaseIterable, Codable, Identifiable, Sendable {
             Turn what the user asks into rule changes. Keep each rule short, concrete and in the user's words and language. Before adding a rule, check whether an existing one already covers it and edit that one instead.
             Write `reply` in the language the user writes in: brief, in simple Markdown.
             """
+        case .ciFix:
+            """
+            You are the author of PR #{pr} of {repo} ("{title}"). Its CI failed on these checks: {checks}. Your branch's code is in the current directory, at the commit whose checks failed.
+            Read the failure output below, find the root cause in the code and fix it with a minimal change in the repo's style.
+            Fix the code, not the CI: don't disable, skip or weaken tests, checks or linters to make them pass, and don't edit the CI configuration unless the failure is clearly caused by it.
+            If the failure isn't caused by this branch's code (a flaky test, the CI infrastructure, an outage, missing secrets), change nothing and answer `skipped` explaining why.
+            """
         }
     }
 }
@@ -227,7 +240,7 @@ extension ClaudeSettings {
         case .filter: review.filter.stage
         case .analysis: respond.analysis
         case .implementation: respond.implementation
-        case .reviewChat, .respondChat, .mergeChat, .instructionsChat: nil
+        case .reviewChat, .respondChat, .mergeChat, .instructionsChat, .ciFix: nil
         }
     }
 
@@ -238,7 +251,7 @@ extension ClaudeSettings {
         case .filter: effectiveFilterSkill
         case .analysis: effectiveRespondSkill
         case .implementation: effectiveImplementationSkill
-        case .reviewChat, .respondChat, .mergeChat, .instructionsChat: nil
+        case .reviewChat, .respondChat, .mergeChat, .instructionsChat, .ciFix: nil
         }
     }
 
@@ -249,6 +262,7 @@ extension ClaudeSettings {
         case .respondChat: chatPrompts.respond
         case .mergeChat: chatPrompts.merge
         case .instructionsChat: chatPrompts.instructions
+        case .ciFix: chatPrompts.ciFix
         case .review, .filter, .analysis, .implementation: self.stage(stage)?.prompt
         }
     }
@@ -293,6 +307,7 @@ extension ClaudeSettings {
         case .respondChat: chatPrompts.respond = text
         case .mergeChat: chatPrompts.merge = text
         case .instructionsChat: chatPrompts.instructions = text
+        case .ciFix: chatPrompts.ciFix = text
         }
     }
 
@@ -315,6 +330,7 @@ extension ClaudeSettings {
         case .respondChat: chatPrompts.respond = nil
         case .mergeChat: chatPrompts.merge = nil
         case .instructionsChat: chatPrompts.instructions = nil
+        case .ciFix: chatPrompts.ciFix = nil
         }
     }
 
@@ -324,7 +340,7 @@ extension ClaudeSettings {
         case .filter: review.filter.mode = mode
         case .analysis: respond.analysis.mode = mode
         case .implementation: respond.implementation.mode = mode
-        case .reviewChat, .respondChat, .mergeChat, .instructionsChat: break
+        case .reviewChat, .respondChat, .mergeChat, .instructionsChat, .ciFix: break
         }
     }
 
@@ -335,7 +351,7 @@ extension ClaudeSettings {
         case .filter: review.filter.skill = skill ?? Self.defaultFilterSkill
         case .analysis: respond.analysis.skill = skill ?? Self.defaultRespondSkill
         case .implementation: respond.implementation.skill = skill
-        case .reviewChat, .respondChat, .mergeChat, .instructionsChat: break
+        case .reviewChat, .respondChat, .mergeChat, .instructionsChat, .ciFix: break
         }
     }
 

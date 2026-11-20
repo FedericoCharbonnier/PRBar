@@ -60,7 +60,7 @@ extension AppModel: ResourceActions {
     func stopAction(for activity: ProcessActivity) -> (() -> Void)? {
         switch activity.kind {
         case .review: activity.prID.map { prID in { self.cancelReview(prID: prID) } }
-        case .respond: activity.prID.map { prID in { self.cancelRespond(prID: prID) } }
+        case .respond, .ciFix: activity.prID.map { prID in { self.cancelRespond(prID: prID) } }
         // El chat de esa sesión, buscado al tocar Stop entre los que ya existen (nunca crea un coordinador).
         case .chat: activity.chatSessionID.map { id in { self.runningChats.first { $0.session.id == id }?.stop() } }
         case .instructions: { self.instructionsChat.stop() }
@@ -74,7 +74,8 @@ extension AppModel: ResourceActions {
     func resources() async -> ResourcesInfo {
         let usage = await resources.freshUsage()
         let disk = await resources.freshDisk()
-        return ResourcesInfo(usage: usage, disk: disk)
+        let month = usageLedger.month(UsageSummary.monthKey(Date()))
+        return ResourcesInfo(usage: usage, disk: disk, claudeThisMonth: month.usage.runs > 0 ? month.usage : nil)
     }
 
     func cleanupPreview(olderThanDays: Int?) async -> CleanupPlan {

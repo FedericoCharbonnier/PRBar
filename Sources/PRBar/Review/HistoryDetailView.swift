@@ -64,6 +64,7 @@ struct HistoryDetailView: View {
             }
             .font(.callout)
             .foregroundStyle(.secondary)
+            ClaudeUsageLine(usage: draft.totalUsage)
         }
     }
 
@@ -162,5 +163,27 @@ struct HistoryDetailView: View {
         .padding(.vertical, 10)
         .background(.bar)
         .overlay(alignment: .top) { Divider() }
+    }
+}
+
+/// "Claude · 3m 12s · 92.1k tokens · $0.42 (estimated)" in a History entry (spec O.2); "—" for older entries.
+struct ClaudeUsageLine: View {
+    let usage: ClaudeUsage?
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "sparkles").accessibilityHidden(true)
+            Text("Claude")
+            Text("·").foregroundStyle(.tertiary)
+            Text(UsageFormat.summary(usage)).monospacedDigit()
+            if let usage, usage.hasData {
+                Text("·").foregroundStyle(.tertiary)
+                Text(UsageFormat.tokenBreakdown(usage)).monospacedDigit()
+            }
+        }
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+        .help(UsageFormat.note)
+        .accessibilityElement(children: .combine)
     }
 }

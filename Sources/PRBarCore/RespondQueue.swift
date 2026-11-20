@@ -26,6 +26,14 @@ public final class RespondQueue: ObservableObject {
     @Published public private(set) var records: [String: RespondRecord] = [:]
     /// PRs with a chat turn running (spec B.2): no job starts on them until it ends.
     @Published public private(set) var chatting: Set<String> = []
+    /// What each PR's run is: answering feedback or a Fix CI (spec K). Set when it starts, until `dismiss`.
+    @Published public private(set) var modes: [String: RespondMode] = [:]
+    /// Fix CI: PRs whose push PRBar stopped because the failing checks pass now (spec K.6.6), with the reason. The
+    /// window offers "Push Anyway".
+    @Published public private(set) var pushBlockedByCI: [String: String] = [:]
+    /// Set only while `onEvent` hears the `readyToPush` of a push the CI stopped (the checks pass now).
+    private var reportingCIBlock: String?
+    public func isReportingCIBlock(_ prID: String) -> Bool { reportingCIBlock == prID }
 
     private enum Kind { case analyze, implement, tests, publish }
 
@@ -92,13 +100,17 @@ public final class RespondQueue: ObservableObject {
     /// → queued → preparing → analyzing → ready | failed. Se ignora si el PR tiene un job, o está en
     /// `implementing`/`readyToPush`/`pushing` (hay fixes sin publicar).
     /// `localPath == nil`: solo un repo que corre en un host (el análisis arma su worktree allá).
-    public func analyze(_ item: ClassifiedPR, localPath: String?, worktreeDir: String?) {
+    /// `mode == .ciFix` (spec K): reads the failing checks and, once the worktree is ready, implements the fix on its own.
+    public func analyze(_ item: ClassifiedPR, localPath: String?, worktreeDir: String?, mode: RespondMode = .feedback) {
         let prID = item.id
         switch phases[prID] {
         case nil, .ready?, .failed?, .done?: break
         default: return
         }
-        let request = RespondRequest(item: item, localPath: localPath, worktreeDir: worktreeDir)
+        guard canStart(prID), openRunConflict(prID: prID, starting: mode) == nil else { return }
+        modes[prID] = mode
+        pushBlockedByCI[prID] = nil
+        let request = RespondRequest(item: item, localPath: localPath, worktreeDir: worktreeDir, mode: mode)
         let draftID = UUID()
         let startedAt = Date()
         let pipeline = self.pipeline
@@ -115,10 +127,13 @@ public final class RespondQueue: ObservableObject {
             guard let self else { return }
             switch result {
             case .success(let draft):
-                let record = RespondRecord(draft: draft, startedAt: startedAt)
+                let record = RespondRecord(draft: draft, startedAt: startedAt,
+                                           usage: self.jobUsage[prID].flatMap { $0.runs > 0 ? $0 : nil })
                 self.records[prID] = record
                 self.save(record)
                 self.finish(prID, .ready(draft))
+                // Fix CI has nothing to choose: the fix starts at once (spec K.6.3). If it can't, it stays in `ready`.
+                if draft.isCIFix { self.implementCI(prID: prID) }
             case .failure(let error):
                 // Sin draft: se guarda uno vacío para que el error quede en el historial (con el log, si lo hay).
                 let pr = item.pr
@@ -128,10 +143,35 @@ public final class RespondQueue: ObservableObject {
                     worktree: ResolvedWorktree(path: localPath ?? "", origin: .mainClone), startHeadOid: "", items: [])
                 self.records[prID] = nil
                 self.save(RespondRecord(draft: empty, startedAt: startedAt, finishedAt: Date(),
-                                        errorMessage: error.localizedDescription))
+                                        errorMessage: error.localizedDescription,
+                                        usage: self.jobUsage[prID].flatMap { $0.runs > 0 ? $0 : nil }))
                 self.finish(prID, .failed(error.localizedDescription, logURL: self.existingLog(draftID)))
             }
         })
+    }
+
+    /// Fix CI: implements its only item with the default selection (never a reply).
+    @discardableResult
+    public func implementCI(prID: String) -> Bool {
+        guard case .ready(let draft)? = phases[prID], draft.isCIFix else { return false }
+        let selections = Dictionary(uniqueKeysWithValues: draft.items.map { ($0.id, RespondSelection.defaults(for: $0)) })
+        implement(prID: prID, selections: selections)
+        return jobs[prID] != nil
+    }
+
+    public func mode(of prID: String) -> RespondMode { modes[prID] ?? records[prID]?.draft.mode ?? .feedback }
+
+    /// Spec K.2.1: the PR's slot holds one open run (any phase but `done`). Starting the other kind (Fix CI over a
+    /// feedback analysis or the reverse) would silently replace it and lose its decisions, so it has to be dismissed
+    /// first. Returns the open run's mode when it differs from `mode`; nil = `mode` can start (or replace a run of its
+    /// own kind, as before).
+    public func openRunConflict(prID: String, starting mode: RespondMode) -> RespondMode? {
+        switch phases[prID] {
+        case nil, .done?: return nil
+        default:
+            let open = self.mode(of: prID)
+            return open == mode ? nil : open
+        }
     }
 
     /// ready → implementing(d, t) → readyToPush | failed.
@@ -213,14 +253,16 @@ public final class RespondQueue: ObservableObject {
 
     /// readyToPush → pushing → done | failed. Desde `failed`, con fixes ya implementados, reintenta: no vuelve a
     /// pushear si ya se pusheó y solo publica las respuestas que faltan.
-    public func publish(prID: String) {
+    /// `ignoringCI`: Fix CI's "Push Anyway" when its failing checks pass now (spec K.6.6).
+    public func publish(prID: String, ignoringCI: Bool = false) {
         pushBlockedByTests.remove(prID)
         guard let record = records[prID], record.result != nil, canStart(prID) else { return }
         switch phases[prID] {
         case .readyToPush?, .failed?: break
         default: return
         }
-        startPublish(prID, record: record, push: true)
+        pushBlockedByCI[prID] = nil
+        startPublish(prID, record: record, push: true, ignoringCI: ignoringCI)
     }
 
     /// ready → pushing → done | failed, sin fixes (no hay push). Desde `failed` reintenta las que faltan.
@@ -292,6 +334,8 @@ public final class RespondQueue: ObservableObject {
     public func dismiss(prID: String) {
         pushBlockedByTests.remove(prID)
         guard jobs[prID] == nil, cancelling[prID] == nil else { return }
+        pushBlockedByCI[prID] = nil
+        modes[prID] = nil
         phases[prID] = nil
         if let record = records[prID] { cleanupWorktree(record.draft) }
         records[prID] = nil
@@ -319,18 +363,47 @@ public final class RespondQueue: ObservableObject {
         guard canStart(prID) else { return }
         let jobID = UUID()
         let slot = Slot<T>()
+        let usage = Slot<ClaudeUsage>()
         jobs[prID] = Job(id: jobID, kind: kind, previous: previous ?? phases[prID])
         if let phase { phases[prID] = phase }
-        scheduler.enqueue(prID, activity: .respond(prID), onStart: { [weak self] in
+        scheduler.enqueue(prID, activity: activity(prID), onStart: { [weak self] in
             if let onStart, self?.jobs[prID]?.id == jobID { self?.phases[prID] = onStart }
         }, work: {
-            slot.value = try await work(jobID)
+            // Claude's usage for this job goes to the record (spec O.4.4), also when it fails or is canceled.
+            let sink = ClaudeUsageSink()
+            defer { usage.value = sink.total }
+            slot.value = try await sink.measure { try await work(jobID) }
         }, onComplete: { [weak self] result in
             guard let self, self.jobs[prID]?.id == jobID else { return }
             self.jobs[prID] = nil
+            // Saved before `completion`, so the record the phase event announces already has it. An analysis makes
+            // a new record: its `completion` puts the usage there (`jobUsage`).
+            if kind == .analyze {
+                self.jobUsage[prID] = usage.value
+            } else {
+                self.addUsage(prID, usage.value)
+            }
             completion(result.map { slot.value! })
+            self.jobUsage[prID] = nil
+        }, onCancelledEnd: { [weak self] _ in
+            if kind != .analyze { self?.addUsage(prID, usage.value) }
         })
     }
+
+    /// Lo que gastó en Claude el job que acaba de terminar, mientras corre su `completion` (un análisis fallido lo
+    /// guarda en su registro vacío).
+    private var jobUsage: [String: ClaudeUsage] = [:]
+
+    /// Suma el uso de un job al registro vigente del PR y lo guarda.
+    private func addUsage(_ prID: String, _ usage: ClaudeUsage?) {
+        guard let usage, usage.runs > 0, var record = records[prID] else { return }
+        record.usage = (record.usage ?? .zero) + usage
+        records[prID] = record
+        save(record)
+    }
+
+    /// La tarea de Activity del PR.
+    private func activity(_ prID: String) -> ProcessActivity { mode(of: prID) == .ciFix ? .ciFix(prID) : .respond(prID) }
 
     private func progress(_ prID: String, _ jobID: UUID, _ phase: RespondPhase) {
         guard jobs[prID]?.id == jobID, phase.isActive else { return }
@@ -385,12 +458,14 @@ public final class RespondQueue: ObservableObject {
         }
     }
 
-    private func startPublish(_ prID: String, record: RespondRecord, push: Bool) {
+    private func startPublish(_ prID: String, record: RespondRecord, push: Bool, ignoringCI: Bool = false) {
         let pipeline = self.pipeline
         let draft = record.draft
         let draftID = draft.id
+        let previous = phases[prID]
         start(prID, kind: .publish, phase: .queued, onStart: .pushing, work: { [weak self] _ in
             if push && !record.pushed, let result = record.result {
+                if draft.isCIFix { try await pipeline.checkCIBeforePush(draft: draft, ignoringPassingChecks: ignoringCI) }
                 try await pipeline.push(draft: draft, result: result)
                 await self?.markPushed(prID, draftID)
             }
@@ -412,6 +487,16 @@ public final class RespondQueue: ObservableObject {
                 self.save(record)
                 self.finish(prID, .done(record))
                 self.cleanupWorktree(record.draft)
+            case .failure(let error as CIPassingNow):
+                // Nothing was pushed: back to the diff, with "Push Anyway" (spec K.6.6).
+                // Through `finish`, like any other end of a job: the app updates Activity and History and notifies
+                // (`isReportingCIBlock` tells this event from a later one, such as a test run's).
+                self.pushBlockedByCI[prID] = error.localizedDescription
+                self.reportingCIBlock = prID
+                defer { self.reportingCIBlock = nil }
+                if case .readyToPush? = previous, let previous { self.finish(prID, previous) } else if let result = record.result {
+                    self.finish(prID, .readyToPush(draft, result))
+                }
             case .failure(let error):
                 self.fail(prID, error)
             }

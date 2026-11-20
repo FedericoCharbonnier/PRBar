@@ -13,6 +13,7 @@ struct RespondGroup: ParsableCommand {
 
 enum RespondRender {
     static func info(_ info: RespondInfo, _ output: Output, full: Bool = false) {
+        if info.mode == .ciFix { return CIRender.info(info, output, full: full) }
         var header = "\(info.pr) · \(info.runningTests ? "running tests" : info.phase)"
         if let detail = info.detail, info.phase != "failed" { header += " (\(detail))" }
         output.line(output.paint(header, .bold))
@@ -22,6 +23,7 @@ enum RespondRender {
         if let account = info.account, let head = info.headRef { pairs.append(("Branch", "\(head) as @\(account)")) }
         if let worktree = info.worktree { pairs.append(("Worktree", worktree)) }
         if let log = info.logPath { pairs.append(("Log", log)) }
+        if let usage = info.usage { pairs.append(("Claude", UsageFormat.summary(usage))) }
         Render.pairs(pairs, output)
         guard !info.items.isEmpty else { return }
         output.line()
@@ -186,7 +188,9 @@ struct RespondDiffCommand: RemoteCommand {
 
     func appCommand(confirmed: Bool) -> AppCommand { .respondDiff(pr: pr) }
 
-    func render(_ result: JSONValue, _ output: Output) throws {
+    func render(_ result: JSONValue, _ output: Output) throws { try Self.render(result, stat: stat, output) }
+
+    static func render(_ result: JSONValue, stat: Bool, _ output: Output) throws {
         let diff: RespondDiff = try result.decode()
         if !diff.sensitiveChanges.isEmpty {
             output.line(output.paint("Files that can run code: \(diff.sensitiveChanges.joined(separator: ", "))", .red, .bold))

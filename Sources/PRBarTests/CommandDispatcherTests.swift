@@ -115,6 +115,9 @@ let dispatchSamples: [(command: AppCommand, call: String)] = [
     (.runnerRemove(name: "devbox"), "runnerRemove"),
     (.runnerTest(name: "devbox"), "runnerTest"),
     (.runnerDefault(target: "local"), "runnerDefault"),
+    (.ciList, "ciList"),
+    (.ciFix(pr: "api#12", wait: false), "ciFix"),
+    (.usage(month: "2026-10"), "usage"),
 ]
 
 enum CommandDispatcherTests {

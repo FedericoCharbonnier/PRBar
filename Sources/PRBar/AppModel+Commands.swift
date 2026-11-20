@@ -116,13 +116,12 @@ extension AppModel: StatusActions {
     func historyList(repo: String?, kind: HistoryKind?, limit: Int?, search: String?) -> [HistoryEntryInfo] {
         var entries: [HistoryEntryInfo] = []
         if kind == nil || kind == .review { entries += history.all().map(HistoryEntryInfo.init(review:)) }
-        if kind == nil || kind == .respond { entries += respondHistory.all().map(HistoryEntryInfo.init(respond:)) }
+        // Respond and Fix CI share `respondHistory`; `listing` keeps the requested kind only.
+        if kind == nil || kind == .respond || kind == .ciFix {
+            entries += respondHistory.all().map(HistoryEntryInfo.init(respond:))
+        }
         if kind == nil || kind == .merge { entries += mergeHistory.all().map(HistoryEntryInfo.init(merge:)) }
-        let filtered = entries
-            .filter { entry in repo.map { entry.repo.caseInsensitiveCompare($0) == .orderedSame } ?? true }
-            .filter { $0.matches(search ?? "") }
-            .sorted { $0.startedAt > $1.startedAt }
-        return Array(filtered.prefix(max(limit ?? 50, 1)))
+        return HistoryEntryInfo.listing(entries, repo: repo, kind: kind, limit: limit, search: search)
     }
 
     private enum HistoryHit {
@@ -414,15 +413,27 @@ extension AppModel: RespondActions {
         var logPath: String?
         if case .failed(_, let log)? = respond.phases[prID] { logPath = log?.path }
         if logPath == nil, let record { logPath = existingPath(respondHistory.logURL(for: record.id)) }
-        return RespondInfo(prID: prID, phase: respond.phases[prID], record: record,
+        var info = RespondInfo(prID: prID, phase: respond.phases[prID], record: record,
                            selections: record.map { respondSelections(for: $0.draft) } ?? [:],
                            runningTests: respond.runningTests.contains(prID),
                            testCommand: record.flatMap { testCommand(for: $0.draft) }, logPath: logPath,
                            pushBlockedByTests: respondPushGate(prID: prID).isTestsFailed)
+        info.pushBlockedByCI = respond.pushBlockedByCI[prID]
+        info.mode = respond.mode(of: prID)
+        return info
     }
 
     private func respondProgress(_ prID: String) -> String {
         if respond.runningTests.contains(prID) { return "Running tests…" }
+        if respond.mode(of: prID) == .ciFix {
+            return switch respond.phases[prID] {
+            case .queued?: "Queued…"
+            case .preparing?: "Reading the failing checks and preparing the worktree…"
+            case .implementing?: "Claude is fixing the CI…"
+            case .pushing?: "Checking the CI again and pushing…"
+            default: "Finishing…"
+            }
+        }
         return switch respond.phases[prID] {
         case .queued?: "Queued…"
         case .preparing?: "Preparing the worktree…"
@@ -484,6 +495,9 @@ extension AppModel: RespondActions {
         }
         if let reason = respondUnavailableReason(item) {
             throw CommandFailure(.invalidState, "\(reason) Or run `prbar repo set \(item.pr.repo.fullName) --path …`.")
+        }
+        if let reason = respondSlotConflictReason(item.id, starting: .feedback) {
+            throw CommandFailure(.invalidState, "\(reason) (`prbar ci dismiss \(item.id)`)")
         }
         let phase = respond.phases[item.id]
         if phase?.isActive == true || respond.runningTests.contains(item.id) {
@@ -586,7 +600,8 @@ extension AppModel: RespondActions {
         let gate = respondPushGate(prID: id)
         if let problem = RespondPushGate.commandCheck(
             record, phase: respond.phases[id], runningTests: respond.runningTests.contains(id),
-            chatting: respond.chatting.contains(id), gate: gate, anyway: anyway
+            chatting: respond.chatting.contains(id), gate: gate, anyway: anyway,
+            blockedByCI: respond.pushBlockedByCI[id] != nil
         ) {
             throw problem
         }
@@ -599,7 +614,10 @@ extension AppModel: RespondActions {
         guard wait else { return respondInfo(id) }
         try await waitForRespond(id, events: events)
         if case .testsFailed(let run) = respondPushGate(prID: id), respond.records[id]?.pushed != true {
-            throw CommandFailure(.failed, "“\(run.command)” failed, so PRBar didn’t push. Push anyway with `prbar respond push \(id) --anyway`.")
+            throw CommandFailure(.failed, "“\(run.command)” failed, so PRBar didn’t push. Push anyway with `prbar \(record.draft.isCIFix ? "ci" : "respond") push \(id) --anyway`.")
+        }
+        if let blocked = respond.pushBlockedByCI[id], respond.records[id]?.pushed != true {
+            throw CommandFailure(.failed, "\(blocked) Push anyway with `prbar ci push \(id) --anyway`.")
         }
         return respondInfo(id)
     }
@@ -645,6 +663,56 @@ extension AppModel: RespondActions {
             throw CommandFailure(.invalidState, "It’s running: cancel it first (`prbar respond cancel \(id)`).")
         }
         dismissRespond(prID: id)
+    }
+}
+
+// MARK: - Fix CI y uso de Claude (specs K y O)
+
+extension AppModel: CIFixUsageActions {
+    func ciList() throws -> [CIListEntry] {
+        let items = (prStore.snapshot?.items ?? []).filter { isCIFixCandidate($0) || respond.mode(of: $0.id) == .ciFix && respond.phases[$0.id] != nil }
+        return items.sorted { $0.id < $1.id }.map { item in
+            let isCI = respond.mode(of: item.id) == .ciFix
+            let phase = respond.runningTests.contains(item.id) ? "testing" : respond.phases[item.id]?.cliName
+            return CIListEntry(pr: item.id, title: item.pr.title, url: item.pr.url, account: item.account,
+                               phase: isCI ? phase : nil, respondInProgress: !isCI && respond.phases[item.id] != nil,
+                               unavailableReason: ciFixUnavailableReason(item))
+        }
+    }
+
+    func ciFix(pr: String, wait: Bool, events: CommandEventSink) async throws -> RespondInfo {
+        let id = try resolvePRID(pr)
+        let item = try classifiedPR(id)
+        guard PopoverTabs.isMine(item) else {
+            throw CommandFailure(.invalidState, "\(id) isn’t your PR: Fix CI is only for your own PRs.")
+        }
+        guard item.pr.ciState == .failure else {
+            throw CommandFailure(.invalidState, "\(id)’s CI isn’t failing (as of the last refresh). Run `prbar refresh` if it just failed.")
+        }
+        if let reason = respondSlotConflictReason(id, starting: .ciFix) {
+            throw CommandFailure(.invalidState, "\(reason) (`prbar respond dismiss \(id)`)")
+        }
+        if let reason = ciFixUnavailableReason(item) { throw CommandFailure(.invalidState, reason) }
+        startCIFix(item)
+        try throwIfNothingStarted(id, "Fix CI")
+        guard wait else { return respondInfo(id) }
+        try await waitForRespond(id, events: events)
+        return respondInfo(id)
+    }
+
+    func usage(month: String?) throws -> UsageInfo {
+        let key: String
+        if let month {
+            guard let parsed = UsageSummary.parseMonth(month) else {
+                throw CommandFailure(.invalidUsage, "“\(month)” isn’t a month: use YYYY-MM.")
+            }
+            key = parsed
+        } else {
+            key = UsageSummary.monthKey(Date())
+        }
+        let entries = usageLedger.entries()
+        let inMonth = entries.filter { UsageSummary.monthKey($0.date) == key }
+        return UsageInfo(month: usageLedger.month(key), tasks: UsageSummary.recentTasks(inMonth, limit: 50))
     }
 }
 

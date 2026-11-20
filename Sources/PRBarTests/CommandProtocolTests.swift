@@ -37,8 +37,8 @@ enum CommandProtocolTests {
             let line = try CommandProtocol.line(CommandResponse.event(id: 1, .text(delta: "a\nb")))
             try expect(!line.contains("\n"), line)
         },
-        TestCase("protocolo: versión 5 (destinos SSH y repo set --run-on)") {
-            try expectEqual(CommandProtocol.version, 5)
+        TestCase("protocolo: versión 6 (Fix CI y uso de Claude)") {
+            try expectEqual(CommandProtocol.version, 6)
         },
         TestCase("protocolo: mensaje de versiones incompatibles") {
             try expectEqual(CommandFailure.protocolMismatch(cli: "1.3.0", app: "1.2.0").message,

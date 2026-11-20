@@ -21,6 +21,8 @@ struct RespondButton: View {
     /// Hay un registro abierto (la ventana tiene algo que mostrar).
     let hasRecord: Bool
     let actions: RespondButtonActions
+    /// A Fix CI (spec K): its own labels.
+    var isCI = false
 
     var body: some View {
         content
@@ -42,7 +44,9 @@ struct RespondButton: View {
                 Image(systemName: "pause.fill").font(.system(size: 9))
             }
         case .preparing?:
-            cancellable(label: "Preparing…", tooltip: "Preparing the worktree · click to cancel") {
+            cancellable(label: isCI ? "Reading CI…" : "Preparing…",
+                        tooltip: isCI ? "Reading the failing checks and preparing the worktree · click to cancel"
+                                      : "Preparing the worktree · click to cancel") {
                 Image(systemName: "hourglass").font(.system(size: 10, weight: .semibold))
             }
         case .analyzing(let agents)?:
@@ -50,13 +54,17 @@ struct RespondButton: View {
                 ProgressView().controlSize(.mini).frame(width: 10, height: 10)
             }
         case .implementing(let done, let total)?:
-            cancellable(label: "Implementing \(min(done + 1, max(total, 1)))/\(max(total, 1))…",
-                        tooltip: "Claude is implementing the fixes · click to cancel") {
+            cancellable(label: isCI ? "Fixing CI…" : "Implementing \(min(done + 1, max(total, 1)))/\(max(total, 1))…",
+                        tooltip: isCI ? "Claude is fixing the CI · click to cancel" : "Claude is implementing the fixes · click to cancel") {
                 ProgressView().controlSize(.mini).frame(width: 10, height: 10)
             }
         case .ready(let draft)?:
-            openPill(label: "\(draft.items.count) to review", icon: "checkmark.circle.fill",
-                     tooltip: "Open the analysis to choose what to fix and what to reply to")
+            if isCI {
+                openPill(label: "Fix CI", icon: "wrench.and.screwdriver.fill", tooltip: "Open to start the fix")
+            } else {
+                openPill(label: "\(draft.items.count) to review", icon: "checkmark.circle.fill",
+                         tooltip: "Open the analysis to choose what to fix and what to reply to")
+            }
         case .readyToPush?:
             if runningTests {
                 Button(action: actions.open) {
@@ -68,20 +76,21 @@ struct RespondButton: View {
                 .buttonStyle(.plain)
                 .help("Open the window to see the tests")
             } else {
-                openPill(label: "Ready to push", icon: "arrow.up.circle.fill",
-                         tooltip: "Open to review the diff and push")
+                openPill(label: isCI ? "CI fix ready" : "Ready to push", icon: "arrow.up.circle.fill",
+                         tooltip: isCI ? "Open to review Claude’s fix and push it" : "Open to review the diff and push")
             }
         case .pushing?:
             Button(action: actions.open) {
                 PhasePill(fg: Theme.violet, bg: Theme.tint(Theme.violet)) {
                     ProgressView().controlSize(.mini).frame(width: 10, height: 10)
-                    Text("Posting…")
+                    Text(isCI ? "Pushing…" : "Posting…")
                 }
             }
             .buttonStyle(.plain)
-            .help("Pushing and posting the replies")
+            .help(isCI ? "Checking the CI again and pushing" : "Pushing and posting the replies")
         case .done?:
-            openPill(label: "Responded", icon: "checkmark.seal.fill", tooltip: "See what was pushed and what was replied")
+            openPill(label: isCI ? "CI fix pushed" : "Responded", icon: "checkmark.seal.fill",
+                     tooltip: isCI ? "See what was pushed" : "See what was pushed and what was replied")
         case .failed(let message, let logURL)?:
             Button {
                 showFailureMenu(message: message, logURL: logURL)
@@ -93,7 +102,7 @@ struct RespondButton: View {
             }
             .buttonStyle(.plain)
             .help(message)
-            .accessibilityLabel("Respond failed")
+            .accessibilityLabel(isCI ? "Fix CI failed" : "Respond failed")
             .accessibilityHint("Opens a menu to show the log, retry, or dismiss")
         }
     }
@@ -120,7 +129,7 @@ struct RespondButton: View {
         label: String, tooltip: String, fg: Color = Theme.violet, bg: Color = Theme.tint(Theme.violet),
         @ViewBuilder icon: () -> Icon
     ) -> some View {
-        CancellablePill(label: label, tooltip: tooltip, fg: fg, bg: bg, job: "response",
+        CancellablePill(label: label, tooltip: tooltip, fg: fg, bg: bg, job: isCI ? "CI fix" : "response",
                         accessibilityValue: accessibilityValue, cancel: actions.cancel, icon: icon)
     }
 
@@ -142,5 +151,21 @@ struct RespondButton: View {
         if hasRecord { items.append(ClosureMenuItem(title: "Open", action: actions.open)) }
         items.append(ClosureMenuItem(title: "Retry", action: actions.retry))
         FailureMenu.show(message: message, logURL: logURL, items: items, dismiss: actions.dismiss)
+    }
+}
+
+/// "Fix CI" on a row of my PRs whose CI failed (spec K): manual only, never automatic.
+struct FixCIButton: View {
+    let unavailableReason: String?
+    let start: () -> Void
+
+    var body: some View {
+        Button("Fix CI", action: start)
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .font(.subheadline.weight(.medium))
+            .disabled(unavailableReason != nil)
+            .help(unavailableReason ?? "Claude reads the failing checks and fixes the code; you review it before pushing")
+            .accessibilityHint(unavailableReason ?? "Claude reads the failing checks and fixes the code")
     }
 }
