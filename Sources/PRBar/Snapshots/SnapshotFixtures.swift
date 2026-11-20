@@ -44,7 +44,34 @@ struct SnapshotFixtures {
         config.setSlackProvider(.claudeConnector, now: date(days: -20))
         config.setSlackEnabled(true, now: date(days: -20))
         config.claude.model = .opus
+        // Run On (spec J): devbox is the default and acme/api picks it explicitly.
+        try? config.addRunner(Self.devbox)
+        try? config.setDefaultRunTarget(.runner(Self.devbox.name))
+        config.setRunOn(.runner(Self.devbox.name), repoID: Self.api.fullName, login: Self.personal)
         return config
+    }
+
+    // MARK: Run On (spec J) — nothing connects in snapshot mode: only the checks and placements are filled in.
+
+    static let devbox = RunnerDestination(name: "devbox", endpoint: SSHEndpoint(user: "fede", host: "devbox.lab"),
+                                          remoteDir: "~/.prbar", fallbackToLocal: true)
+
+    /// devbox checked 5 minutes ago with Test Connection (so "logged in" shows).
+    var devboxCheck: RunnerHostInfo {
+        RunnerHostInfo(host: Self.devbox.name, os: "Linux", arch: "x86_64", home: "/home/fede", gitPath: "/usr/bin/git",
+                       gitVersion: "git version 2.43.0", claudePath: "/home/fede/.local/bin/claude",
+                       claudeVersion: "2.1.318 (Claude Code)", perl: true, quotingOK: true,
+                       root: "/home/fede/.prbar/installs/1f2e3d4c5b6a7980", problems: [], checkedAt: date(minutes: -5),
+                       claudeLoggedIn: true)
+    }
+
+    /// The review in progress (acme/api#317) runs on devbox; the last web-app job fell back to this Mac (the popover
+    /// row of #482 and the warning in Settings › Repos).
+    var placements: RunnerPlacements {
+        var placements = RunnerPlacements()
+        placements.record(.remote(host: Self.devbox.name), prID: loginRedirect.id, repo: Self.api)
+        placements.record(.fallback(RunnerFallback(host: Self.devbox.name, cause: .unreachable)), prID: reactQuery.id, repo: Self.webApp)
+        return placements
     }
 
     static let skills = [

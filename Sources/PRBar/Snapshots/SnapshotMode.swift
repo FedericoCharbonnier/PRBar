@@ -143,6 +143,12 @@ private final class SnapshotSession {
         )
         let model = AppModel(services: services, startsServices: false)
         model.applySnapshotState(tools: SnapshotFixtures.tools, ghAccounts: SnapshotFixtures.ghAccounts, launchAtLogin: true)
+        // Run On: the last checks and where jobs ran, filled in directly (the coordinator is never used here, and
+        // the local versions are set so Settings doesn't run `--version`).
+        model.runnerChecks = [SnapshotFixtures.devbox.name: fixtures.devboxCheck]
+        model.placements = fixtures.placements
+        model.localToolVersions = LocalToolVersions(tools: SnapshotFixtures.tools, git: "git version 2.47.1",
+                                                    claude: "2.1.318 (Claude Code)")
         model.resources.applySnapshotState(usage: fixtures.resourceUsage, disk: fixtures.diskUsage)
         return model
     }
@@ -323,9 +329,9 @@ private final class SnapshotSession {
         model.updates.applySnapshotState(available: SnapshotFixtures.updateRelease)
         let sizes: [SettingsWindow.Tab: NSSize] = [
             .general: NSSize(width: 700, height: 905),
-            .claude: NSSize(width: 700, height: 2100),
+            .claude: NSSize(width: 700, height: 2420),
             .instructions: NSSize(width: 700, height: 1330),
-            .repos: NSSize(width: 700, height: 1190),
+            .repos: NSSize(width: 700, height: 1330),
             .slack: NSSize(width: 700, height: 1260),
         ]
         for tab in SettingsWindow.Tab.allCases {
