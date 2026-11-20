@@ -61,9 +61,12 @@ public enum ClaudeRunnerError: Error, Equatable, LocalizedError {
     /// El cwd o una carpeta extra está dentro de una ruta que Claude tiene negada (`ClaudeRunner.deniedPaths`):
     /// no podría leer nada.
     case deniedDirectory(String)
+    /// El prompt tenía que ir por stdin (un host remoto: en argv lo vería `ps`) y el runner no puede mandarlo.
+    case standardInputUnavailable
 
     public var errorDescription: String? {
         switch self {
+        case .standardInputUnavailable: "Internal error: Claude's prompt can't be sent on standard input."
         case .forbiddenTool(let tool): "Internal error: Claude can't use the \(tool) tool."
         case .secretInEnvironment(let variable): "Internal error: Claude's environment contained a token (\(variable))."
         case .deniedDirectory(let path):
@@ -295,6 +298,8 @@ public struct ClaudeRunner: Sendable {
 
     /// Las garantías de aislamiento que no dependen de los flags: se chequean antes de lanzar nada.
     private func validate(_ invocation: ClaudeInvocation) throws {
+        // Nunca se cae al prompt en los argumentos.
+        if promptViaStandardInput && !(runner is StandardInputStreamingRunning) { throw ClaudeRunnerError.standardInputUnavailable }
         for tool in invocation.tools {
             // `contains`: también `Bash(git:*)`, `BashOutput`, etc.
             if tool.contains("Bash") || Self.alwaysDisallowedTools.contains(tool) {
@@ -341,7 +346,7 @@ public struct ClaudeRunner: Sendable {
         let result: ProcessResult
         do {
             // Exact environment: Claude doesn't inherit the app's (it can have tokens, `SSH_AUTH_SOCK`, `DYLD_*`, …).
-            let stdinRunner = promptViaStandardInput ? runner as? StandardInputStreamingRunning : nil
+            let stdinRunner = promptViaStandardInput ? runner as? StandardInputStreamingRunning : nil   // `validate` ya lo exigió.
             let arguments = Self.arguments(for: invocation, pluginDirs: pluginDirs, model: model,
                                            promptInArguments: stdinRunner == nil)
             let onLine: @Sendable (String) -> Void = { line in

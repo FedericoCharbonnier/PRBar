@@ -174,6 +174,14 @@ enum ClaudeRunnerTests {
             }
             try expectEqual(error as? ClaudeRunnerError, .forbiddenTool("Bash"))
         },
+        TestCase("claude runner: si el prompt tiene que ir por stdin y el runner no puede, no se lanza nada (nunca en argv)") {
+            let runner = FakeStreamingRunner { _, _, _ in ([validLine], ok("")) }
+            let claude = ClaudeRunner(runner: runner, claudePath: "/usr/local/bin/claude", pluginDirs: plugins, environment: environment,
+                                      logURL: try logFile(), redacting: [], promptViaStandardInput: true)
+            let error = try await expectThrows { _ = try await claude.run(invocation(), as: Answer.self, onAgent: { _ in }) }
+            try expectEqual(error as? ClaudeRunnerError, .standardInputUnavailable)
+            try expectEqual(runner.calls.count, 0)
+        },
         TestCase("claude runner: un token en una variable permitida es rechazado sin lanzar nada") {
             let runner = FakeStreamingRunner { _, _, _ in ([validLine], ok("")) }
             let error = try await expectThrows {
