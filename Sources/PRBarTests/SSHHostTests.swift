@@ -62,6 +62,53 @@ enum SSHHostTests {
             }
             try expect(FileManager.default.fileExists(atPath: rootURL.appendingPathComponent("work").path))
         },
+        TestCase("ssh host: con sh, bash o zsh como shell de login, cada valor hostil llega intacto y nada se ejecuta") {
+            let values = ShellQuoteTests.hostile.filter { $0.utf8.count < 1_000 } + ShellQuoteTests.randomStrings(count: 150, seed: 99)
+            for shell in ["/bin/sh", "/bin/bash", "/bin/zsh"] {
+                let ssh = try FakeSSH.make()
+                defer { ssh.remove() }
+                let host = try ssh.host(shell: shell)
+                let result = try await host.run(RemoteExec(argv: ["/usr/bin/printf", "%s\\0"] + values, cwd: ssh.home.path,
+                                                           environment: [.literal("PATH", "/usr/bin:/bin")]), timeout: 30)
+                try expect(!FileManager.default.fileExists(atPath: ssh.home.appendingPathComponent("PWNED").path), "\(shell) ejecutó algo")
+                var back = result.stdout.split(separator: "\0", omittingEmptySubsequences: false).map(String.init)
+                if back.last == "" { back.removeLast() }
+                try expectEqual(back.count, values.count)
+                for (index, value) in values.enumerated() where !Array(back[index].utf8).elementsEqual(value.utf8) {
+                    throw TestFailure(description: "\(shell) cambió el valor #\(index): \(Array(value.utf8).prefix(40)) → \(Array(back[index].utf8).prefix(40))")
+                }
+                let info = try await RunnerProbe.check(host)
+                try expect(info.quotingOK, "\(shell): \(info.problems)")
+            }
+        },
+        TestCase("ssh host: lo que imprime el rc del shell de login no se confunde con la salida del guardián ni del bundle") {
+            let repo = try TempGitRepo.make()
+            defer { repo.remove() }
+            let (ssh, _, info, root) = try await verifiedFake()
+            defer { ssh.remove() }
+            // Tres campos terminados en NUL: un registro bien formado de mentira, que un parser laxo se saltearía.
+            let noisy = try ssh.host(noise: Data("Welcome to devbox\n\u{0}x\u{0}y\u{0}".utf8))
+            let work = URL(fileURLWithPath: try root.child(["work", "w"]))
+            try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+            try Data("x".utf8).write(to: work.appendingPathComponent("a.txt"))
+            let fs = RemoteWorkspaceFS.ssh(host: noisy, home: ssh.home.path, root: root)
+            let snapshot = try await expectThrows { _ = try await fs.snapshot(work.path) }
+            try expect(snapshot is RemoteRunnerError, "\(snapshot)")
+            _ = try await expectThrows { _ = try await fs.nestedGitEntries(work.path) }
+            _ = try await expectThrows { _ = try await fs.describe([work.path]) }
+            // Un import entero con ese host: corta sin dejar nada en el clone.
+            let spaces = remoteWorkspaces(noisy, info, root, origin: repo.origin)
+            let draft = RespondDraft(prID: "o/r#7", repo: RepoRef(owner: "o", name: "r"), number: 7, title: "T",
+                                     url: URL(string: "https://github.com/o/r/pull/7")!, headRef: "feature", account: "me",
+                                     worktree: ResolvedWorktree(path: work.path, origin: .dedicated), startHeadOid: repo.prSHA, items: [],
+                                     runner: "devbox")
+            let importer = RemoteFixImport(spaces: spaces, localGit: TempGitRepo.git, gitEnvironment: ["GIT_CONFIG_GLOBAL": "/dev/null"],
+                                           tempRoot: repo.base.appendingPathComponent("push"), originMatches: { _, _ in true })
+            _ = try await expectThrows {
+                _ = try await importer.importFixes(draft: draft, localPath: repo.local.path, items: [], integrity: "x")
+            }
+            try expectEqual(try TempGitRepo.run(repo.local, ["for-each-ref", "refs/prbar/"]), "")
+        },
     ]
 }
 

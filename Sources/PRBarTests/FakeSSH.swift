@@ -4,6 +4,8 @@ import PRBarCore
 /// Un `ssh` de mentira para los tests: nunca conecta a nada. Anota cada invocación (argumentos separados por 0x1F,
 /// invocaciones por 0x1E: los scripts remotos tienen saltos de línea) en `log`; con `-G` imprime una config; con
 /// `-O` no hace nada; si no, corre el comando remoto con `/bin/sh -c` en `home`, con un entorno mínimo (`env -i`) y en una sesión nueva (`setsid` desde Perl), y devuelve su exit code.
+/// `FAKE_SSH_SHELL` es el shell de login del "host" (`/bin/sh`, `/bin/bash`, `/bin/zsh`: interpreta el comando
+/// como lo haría sshd) y `FAKE_SSH_NOISE_FILE` lo que imprime su rc antes del comando.
 /// `FAKE_SSH_UNREACHABLE=1` simula un host caído (exit 255). Si existe el archivo `dropNext`, la próxima invocación
 /// cuyo comando contiene su texto deja el comando corriendo en el "host" y sale con 255 (se cayó la conexión).
 struct FakeSSH {
@@ -34,13 +36,16 @@ struct FakeSSH {
       ctl) exit 0 ;;
     esac
     cd "$FAKE_SSH_HOME" || exit 255
+    # Lo que imprime un rc del shell de login (p. ej. `.bashrc`) antes del comando.
+    [ -n "$FAKE_SSH_NOISE_FILE" ] && cat "$FAKE_SSH_NOISE_FILE"
+    login="${FAKE_SSH_SHELL:-/bin/sh}"
     if [ -n "$FAKE_SSH_DROP" ] && [ -f "$FAKE_SSH_DROP" ] && case "$cmd" in *"$(cat "$FAKE_SSH_DROP")"*) true;; *) false;; esac; then
       # Se cae la conexión: el comando remoto sigue corriendo, el ssh local sale con 255.
       rm -f "$FAKE_SSH_DROP"
       /usr/bin/perl -e 'use POSIX (); my $pid = fork(); die "fork" unless defined $pid;
         if ($pid == 0) { POSIX::setsid(); exec @ARGV or exit 127 } waitpid($pid, 0); exit($? >> 8)' -- \
         /usr/bin/env -i HOME="$FAKE_SSH_HOME" USER=tester LOGNAME=tester LANG=en_US.UTF-8 SHELL=/bin/sh PATH=/usr/bin:/bin:/usr/sbin:/sbin \
-        SSH_AUTH_SOCK=/remote/agent.sock /bin/sh -c "$cmd" < /dev/null > /dev/null 2>&1 &
+        SSH_AUTH_SOCK=/remote/agent.sock "$login" -c "$cmd" < /dev/null > /dev/null 2>&1 &
       sleep 1
       echo "Connection to $host closed by remote host." >&2
       exit 255
@@ -48,7 +53,7 @@ struct FakeSSH {
     exec /usr/bin/perl -e 'use POSIX (); my $pid = fork(); die "fork" unless defined $pid;
       if ($pid == 0) { POSIX::setsid(); exec @ARGV or exit 127 } waitpid($pid, 0); exit($? >> 8)' -- \
       /usr/bin/env -i HOME="$FAKE_SSH_HOME" USER=tester LOGNAME=tester LANG=en_US.UTF-8 SHELL=/bin/sh PATH=/usr/bin:/bin:/usr/sbin:/sbin \
-      SSH_AUTH_SOCK=/remote/agent.sock /bin/sh -c "$cmd"
+      SSH_AUTH_SOCK=/remote/agent.sock "$login" -c "$cmd"
     """#
 
     static func make() throws -> FakeSSH {
@@ -71,9 +76,15 @@ struct FakeSSH {
     func remove() { try? FileManager.default.removeItem(at: base) }
 
     /// Entorno del `ssh` local (no global: cada test tiene el suyo).
-    func environment(unreachable: Bool = false, strict: String = "ask") -> [String: String] {
-        var env = ["FAKE_SSH_LOG": log.path, "FAKE_SSH_HOME": home.path, "FAKE_SSH_STRICT": strict, "FAKE_SSH_DROP": dropNext.path]
+    func environment(unreachable: Bool = false, strict: String = "ask", shell: String = "/bin/sh", noise: Data? = nil) -> [String: String] {
+        var env = ["FAKE_SSH_LOG": log.path, "FAKE_SSH_HOME": home.path, "FAKE_SSH_STRICT": strict, "FAKE_SSH_DROP": dropNext.path,
+                   "FAKE_SSH_SHELL": shell]
         if unreachable { env["FAKE_SSH_UNREACHABLE"] = "1" }
+        if let noise {
+            let file = base.appendingPathComponent("noise-\(UUID().uuidString)")
+            try? noise.write(to: file)
+            env["FAKE_SSH_NOISE_FILE"] = file.path
+        }
         return env
     }
 
@@ -109,11 +120,12 @@ struct FakeSSH {
     static let installationID = "00000000-0000-4000-8000-0000000000a1"
 
     func host(name: String = "devbox", remoteDir: String = "~/.prbar", unreachable: Bool = false,
-              killGracePeriod: TimeInterval = 1, installationID: String = FakeSSH.installationID) throws -> SSHHost {
+              killGracePeriod: TimeInterval = 1, installationID: String = FakeSSH.installationID, shell: String = "/bin/sh",
+              noise: Data? = nil) throws -> SSHHost {
         _ = try ControlSocketDirectory.ensure(controlDirectory)
         return SSHHost(destination: RunnerDestination(name: name, endpoint: SSHEndpoint(host: name), remoteDir: remoteDir),
                        installationID: installationID,
                        sshPath: executable.path, controlDirectory: controlDirectory, enforceHostKey: true,
-                       sshEnvironment: environment(unreachable: unreachable), killGracePeriod: killGracePeriod)
+                       sshEnvironment: environment(unreachable: unreachable, shell: shell, noise: noise), killGracePeriod: killGracePeriod)
     }
 }

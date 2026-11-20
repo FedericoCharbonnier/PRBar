@@ -105,7 +105,7 @@ enum WorkspaceFSParityTests {
         },
         TestCase("guardián perl: rutas en bytes; NFC solo para comparar; dos nombres que se normalizan igual cortan") {
             func fs(_ records: [(String, String, String)]) -> RemoteWorkspaceFS {
-                let out = records.map { [$0.0, $0.1, $0.2].joined(separator: "\0") + "\0" }.joined()
+                let out = (["V\0prbar-guard\01\0"] + records.map { [$0.0, $0.1, $0.2].joined(separator: "\0") + "\0" }).joined()
                 return RemoteWorkspaceFS(home: "/home/u", label: "devbox") { _ in ProcessResult(status: 0, stdout: out, stderr: "") }
             }
             func hex(_ text: String) -> String { text.utf8.map { String(format: "%02x", $0) }.joined() }
@@ -122,6 +122,12 @@ enum WorkspaceFSParityTests {
             try expectEqual(nested.map { Array($0.utf8) }, [Array("x/\u{e9}/.git".utf8)])
             let bad = try await expectThrows { _ = try await fs([("S", "ff", "32768 1 2 3")]).snapshot("/w") }
             try expect(bad is RemoteRunnerError, "\(bad)")
+            _ = try await expectThrows { _ = try await fs([("Z", hex("a.txt"), "")]).snapshot("/w") }
+            let headlessOutput = "S\0\(hex("a.txt"))\032768 1 2 3\0"
+            let headless = RemoteWorkspaceFS(home: "/home/u", label: "devbox") { _ in
+                ProcessResult(status: 0, stdout: headlessOutput, stderr: "")
+            }
+            _ = try await expectThrows { _ = try await headless.snapshot("/w") }
         },
         TestCase("guardián perl = guardián local: borrar un archivo creado que ya no existe es un error") {
             let one = try makeTree()

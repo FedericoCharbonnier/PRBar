@@ -126,8 +126,16 @@ public struct RemoteWorkspaceFS: WorkspaceFS {
         }
         var fields = result.stdout.split(separator: "\0", omittingEmptySubsequences: false).map(String.init)
         if fields.last == "" { fields.removeLast() }
-        guard fields.count % 3 == 0 else { throw RemoteRunnerError.malformedOutput(host: label, what: "integrity check output") }
-        return stride(from: 0, to: fields.count, by: 3).map { (fields[$0], fields[$0 + 1], fields[$0 + 2]) }
+        // Empieza con el encabezado y solo trae tipos conocidos: algo que imprime el rc del shell de login antes del
+        // script (o cualquier otra cosa) corta en vez de leerse como registros.
+        guard fields.count % 3 == 0, fields.count >= 3, Array(fields[0..<3]) == RemoteGuard.header else {
+            throw RemoteRunnerError.malformedOutput(host: label, what: "integrity check output (does the login shell print something?)")
+        }
+        let records = stride(from: 3, to: fields.count, by: 3).map { (fields[$0], fields[$0 + 1], fields[$0 + 2]) }
+        guard records.allSatisfy({ RemoteGuard.recordKinds.contains($0.0) }) else {
+            throw RemoteRunnerError.malformedOutput(host: label, what: "integrity check output")
+        }
+        return records
     }
 
     /// Las rutas vienen en hex (los bytes tal cual, sin pasar por la decodificación de la salida): UTF-8 estricto.
@@ -227,6 +235,10 @@ extension Data {
 
 /// El guardián en Perl (decisión J.7.8). Solo recolecta; no decide nada. Se manda entero por stdin en cada llamada.
 public enum RemoteGuard {
+    /// El primer registro de toda salida.
+    static let header = ["V", "prbar-guard", "1"]
+    static let recordKinds: Set<String> = ["S", "N", "E", "C", "R", "X"]
+
     public static let script = #"""
     use strict;
     use warnings;
@@ -377,6 +389,7 @@ public enum RemoteGuard {
         }
     }
 
+    out('V', 'prbar-guard', '1');
     my $cmd = shift(@ARGV) // '';
     my $ok = eval {
         if ($cmd eq 'snapshot' || $cmd eq 'nested') { walk_worktree($cmd, $ARGV[0]); }
