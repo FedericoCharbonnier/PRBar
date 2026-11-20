@@ -9,6 +9,8 @@ let package = Package(
         // Se instala como `prbar` (Contents/Helpers/prbar): un producto `prbar` chocaría con `PRBar` en .build/
         // porque APFS no distingue mayúsculas.
         .executable(name: "PRBarCLI", targets: ["PRBarCLI"]),
+        // La app de iOS (Plan 19) consume este producto como paquete local.
+        .library(name: "PRBarRemoteKit", targets: ["PRBarRemoteKit"]),
     ],
     dependencies: [
         // Primera y única dependencia externa (spec C.3). Versión exacta: subirla es un cambio explícito.
@@ -17,13 +19,15 @@ let package = Package(
     targets: [
         // Los tipos `Codable` del protocolo de comandos: solo Foundation, compilan también para iOS.
         .target(name: "PRBarWire"),
+        // Cifrado, framing, protocolo del relay y las máquinas de estado remotas (spec P): también para iOS.
+        .target(name: "PRBarRemoteKit", dependencies: ["PRBarWire"]),
         .target(name: "PRBarCore", dependencies: ["PRBarWire"]),
-        .executableTarget(name: "PRBar", dependencies: ["PRBarCore"]),
+        .executableTarget(name: "PRBar", dependencies: ["PRBarCore", "PRBarRemoteKit"]),
         .target(name: "PRBarCLIKit", dependencies: [
             "PRBarCore",
             .product(name: "ArgumentParser", package: "swift-argument-parser"),
         ]),
         .executableTarget(name: "PRBarCLI", dependencies: ["PRBarCLIKit"]),
-        .executableTarget(name: "PRBarTests", dependencies: ["PRBarCore", "PRBarCLIKit"]),
+        .executableTarget(name: "PRBarTests", dependencies: ["PRBarCore", "PRBarCLIKit", "PRBarRemoteKit"]),
     ]
 )

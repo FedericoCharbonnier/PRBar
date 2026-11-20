@@ -140,6 +140,7 @@ let allTests: [TestCase] = []
     + RemoteFlowTests.cases
     + RunnerCoordinatorTests.cases
     + RunnerDispatchTests.cases
+    + WireTests.cases
 
 let filter = CommandLine.arguments.dropFirst().first
 let selected = allTests.filter { test in
