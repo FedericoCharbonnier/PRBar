@@ -39,7 +39,7 @@ private final class RecordingLocalRunner: FileIOProcessRunning, ProcessRunning, 
     }
 }
 
-private func remoteFix(localRunner: FileIOProcessRunning & ProcessRunning = SystemProcessRunner(),
+private func remoteFix(localRunner: FileIOProcessRunning & ProcessRunning = SystemProcessRunner(), maxBundleBytes: Int = 1 << 20,
                        beforeRemote: (TempGitRepo) throws -> Void = { _ in }) async throws
     -> (TempGitRepo, FakeSSH, RemoteWorkspaces, ResolvedWorktree, String, RemoteFixImport) {
     let repo = try TempGitRepo.make()
@@ -54,7 +54,7 @@ private func remoteFix(localRunner: FileIOProcessRunning & ProcessRunning = Syst
     try TempGitRepo.run(wt, ["commit", "-q", "-am", "Fix the thing"])
     let importer = RemoteFixImport(spaces: spaces, localGit: TempGitRepo.git, localRunner: localRunner,
                                    gitEnvironment: localGitEnvironment, tempRoot: repo.base.appendingPathComponent("push"),
-                                   originURL: { _ in repo.origin.path }, originMatches: { _, _ in true })
+                                   originURL: { _ in repo.origin.path }, originMatches: { _, _ in true }, maxBundleBytes: maxBundleBytes)
     return (repo, ssh, spaces, worktree, start, importer)
 }
 
@@ -167,6 +167,34 @@ enum RemoteFixImportTests {
             let path = file.path
             file.remove()
             try expect(!FileManager.default.fileExists(atPath: path) && !FileManager.default.fileExists(atPath: (path as NSString).deletingLastPathComponent))
+        },
+        TestCase("remote fixes: un bundle más grande que el tope no se baja") {
+            let (repo, ssh, _, worktree, start, importer) = try await remoteFix(maxBundleBytes: 64)
+            defer { repo.remove(); ssh.remove() }
+            let error = try await expectThrows {
+                _ = try await importer.importFixes(draft: draft(worktree, start: start), localPath: repo.local.path, items: [], integrity: "x")
+            }
+            try expect(error.localizedDescription.contains("too big"), error.localizedDescription)
+            try expect(!ssh.invocations().contains { $0.last?.contains("cat -- ") == true }, "se bajó igual")
+            try expectEqual(try TempGitRepo.run(repo.local, ["for-each-ref", "refs/prbar/"]), "")
+        },
+        TestCase("remote fixes: objetos corruptos del host no entran al clone del usuario (fsck)") {
+            let (repo, ssh, _, worktree, start, importer) = try await remoteFix()
+            defer { repo.remove(); ssh.remove() }
+            // Un commit con fecha inválida (fsck: badDate), hijo del inicio, como HEAD del worktree remoto.
+            let wt = URL(fileURLWithPath: worktree.path)
+            let tree = try TempGitRepo.run(wt, ["rev-parse", "HEAD^{tree}"]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let raw = "tree \(tree)\nparent \(start)\nauthor Evil <e@x> notadate\ncommitter Evil <e@x> 1 +0000\n\nbad\n"
+            let input = repo.base.appendingPathComponent("bad-commit.txt")
+            try Data(raw.utf8).write(to: input)
+            let bad = try TempGitRepo.run(wt, ["hash-object", "-t", "commit", "-w", "--literally", input.path])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            try TempGitRepo.run(wt, ["update-ref", "HEAD", bad])
+            _ = try await expectThrows {
+                _ = try await importer.importFixes(draft: draft(worktree, start: start), localPath: repo.local.path, items: [], integrity: "x")
+            }
+            try expect((try? TempGitRepo.run(repo.local, ["cat-file", "-e", bad])) == nil, "el objeto corrupto entró al clone")
+            try expectEqual(try TempGitRepo.run(repo.local, ["for-each-ref", "refs/prbar/"]), "")
         },
         TestCase("remote fixes: si el host cambió el commit después de mostrarlo, no se pushea nada") {
             let (repo, ssh, _, worktree, start, importer) = try await remoteFix()

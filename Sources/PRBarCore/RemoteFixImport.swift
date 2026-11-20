@@ -11,12 +11,15 @@ public struct RemoteFixImport: Sendable {
     let tempRoot: URL
     let originURL: @Sendable (RepoRef) -> String
     let originMatches: @Sendable (String, RepoRef) -> Bool
+    /// Tope del bundle de un fix (lo que se baja del host).
+    let maxBundleBytes: Int
 
     public init(spaces: RemoteWorkspaces, localGit: String, localRunner: FileIOProcessRunning & ProcessRunning = SystemProcessRunner(),
                 gitEnvironment: [String: String] = [:],
                 tempRoot: URL = FileManager.default.temporaryDirectory.appendingPathComponent("PRBar/push", isDirectory: true),
                 originURL: @escaping @Sendable (RepoRef) -> String = { "https://github.com/\($0.fullName).git" },
-                originMatches: @escaping @Sendable (String, RepoRef) -> Bool = { WorktreeResolver.originMatches($0, repo: $1) }) {
+                originMatches: @escaping @Sendable (String, RepoRef) -> Bool = { WorktreeResolver.originMatches($0, repo: $1) },
+                maxBundleBytes: Int = 200 * 1024 * 1024) {
         self.spaces = spaces
         self.localGit = localGit
         self.localRunner = localRunner
@@ -24,6 +27,7 @@ public struct RemoteFixImport: Sendable {
         self.tempRoot = tempRoot
         self.originURL = originURL
         self.originMatches = originMatches
+        self.maxBundleBytes = maxBundleBytes
     }
 
     static func ref(_ draft: RespondDraft) -> String { "refs/prbar/remote-\(draft.number)-\(draft.id.uuidString.lowercased().prefix(8))" }
@@ -121,8 +125,22 @@ public struct RemoteFixImport: Sendable {
             try await spaces.git(worktree, ["bundle", "create", remoteBundle, "HEAD", "^\(draft.startHeadOid)"])
             let bundle = try LocalScratch.newFile()
             defer { try? FileManager.default.removeItem(at: bundle) }
-            try await spaces.host.download(remoteBundle, to: bundle, root: spaces.root)
+            do {
+                // El tamaño antes de bajarlo (y de nuevo después: el host puede mentir).
+                let quoted = try ShellQuote.posix(remoteBundle)
+                let sized = try spaces.host.checked(try await spaces.host.runScript("[ -f \(quoted) ] && wc -c < \(quoted)", timeout: 30), "wc")
+                guard let size = Int(sized.stdout.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+                    throw RemoteRunnerError.malformedOutput(host: spaces.host.name, what: "file size")
+                }
+                guard size <= maxBundleBytes else { throw tooBig(size) }
+                try await spaces.host.download(remoteBundle, to: bundle, root: spaces.root)
+            } catch {
+                await spaces.host.removeFiles([remoteBundle], root: spaces.root)
+                throw error
+            }
             await spaces.host.removeFiles([remoteBundle], root: spaces.root)
+            let downloaded = (try? FileManager.default.attributesOfItem(atPath: bundle.path)[.size] as? Int) ?? Int.max
+            guard downloaded <= maxBundleBytes else { throw tooBig(downloaded) }
 
             try await local(repository, ["bundle", "verify", "-q", bundle.path])
             let heads = try await local(repository, ["bundle", "list-heads", bundle.path])
@@ -130,13 +148,23 @@ public struct RemoteFixImport: Sendable {
             guard heads.count == 1, heads[0].first == remoteHead else {
                 throw RemoteRunnerError.importMismatch("the bundle’s commit isn’t the server’s HEAD.")
             }
-            try await local(repository, ["bundle", "unbundle", bundle.path])
-            try await local(repository, ["update-ref", Self.ref(draft), remoteHead])
+            // `fetch` del bundle (y no `bundle unbundle`) para que git revise cada objeto (fsck) antes de guardarlo
+            // en el clone; uno corrupto o malicioso corta sin dejar nada.
+            try await local(repository, ["fetch", "--no-tags", "--no-write-fetch-head", "--no-recurse-submodules", bundle.path,
+                                         "\(remoteHead):\(Self.ref(draft))"],
+                            config: ["-c", "transfer.fsckObjects=true", "-c", "fetch.fsckObjects=true"])
+            let fetched = try await local(repository, ["rev-parse", "--verify", "\(Self.ref(draft))^{commit}"])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard fetched == remoteHead else { throw RemoteRunnerError.importMismatch("the bundle’s commit isn’t the server’s HEAD.") }
             return try await summary(draft: draft, repository: repository, temporary: temporary, head: remoteHead, items: items, integrity: integrity)
         } catch {
             if temporary { try? FileManager.default.removeItem(atPath: repository) }
             throw error
         }
+    }
+
+    private func tooBig(_ bytes: Int) -> Error {
+        RemoteRunnerError.importMismatch("the fixes are too big to bring back (\(bytes / 1_048_576) MB, the limit is \(maxBundleBytes / 1_048_576) MB).")
     }
 
     private func localRepository(draft: RespondDraft, localPath: String?) async throws -> (String, Bool) {
