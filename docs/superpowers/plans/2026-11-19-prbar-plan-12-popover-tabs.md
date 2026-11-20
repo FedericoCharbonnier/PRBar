@@ -4,7 +4,7 @@
 
 **Goal:** El popover muestra, debajo de la cabecera, un control segmentado nativo con dos pestañas — **To Review N** y **My PRs N** — que reparte las secciones de hoy (más "Other" y una sección nueva "Waiting for Review", las dos colapsadas), recuerda la pestaña elegida, cambia con ⌘1/⌘2, la elige sola cuando se hace clic en una notificación de un PR, y tiene su equivalente en la CLI (`prbar prs --tab`, totales por pestaña en `prbar status`, `prbar app popover --tab`).
 
-**Spec:** `docs/superpowers/specs/2026-11-19-prbar-chat-cli-updates-design.md`, parte **H** (H.1–H.3). Mientras otro agente la integra al spec, el texto está en el scratchpad (`spec-part-H.md`, sección H); la Task 8 agrega **H.4 Decisiones de implementación (Plan 12)** al spec principal. Se apoya en:
+**Spec:** `docs/superpowers/specs/2026-11-19-prbar-chat-cli-updates-design.md`, parte **H** (H.1–H.3, ya integrada al spec en `01b21d9`). La Task 8 agrega **H.4 Decisiones de implementación (Plan 12)** al spec principal. Se apoya en:
 - §7 del spec base (`ActionClassifier`, `PRCategory`): este plan **no** cambia la clasificación; solo agrupa categorías.
 - C (CLI): `AppCommand`, `CommandProtocol.version`, `CLIRouter`, `UIActionInventory` y los tests de paridad (C.7).
 - F.8 (Plan 10): `PRCategory.readyToMerge`, `countsForBadge`.

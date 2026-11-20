@@ -4,7 +4,7 @@
 
 **Goal:** Una línea fija al pie del popover muestra la CPU, la RAM (de la app y todos sus procesos hijos) y el disco que ocupa PRBar; un clic abre la ventana **PRBar Activity** con cada proceso vivo y su tarea (con Stop por tarea) y el disco por categoría y por repo, con **Clean Up** seguro. Hay un aviso opcional cuando el disco pasa un umbral, y la CLI tiene `prbar resources` y `prbar cleanup`.
 
-**Spec:** `docs/superpowers/specs/2026-11-19-prbar-chat-cli-updates-design.md`, parte **I** (mientras otro agente la integra, el texto está en el scratchpad, `spec-part-H.md`, sección I). La Task 12 agrega **I.1 Decisiones de implementación (Plan 13)**. Se apoya en:
+**Spec:** `docs/superpowers/specs/2026-11-19-prbar-chat-cli-updates-design.md`, parte **I** (ya integrada al spec en `01b21d9`; no tiene subsecciones). La Task 12 agrega **I.1 Decisiones de implementación (Plan 13)**. Se apoya en:
 - Spec base §8.2 (raíz de worktrees `$TMPDIR/PRBar/worktrees`, nombres con id de corrida), **§8.5** (limpieza segura: `git worktree remove --force` del worktree propio, nunca `git worktree prune`), §14.2 (worktrees de Responder en `worktreeDir`, refs `refs/prbar/respond-*`).
 - B.11 (Plan 6): los chats usan `JobScheduler` compartido y worktrees `chat-<repo>-<N>-<sesión>`.
 - D (actualizaciones): clon `source/`, `update-staging/`, cancelación con `UpdateController.cancelInstall()`.
