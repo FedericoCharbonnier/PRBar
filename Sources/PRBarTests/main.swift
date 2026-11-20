@@ -115,6 +115,7 @@ let allTests: [TestCase] = []
     + SSHCommandTests.cases
     + FileIOProcessTests.cases
     + RemoteExecTests.cases
+    + SSHHostTests.cases
 
 let filter = CommandLine.arguments.dropFirst().first
 let selected = allTests.filter { test in

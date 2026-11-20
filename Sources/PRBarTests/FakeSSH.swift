@@ -1,0 +1,98 @@
+import Foundation
+import PRBarCore
+
+/// Un `ssh` de mentira para los tests: nunca conecta a nada. Anota cada invocación (argumentos separados por 0x1F,
+/// invocaciones por 0x1E: los scripts remotos tienen saltos de línea) en `log`; con `-G` imprime una config; con
+/// `-O` no hace nada; si no, corre el comando remoto con `/bin/sh -c` en `home`, con un entorno mínimo (`env -i`) y en una sesión nueva (`setsid` desde Perl), y devuelve su exit code.
+/// `FAKE_SSH_UNREACHABLE=1` simula un host caído (exit 255).
+struct FakeSSH {
+    let base: URL
+    var executable: URL { base.appendingPathComponent("bin/ssh") }
+    var home: URL { base.appendingPathComponent("remote-home") }
+    var log: URL { base.appendingPathComponent("ssh.log") }
+    var controlDirectory: String { base.appendingPathComponent("sock").path }
+
+    static let script = #"""
+    #!/bin/sh
+    { for a in "$@"; do printf '%s\037' "$a"; done; printf '\036'; } >> "$FAKE_SSH_LOG"
+    mode=run; cmd=""; host=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        -o|-p|-l|-F) shift 2 ;;
+        -O) mode=ctl; shift 2 ;;
+        -G) mode=config; shift ;;
+        -T) shift ;;
+        --) shift; host="$1"; shift; cmd="$*"; break ;;
+        *) host="$1"; shift; cmd="$*"; break ;;
+      esac
+    done
+    if [ -n "$FAKE_SSH_UNREACHABLE" ]; then echo "ssh: connect to host $host port 22: Connection refused" >&2; exit 255; fi
+    case "$mode" in
+      config) printf 'hostname %s\nstricthostkeychecking %s\n' "$host" "${FAKE_SSH_STRICT:-ask}"; exit 0 ;;
+      ctl) exit 0 ;;
+    esac
+    cd "$FAKE_SSH_HOME" || exit 255
+    exec /usr/bin/perl -e 'use POSIX (); my $pid = fork(); die "fork" unless defined $pid;
+      if ($pid == 0) { POSIX::setsid(); exec @ARGV or exit 127 } waitpid($pid, 0); exit($? >> 8)' -- \
+      /usr/bin/env -i HOME="$FAKE_SSH_HOME" USER=tester LOGNAME=tester LANG=en_US.UTF-8 PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+      SSH_AUTH_SOCK=/remote/agent.sock /bin/sh -c "$cmd"
+    """#
+
+    static func make() throws -> FakeSSH {
+        let base = try temporaryDirectory().resolvingSymlinksInPath()
+        let fake = FakeSSH(base: base)
+        try FileManager.default.createDirectory(at: fake.executable.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: fake.home.appendingPathComponent("bin"), withIntermediateDirectories: true)
+        try Data(script.utf8).write(to: fake.executable)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fake.executable.path)
+        // Un `sh -l` del "host" encuentra `~/bin` (como un `claude` instalado con npm o el instalador).
+        try Data("PATH=\"$HOME/bin:$PATH\"; export PATH\n".utf8).write(to: fake.home.appendingPathComponent(".profile"))
+        return fake
+    }
+
+    func remove() { try? FileManager.default.removeItem(at: base) }
+
+    /// Entorno del `ssh` local (no global: cada test tiene el suyo).
+    func environment(unreachable: Bool = false, strict: String = "ask") -> [String: String] {
+        var env = ["FAKE_SSH_LOG": log.path, "FAKE_SSH_HOME": home.path, "FAKE_SSH_STRICT": strict]
+        if unreachable { env["FAKE_SSH_UNREACHABLE"] = "1" }
+        return env
+    }
+
+    /// Un programa en `~/bin` del "host".
+    func installTool(_ name: String, _ script: String) throws {
+        let url = home.appendingPathComponent("bin/\(name)")
+        try Data(script.utf8).write(to: url)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    }
+
+    /// Un `claude` de mentira: `--version` imprime una versión; con `-p`, guarda el prompt (stdin), los argumentos y el
+    /// cwd en `~/claude-calls/<n>/`, corre `~/claude-edit-<n>.sh` (si existe) en el cwd e imprime `~/claude-stream-<n>.jsonl`.
+    func installFakeClaude(version: String = "2.1.400 (Claude Code)") throws {
+        try installTool("claude", """
+        #!/bin/sh
+        if [ "$1" = "--version" ]; then echo '\(version)'; exit 0; fi
+        n=$(cat "$HOME/claude-count" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$HOME/claude-count"
+        d="$HOME/claude-calls/$n"; mkdir -p "$d"
+        cat > "$d/prompt.txt"; pwd > "$d/cwd.txt"
+        for a in "$@"; do printf '%s\\0' "$a"; done > "$d/args.bin"
+        env > "$d/env.txt"
+        [ -f "$HOME/claude-edit-$n.sh" ] && /bin/sh "$HOME/claude-edit-$n.sh"
+        if [ -f "$HOME/claude-stream-$n.jsonl" ]; then cat "$HOME/claude-stream-$n.jsonl"; else cat "$HOME/claude-stream.jsonl" 2>/dev/null; fi
+        """)
+    }
+
+    /// Cada invocación del `ssh` local, con sus argumentos.
+    func invocations() -> [[String]] {
+        guard let text = try? String(contentsOf: log, encoding: .utf8) else { return [] }
+        return text.split(separator: "\u{1E}").map { line in line.split(separator: "\u{1F}", omittingEmptySubsequences: false).map(String.init).dropLast().map { $0 } }
+    }
+
+    func host(name: String = "devbox", remoteDir: String = "~/.prbar", unreachable: Bool = false,
+              killGracePeriod: TimeInterval = 1) throws -> SSHHost {
+        _ = try ControlSocketDirectory.ensure(controlDirectory)
+        return SSHHost(destination: RunnerDestination(name: name, endpoint: SSHEndpoint(host: name), remoteDir: remoteDir),
+                       sshPath: executable.path, controlDirectory: controlDirectory, enforceHostKey: true,
+                       sshEnvironment: environment(unreachable: unreachable), killGracePeriod: killGracePeriod)
+    }
+}
