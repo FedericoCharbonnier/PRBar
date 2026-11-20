@@ -202,5 +202,29 @@ enum DiskCleanupSafetyTests {
             ]))
             try expectEqual(later.removed, [staging.path])
         },
+        TestCase("cleanup: el ejecutor de archivos viejos rechaza lo de fuera de las raíces, symlinks y prbar.log") {
+            let base = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: base) }
+            let history = base.appendingPathComponent("history")
+            let logs = base.appendingPathComponent("Logs")
+            let outside = base.appendingPathComponent("elsewhere/precious.txt")
+            let old = history.appendingPathComponent("review/old.json")
+            let link = history.appendingPathComponent("review/link.json")
+            let log = logs.appendingPathComponent("prbar.log")
+            let sneaky = history.appendingPathComponent("../elsewhere/precious.txt")
+            for url in [outside, old, log] {
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try Data("x".utf8).write(to: url)
+            }
+            try FileManager.default.createSymbolicLink(at: link, withDestinationURL: outside)
+            let executor = DiskCleanupExecutor(runner: SystemProcessRunner(), gitPath: "/usr/bin/git", worktreeRoots: [], repos: [],
+                                               registry: WorkspaceRegistry(), updaterDirectories: [], oldFileRoots: [history, logs])
+            let result = await executor.run(CleanupPlan(candidates: [outside, link, log, sneaky, old].map {
+                CleanupCandidate(path: $0.path, bytes: 1, kind: .oldFile, clone: nil, title: $0.lastPathComponent)
+            }))
+            try expectEqual(result.removed, [old.path])
+            try expectEqual(result.skipped.count, 4)
+            try expect(exists(outside) && exists(link) && exists(log))
+        },
     ]
 }
