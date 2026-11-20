@@ -13,13 +13,6 @@ private func options(
     MergeOptions(availability: availability, methods: methods, defaultMethod: method)
 }
 
-private func request(
-    _ pr: ClassifiedPR = item(), method: MergeMethod? = nil, options opts: MergeOptions = options(),
-    blocked: String? = nil, phase: MergePhase? = nil
-) -> MergeFlow.RequestRoute {
-    MergeFlow.request(pr, method: method, options: opts, blockedReason: blocked, phase: phase)
-}
-
 private func check(
     _ pr: ClassifiedPR = item(), method: MergeMethod? = nil, options opts: MergeOptions = options(), blocked: String? = nil,
     phase: MergePhase? = nil, expected: String? = nil
@@ -67,23 +60,11 @@ enum MergeFlowTests {
             try expectEqual(preview.deletesBranch, true)
             try expectEqual(preview.previousError, MergeError.headChanged.localizedDescription)
         },
-        TestCase("merge flow: siempre confirma, con el método por defecto o el elegido") {
-            try expectEqual(request(), .confirm(.squash))
-            try expectEqual(request(method: .merge), .confirm(.merge))
-        },
-        TestCase("merge flow: un merge en curso o hecho no se pide de nuevo; un error previo no impide") {
-            try expectEqual(request(phase: .merging(.squash)), .ignore)
-            try expectEqual(request(phase: .merged(.squash)), .ignore)
-            try expectEqual(request(phase: .failed(method: .squash, error: .headChanged)), .confirm(.squash))
-        },
-        TestCase("merge flow: lo que no se puede mergear es un error visible, no un silencio") {
-            try expectEqual(request(blocked: "Installing an update"), .fail(.squash, .blocked("Installing an update")))
-            try expectEqual(request(options: options(.disabled(reason: "Branch is behind main"))),
-                            .fail(.squash, .unavailable("Branch is behind main")))
-            try expectEqual(request(method: .rebase), .fail(.rebase, .unavailable("This repo doesn’t allow Rebase and Merge")))
-            try expectEqual(request(item(category: .myFeedback)), .fail(.squash, .unavailable("This PR isn’t ready to merge")))
-            try expectEqual(request(options: options(methods: [], default: nil)),
-                            .fail(nil, .unavailable("This repo doesn’t allow any merge method")))
+        TestCase("merge flow: \"Merge…\" abre la ventana salvo con el PR ya mergeado (spec G.1)") {
+            try expectEqual(MergeFlow.request(phase: nil), .open)
+            try expectEqual(MergeFlow.request(phase: .merging(.squash)), .open)
+            try expectEqual(MergeFlow.request(phase: .failed(method: .squash, error: .headChanged)), .open)
+            try expectEqual(MergeFlow.request(phase: .merged(.squash)), .ignore)
         },
         TestCase("merge flow: MergePolicy.problem (la CLI y AppModel.merge)") {
             try expectEqual(MergePolicy.problem(item(), method: .squash, options: options()), nil)
@@ -114,26 +95,6 @@ enum MergeFlowTests {
         TestCase("merge flow: Retry sin el PR en la lista → hay que mirar si se mergeó") {
             let failure = MergeFailure(item: item(), method: .squash, error: .github(.network("offline")))
             try expectEqual(MergeFlow.retry(failure, current: nil), .missing)
-        },
-        TestCase("merge flow: se cierran los diálogos de PRs que ya no están listos") {
-            let snapshot = Snapshot(items: [
-                item(),
-                ClassifiedPR(pr: makePR(number: 8, author: "me"), category: .myFeedback, account: "me"),
-            ], fetchedAt: t0)
-            try expectEqual(MergeFlow.confirmationsToClose(open: ["o/r#7", "o/r#8", "o/r#9"], snapshot: snapshot), ["o/r#8", "o/r#9"])
-            try expectEqual(MergeFlow.confirmationsToClose(open: [], snapshot: snapshot), [])
-        },
-        TestCase("merge flow: el contenido del diálogo cambia si cambia algo de lo que muestra") {
-            let base = MergeFlow.confirmationContentID(item(), method: .squash, options: options(), deletesBranch: false)
-            try expectEqual(base, MergeFlow.confirmationContentID(item(), method: .squash, options: options(), deletesBranch: false))
-            let variants = [
-                MergeFlow.confirmationContentID(item(head: "x"), method: .squash, options: options(), deletesBranch: false),
-                MergeFlow.confirmationContentID(item(), method: .merge, options: options(), deletesBranch: false),
-                MergeFlow.confirmationContentID(item(), method: .squash, options: options(), deletesBranch: true),
-                MergeFlow.confirmationContentID(item(), method: .squash, options: options(.enabled(note: "n")), deletesBranch: false),
-                MergeFlow.confirmationContentID(item(), method: .squash, options: options(methods: [.squash]), deletesBranch: false),
-            ]
-            for variant in variants { try expect(variant != base, "\(variant) == \(base)") }
         },
     ]
 }

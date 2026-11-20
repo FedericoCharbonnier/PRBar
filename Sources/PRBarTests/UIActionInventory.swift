@@ -60,8 +60,8 @@ enum UIActionInventory {
         .init("Popover/PopoverView.swift", "Button", "Settings…", 2, .cli(["app settings"])),
         .init("Popover/PopoverView.swift", "Button", "Quit PRBar", 2, .cli(["app quit"])),
         .init("Popover/PopoverView.swift", "IconButton", "-", 1, .cli(["refresh"])),
-        .init("Popover/PRRowView.swift", "Button", "-", 2, .cli(["open", "merge"])),   // la fila y los métodos de "Merge With…"
-        .init("Popover/PRRowView.swift", "Button", "Merge", 1, .cli(["merge"])),
+        .init("Popover/PRRowView.swift", "Button", "-", 1, .cli(["open"])),   // la fila
+        .init("Popover/PRRowView.swift", "Button", "Merge…", 1, .cli(["open", "merge"])),   // abre la ventana de Merge (open --merge)
         .init("Popover/PRRowView.swift", "Button", "Open on GitHub", 1, .cli(["open"])),
         .init("Popover/PRRowView.swift", "Button", "Copy Link", 1, .cli(["open"])),
         .init("Popover/PRRowView.swift", "Button", "Review with Claude", 2, .cli(["review start"])),
@@ -70,14 +70,23 @@ enum UIActionInventory {
         .init("Popover/PRRowView.swift", "Button", "Cancel", 1, .cli(["respond cancel"])),
         .init("Popover/PRRowView.swift", "Button", "Respond with Claude", 1, .cli(["respond start"])),
         .init("Popover/PRRowView.swift", "Button", "View Response", 1, .cli(["open", "respond show"])),
-        // Ready to Merge (plan 10)
-        .init("Popover/MergeButton.swift", "Button", "Merge", 1, .cli(["merge"])),
-        .init("Popover/MergeButton.swift", "Button", "-", 2, .cli(["merge"])),   // chevron (Merge With…) y la pastilla de error
-        .init("Popover/MergeButton.swift", "ClosureMenuItem", "-", 1, .cli(["merge"])),   // un método del chevron (--method)
-        .init("Popover/MergeButton.swift", "ClosureMenuItem", "Retry", 1, .cli(["merge"])),
-        .init("Popover/MergeConfirmView.swift", "Button", "-", 1, .cli(["merge"])),   // "Squash and Merge"… (--yes)
-        .init("Popover/MergeConfirmView.swift", "Button", "Cancel", 1, .viewOnly("cancels the confirmation")),
-        .init("Popover/MergeConfirmView.swift", "Picker", "Method", 1, .cli(["merge"])),   // --method
+        // Ready to Merge (plan 10) y la ventana de Merge (plan 11)
+        .init("Popover/MergeButton.swift", "Button", "Merge…", 1, .cli(["open", "merge"])),   // la ventana (open --merge)
+        .init("Popover/MergeButton.swift", "Button", "-", 1, .cli(["merge"])),   // la pastilla de error
+        .init("Popover/MergeButton.swift", "ClosureMenuItem", "Merge…", 1, .cli(["open", "merge"])),
+        // Refresh (⌘R: el resumen de nuevo), Chat y "Squash and Merge"… (--yes)
+        .init("Merge/MergeWindow.swift", "Button", "-", 3, .cli(["merge", "refresh", "chat"])),
+        .init("Merge/MergeWindow.swift", "Picker", "Method", 1, .cli(["merge"])),   // --method
+        .init("Merge/MergeWindow.swift", "Button", "Retry", 1, .cli(["merge"])),
+        .init("Merge/MergeWindow.swift", "Button", "Dismiss", 1, .cli(["merge"])),   // --dismiss
+        .init("Merge/MergeWindow.swift", "Button", "Reload", 1, .cli(["merge"])),   // --preview shows the new head
+        .init("Merge/MergeWindow.swift", "Button", "Try Again", 1, .cli(["merge"])),   // --preview
+        .init("Merge/MergeWindow.swift", "Button", "Show Less", 1, .viewOnly("expands the description; `prbar merge --preview` prints it")),
+        .init("Merge/MergeWindow.swift", "Link", "-", 1, .viewOnly("a check’s page on the CI; `prbar merge --preview --json` has its URL")),
+        .init("Merge/MergeWindow.swift", "ExternalLink", "View on GitHub", 1, .cli(["open"])),
+        .init("Merge/MergeWindow.swift", "ExternalLink", #"and \(detail.moreChecks) more on GitHub"#, 1, .cli(["open"])),
+        .init("Merge/MergeWindow.swift", "ExternalLink", #"and \(detail.moreFiles) more on GitHub"#, 1, .cli(["open"])),
+        .init("Merge/MergeWindow.swift", "Component:StaleHeadBanner", "-", 1, .cli(["merge"])),   // Reload
         // Actualizaciones (plan 8)
         .init("Popover/UpdateRow.swift", "Button", "-", 1, .cli(["update"])),   // "PRBar x is available — Update…"
         .init("Settings/UpdatesSection.swift", "Toggle", "Check automatically", 1, .cli(["config set"])),   // update-interval 0
@@ -287,7 +296,6 @@ enum UIActionInventory {
         .init("WindowPresenter.swift", "NSAlertButton", "Keep Previous", 1, .viewOnly("keeps the window’s unsaved contents")),
         .init("WindowPresenter.swift", "NSAlertButton", "Close", 1, .viewOnly("closes a window with unsaved edits")),
         .init("WindowPresenter.swift", "NSAlertButton", "Cancel", 1, .viewOnly("keeps the window open")),
-        .init("AppModel+Merge.swift", "Component:MergeConfirmView", "-", 1, .cli(["merge"])),
         .init("AppModel+Updates.swift", "Component:UpdateWindow", "-", 1, .cli(["update"])),
         .init("AppModel.swift", "Component:ReviewWindow", "-", 1, .viewOnly("window plumbing (unsaved state, close)")),
         .init("AppModel.swift", "Component:RespondWindow", "-", 1, .viewOnly("window plumbing (unsaved state, close)")),

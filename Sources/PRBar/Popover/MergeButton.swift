@@ -2,24 +2,20 @@ import AppKit
 import PRBarCore
 import SwiftUI
 
-/// Lo que puede hacer el botón Merge; lo arma `PRRowView` a partir de `AppModel`.
+/// Lo que puede hacer el botón "Merge…"; lo arma `PRRowView` a partir de `AppModel`.
 struct MergeButtonActions {
-    /// `nil` = el método por defecto.
-    var merge: (MergeMethod?) -> Void
-    var retry: () -> Void
+    /// Abre la ventana de Merge (spec G.1).
+    var open: () -> Void
     var dismiss: () -> Void
 }
 
-/// Botón Merge de una fila de Ready to Merge (spec F.3): "Merge" con el método por defecto y un chevron con los
-/// métodos permitidos. Mientras mergea, "Merging…"; después, "Merged" hasta que el refresco saca la fila; con error,
-/// una pastilla roja con el texto de GitHub, Retry y Dismiss. Mismo estilo que `ReviewButton`.
+/// Botón de una fila de Ready to Merge (spec G.1): "Merge…" abre la ventana de Merge, que muestra el PR y ofrece el
+/// método y el merge. Mientras mergea, "Merging…"; después, "Merged" hasta que el refresco saca la fila; con error,
+/// una pastilla roja con el texto de GitHub, "Merge…" (la ventana, con Retry) y Dismiss. Mismo estilo que
+/// `ReviewButton`.
 struct MergeButton: View {
     let phase: MergePhase?
-    let options: MergeOptions
-    /// Rama base, para el tooltip ("Squash and Merge into main").
-    let baseRef: String
-    /// Mientras se instala una actualización no empieza ningún merge (`AppModel.jobsBlockedReason`).
-    var unavailableReason: String? = nil
+    let availability: MergeAvailability
     let actions: MergeButtonActions
 
     var body: some View {
@@ -30,19 +26,11 @@ struct MergeButton: View {
     private var content: some View {
         switch phase {
         case nil:
-            HStack(spacing: 2) {
-                Button("Merge") { actions.merge(nil) }
-                    .help(help)
-                    .accessibilityHint(help)
-                Button(action: showMethodMenu) {
-                    Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
-                }
-                .help("Merge with another method")
-                .accessibilityLabel("Merge With…")
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .disabled(!options.availability.isEnabled || unavailableReason != nil)
+            Button("Merge…", action: actions.open)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .help(help)
+                .accessibilityHint(help)
         case .merging?:
             PhasePill(fg: Theme.violet, bg: Theme.tint(Theme.violet)) {
                 ProgressView().controlSize(.mini).frame(width: 10, height: 10)
@@ -61,7 +49,7 @@ struct MergeButton: View {
             let message = error.localizedDescription
             Button {
                 FailureMenu.show(message: message, logURL: AppPaths.logFile, items: [
-                    ClosureMenuItem(title: "Retry", action: actions.retry),
+                    ClosureMenuItem(title: "Merge…", action: actions.open),
                 ], dismiss: actions.dismiss)
             } label: {
                 PhasePill(fg: Theme.redText, bg: Theme.tint(Theme.red), leading: 6) {
@@ -75,25 +63,11 @@ struct MergeButton: View {
         }
     }
 
-    /// El motivo si está deshabilitado (una actualización instalándose primero); si no, "Squash and Merge into main" (y la nota de `UNSTABLE`).
+    /// Por qué todavía no se puede (la ventana lo explica), o qué hace el botón.
     private var help: String {
-        if let unavailableReason { return unavailableReason }
-        if let reason = options.availability.reason { return reason }
-        let text = "\(options.defaultMethod?.actionTitle ?? "Merge") into \(baseRef)"
-        return options.availability.note.map { "\(text) · \($0)" } ?? text
-    }
-
-    /// Los métodos permitidos, con ✓ en el de por defecto. Un `NSMenu` (como `FailureMenu`) para que el botón
-    /// conserve su estilo.
-    private func showMethodMenu() {
-        let menu = NSMenu()
-        menu.autoenablesItems = false
-        for method in options.methods {
-            let item = ClosureMenuItem(title: method.actionTitle) { actions.merge(method) }
-            item.state = method == options.defaultMethod ? .on : .off
-            menu.addItem(item)
-        }
-        menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+        if let reason = availability.reason { return "\(reason) · Opens the PR’s summary" }
+        if let note = availability.note { return "Review the PR and merge it · \(note)" }
+        return "Review the PR and merge it"
     }
 }
 

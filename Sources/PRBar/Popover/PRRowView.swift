@@ -121,10 +121,7 @@ struct PRRowView: View {
         case .toReview, .updatedSinceMyReview:
             ReviewButton(phase: reviews.phases[item.id], unavailableReason: model.jobsBlockedReason, actions: reviewActions)
         case .readyToMerge:
-            MergeButton(
-                phase: merges.phases[item.id], options: model.mergeOptions(item), baseRef: pr.baseRef,
-                unavailableReason: model.jobsBlockedReason, actions: mergeActions
-            )
+            MergeButton(phase: merges.phases[item.id], availability: model.mergeOptions(item).availability, actions: mergeActions)
         default:
             EmptyView()
         }
@@ -170,16 +167,9 @@ struct PRRowView: View {
         }
         if item.category == .readyToMerge {
             Divider()
-            let options = model.mergeOptions(item)
-            let canMerge = options.availability.isEnabled && merges.phases[item.id] == nil && model.jobsBlockedReason == nil
-            Button("Merge") { model.requestMerge(item) }
-                .disabled(!canMerge)
-            Menu("Merge With…") {
-                ForEach(options.methods) { method in
-                    Button(method.actionTitle) { model.requestMerge(item, method: method) }
-                }
-            }
-            .disabled(!canMerge)
+            // Spec G.1: el método se elige en la ventana (no hay "Merge With…").
+            Button("Merge…") { model.requestMerge(item) }
+                .disabled(MergeFlow.request(phase: merges.phases[item.id]) == .ignore)
         }
     }
 
@@ -243,8 +233,7 @@ struct PRRowView: View {
         let model = self.model
         let item = self.item
         return MergeButtonActions(
-            merge: { method in model.requestMerge(item, method: method) },
-            retry: { model.retryMerge(prID: item.id) },
+            open: { model.requestMerge(item) },
             dismiss: { model.dismissMergeError(prID: item.id) }
         )
     }

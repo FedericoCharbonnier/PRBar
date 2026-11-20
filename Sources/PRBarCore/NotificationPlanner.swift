@@ -23,6 +23,8 @@ public struct PlannedNotification: Equatable, Sendable {
     public let prID: String?
     /// Versión nueva de PRBar: el click abre la ventana "Update PRBar".
     public let updateVersion: String?
+    /// PR propio que quedó listo para mergear: el click abre su ventana de Merge (spec G.1).
+    public let mergePRID: String?
     /// Identificador estable: una notificación nueva del mismo evento y PR reemplaza a la anterior en vez de
     /// apilarse.
     public let identifier: String
@@ -30,7 +32,7 @@ public struct PlannedNotification: Equatable, Sendable {
     public init(
         kind: NotificationKind, title: String, body: String, url: URL?, reviewPRID: String? = nil,
         reviewRecordID: UUID? = nil, respondPRID: String? = nil, prID: String? = nil, event: String? = nil,
-        updateVersion: String? = nil
+        updateVersion: String? = nil, mergePRID: String? = nil
     ) {
         self.kind = kind
         self.title = title
@@ -41,6 +43,7 @@ public struct PlannedNotification: Equatable, Sendable {
         self.respondPRID = respondPRID
         self.prID = prID ?? reviewPRID ?? respondPRID
         self.updateVersion = updateVersion
+        self.mergePRID = mergePRID
         identifier = [kind.rawValue, event, self.prID ?? "group"].compactMap { $0 }.joined(separator: ":")
     }
 
@@ -84,7 +87,7 @@ public enum NotificationPlanner {
                 if settings.isOn(.readyToMerge), isNewlyReadyToMerge(item, old: old) {
                     planned.append(PlannedNotification(
                         kind: .readyToMerge, title: "\(pr.repo.fullName)#\(pr.number) is ready to merge", body: pr.title,
-                        url: pr.url, prID: item.id
+                        url: pr.url, prID: item.id, mergePRID: item.id
                     ))
                     notifiedReady = true
                 }

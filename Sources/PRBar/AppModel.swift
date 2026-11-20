@@ -45,6 +45,8 @@ struct AppModelServices {
     var instructionsChatBackend: (any InstructionsChatBackend)? = nil
     /// `nil`: `discard-stats.json` in Application Support.
     var discardStats: DiscardStatsStore? = nil
+    /// `nil`: `history/merge/` in Application Support (spec G.4).
+    var mergeHistory: MergeHistory? = nil
 
     static func live(runner: SystemProcessRunner) -> AppModelServices {
         let accounts = AccountProvider(runner: runner, ghPath: nil)
@@ -177,9 +179,10 @@ final class AppModel: ObservableObject {
     /// Descarta las fases de merge de los PRs que ya no están en cada snapshot nuevo (spec F.8.10), aunque el refresco
     /// de después del merge no haya podido correr.
     private var mergePruneObserver: AnyCancellable?
-    /// PRs con el diálogo de confirmación de merge abierto (pueden haberse cerrado a mano: se filtra con
-    /// `WindowPresenter.isOpen`).
-    var mergeConfirmations: Set<String> = []
+    /// Una sesión de merge por PR (ventana, chat y registro del historial; spec G, `AppModel+Merge`).
+    var mergeSessions: [String: MergeSession] = [:]
+    /// Los merges hechos desde PRBar y sus chats (spec G.4).
+    let mergeHistory: MergeHistory
 
     @Published private(set) var tools = ResolvedTools()
     @Published private(set) var toolsResolved = false
@@ -190,7 +193,7 @@ final class AppModel: ObservableObject {
     /// El usuario negó las notificaciones en Ajustes del Sistema (se muestra un aviso en Configuración).
     @Published private(set) var notificationsDenied = false
     /// Sube cada vez que cambia el historial de reviews (para recargar la ventana de Historial).
-    @Published private(set) var historyRevision = 0
+    @Published var historyRevision = 0
     /// Registro que la ventana de Historial tiene que elegir al abrirse (p. ej. desde la notificación de un
     /// review que falló). La ventana lo consume con `consumeHistorySelection()`.
     @Published private(set) var historySelectionRequest: UUID?
@@ -221,6 +224,7 @@ final class AppModel: ObservableObject {
         self.respondHistory = services.respondHistory
         self.instructions = services.instructionsStore ?? InstructionsStore()
         self.discardStats = services.discardStats ?? DiscardStatsStore()
+        self.mergeHistory = services.mergeHistory ?? MergeHistory()
         self.claudeSkills = services.claudeSkills
         self.reviewPipeline = services.reviewPipeline
         self.respondPipeline = services.respondPipeline
@@ -242,7 +246,7 @@ final class AppModel: ObservableObject {
         publishingObserver = publishingReviews.$running.sink { [weak self] _ in self?.objectWillChange.send() }
         mergePruneObserver = prStore.$snapshot.dropFirst().compactMap { $0 }.sink { [weak self] snapshot in
             self?.merges.prune(keeping: Set(snapshot.items.map(\.id)))
-            self?.closeStaleMergeConfirmations(snapshot)
+            self?.updateMergeSessions(snapshot)
         }
         guard startsServices else { return }
         startCommandServer()
@@ -250,6 +254,7 @@ final class AppModel: ObservableObject {
         notifications?.onOpenReview = { [weak self] prID, recordID in self?.openFromNotification(prID: prID, recordID: recordID) }
         notifications?.onOpenRespond = { [weak self] prID in self?.openRespondFromNotification(prID: prID) }
         notifications?.onOpenUpdate = { [weak self] in self?.openUpdateWindow() }
+        notifications?.onOpenMerge = { [weak self] prID in self?.openMergeFromNotification(prID: prID) }
         // Al salir se cancela todo: el runner manda SIGTERM al grupo de procesos de cada Claude (y sus `git`/`gh`).
         // Los worktrees que queden los borra la limpieza de huérfanos del próximo arranque.
         terminationObserver = NotificationCenter.default.addObserver(
@@ -511,7 +516,7 @@ final class AppModel: ObservableObject {
         localPath(account: item.account, repo: item.pr.repo)
     }
 
-    private func localPath(account: String, repo: RepoRef) -> String? {
+    func localPath(account: String, repo: RepoRef) -> String? {
         guard let path = repoConfig(account: account, repo: repo)?.localPath, !path.isEmpty else { return nil }
         return path
     }
@@ -790,7 +795,9 @@ final class AppModel: ObservableObject {
     }
 
     /// Los chats (Review o Respond) con un turno corriendo o en cola: cuentan como trabajos al actualizar (spec D.3).
-    var runningChats: [ChatCoordinator] { chats.values.filter(\.isRunning) }
+    var runningChats: [ChatCoordinator] {
+        (Array(chats.values) + mergeSessions.values.compactMap(\.chat)).filter(\.isRunning)
+    }
 
     /// The chat's worktree goes away with its review or respond (spec B.5).
     private func discardChat(draftID: UUID) {
