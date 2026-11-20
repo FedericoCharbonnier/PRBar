@@ -4,3 +4,9 @@ build/
 *.xcodeproj
 .swiftpm/
 .claude/
+
+# Relay: secretos y datos locales (nunca al repo)
+relay/deploy/prbar-relay.env
+relay/deploy/*.p8
+relay/**/*.db
+relay/prbar-relay
