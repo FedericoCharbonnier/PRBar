@@ -24,6 +24,11 @@ public final class MergeWindowModel: ObservableObject {
 
     private let fetch: @MainActor () async throws -> MergeDetail
     private var loadToken = UUID()
+    /// `newerHead` lo puso un snapshot del popover (no GitHub): un snapshot posterior con el head mostrado lo borra.
+    private var newerHeadFromSnapshot = false
+    /// Un head de un snapshot que GitHub desmintió después (una carga trajo el mostrado): el snapshot está atrasado y
+    /// no vuelve a poner el banner con ese head.
+    private var disprovedHead: String?
 
     /// `detail`: ya cargado (modo de capturas, o la CLI que lo trajo antes).
     public init(prID: String, recordID: UUID, detail: MergeDetail? = nil,
@@ -46,11 +51,34 @@ public final class MergeWindowModel: ObservableObject {
     /// "Reload" del banner: adopta el head nuevo.
     public func reload() async { await fetchDetail(adopt: true) }
 
-    /// Un snapshot nuevo del popover: si trae otro head que el mostrado, banner. El mismo head no lo borra (un ⌘R
-    /// pudo ver el head nuevo antes que el popover).
+    /// Se abre la ventana (spec G.8): la primera vez carga; reabierta (estaba cerrada) refresca, con el head fijo (uno
+    /// nuevo da el banner); ya abierta, nada.
+    public func opened(alreadyOpen: Bool) async {
+        guard !isLoading else { return }
+        if detail == nil {
+            await load()
+        } else if !alreadyOpen {
+            await refresh()
+        }
+    }
+
+    /// Un snapshot nuevo del popover: si trae otro head que el mostrado, banner. El mismo head solo borra un banner que
+    /// puso otro snapshot (uno que vio GitHub con ⌘R queda: el popover pudo no verlo todavía). Un head que GitHub ya
+    /// desmintió no lo pone de nuevo (el snapshot está atrasado).
     public func noteHead(_ head: String?) {
-        guard let head, let shownHead, head != shownHead else { return }
+        guard let head, let shownHead else { return }
+        if head == shownHead {
+            if newerHeadFromSnapshot { setNewerHead(nil, fromSnapshot: false) }
+            return
+        }
+        guard head != disprovedHead else { return }
+        if newerHead == head { return }
+        setNewerHead(head, fromSnapshot: true)
+    }
+
+    private func setNewerHead(_ head: String?, fromSnapshot: Bool) {
         newerHead = head
+        newerHeadFromSnapshot = head != nil && fromSnapshot
     }
 
     private func fetchDetail(adopt: Bool) async {
@@ -62,11 +90,14 @@ public final class MergeWindowModel: ObservableObject {
             guard loadToken == token else { return }
             loadError = nil
             if adopt || fresh.headOid == shownHead {
+                if newerHeadFromSnapshot, let snapshotHead = newerHead, snapshotHead != fresh.headOid {
+                    disprovedHead = snapshotHead
+                }
                 detail = fresh
                 shownHead = fresh.headOid
-                newerHead = nil
+                setNewerHead(nil, fromSnapshot: false)
             } else {
-                newerHead = fresh.headOid
+                setNewerHead(fresh.headOid, fromSnapshot: false)
             }
         } catch {
             guard loadToken == token else { return }

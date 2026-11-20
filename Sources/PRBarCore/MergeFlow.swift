@@ -65,6 +65,38 @@ public enum MergeFlow {
         return MergePolicy.problem(current, method: method, options: options)?.localizedDescription
     }
 
+    /// Lo que manda el botón Merge de la ventana: el PR con **el head que muestra la ventana** (spec G.3, aunque el
+    /// snapshot ya tenga otro) y el método.
+    public struct WindowMerge: Equatable, Sendable {
+        public var item: ClassifiedPR
+        public var method: MergeMethod
+    }
+
+    /// El botón Merge de la ventana (spec G.2/G.3). `current`: el PR en el snapshot actual. Si `windowProblem` dice
+    /// algo, ese es el error (`.blocked` mientras se instala una actualización, si no `.unavailable`); si no, el PR
+    /// fijado al head mostrado y el método elegido (o el por defecto del repo).
+    public static func windowMerge(
+        current: ClassifiedPR, options: MergeOptions, method: MergeMethod?, shownHead: String?, stale: Bool,
+        blockedReason: String?
+    ) -> Result<WindowMerge, MergeError> {
+        if let problem = windowProblem(current: current, options: options, method: method, shownHead: shownHead,
+                                       stale: stale, blockedReason: blockedReason) {
+            return .failure(blockedReason == nil ? .unavailable(problem) : .blocked(problem))
+        }
+        guard let shownHead, let chosen = method ?? options.defaultMethod else {
+            return .failure(.unavailable("This repo doesn’t allow any merge method."))
+        }
+        return .success(WindowMerge(item: current.pinned(head: shownHead), method: chosen))
+    }
+
+    /// Si el chat de la ventana se rehace con el head que muestra la ventana (spec G.4): solo uno sin mensajes y sin un
+    /// turno en curso, que mira otro commit (p. ej. se abrió antes de la primera carga, o la ventana recargó). Uno con
+    /// mensajes sigue y el panel avisa que Claude ve otro commit.
+    public static func rebuildsChat(chatHead: String, shownHead: String?, hasMessages: Bool, isRunning: Bool) -> Bool {
+        guard let shownHead, chatHead != shownHead else { return false }
+        return !hasMessages && !isRunning
+    }
+
     /// Qué hace Retry después de refrescar.
     public enum RetryRoute: Equatable, Sendable {
         /// Pedir de nuevo (`request`) con el PR refrescado y el mismo método.

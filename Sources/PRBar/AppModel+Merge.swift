@@ -107,6 +107,7 @@ extension AppModel {
     func openMergeWindow(_ item: ClassifiedPR) {
         let session = mergeSession(for: item)
         let windowID = Self.mergeWindowID(item.id)
+        let alreadyOpen = WindowPresenter.shared.isOpen(id: windowID)
         WindowPresenter.shared.show(
             id: windowID, title: "Merge · \(item.pr.repo.name)#\(item.pr.number)", size: MergeWindow.size,
             options: WindowOptions(sharedFrameKey: "MergeWindowFrame", bridgesToolbar: true, toolbarStyle: .unified),
@@ -114,8 +115,18 @@ extension AppModel {
         ) {
             MergeWindow(model: self, session: session)
         }
-        if session.window.detail == nil, !session.window.isLoading {
-            Task { await session.window.load() }
+        Task { await self.loadMergeWindow(session, alreadyOpen: alreadyOpen) }
+    }
+
+    /// La primera vez carga el resumen; reabierta refresca con el head fijo (spec G.8, `MergeWindowModel.opened`). Si
+    /// la primera carga trae otro head que la lista, la lista está atrasada: se refresca una vez (así el snapshot no
+    /// pone el banner con un head viejo). Un chat vacío que se abrió antes de cargar se rehace con el head cargado.
+    private func loadMergeWindow(_ session: MergeSession, alreadyOpen: Bool) async {
+        let firstLoad = session.window.shownHead == nil
+        await session.window.opened(alreadyOpen: alreadyOpen)
+        rebuildMergeChatIfOutdated(session)
+        if firstLoad, let shown = session.window.shownHead, let listed = currentItem(session.prID)?.pr.headOid, listed != shown {
+            await prStore.refreshNow()
         }
     }
 
@@ -135,16 +146,26 @@ extension AppModel {
         await prStore.refreshNow()
     }
 
-    /// "Reload" del banner: adopta el head nuevo. Un chat sin mensajes se rehace con ese head; uno con mensajes sigue (el
-    /// panel avisa que Claude ve otro commit).
+    /// "Reload" del banner: adopta el head nuevo y refresca la lista (un snapshot atrasado no vuelve a poner el
+    /// banner). Un chat sin mensajes se rehace con ese head; uno con mensajes sigue (el panel avisa que Claude ve otro
+    /// commit).
     func reloadMergeWindow(prID: String) async {
         guard let session = mergeSessions[prID] else { return }
         await session.window.reload()
-        if let chat = session.chat, chat.session.messages.isEmpty, !chat.isRunning,
-           case .merge(let target) = chat.subject, target.headOid != session.window.shownHead {
-            session.chat = nil
-            chat.discardWorkspace()
-        }
+        rebuildMergeChatIfOutdated(session)
+        await prStore.refreshNow()
+    }
+
+    /// `MergeFlow.rebuildsChat`: el chat vacío que mira otro commit se descarta y se crea otro enseguida (el panel
+    /// abierto no se queda sin chat). La sesión nueva tiene otro id: no comparte el worktree que se está borrando.
+    private func rebuildMergeChatIfOutdated(_ session: MergeSession) {
+        guard let chat = session.chat, case .merge(let target) = chat.subject,
+              MergeFlow.rebuildsChat(chatHead: target.headOid, shownHead: session.window.shownHead,
+                                     hasMessages: !chat.session.messages.isEmpty, isRunning: chat.isRunning) else { return }
+        session.chat = nil
+        session.record.chat = nil
+        chat.discardWorkspace()
+        _ = mergeChat(prID: session.prID)
     }
 
     /// Por qué el botón Merge de la ventana está deshabilitado (`nil` = se puede).
@@ -167,14 +188,15 @@ extension AppModel {
     func mergeFromWindow(prID: String) {
         guard let session = mergeSessions[prID], let current = currentItem(prID) else { return }
         session.window.noteHead(current.pr.headOid)
-        let method = mergeWindowMethod(prID: prID)
-        let pinned = current.pinned(head: session.window.shownHead ?? current.pr.headOid)
-        if let problem = mergeWindowProblem(prID: prID) {
-            merges.reject(pinned, method: method, error: jobsBlockedReason == nil ? .unavailable(problem) : .blocked(problem))
-            return
+        let window = session.window
+        switch MergeFlow.windowMerge(current: current, options: mergeOptions(current), method: window.method,
+                                     shownHead: window.shownHead, stale: window.isStale, blockedReason: jobsBlockedReason) {
+        case .success(let request):
+            Task { _ = await merge(request.item, method: request.method) }
+        case .failure(let error):
+            merges.reject(current.pinned(head: window.shownHead ?? current.pr.headOid), method: mergeWindowMethod(prID: prID),
+                          error: error)
         }
-        guard let method else { return }
-        Task { _ = await merge(pinned, method: method) }
     }
 
     /// Retry de la ventana (spec G.2 con F.8.11/F.8.20): refresca la lista y la ventana y decide con `MergeFlow.retry`:

@@ -25,7 +25,19 @@ private let ready = ClassifiedPR(pr: makePR(number: 7, author: "me", head: "aaa"
                                  category: .readyToMerge, account: "me")
 private let squashOnly = MergeOptions(availability: .enabled(note: nil), methods: [.squash], defaultMethod: .squash)
 
+extension Result {
+    var failureValue: Failure? {
+        if case .failure(let error) = self { return error }
+        return nil
+    }
+}
+
 enum MergeWindowTests {
+    /// Carga A y después ve B.
+    @MainActor static func window2() -> (MergeWindowModel, Box<Int>) {
+        window([.success(detail("aaa")), .success(detail("bbb"))])
+    }
+
     static let cases: [TestCase] = [
         TestCase("merge window: la primera carga fija el head mostrado") { @MainActor in
             let (window, calls) = window([.success(detail("aaa"))])
@@ -68,8 +80,60 @@ enum MergeWindowTests {
             try expect(!window.isStale)
             window.noteHead("bbb")
             try expectEqual(window.newerHead, "bbb")
+            window.noteHead(nil)
+            try expectEqual(window.newerHead, "bbb")
+        },
+        TestCase("merge window: reabrir refresca (mantiene el head; uno nuevo da el banner); abierta, no") { @MainActor in
+            let failing = MergeCheck(name: "lint", kind: .checkRun, state: .failed, isRequired: false)
+            let (window, calls) = window([.success(detail("aaa")), .success(detail("aaa", checks: [failing])),
+                                          .success(detail("bbb"))])
+            await window.opened(alreadyOpen: false)
+            try expectEqual(calls.value, 1)
+            try expectEqual(window.shownHead, "aaa")
+            // Ya abierta (otro "Merge…" sobre la misma ventana): no vuelve a pedir.
+            await window.opened(alreadyOpen: true)
+            try expectEqual(calls.value, 1)
+            // Cerrada y reabierta: el resumen se refresca (checks nuevos)…
+            await window.opened(alreadyOpen: false)
+            try expectEqual(calls.value, 2)
+            try expectEqual(window.detail?.checks, [failing])
+            // …y un head nuevo no reemplaza lo mostrado: banner.
+            await window.opened(alreadyOpen: false)
+            try expectEqual(window.shownHead, "aaa")
+            try expectEqual(window.newerHead, "bbb")
+        },
+        TestCase("merge window: un snapshot más viejo que GitHub no deja la ventana en un loop de Reload") { @MainActor in
+            // La ventana cargó B de GitHub; el snapshot del popover todavía tiene A.
+            let (window, _) = window([.success(detail("bbb"))])
+            await window.load()
             window.noteHead("aaa")
             try expect(window.isStale)
+            // Reload: GitHub vuelve a decir B, que desmiente A.
+            await window.reload()
+            try expect(!window.isStale)
+            window.noteHead("aaa")
+            try expect(!window.isStale)
+            // El snapshot se pone al día: nada.
+            window.noteHead("bbb")
+            try expect(!window.isStale)
+            // Un push real después sí da el banner.
+            window.noteHead("ccc")
+            try expectEqual(window.newerHead, "ccc")
+        },
+        TestCase("merge window: el snapshot que se pone al día borra el banner que él mismo puso") { @MainActor in
+            let (window, _) = window([.success(detail("bbb"))])
+            await window.load()
+            window.noteHead("aaa")
+            try expect(window.isStale)
+            window.noteHead("bbb")
+            try expect(!window.isStale)
+            // Pero un head nuevo que vio GitHub (⌘R) no lo borra un snapshot atrasado.
+            let (fetched, _) = MergeWindowTests.window2()
+            await fetched.load()
+            await fetched.refresh()
+            try expectEqual(fetched.newerHead, "bbb")
+            fetched.noteHead("aaa")
+            try expectEqual(fetched.newerHead, "bbb")
         },
         TestCase("merge window: un error de carga se muestra y no borra lo cargado") { @MainActor in
             let (window, _) = window([.success(detail("aaa")), .failure(.network("offline"))])
@@ -83,6 +147,36 @@ enum MergeWindowTests {
         TestCase("merge window: precargada (capturas, CLI) ya tiene head") { @MainActor in
             let window = MergeWindowModel(prID: "o/r#7", recordID: UUID(), detail: detail("ccc")) { detail("ccc") }
             try expectEqual(window.shownHead, "ccc")
+        },
+        TestCase("merge window: el botón mergea el head que muestra la ventana, aunque el snapshot tenga otro") {
+            let options = squashOnly
+            func merge(current: ClassifiedPR = ready, method: MergeMethod? = nil, shown: String? = "shown", stale: Bool = false,
+                       blocked: String? = nil) -> Result<MergeFlow.WindowMerge, MergeError> {
+                MergeFlow.windowMerge(current: current, options: options, method: method, shownHead: shown, stale: stale,
+                                      blockedReason: blocked)
+            }
+            // El snapshot tiene "aaa"; la ventana mostró "shown": se mergea "shown", con el método por defecto.
+            guard case .success(let request) = merge() else { throw TestFailure(description: "\(merge())") }
+            try expectEqual(request.item.pr.headOid, "shown")
+            try expectEqual(request.item.id, ready.id)
+            try expectEqual(request.method, .squash)
+            try expectEqual(try merge(method: .squash).get().method, .squash)
+            try expectEqual(merge(stale: true).failureValue, .unavailable(MergeWindowModel.staleText))
+            try expectEqual(merge(blocked: "Installing an update").failureValue, .blocked("Installing an update"))
+            try expectEqual(merge(shown: nil).failureValue, .unavailable("Loading…"))
+            try expectEqual(merge(method: .rebase).failureValue, .unavailable("This repo doesn’t allow Rebase and Merge"))
+            let feedback = ClassifiedPR(pr: ready.pr, category: .myFeedback, account: "me")
+            try expectEqual(merge(current: feedback).failureValue, .unavailable("This PR isn’t ready to merge"))
+        },
+        TestCase("merge window: el chat sin mensajes se rehace con el head que muestra la ventana") {
+            func rebuilds(chat: String = "aaa", shown: String? = "bbb", messages: Bool = false, running: Bool = false) -> Bool {
+                MergeFlow.rebuildsChat(chatHead: chat, shownHead: shown, hasMessages: messages, isRunning: running)
+            }
+            try expect(rebuilds())
+            try expect(!rebuilds(shown: "aaa"))
+            try expect(!rebuilds(shown: nil))
+            try expect(!rebuilds(messages: true))
+            try expect(!rebuilds(running: true))
         },
         TestCase("merge window: windowProblem, en orden") {
             func problem(current: ClassifiedPR? = ready, options: MergeOptions? = squashOnly, method: MergeMethod? = nil,
