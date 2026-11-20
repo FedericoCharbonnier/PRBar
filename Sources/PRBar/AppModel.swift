@@ -107,11 +107,7 @@ final class AppModel: ObservableObject {
     /// The chat backend. `lazy` like the queues, so it can capture `self` (weakly).
     private(set) lazy var chatBackend: any ChatBackend = chatBackendOverride ?? LiveChatBackend(
         runner: runner, tokens: accounts, api: api,
-        context: { [weak self] in
-            ReviewContext(tools: self?.tools ?? ResolvedTools(), orphanCleanup: self?.orphanCleanup,
-                          claude: self?.configStore.config.claude ?? ClaudeSettings(),
-                          rules: self?.instructions.rules ?? [])
-        }
+        context: { [weak self] account, repo in self?.jobContext(account: account, repo: repo) ?? .closed }
     )
     /// One coordinator per draft (Review or Respond): reopening a window keeps the conversation and the edits.
     private var chats: [UUID: ChatCoordinator] = [:]
@@ -121,15 +117,14 @@ final class AppModel: ObservableObject {
     let runners = RunnerCoordinator(makeHost: { try await RunnerCoordinator.liveHost($0) })
     /// La última verificación ("Test Connection") de cada destino, por nombre (Settings y `prbar runners`).
     @Published var runnerChecks: [String: RunnerHostInfo] = [:]
+    /// Dónde corrió el último trabajo de cada PR ("on devbox" / "Ran on this Mac — …") y el último fallback de cada
+    /// repo (el aviso de Settings › Repos). En memoria (spec J.4).
+    @Published var placements = RunnerPlacements()
     /// Cola de reviews. Es `lazy` para que el pipeline y `onFinished` puedan capturar `self` (débil).
     private(set) lazy var reviews = ReviewQueue(
         pipeline: reviewPipeline ?? LiveReviewPipeline(
             runner: runner, tokens: accounts, logURLProvider: { [history] in history.logURL(for: $0) },
-            context: { [weak self] in
-                ReviewContext(tools: self?.tools ?? ResolvedTools(), orphanCleanup: self?.orphanCleanup,
-                              claude: self?.configStore.config.claude ?? ClaudeSettings(),
-                              rules: self?.instructions.rules ?? [])
-            }
+            context: { [weak self] account, repo in self?.jobContext(account: account, repo: repo) ?? .closed }
         ),
         onFinished: { [weak self] request, result in self?.reviewFinished(request, result) }
     )
@@ -145,11 +140,7 @@ final class AppModel: ObservableObject {
     private(set) lazy var respond = RespondQueue(
         pipeline: respondPipeline ?? LiveRespondPipeline(
             runner: runner, tokens: accounts, api: api, history: respondHistory,
-            context: { [weak self] in
-                ReviewContext(tools: self?.tools ?? ResolvedTools(), orphanCleanup: self?.orphanCleanup,
-                              claude: self?.configStore.config.claude ?? ClaudeSettings(),
-                              rules: self?.instructions.rules ?? [])
-            }
+            context: { [weak self] account, repo in self?.jobContext(account: account, repo: repo) ?? .closed }
         ),
         history: respondHistory,
         onEvent: { [weak self] prID, phase in self?.respondEvent(prID: prID, phase: phase) }
@@ -178,7 +169,7 @@ final class AppModel: ObservableObject {
     /// Para avisar una vez por cruce del umbral (spec I).
     var diskWarning = DiskWarningState()
     /// Limpieza de worktrees huérfanos del arranque; cada review la espera antes de crear el suyo.
-    private var orphanCleanup: Task<Void, Never>?
+    private(set) var orphanCleanup: Task<Void, Never>?
     /// Cuándo se pidió cada review (por prID), para el `ReviewRecord`.
     private var reviewStarts: [String: Date] = [:]
     private var terminationObserver: NSObjectProtocol?
@@ -291,6 +282,8 @@ final class AppModel: ObservableObject {
                 self?.chatScheduler.cancelAll()
             }
         }
+        // En segundo plano y sin esperar a nadie: cada host que responde limpia lo que quedó de antes (J.7.16).
+        startRemoteOrphanCleanup()
         Task { await bootstrap() }
     }
 
@@ -341,8 +334,10 @@ final class AppModel: ObservableObject {
     }
 
     func updateConfig(refresh: Bool = true, _ mutate: (inout AppConfig) -> Void) {
+        let runnersBefore = configStore.config.runners
         do {
             try configStore.update(mutate)
+            runnersChanged(from: runnersBefore)
             settingsError = nil
             if refresh { Task { await prStore.refresh() } }
         } catch {
@@ -952,7 +947,8 @@ final class AppModel: ObservableObject {
     /// Por qué no se puede responder el feedback de este PR (`nil` = se puede).
     func respondUnavailableReason(_ item: ClassifiedPR) -> String? {
         if let jobsBlockedReason { return jobsBlockedReason }
-        return localPath(for: item) == nil
+        // Un repo que corre en un host no necesita carpeta local: el análisis arma su worktree allá (spec J).
+        return localPath(for: item) == nil && runnerDestination(account: item.account, repo: item.pr.repo) == nil
             ? "Choose the local folder for \(item.pr.repo.name) in Settings → Repos to respond with Claude."
             : nil
     }
@@ -960,7 +956,8 @@ final class AppModel: ObservableObject {
     /// Analiza el feedback sin resolver del PR (spec §14). Un registro anterior terminado (listo, publicado o
     /// fallido) se reemplaza; uno con fixes sin pushear no (la cola lo ignora).
     func startRespond(_ item: ClassifiedPR) {
-        guard jobsBlockedReason == nil, let localPath = localPath(for: item) else { return }
+        guard respondUnavailableReason(item) == nil else { return }
+        let localPath = localPath(for: item)
         let worktreeDir = repoConfig(account: item.account, repo: item.pr.repo)?.worktreeDir
         respond.analyze(item, localPath: localPath, worktreeDir: worktreeDir)
     }

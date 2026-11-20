@@ -91,7 +91,8 @@ public final class RespondQueue: ObservableObject {
 
     /// → queued → preparing → analyzing → ready | failed. Se ignora si el PR tiene un job, o está en
     /// `implementing`/`readyToPush`/`pushing` (hay fixes sin publicar).
-    public func analyze(_ item: ClassifiedPR, localPath: String, worktreeDir: String?) {
+    /// `localPath == nil`: solo un repo que corre en un host (el análisis arma su worktree allá).
+    public func analyze(_ item: ClassifiedPR, localPath: String?, worktreeDir: String?) {
         let prID = item.id
         switch phases[prID] {
         case nil, .ready?, .failed?, .done?: break
@@ -102,8 +103,13 @@ public final class RespondQueue: ObservableObject {
         let startedAt = Date()
         let pipeline = self.pipeline
         start(prID, kind: .analyze, phase: .queued, onStart: .preparing, work: { [weak self] jobID in
-            try await pipeline.analyze(request, draftID: draftID) { [weak self] phase in
-                self?.progress(prID, jobID, phase)
+            do {
+                return try await pipeline.analyze(request, draftID: draftID) { [weak self] phase in
+                    self?.progress(prID, jobID, phase)
+                }
+            } catch {
+                if RemoteUnstoppedJobs.isNotStopped(error) { await self?.analyzeNotStopped(prID, draftID, error) }
+                throw error
             }
         }, completion: { [weak self] result in
             guard let self else { return }
@@ -119,7 +125,7 @@ public final class RespondQueue: ObservableObject {
                 let empty = RespondDraft(
                     id: draftID, prID: prID, repo: pr.repo, number: pr.number, title: pr.title, url: pr.url,
                     headRef: pr.headRef, account: item.account,
-                    worktree: ResolvedWorktree(path: localPath, origin: .mainClone), startHeadOid: "", items: [])
+                    worktree: ResolvedWorktree(path: localPath ?? "", origin: .mainClone), startHeadOid: "", items: [])
                 self.records[prID] = nil
                 self.save(RespondRecord(draft: empty, startedAt: startedAt, finishedAt: Date(),
                                         errorMessage: error.localizedDescription))
@@ -334,6 +340,13 @@ public final class RespondQueue: ObservableObject {
     private func finish(_ prID: String, _ phase: RespondPhase) {
         phases[prID] = phase
         onEvent(prID, phase)
+    }
+
+    /// Un análisis cancelado cuyo Claude no se pudo confirmar parado en el host: en vez de volver a idle sin decir
+    /// nada, la fila lo explica (el worktree queda allá; spec J). Solo si nada nuevo arrancó en ese PR.
+    private func analyzeNotStopped(_ prID: String, _ draftID: UUID, _ error: Error) {
+        guard jobs[prID] == nil, phases[prID] == nil else { return }
+        phases[prID] = .failed(error.localizedDescription, logURL: existingLog(draftID))
     }
 
     private func fail(_ prID: String, _ error: Error) {

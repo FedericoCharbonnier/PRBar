@@ -76,6 +76,14 @@ public enum ChatSubject: Equatable, Sendable {
         }
     }
 
+    public var account: String {
+        switch self {
+        case .review(let draft): draft.account
+        case .respond(let draft): draft.account
+        case .merge(let target): target.account
+        }
+    }
+
     /// The rules that apply to this chat (spec E.1): the merge chat is about my own PR, like Respond.
     public var ruleStage: RuleStage { kind == .review ? .review : .respond }
 
@@ -260,6 +268,9 @@ public struct ChatSession: Codable, Equatable, Sendable {
     /// The code of this conversation's markers (`PromptFence`, spec E.9): the same in every turn, so the rules and
     /// messages of a `--resume` turn use the markers Claude was told about. Nil until the first message.
     public var promptNonce: String?
+    /// Review/Merge: the host where its worktree is (`RunnerDestination.name`); nil = this Mac. Set with
+    /// `worktreePath`: later turns (`--resume`) and the cleanup go there (spec J).
+    public var runner: String?
 
     public init(id: UUID = UUID(), prID: String, kind: Kind) {
         self.id = id
@@ -275,11 +286,12 @@ public struct ChatSession: Codable, Equatable, Sendable {
         canEditFiles = nil
         lastRules = nil
         promptNonce = nil
+        runner = nil
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, prID, kind, claudeSessionID, worktreePath, worktreeRefs, messages, readOnly, pending, lastState, canEditFiles
-        case lastRules, promptNonce
+        case lastRules, promptNonce, runner
     }
 
     /// Lenient: only `id`, `prID` and `kind` are required.
@@ -298,6 +310,7 @@ public struct ChatSession: Codable, Equatable, Sendable {
         canEditFiles = (try? c.decodeIfPresent(Bool.self, forKey: .canEditFiles)) ?? nil
         lastRules = (try? c.decodeIfPresent(String.self, forKey: .lastRules)) ?? nil
         promptNonce = (try? c.decodeIfPresent(String.self, forKey: .promptNonce)) ?? nil
+        runner = (try? c.decodeIfPresent(String.self, forKey: .runner)) ?? nil
     }
 
     /// The only message that offers Undo: the last one with changes that wasn't undone. Undoing goes backwards.

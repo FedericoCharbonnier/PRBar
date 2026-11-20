@@ -84,3 +84,67 @@ extension AppModel: RunnerActions {
         try applyConfig(refresh: false) { $0 = updated }
     }
 }
+
+// Dónde corre cada trabajo (spec J.3–J.4): el contexto de los pipelines, "on devbox" y la limpieza al arrancar.
+extension AppModel {
+    /// Lo que leen los pipelines y el chat al arrancar un trabajo del repo `repo` de `account`.
+    func jobContext(account: String, repo: RepoRef) -> ReviewContext {
+        ReviewContext(tools: tools, orphanCleanup: orphanCleanup, claude: configStore.config.claude, rules: instructions.rules,
+                      runner: runnerDestination(account: account, repo: repo), runnerSettings: configStore.config.runners,
+                      coordinator: runners,
+                      onPlacement: { [weak self] prID, placement in self?.recordPlacement(placement, prID: prID, repo: repo) })
+    }
+
+    /// El destino del repo (su "Run Claude on" o el predeterminado); `nil` = esta Mac.
+    func runnerDestination(account: String, repo: RepoRef) -> RunnerDestination? {
+        RunTargetResolver.destination(for: repoConfig(account: account, repo: repo), settings: configStore.config.runners)
+    }
+
+    func recordPlacement(_ placement: JobPlacement, prID: String, repo: RepoRef) {
+        placements.record(placement, prID: prID, repo: repo)
+    }
+
+    /// Al arrancar (decisión J.7.16): en segundo plano, cada destino que responde limpia lo que quedó de corridas
+    /// anteriores de esta instalación. Nunca bloquea nada: un trabajo nuevo no espera, y `cleanupOrphans` solo toca
+    /// grupos muertos y lo que no cambió en 12 h (con su candado), así que no pisa un trabajo en curso.
+    func startRemoteOrphanCleanup() {
+        let destinations = configStore.config.runners.destinations
+        guard !destinations.isEmpty else { return }
+        let runners = self.runners
+        Task.detached(priority: .utility) {
+            await withTaskGroup(of: Void.self) { group in
+                for destination in destinations {
+                    group.addTask {
+                        do {
+                            let placement = try await runners.placement(for: destination)
+                            await placement.workspaces.cleanupOrphans()
+                        } catch {
+                            AppLog.write("Runner \(destination.name): skipping the startup cleanup: \(error.localizedDescription)")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Un destino editado (host, carpeta, fallback) o quitado, por cualquier camino (Settings o `prbar`): su salud
+    /// cacheada ya no vale, y su última verificación tampoco si cambió a dónde se conecta o su carpeta.
+    func runnersChanged(from before: RunnerSettings) {
+        let after = configStore.config.runners
+        for old in before.destinations {
+            let new = after.destination(named: old.name)
+            guard new != old else { continue }
+            if new == nil || new?.endpoint != old.endpoint || new?.remoteDir != old.remoteDir {
+                runnerChecks.removeValue(forKey: old.name)
+            }
+            let runners = self.runners
+            Task { await runners.forget(old.name) }
+        }
+    }
+}
+
+extension ReviewContext {
+    /// Sin `AppModel` (la app se está cerrando): nada corre en un host.
+    static let closed = ReviewContext(tools: ResolvedTools(), orphanCleanup: nil, claude: ClaudeSettings(),
+                                      coordinator: RunnerCoordinator(makeHost: { _ in throw CancellationError() }))
+}

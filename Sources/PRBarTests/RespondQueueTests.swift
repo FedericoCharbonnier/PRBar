@@ -70,6 +70,8 @@ final class FakeRespondPipeline: RespondPipelineRunning, @unchecked Sendable {
     var commitsLeftOnCancel = 0
     /// Si es true, la cancelación de una implementación espera a `finishCancel` (simula la restauración).
     var slowCancel = false
+    /// Lo que lanza un análisis cancelado (p. ej. `jobNotStopped`: no se pudo confirmar que Claude paró en el host).
+    var analyzeCancelError: Error?
 
     init(events: QueueEventLog, api: FakeFeedbackAPI = FakeFeedbackAPI()) {
         self.events = events
@@ -94,7 +96,7 @@ final class FakeRespondPipeline: RespondPipelineRunning, @unchecked Sendable {
             }
         } onCancel: {
             let entry = lock.withLock { analyses.removeValue(forKey: prID) }
-            entry?.continuation.resume(throwing: CancellationError())
+            entry?.continuation.resume(throwing: lock.withLock { analyzeCancelError } ?? CancellationError())
         }
     }
 
@@ -481,6 +483,20 @@ enum RespondQueueTests {
             try expectEqual(h.queue.phases[prID(1)], nil)
             h.queue.analyze(classified(1), localPath: "/repos/r", worktreeDir: nil)
             try await h.events.wait(for: [.started("analyze:\(prID(1))")])
+            try expectEqual(h.emitted.count, 0)
+        },
+        TestCase("respond queue: un análisis remoto cancelado sin confirmar que Claude paró lo dice (sin carpeta local)") { @MainActor in
+            let h = try Harness(maxConcurrent: 1)
+            h.pipeline.analyzeCancelError = RemoteRunnerError.jobNotStopped(host: "devbox")
+            h.queue.analyze(classified(1), localPath: nil, worktreeDir: nil)
+            try await h.events.wait(for: [.started("analyze:\(prID(1))")])
+            h.queue.cancel(prID: prID(1))
+            try expectEqual(h.queue.phases[prID(1)], nil)
+            try await waitUntil { h.queue.phases[prID(1)] != nil }
+            guard case .failed(let message, _)? = h.queue.phases[prID(1)] else {
+                throw TestFailure(description: "\(String(describing: h.queue.phases[prID(1)]))")
+            }
+            try expect(message.contains("Claude may still be running on devbox; PRBar won’t touch that worktree"), message)
             try expectEqual(h.emitted.count, 0)
         },
         TestCase("respond queue: con un turno de chat corriendo no arranca implementar ni publicar") { @MainActor in

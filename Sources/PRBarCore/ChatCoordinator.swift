@@ -205,7 +205,8 @@ public final class ChatCoordinator: ObservableObject {
                     message: text, stateIfChanged: stateChanged ? state : nil, transcript: transcript,
                     canEditFiles: canEdit, workingDirectory: workspace.directory,
                     additionalDirectories: [workspace.contextDirectory], turn: turn,
-                    capabilitiesChanged: capabilitiesChanged, rulesIfChanged: rulesChanged ? rulesText : nil, fence: fence)
+                    capabilitiesChanged: capabilitiesChanged, rulesIfChanged: rulesChanged ? rulesText : nil, fence: fence,
+                    runner: workspace.runner)
                 if case .respond(let draft) = subject, let result = editingResult {
                     let (output, files) = try await backend.sendEditing(input, draft: draft, result: result,
                                                                         sessionID: request.session.id, logURL: context.logURL) { relay.send($0) }
@@ -257,6 +258,7 @@ public final class ChatCoordinator: ObservableObject {
         workspaceRoot = workspace.directory
         session.worktreePath = workspace.directory.path
         session.worktreeRefs = workspace.refs
+        session.runner = workspace.runner
     }
 
     private func finishTurn(_ id: UUID, _ outcome: Result<TurnResult, Error>) {
@@ -270,7 +272,9 @@ public final class ChatCoordinator: ObservableObject {
             // Claude finished before the stop arrived: what it did is real (in Respond, maybe a commit).
             apply(turn)
         case .failure(let error):
-            session.messages.append(ChatMessage(role: .error, text: stopped ? Self.stoppedText : Self.message(for: error)))
+            // Stopped on a host where PRBar couldn't confirm Claude stopped: say so, not just "Stopped." (spec J).
+            let text = stopped && !RemoteUnstoppedJobs.isNotStopped(error) ? Self.stoppedText : Self.message(for: error)
+            session.messages.append(ChatMessage(role: .error, text: text))
         }
         setRunning(false, activity: nil)
         hooks.persist(self)

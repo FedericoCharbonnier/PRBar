@@ -43,6 +43,10 @@ final class FakeChatBackend: ChatBackend, @unchecked Sendable {
     var note: String?
     /// With `held`, a cancelled turn keeps running until `held` goes false (a process that takes a while to die).
     var stubborn = false
+    /// What a stopped turn throws (nil = `CancellationError`): e.g. `jobNotStopped` from a host.
+    var cancelError: Error?
+    /// The host `workspace` says it prepared the workspace on.
+    var runner: String?
 
     var inputs: [ChatTurnInput] { lock.withLock { _inputs } }
     var editing: Int { lock.withLock { _editing } }
@@ -62,17 +66,21 @@ final class FakeChatBackend: ChatBackend, @unchecked Sendable {
         lock.withLock { _activities.append(activity) }
         return ChatWorkspace(directory: URL(fileURLWithPath: "/tmp/wt/chat"), contextDirectory: URL(fileURLWithPath: "/tmp/wt/chat.context"),
                       files: ChatContextFiles(diff: URL(fileURLWithPath: "/tmp/wt/chat.context/pr.diff")), diffFiles: ["src/a.ts"],
-                      isDiffOnly: false, refs: ["refs/prbar/pr-7-0a1b2c3d"], note: note)
+                      isDiffOnly: false, refs: ["refs/prbar/pr-7-0a1b2c3d"], note: note, runner: runner)
     }
 
     func send(_ input: ChatTurnInput, subject: ChatSubject, logURL: URL,
               onEvent: @escaping @Sendable (ClaudeStreamEvent) -> Void) async throws -> ChatTurnOutput {
         lock.withLock { _inputs.append(input) }
         onEvent(.toolUse(name: "Read", detail: "/tmp/wt/chat/src/a.ts"))
-        while held {
-            if stubborn { try? await Task.sleep(nanoseconds: 5_000_000) } else { try await Task.sleep(nanoseconds: 5_000_000) }
+        do {
+            while held {
+                if stubborn { try? await Task.sleep(nanoseconds: 5_000_000) } else { try await Task.sleep(nanoseconds: 5_000_000) }
+            }
+            try Task.checkCancellation()
+        } catch is CancellationError {
+            throw cancelError ?? CancellationError()
         }
-        try Task.checkCancellation()
         let next: Result<ChatTurnOutput, Error> = lock.withLock { _replies.isEmpty ? .success(output()) : _replies.removeFirst() }
         return try next.get()
     }
@@ -421,6 +429,27 @@ enum ChatCoordinatorTests {
             try expectEqual(chat.session.messages.last?.text, ChatCoordinator.stoppedText)
             try expectEqual(chat.session.pending, false)
             try expect(chat.canSend)
+        },
+        TestCase("chat coordinator: Stop en un host que no confirmó que Claude paró lo dice, no solo Stopped.") { @MainActor in
+            let h = Harness()
+            h.backend.held = true
+            h.backend.cancelError = RemoteRunnerError.jobNotStopped(host: "devbox")
+            let chat = h.review()
+            chat.send("long question")
+            try await waitUntil { h.backend.inputs.count == 1 }
+            chat.stop()
+            try await h.finish(chat)
+            let text = chat.session.messages.last?.text ?? ""
+            try expect(text.contains("Claude may still be running on devbox; PRBar won’t touch that worktree"), text)
+        },
+        TestCase("chat coordinator: la sesión recuerda en qué host está su worktree y cada turno lo dice") { @MainActor in
+            let h = Harness()
+            h.backend.runner = "devbox"
+            let chat = h.review()
+            chat.send("hi")
+            try await h.finish(chat)
+            try expectEqual(chat.session.runner, "devbox")
+            try expectEqual(h.backend.inputs.last?.runner, "devbox")
         },
         TestCase("chat coordinator: de solo lectura con un turno en curso, lo corta y borra el workspace al terminar") { @MainActor in
             let h = Harness()

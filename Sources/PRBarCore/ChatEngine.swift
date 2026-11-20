@@ -25,10 +25,12 @@ public struct ChatTurnInput: Sendable {
     public var rulesIfChanged: String?
     /// The conversation's markers (`ChatSession.promptNonce`, spec E.9): the user's message goes between them.
     public var fence: PromptFence
+    /// Where the turn's workspace is (`ChatWorkspace.runner`); nil = this Mac.
+    public var runner: String?
 
     public init(kind: ChatSession.Kind, claudeSessionID: UUID?, bootstrap: String, message: String, stateIfChanged: String?,
                 transcript: [ChatMessage], canEditFiles: Bool, workingDirectory: URL, additionalDirectories: [URL], turn: Int,
-                capabilitiesChanged: Bool = false, rulesIfChanged: String? = nil, fence: PromptFence) {
+                capabilitiesChanged: Bool = false, rulesIfChanged: String? = nil, fence: PromptFence, runner: String? = nil) {
         self.kind = kind
         self.claudeSessionID = claudeSessionID
         self.bootstrap = bootstrap
@@ -42,6 +44,7 @@ public struct ChatTurnInput: Sendable {
         self.turn = turn
         self.rulesIfChanged = rulesIfChanged
         self.fence = fence
+        self.runner = runner
     }
 }
 

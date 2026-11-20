@@ -30,8 +30,13 @@ public final class ReviewQueue: ObservableObject {
         scheduler.enqueue(prID, activity: .review(prID), onStart: { [weak self] in
             self?.phases[prID] = .preparing
         }, work: { [weak self] in
-            draft.value = try await pipeline.run(request) { [weak self] phase in
-                self?.update(prID, job: jobID, phase: phase)
+            do {
+                draft.value = try await pipeline.run(request) { [weak self] phase in
+                    self?.update(prID, job: jobID, phase: phase)
+                }
+            } catch {
+                if RemoteUnstoppedJobs.isNotStopped(error) { await self?.notStopped(prID, error) }
+                throw error
             }
         }, onComplete: { [weak self] result in
             self?.finish(request, job: jobID, result: result.map { draft.value! })
@@ -78,6 +83,13 @@ public final class ReviewQueue: ObservableObject {
     // MARK: - Privado
 
     private func isCurrent(_ prID: String, _ jobID: UUID) -> Bool { jobs[prID] == jobID }
+
+    /// Una corrida cancelada cuyo Claude no se pudo confirmar parado en el host: la fila lo explica en vez de volver
+    /// a idle sin decir nada (el worktree queda allá; spec J). Solo si nada nuevo arrancó en ese PR.
+    private func notStopped(_ prID: String, _ error: Error) {
+        guard jobs[prID] == nil, phases[prID] == nil else { return }
+        phases[prID] = .failed(error.localizedDescription, logURL: (error as? ReviewFailure)?.logURL)
+    }
 
     private func update(_ prID: String, job jobID: UUID, phase: ReviewPhase) {
         guard isCurrent(prID, jobID), phase.isActive else { return }

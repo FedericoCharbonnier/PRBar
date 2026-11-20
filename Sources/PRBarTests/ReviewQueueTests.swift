@@ -247,6 +247,32 @@ enum ReviewQueueTests {
             try expectEqual(finished, [prID(1)])
             guard case .ready? = queue.phases[prID(1)] else { throw TestFailure(description: "esperaba .ready") }
         },
+        TestCase("review queue: si al cancelar no se pudo confirmar que Claude paró en el host, lo dice") { @MainActor in
+            let pipeline = StubbornPipeline()
+            let queue = ReviewQueue(pipeline: pipeline, maxConcurrent: 1) { _, _ in }
+            let notStopped = ReviewFailure(underlying: RemoteRunnerError.jobNotStopped(host: "devbox"), logURL: fakeLog)
+            queue.enqueue(request(1))
+            for _ in 0..<5_000 where pipeline.count < 1 { try? await Task.sleep(nanoseconds: 1_000_000) }
+            queue.cancel(prID: prID(1))
+            try expectEqual(queue.phases[prID(1)], nil)
+            pipeline.complete(run: 0, .failure(notStopped))
+            for _ in 0..<5_000 where queue.phases[prID(1)] == nil { try? await Task.sleep(nanoseconds: 1_000_000) }
+            guard case .failed(let message, let log)? = queue.phases[prID(1)] else {
+                throw TestFailure(description: "\(String(describing: queue.phases[prID(1)]))")
+            }
+            try expect(message.contains("Claude may still be running on devbox; PRBar won’t touch that worktree"), message)
+            try expectEqual(log, fakeLog)
+            // Una corrida nueva del mismo PR no se pisa con el aviso de la vieja.
+            queue.dismiss(prID: prID(1))
+            queue.enqueue(request(1))
+            for _ in 0..<5_000 where pipeline.count < 2 { try? await Task.sleep(nanoseconds: 1_000_000) }
+            queue.cancel(prID: prID(1))
+            queue.enqueue(request(1))
+            for _ in 0..<5_000 where pipeline.count < 3 { try? await Task.sleep(nanoseconds: 1_000_000) }
+            pipeline.complete(run: 1, .failure(notStopped))
+            try? await Task.sleep(nanoseconds: 20_000_000)
+            try expectEqual(queue.phases[prID(1)], .preparing)
+        },
         TestCase("review queue: cancel de uno en cola lo saca de la cola") { @MainActor in
             let h = try await threeQueued()
             h.queue.cancel(prID: prID(3))

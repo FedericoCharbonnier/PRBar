@@ -303,6 +303,7 @@ enum RemoteFlowTests {
             try expect(workspace.directory.path.hasPrefix(remote.root.work + "/"), workspace.directory.path)
             try expectEqual(workspace.diffFiles, ["feature.txt"])
             try expectEqual(workspace.note, nil)
+            try expectEqual(workspace.runner, "devbox")
             session.worktreePath = workspace.directory.path
             session.worktreeRefs = workspace.refs
             let again = try await service.workspace(ChatWorkspaceRequest(session: session, subject: .review(draft), pr: pr, localPath: nil))

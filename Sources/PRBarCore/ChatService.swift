@@ -38,9 +38,11 @@ public struct ChatWorkspace: Equatable, Sendable {
     public var refs: [String]
     /// Shown once in the conversation (for example, the reviewed commit isn't available).
     public var note: String?
+    /// The host where it is (`RunnerDestination.name`); nil = this Mac. The session keeps it (`ChatSession.runner`).
+    public var runner: String?
 
     public init(directory: URL, contextDirectory: URL, files: ChatContextFiles, diffFiles: Set<String>, isDiffOnly: Bool,
-                refs: [String], note: String?) {
+                refs: [String], note: String?, runner: String? = nil) {
         self.directory = directory
         self.contextDirectory = contextDirectory
         self.files = files
@@ -48,6 +50,7 @@ public struct ChatWorkspace: Equatable, Sendable {
         self.isDiffOnly = isDiffOnly
         self.refs = refs
         self.note = note
+        self.runner = runner
     }
 }
 
@@ -113,6 +116,12 @@ public struct ChatService: ChatBackend {
     // MARK: Workspace
 
     public func workspace(_ request: ChatWorkspaceRequest) async throws -> ChatWorkspace {
+        var workspace = try await preparedWorkspace(request)
+        workspace.runner = placement?.name
+        return workspace
+    }
+
+    private func preparedWorkspace(_ request: ChatWorkspaceRequest) async throws -> ChatWorkspace {
         switch request.subject {
         case .review(let draft):
             return try await pinnedWorkspace(account: draft.account, headOid: draft.headOid, request)
