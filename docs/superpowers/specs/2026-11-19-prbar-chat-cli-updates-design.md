@@ -778,6 +778,25 @@ Plan: `2026-11-19-prbar-plan-12-popover-tabs.md`. Va después de G.
 - Asignación de categorías a pestañas (incluido "Waiting for Review" = mis PRs `.other`), contadores por pestaña, estados vacíos.
 - Snapshots: popover en cada pestaña (claro/oscuro), y estados vacíos.
 
+### H.4 Decisiones de implementación (Plan 12)
+
+1. **"Mío"** = el autor del PR es la cuenta desde la que se ve (`pr.author` == `item.account`, sin distinguir mayúsculas). `ClassifiedPR` ya viene desduplicado desde la cuenta autora (`SnapshotBuilder.dedupeAndSort`).
+2. **Asignación:** `toReview`, `updatedSinceMyReview` → To Review; `myFeedback`, `readyToMerge` → My PRs; `other` → My PRs si es mío ("Waiting for Review"), si no To Review ("Other"). No hay categoría nueva en `PRCategory`: "Waiting for Review" es una **sección** (`PopoverSection.waitingForReview`) y la clasificación de §7 no cambia.
+3. **Contador N** de cada pestaña = PRs con `category.countsForBadge` en esa pestaña. Las dos suman exactamente `Snapshot.badgeCount` (hay un test). Other y Waiting for Review no cuentan.
+4. **Punto de acento:** el control segmentado nativo de macOS ignora colores en sus etiquetas, así que el "punto" es un carácter: la pestaña **no** elegida con N > 0 dice `My PRs 2 •`. VoiceOver: "My PRs, 2 need your action".
+5. **Estado vacío:** si una pestaña no tiene PRs accionables se ve su mensaje ("Nothing to review 🎉" / "No PRs of yours need anything"), y debajo, si tiene, su sección colapsada (Other / Waiting for Review), como hoy con "All Caught Up".
+6. **El control** se muestra solo cuando hay lista (hay snapshot, una cuenta activa y `gh`); con los mensajes de "Set Up an Account", "GitHub CLI not found", "Offline" o "Loading PRs…" no aparece.
+7. **Notificaciones:** hoy ninguna notificación abre el popover (abren GitHub o una ventana). El clic en cualquier notificación de **un** PR (las que tienen `PlannedNotification.prID`) deja elegida la pestaña de ese PR, así la próxima vez que se abra el popover está ahí; la acción de la notificación no cambia. Las agrupadas no tocan la pestaña.
+8. **`prbar app popover [--tab]`** elige la pestaña (y la guarda) y abre el popover haciendo clic en el botón de la barra de menú (`NSStatusBarButton.performClick`); si ya está abierto, solo trae la app al frente. Si no encuentra el botón (API privada de AppKit que puede cambiar), igual elige la pestaña y responde `shown: false`; la CLI dice "Selected My PRs. Click PRBar in the menu bar to see it."
+9. **`prbar prs --tab`** se combina con `--list`; una sección que no es de esa pestaña es error de uso (`--list mine isn’t in the To Review tab.`). `--list other --tab mine` = Waiting for Review. La columna "Section" de `prbar prs` muestra el título de la sección del popover (`Waiting for Review` en vez de `other` para mis PRs).
+10. **Protocolo 4:** `listPRs` lleva la pestaña. Una app vieja ignoraría el filtro sin avisar (devolvería todo), así que se sube la versión. `PRInfo.tab`/`section` y `StatusInfo.tabCounts` son opcionales para leer respuestas viejas.
+11. **UserDefaults** `popoverTab` guarda `to-review` o `mine`; un valor desconocido vuelve a To Review. El modo de capturas recuerda la pestaña solo en memoria (`AppModelServices.popoverDefaults = nil`, `PopoverTabState(defaults: nil)`): un dominio propio de `UserDefaults` dejaba un `.plist` en `~/Library/Preferences`, y las capturas no escriben fuera de su carpeta.
+12. **Subtítulo de Waiting for Review:** "waiting on reviewers" (el del plan, "no new feedback, not ready to merge", quedaba cortado en el ancho del popover).
+13. **El control** no se muestra tampoco con "Offline"/"GitHub Rate Limit" sin datos (snapshot que falló del todo y sin PRs), además de los casos de la decisión 6.
+14. **Lugar del pie de recursos (Plan 13):** en `PopoverView.body`, entre `content` y `UpdateRow`, marcado con un comentario.
+15. **Commits intermedios en verde:** para que cada commit compile y pase todos los tests, el comando `prbar app popover` (con su línea en `CLIRouter`) y la firma nueva de `AppModel.listPRs` entraron con el protocolo 4 (Task 3), con un `openPopover` provisorio en la app que la Task 5 completó; el test de `AppCommand.Name` pasa de 100 a 101 casos y el JSON estable de `PRInfo` incluye `section` y `tab`.
+16. **Capturas:** la selección del control segmentado no se ve en el modo de capturas (pasa igual con los segmentados de Settings: limitación del render fuera de pantalla); el `•` sí marca la pestaña no elegida.
+
 ---
 
 ## I. Recursos que consume PRBar
