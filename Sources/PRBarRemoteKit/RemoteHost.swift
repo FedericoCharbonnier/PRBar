@@ -415,7 +415,14 @@ public actor RemoteHost {
     }
 
     /// Guarda `data` cifrado para cada dispositivo en la ranura `slot` del buzón del relay.
-    public func putMailbox(slot: String, data: Data) {
+    /// Un blob del buzón viaja en un solo marco del relay (≤ 128 KiB de JSON, con `b` en base64): 90 KiB cifrados
+    /// dejan margen. Más grande no se guarda (el teléfono igual recibe el estado en vivo).
+    public static let maxMailboxBlob = 90 * 1024
+
+    /// Devuelve `false` si `data` no entra en el buzón.
+    @discardableResult
+    public func putMailbox(slot: String, data: Data) -> Bool {
+        guard data.count + 1024 <= Self.maxMailboxBlob else { return false }
         let now = clock()
         mailboxRev = max(mailboxRev + 1, Int(now.timeIntervalSince1970 * 1000))
         let blob = MailboxBlob(slot: slot, rev: mailboxRev, createdAt: now, data: data)
@@ -423,8 +430,10 @@ public actor RemoteHost {
             guard let push = try? Curve25519.KeyAgreement.PublicKey(rawRepresentation: device.push),
                   let sealed = try? blob.seal(from: config.keys.seal, to: push, account: config.accountId,
                                               device: device.deviceId) else { continue }
+            guard sealed.count <= Self.maxMailboxBlob else { return false }
             send(.mboxPut(to: device.deviceId, slot: slot, b: sealed))
         }
+        return true
     }
 
     /// Manda un push cifrado; devuelve el status HTTP de APNs que informa el relay.
