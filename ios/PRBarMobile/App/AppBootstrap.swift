@@ -3,38 +3,50 @@ import Foundation
 import PRBarMobileCore
 import PRBarMobileUI
 import PRBarRemoteKit
+import UIKit
 import UserNotifications
 
 /// Builds the app's object graph with the real keychain, cache and Face ID.
 ///
-/// The link to the Mac is the `RemoteTransport` seam (spec R.3, R.7): until `RemoteClient` (plan 17) and the Mac side
-/// (plan 18) exist, the app talks to a `FakeTransport` that answers with the design's sample data, and pairing uses
-/// `FakePairingService`. Wiring the relay means replacing `transport` and `pairingService` below with the live
-/// implementations; nothing else changes.
+/// The link to the Mac is the `RemoteTransport` seam (spec R.3, R.7): `LiveTransport` (RemoteKit's `RemoteClient`
+/// through the relay) and `LivePairingService`. Launched with `-demo` (screenshots, App Review), the app runs on
+/// `FakeTransport` with the design's sample data instead and never touches the network or the keychain.
 @MainActor
 enum AppBootstrap {
+    static var isDemo: Bool { ProcessInfo.processInfo.arguments.contains("-demo") }
+
     static func make() -> PhoneApp {
+        isDemo ? PhoneApp.demo() : live()
+    }
+
+    static func live() -> PhoneApp {
         let keychain = DeviceKeychain(backend: SystemKeychain(), accessGroup: keychainAccessGroup)
         let paired = try? keychain.loadMac()
         let cache = Cache(directory: cacheDirectory)
         let store = AppStore(cache: cache)
-
-        let transport = FakeTransport(linkOnConnect: .online)
-        PhoneApp.programDemo(transport)
-        if store.home == nil {
-            try? transport.emitState(Topic.home, rev: 1, Sample.home)
-        }
-        let pairingService = PhoneApp.demoPairing(mac: PairedMac(
-            accountId: RemoteIDs.newAccountId(), deviceId: RemoteIDs.newDeviceId(), relayHost: "relay.example.com",
-            macName: Sample.macName, macStatic: Data(count: 32), macSeal: Data(count: 32)))
-
+        let configuration = RemoteClient.Configuration(appVersion: shortVersion, deviceName: UIDevice.current.name,
+                                                       model: deviceModel)
+        let transport = LiveTransport(session: { keychain.loadSession() },
+                                      makeClient: LiveTransport.clientFactory(configuration: configuration))
         let connection = RemoteConnection(transport: transport, store: store, credentials: keychain,
                                           paired: paired != nil, macName: paired?.macName)
         let app = PhoneApp(connection: connection, authorizer: authorizer(keychain: keychain), keychain: keychain,
-                           pairingService: pairingService, makePresenceKey: makePresenceKey,
-                           notifications: SystemNotificationPermission(), appVersion: appVersion)
+                           pairingService: LivePairingService(configuration: configuration),
+                           makePresenceKey: makePresenceKey, notifications: SystemNotificationPermission(),
+                           appVersion: appVersion)
         connection.start()
         return app
+    }
+
+    static var shortVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
+    }
+
+    /// "iPhone17,1" (what the Mac lists next to the name).
+    static var deviceModel: String {
+        var info = utsname()
+        uname(&info)
+        return withUnsafeBytes(of: &info.machine) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
     }
 
     static var appVersion: String {

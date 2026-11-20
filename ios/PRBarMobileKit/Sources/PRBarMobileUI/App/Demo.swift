@@ -4,8 +4,8 @@ import PRBarMobileCore
 import PRBarRemoteKit
 import PRBarWire
 
-/// The app on a `FakeTransport` with the design's sample data: previews, snapshots, and the build that runs before
-/// the relay transport is wired (spec R.7).
+/// The app on a `FakeTransport` with the design's sample data: previews, snapshots, and the app launched with `-demo`
+/// (spec R.7). The real app uses `LiveTransport`.
 extension PhoneApp {
     public static func demo(paired: Bool = true, online: Bool = true, now: @escaping () -> Date = Date.init) -> PhoneApp {
         let transport = FakeTransport(linkOnConnect: online ? .online : .macOffline(since: Sample.now.addingTimeInterval(-86 * 60)))
