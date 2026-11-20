@@ -24,8 +24,12 @@ public final class JobScheduler<Key: Hashable & Sendable> {
     private var waiting: [Pending] = []
     private var running: [Key: Running] = [:]
 
-    public init(maxConcurrent: Int) {
+    /// Adonde van los trabajos vivos y su uso de Claude (spec O).
+    private let usageCenter: ClaudeUsageCenter
+
+    public init(maxConcurrent: Int, usageCenter: ClaudeUsageCenter = .shared) {
         self.maxConcurrent = max(1, maxConcurrent)
+        self.usageCenter = usageCenter
     }
 
     /// Encola `work` si `key` no está activa ni en cola; si no, devuelve false y no hace nada. `work` corre fuera
@@ -84,14 +88,19 @@ public final class JobScheduler<Key: Hashable & Sendable> {
         let onComplete = job.onComplete
         let onCancelledEnd = job.onCancelledEnd
         let activity = job.activity
+        let usageCenter = self.usageCenter
+        // Cada trabajo es una tarea de Activity (spec O.4.3): las corridas de Claude de adentro se suman a su sink.
+        let sink = ClaudeUsageSink(id: id, parent: nil)
+        usageCenter.beginJob(id, activity: activity)
         let task = Task { [weak self] in
             let result: Result<Void, Error>
             do {
-                try await ProcessActivity.$current.withValue(activity) { try await work() }
+                try await ProcessActivity.$current.withValue(activity) { try await sink.measure { try await work() } }
                 result = .success(())
             } catch {
                 result = .failure(error)
             }
+            usageCenter.endJob(id)
             self?.finish(key, id: id, result: result, onComplete: onComplete, onCancelledEnd: onCancelledEnd)
         }
         running[key] = Running(id: id, task: task)
