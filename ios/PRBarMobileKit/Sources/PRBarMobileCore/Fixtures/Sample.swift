@@ -22,22 +22,24 @@ public enum Sample {
 
     static func pr(_ id: String, _ title: String, author: String, base: String = "main", head: String,
                    ci: String = "success", add: Int, del: Int, minutes: Double, review: String? = nil,
-                   respond: String? = nil, section: PopoverSection, draft: Bool = false) -> PRInfo {
+                   respond: String? = nil, section: PopoverSection, draft: Bool = false, approvals: Int? = nil,
+                   files: Int? = nil) -> PRInfo {
         let parts = id.split(separator: "#")
         return PRInfo(id: id, repo: String(parts[0]), number: Int(parts[1])!, title: title, url: url(id), author: author,
                       account: me, category: section.category.rawValue, baseRef: base, headRef: head, isDraft: draft,
                       ci: ci, additions: add, deletions: del, updatedAt: ago(minutes), review: review, respond: respond,
-                      tab: section.tab, section: section)
+                      tab: section.tab, section: section, authorName: people[author], approvals: approvals,
+                      changedFiles: files)
     }
 
     // MARK: Home
 
     public static let webApp491 = pr("acme/web-app#491", "Add CSV export to the monthly reports page", author: "lmendez",
                                      base: "develop", head: "feat/csv-export", add: 214, del: 38, minutes: 8,
-                                     section: .toReview)
+                                     section: .toReview, files: 7)
     public static let api317 = pr("acme/api#317", "Refresh expired sessions without logging users out",
                                   author: "truiz", head: "fix/session-expiry", add: 46, del: 12, minutes: 12,
-                                  review: "reviewing", section: .toReview)
+                                  review: "reviewing", section: .toReview, files: 5)
     public static let webApp482 = pr("acme/web-app#482", "Cache dashboard queries per team", author: "apereira",
                                      head: "perf/dashboard-cache", add: 131, del: 54, minutes: 95, review: "ready",
                                      section: .updatedSinceMyReview)
@@ -45,7 +47,8 @@ public enum Sample {
                                      head: "perf/report-export", add: 88, del: 31, minutes: 120,
                                      section: .myFeedback)
     public static let api322 = pr("acme/api#322", "Make payment retries idempotent", author: me,
-                                  head: "feat/idempotent-retries", add: 96, del: 14, minutes: 40, section: .readyToMerge)
+                                  head: "feat/idempotent-retries", add: 96, del: 14, minutes: 40, section: .readyToMerge,
+                                  approvals: 2, files: 4)
     public static let webApp488 = pr("acme/web-app#488", "Move report jobs to the new queue", author: me,
                                      head: "chore/report-queue", ci: "failure", add: 57, del: 22, minutes: 20,
                                      section: .waitingForReview)
@@ -64,8 +67,9 @@ public enum Sample {
     public static let home = RemoteHome(
         status: status,
         prs: [webApp491, api317, webApp482, webApp475, api322, webApp488, api330, webApp493],
-        ci: [CIEntry(pr: "acme/web-app#488", title: webApp488.title, url: webApp488.url, account: me, failedChecks: 2)],
-        people: people, findingCounts: ["acme/web-app#482": 4], approvals: ["acme/api#322": 2])
+        ci: [CIListEntry(pr: "acme/web-app#488", title: webApp488.title, url: webApp488.url, account: me, phase: nil,
+                         respondInProgress: false, unavailableReason: nil, failedChecks: 2)],
+        findingCounts: ["acme/web-app#482": 4])
 
     // MARK: Review (api#317)
 
@@ -93,7 +97,7 @@ public enum Sample {
         summary: "Expired sessions now refresh in the background instead of logging people out. The flow works, but an expired refresh token is retried forever and two requests can refresh at once.",
         outdated: false, findings: findings)
 
-    public static let detail317 = RemotePRDetail(pr: api317, review: review317, chat: chatReview)
+    public static let detail317 = RemotePRDetail(pr: api317, review: review317, respond: nil, chat: chatReview)
 
     // MARK: Respond (web-app#475) and Fix CI (web-app#488)
 
@@ -111,36 +115,43 @@ public enum Sample {
     ]
 
     public static func respond475(phase: String) -> RespondInfo {
-        RespondInfo(pr: "acme/web-app#475", phase: phase, runningTests: false,
-                    title: webApp475.title, headRef: webApp475.headRef, items: respondItems, fixes: 2, replies: 2,
-                    commits: [], diffStat: "2 files changed, 15 insertions(+), 4 deletions(-)", sensitiveChanges: [],
-                    tests: phase == "readyToPush" ? TestInfo(command: "npm test", passed: true, outputTail: "142 passed") : nil,
-                    pushed: false, pendingReplies: 2, pushBlockedByTests: false)
+        var info = RespondInfo(pr: "acme/web-app#475", phase: phase, runningTests: false,
+                               title: webApp475.title, headRef: webApp475.headRef, items: respondItems, fixes: 2,
+                               replies: 2, commits: [], diffStat: "2 files changed, 15 insertions(+), 4 deletions(-)",
+                               sensitiveChanges: [],
+                               tests: phase == "readyToPush" ? TestInfo(command: "npm test", passed: true,
+                                                                        outputTail: "Tests: 142 passed, 142 total") : nil,
+                               pushed: false, pendingReplies: 2, pushBlockedByTests: false, mode: .feedback)
+        info.startedAt = ago(2.5)
+        info.currentFile = "src/reports/export.ts"
+        info.testSummary = phase == "readyToPush" ? "142 passed" : nil
+        return info
     }
 
     public static func detail475(phase: String = "implementing") -> RemotePRDetail {
-        RemotePRDetail(pr: webApp475, respond: respond475(phase: phase),
-                       respondExtras: RespondExtras(mode: "feedback", currentFile: "src/reports/export.ts",
-                                                    testSummary: phase == "readyToPush" ? "142 passed" : nil),
-                       chat: chatRespond)
+        RemotePRDetail(pr: webApp475, review: nil, respond: respond475(phase: phase), chat: chatRespond)
     }
 
-    public static let ciChecks: [CICheck] = [
-        CICheck(id: "1", name: "unit-tests", conclusion: "failure", duration: "2m 14s",
-                logExcerpt: ["FAIL src/jobs/report-queue.test.ts", "  ✕ enqueues one job per team (38 ms)",
-                             "    Expected: 3", "    Received: 0"]),
-        CICheck(id: "2", name: "lint", conclusion: "failure", duration: "41s",
-                logExcerpt: ["src/jobs/report-queue.ts", "  12:7  error  'legacyQueue' is defined but never used"]),
+    public static let ciChecks: [CICheckFailure] = [
+        CICheckFailure(id: "check:1", name: "unit-tests", conclusion: "failure", appName: "GitHub Actions",
+                       detailsURL: nil, hasLog: true, durationSeconds: 134,
+                       logExcerpt: ["FAIL src/jobs/report-queue.test.ts", "✕ enqueues one job per team (38 ms)",
+                                    "Expected: 3", "Received: 0"]),
+        CICheckFailure(id: "check:2", name: "lint", conclusion: "failure", appName: "GitHub Actions", detailsURL: nil,
+                       hasLog: true, durationSeconds: 41,
+                       logExcerpt: ["src/jobs/report-queue.ts", "12:7  error  'legacyQueue' is defined but never used"]),
     ]
 
     public static func detail488(phase: String = "analyzing") -> RemotePRDetail {
-        let info = RespondInfo(pr: "acme/web-app#488", phase: phase, runningTests: false, title: webApp488.title,
+        var info = RespondInfo(pr: "acme/web-app#488", phase: phase, runningTests: false, title: webApp488.title,
                                headRef: webApp488.headRef, items: [], fixes: 0, replies: 0, commits: [],
                                diffStat: phase == "readyToPush" ? "2 files changed, 6 insertions(+), 3 deletions(-)" : nil,
-                               sensitiveChanges: [], pushed: false, pendingReplies: 0, pushBlockedByTests: false)
-        return RemotePRDetail(pr: webApp488, respond: info,
-                              respondExtras: RespondExtras(mode: "ciFix", ciChecks: ciChecks, totalChecks: 9,
-                                                           testSummary: phase == "readyToPush" ? "142 passed" : nil))
+                               sensitiveChanges: [], pushed: false, pendingReplies: 0, pushBlockedByTests: false,
+                               mode: .ciFix, ciChecks: ciChecks)
+        info.totalChecks = 9
+        info.startedAt = ago(2)
+        info.testSummary = phase == "readyToPush" ? "142 passed" : nil
+        return RemotePRDetail(pr: webApp488, review: nil, respond: info, chat: nil)
     }
 
     public static let diff475 = RespondDiff(
@@ -240,17 +251,18 @@ public enum Sample {
         resources: ResourcesInfo(usage: ResourceUsage(cpuPercent: 38, memoryBytes: 11_200_000_000, processes: [],
                                                       sampledAt: now),
                                  disk: DiskUsage(items: [], scannedAt: now)),
-        usage: UsageDigest(month: .init(month: "2026-11", usage: UsageTotals(runs: 89, costUSD: 48.20),
-                                        byKind: ["review": UsageTotals(runs: 31, costUSD: 29.10),
-                                                 "respond": UsageTotals(runs: 12, costUSD: 14.60),
-                                                 "chat": UsageTotals(runs: 46, costUSD: 4.50, messages: 46)])),
+        usage: UsageInfo(month: UsageMonth(month: "2026-11", usage: ClaudeUsage(runs: 89, costUSD: 48.20),
+                                           byKind: ["review": ClaudeUsage(runs: 31, costUSD: 29.10),
+                                                    "respond": ClaudeUsage(runs: 12, costUSD: 14.60),
+                                                    "chat": ClaudeUsage(runs: 46, costUSD: 4.50)]),
+                         tasks: []),
         history: [],
-        system: SystemStats(cores: 12, memoryTotalBytes: 16_000_000_000, memoryUsedBytes: 11_200_000_000,
-                            diskFreeBytes: 212_000_000_000, diskTotalBytes: 512_000_000_000),
-        running: [RunningJob(pr: "acme/api#317", kind: "review", title: "Reviewing api#317", detail: "2 agents",
-                             startedAt: now.addingTimeInterval(-252), costUSD: 0.38),
-                  RunningJob(pr: "acme/web-app#488", kind: "respond", title: "Fixing CI on web-app#488",
-                             detail: "Running tests", startedAt: now.addingTimeInterval(-123), costUSD: 0.21)])
+        system: MacSystemInfo(cores: 12, memoryTotalBytes: 16_000_000_000, memoryUsedBytes: 11_200_000_000,
+                              diskFreeBytes: 212_000_000_000, diskTotalBytes: 512_000_000_000),
+        running: [RunningJobInfo(pr: "acme/api#317", kind: "review", title: api317.title, phase: "2 agents",
+                                 startedAt: now.addingTimeInterval(-252), costUSD: 0.38),
+                  RunningJobInfo(pr: "acme/web-app#488", kind: "respond", title: webApp488.title,
+                                 phase: "Running tests", startedAt: now.addingTimeInterval(-123), costUSD: 0.21)])
 
     // MARK: Settings
 
@@ -262,6 +274,6 @@ public enum Sample {
 
     public static let details: [String: RemotePRDetail] = [
         "acme/api#317": detail317, "acme/web-app#475": detail475(), "acme/web-app#488": detail488(),
-        "acme/api#322": RemotePRDetail(pr: api322, chat: chatMerge),
+        "acme/api#322": RemotePRDetail(pr: api322, review: nil, respond: nil, chat: chatMerge, slackChannel: "#api-reviews"),
     ]
 }

@@ -13,9 +13,8 @@ import PRBarRemoteKit
     static let qr = PairingQR(relayHost: "relay.example.com", accountId: String(repeating: "a", count: 26),
                               pairingId: String(repeating: "b", count: 16), secret: Data(repeating: 1, count: 32),
                               macStatic: Data(repeating: 2, count: 32), macName: Sample.macName)
-    static let mac = StoredPairedMac(accountId: qr.accountId, deviceId: "dev", relayHost: qr.relayHost,
-                                     macName: Sample.macName, macStatic: qr.macStatic, macSealKey: Data(count: 32),
-                                     pairedAt: Sample.now)
+    static let mac = PairedMac(accountId: qr.accountId, deviceId: "dev", relayHost: qr.relayHost,
+                                     macName: Sample.macName, macStatic: qr.macStatic, macSeal: Data(count: 32))
 
     struct Harness {
         let model: PairingModel
@@ -23,7 +22,7 @@ import PRBarRemoteKit
         let keychain: DeviceKeychain
         let backend: InMemoryKeychain
         let permission: Permission
-        let paired: () -> StoredPairedMac?
+        let paired: () -> PairedMac?
     }
 
     func harness(_ script: [Result<PairingProgress, PairingFailure>], hold: Bool = false) -> Harness {
@@ -31,7 +30,7 @@ import PRBarRemoteKit
         let backend = InMemoryKeychain()
         let keychain = DeviceKeychain(backend: backend, accessGroup: nil)
         let permission = Permission()
-        var result: StoredPairedMac?
+        var result: PairedMac?
         let presence = P256.Signing.PrivateKey()
         let model = PairingModel(service: service, keychain: keychain,
                                  makePresenceKey: { (presence.rawRepresentation, presence.publicKey.x963Representation) },
@@ -124,9 +123,8 @@ import PRBarRemoteKit
 
     @Test func aFailedReplacementKeepsTheExistingPairing() async throws {
         let h = harness([.success(.joining), .failure(.expired)])
-        let existing = StoredPairedMac(accountId: "old", deviceId: "old", relayHost: "relay.example.com",
-                                       macName: "Studio Mac", macStatic: Data(count: 32), macSealKey: Data(count: 32),
-                                       pairedAt: Sample.now)
+        let existing = PairedMac(accountId: "old", deviceId: "old", relayHost: "relay.example.com",
+                                       macName: "Studio Mac", macStatic: Data(count: 32), macSeal: Data(count: 32))
         let keys = StoredDeviceKeys.generate(presenceKey: Data([9]))
         try h.keychain.save(mac: existing)
         try h.keychain.save(keys: keys)

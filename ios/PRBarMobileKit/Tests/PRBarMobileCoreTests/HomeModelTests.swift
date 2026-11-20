@@ -63,7 +63,7 @@ import PRBarWire
     @Test func pullToRefreshSendsRefresh() async {
         let env = await TestEnv()
         await model(env).refresh()
-        #expect(env.transport.sentCommands == [.app(.refresh)])
+        #expect(env.transport.sentCommands == [.refresh])
     }
 
     @Test func rowActionsSendTheirCommands() async {
@@ -71,7 +71,7 @@ import PRBarWire
         let home = model(env)
         await home.startReview(Sample.webApp491)
         await home.fixCI(Sample.webApp488)
-        #expect(env.transport.sentCommands == [.app(.reviewStart(pr: "acme/web-app#491", wait: false)),
+        #expect(env.transport.sentCommands == [.reviewStart(pr: "acme/web-app#491", wait: false),
                                                 .ciFix(pr: "acme/web-app#488", wait: false)])
     }
 

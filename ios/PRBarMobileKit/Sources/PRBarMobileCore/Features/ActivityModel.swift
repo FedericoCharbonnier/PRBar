@@ -60,7 +60,7 @@ public final class ActivityModel {
         let usage = activity.resources.usage
         let system = activity.system
         let memory = system?.memoryUsedBytes ?? usage.memoryBytes
-        let disk = system.map { Int64($0.diskFreeBytes) } ?? activity.resources.disk.total
+        let disk = system?.diskFreeBytes ?? activity.resources.disk.total
         return [
             Tile(symbol: "cpu", title: "CPU", value: "\(Int(usage.cpuPercent.rounded()))%",
                  caption: system.map { "\($0.cores) cores" }, fraction: min(usage.cpuPercent / 100, 1), tone: .green),
@@ -78,14 +78,27 @@ public final class ActivityModel {
     public var running: [Task] {
         if let jobs = activity?.running {
             return jobs.map { job in
-                var parts = [job.detail, Format.clock(now().timeIntervalSince(job.startedAt))]
+                var parts = [job.phase]
+                if let start = job.startedAt { parts.append(Format.clock(now().timeIntervalSince(start))) }
                 if let cost = job.costUSD { parts.append("~" + Format.money(cost)) }
-                return Task(pr: job.pr, kind: job.kind, title: job.title, subtitle: parts.joined(separator: " · "))
+                return Task(pr: job.pr, kind: job.kind, title: title(kind: job.kind, pr: job.pr),
+                            subtitle: parts.joined(separator: " · "))
             }
         }
         return (connection.store.home?.status.jobs ?? []).map { job in
-            let verb = job.kind == "review" ? "Reviewing" : "Responding on"
-            return Task(pr: job.pr, kind: job.kind, title: "\(verb) \(Format.shortRef(job.pr))", subtitle: job.phase)
+            Task(pr: job.pr, kind: job.kind, title: title(kind: job.kind, pr: job.pr), subtitle: job.phase)
+        }
+    }
+
+    /// "Reviewing api#317", "Fixing CI on web-app#488", "Responding on web-app#475", "Merging api#322".
+    func title(kind: String, pr: String) -> String {
+        let ref = Format.shortRef(pr)
+        switch kind {
+        case "review": return "Reviewing \(ref)"
+        case "merge": return "Merging \(ref)"
+        default:
+            let ci = connection.store.home?.ci.contains { $0.pr == pr } ?? false
+            return ci ? "Fixing CI on \(ref)" : "Responding on \(ref)"
         }
     }
 
@@ -113,7 +126,8 @@ public final class ActivityModel {
         let total = max(month.usage.costUSD ?? 0, 0.0001)
         func row(_ key: String, _ title: String, _ tone: CostRow.Tone, messages: Bool = false) -> CostRow? {
             guard let usage = month.byKind[key] else { return nil }
-            let count = messages ? "\(usage.messages ?? usage.runs) msgs" : "\(usage.runs)"
+            // Each chat message is one Claude run.
+            let count = messages ? "\(usage.runs) msgs" : "\(usage.runs)"
             return CostRow(title: title, count: count, cost: Format.money(usage.costUSD ?? 0),
                            fraction: (usage.costUSD ?? 0) / total, tone: tone)
         }

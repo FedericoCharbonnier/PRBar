@@ -155,6 +155,10 @@ struct MergedView: View {
                 Text("Merged").font(.system(size: 30, weight: .bold)).foregroundStyle(Tokens.fg)
                 Text(verbatim: model.mergedMessage).font(Typo.callout).foregroundStyle(Tokens.fg2)
                     .multilineTextAlignment(.center)
+                if let channel = model.slackChannel {
+                    Label { Text(verbatim: "Posted in \(channel)") } icon: { Image(systemName: "number") }
+                        .font(Typo.footnote).foregroundStyle(Tokens.fg2)
+                }
             }
             .padding(.horizontal, 24)
             Spacer()

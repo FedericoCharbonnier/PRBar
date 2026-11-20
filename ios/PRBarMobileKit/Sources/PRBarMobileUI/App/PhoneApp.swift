@@ -54,7 +54,7 @@ public final class PhoneApp {
         }
     }
 
-    func didPair(_ mac: StoredPairedMac) {
+    func didPair(_ mac: PairedMac) {
         isPairingSheetPresented = false
         connection.didPair(macName: mac.macName)
         Task { await connection.enterForeground() }

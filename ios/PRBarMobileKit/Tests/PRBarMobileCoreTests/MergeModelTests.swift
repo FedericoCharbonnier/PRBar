@@ -19,7 +19,7 @@ import PRBarWire
         let env = await env()
         let model = MergeModel(pr: pr, connection: env.connection, runner: env.runner)
         await model.load()
-        #expect(env.transport.sentCommands == [.app(.mergePreview(pr: pr, method: nil))])
+        #expect(env.transport.sentCommands == [.mergePreview(pr: pr, method: nil)])
         #expect(model.method == .squash)
         #expect(model.reviewers.map(\.name) == ["Laura Méndez", "Tomás Ruiz"])
         #expect(model.reviewers.allSatisfy { $0.approved })
@@ -38,7 +38,7 @@ import PRBarWire
         model.method = .rebase
         await model.merge()
         let sent = try #require(env.transport.sent.last)
-        #expect(sent.command == .app(.merge(pr: pr, method: .rebase, confirmed: true, expectedHeadOid: "9f3c2a1")))
+        #expect(sent.command == .merge(pr: pr, method: .rebase, confirmed: true, expectedHeadOid: "9f3c2a1"))
         try env.verify(sent)
         #expect(env.authorizer.reasons == ["Merge acme/api#322"])
         #expect(model.merged != nil)
@@ -53,7 +53,7 @@ import PRBarWire
         await model.merge()
         #expect(model.alert == "The PR changed since you looked at it.")
         #expect(model.merged == nil)
-        #expect(env.transport.sentCommands.filter { $0.name == "mergePreview" }.count == 2)
+        #expect(env.transport.sentCommands.filter { $0.name.rawValue == "mergePreview" }.count == 2)
     }
 
     @Test func cancellingFaceIDMergesNothing() async {
@@ -62,7 +62,7 @@ import PRBarWire
         let model = MergeModel(pr: pr, connection: env.connection, runner: env.runner)
         await model.load()
         await model.merge()
-        #expect(!env.transport.sentCommands.contains { $0.name == "merge" })
+        #expect(!env.transport.sentCommands.contains { $0.name.rawValue == "merge" })
         #expect(model.alert == nil)
     }
 
@@ -70,6 +70,6 @@ import PRBarWire
         let env = await env()
         let model = MergeModel(pr: pr, connection: env.connection, runner: env.runner)
         await model.dismissError()
-        #expect(env.transport.sentCommands == [.app(.mergeDismiss(pr: pr))])
+        #expect(env.transport.sentCommands == [.mergeDismiss(pr: pr)])
     }
 }

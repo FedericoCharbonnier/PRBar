@@ -135,7 +135,10 @@ public final class ChatModel {
         bubbles[index].text += delta
     }
 
+    /// A chat continued on the Mac. While this iPhone's own `chatSend` runs, its text arrives as that command's
+    /// events, and the Mac's `chatDelta` for the same PR would repeat it (spec Q.4): ignored.
     private func receiveRemote(_ text: String) {
+        guard !isStreaming else { return }
         if let id = remoteBubble, bubbles.contains(where: { $0.id == id }) {
             append(text, to: id)
         } else {

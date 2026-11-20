@@ -18,7 +18,7 @@ import PRBarWire
                                                   "Ready to merge", "CI failed on my PRs"])
         #expect(settings.toggles.allSatisfy { $0.isOn })
         await settings.set(.readyToMerge, false)
-        #expect(env.transport.sentCommands.last == .app(.notifySet(kind: .readyToMerge, enabled: false)))
+        #expect(env.transport.sentCommands.last == .notifySet(kind: .readyToMerge, enabled: false))
         #expect(settings.toggles.first { $0.kind == .readyToMerge }?.isOn == false)
     }
 
@@ -40,7 +40,7 @@ import PRBarWire
         #expect(env.transport.sent.last?.presence == nil)
         await settings.setRequirePresence(false)
         let sent = try #require(env.transport.sent.last)
-        #expect(sent.command == .remoteSetPresenceRequirement(enabled: false))
+        #expect(sent.command == .presenceRequirement(enabled: false))
         try env.verify(sent)
         #expect(env.authorizer.reasons == ["Turn off Face ID for merge, push and approve"])
     }

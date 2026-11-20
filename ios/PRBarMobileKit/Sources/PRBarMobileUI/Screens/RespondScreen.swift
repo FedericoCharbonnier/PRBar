@@ -170,7 +170,7 @@ struct CommentCard: View {
 }
 
 struct CheckCard: View {
-    let check: CICheck
+    let check: CICheckFailure
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -178,7 +178,7 @@ struct CheckCard: View {
                 Image(systemName: "xmark.octagon.fill").foregroundStyle(Tokens.red)
                 Text(verbatim: check.name).font(Typo.bodyBold).foregroundStyle(Tokens.fg)
                 Spacer()
-                if let duration = check.duration { Text(verbatim: duration).font(Typo.footnote).foregroundStyle(Tokens.fg2) }
+                if let duration = RespondModel.duration(check) { Text(verbatim: duration).font(Typo.footnote).foregroundStyle(Tokens.fg2) }
             }
             if let lines = check.logExcerpt, !lines.isEmpty {
                 VStack(alignment: .leading, spacing: 3) {

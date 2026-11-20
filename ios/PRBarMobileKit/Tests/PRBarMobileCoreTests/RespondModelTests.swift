@@ -18,9 +18,9 @@ import PRBarWire
         await model.toggle(model.items[0])
         await model.implement()
         #expect(env.transport.sentCommands == [
-            .app(.respondStart(pr: pr, wait: false)),
-            .app(.respondSelect(pr: pr, items: ["c1"], change: RespondSelectionChange(implement: false))),
-            .app(.respondImplement(pr: pr, wait: false)),
+            .respondStart(pr: pr, wait: false),
+            .respondSelect(pr: pr, items: ["c1"], change: RespondSelectionChange(implement: false)),
+            .respondImplement(pr: pr, wait: false),
         ])
         #expect(model.selectionSummary == "2 of 2 selected")
         #expect(model.headerStatus.text == "Changes requested by Laura Méndez")
@@ -41,7 +41,7 @@ import PRBarWire
         env.transport.respond(to: "respondDiff", with: Sample.diff475)
         let model = RespondModel(pr: pr, mode: .feedback, connection: env.connection, runner: env.runner)
         await model.loadDiff()
-        #expect(env.transport.sentCommands == [.app(.respondDiff(pr: pr))])
+        #expect(env.transport.sentCommands == [.respondDiff(pr: pr)])
         #expect(model.diffFiles.map(\.name) == ["export.ts", "export.test.ts"])
         #expect(model.selectedDiff?.additions == 9)
         #expect(model.headerStatus.text == "2 files · tests passing")
@@ -52,7 +52,7 @@ import PRBarWire
         let env = await env(phase: "readyToPush")
         let model = RespondModel(pr: pr, mode: .feedback, connection: env.connection, runner: env.runner)
         await model.runTests()
-        #expect(env.transport.sentCommands == [.app(.respondTest(pr: pr, wait: false))])
+        #expect(env.transport.sentCommands == [.respondTest(pr: pr, wait: false)])
     }
 
     @Test func pushAsksForFaceID() async throws {
@@ -62,7 +62,7 @@ import PRBarWire
         #expect(model.canPush)
         await model.push()
         let sent = try #require(env.transport.sent.first)
-        #expect(sent.command == .app(.respondPush(pr: pr, confirmed: true, wait: false)))
+        #expect(sent.command == .respondPush(pr: pr, confirmed: true, wait: false))
         try env.verify(sent)
         #expect(env.authorizer.reasons == ["Push acme/web-app#475"])
     }
@@ -75,7 +75,7 @@ import PRBarWire
         #expect(model.primaryTitle == "Push Anyway")
         await model.push()
         let sent = try #require(env.transport.sent.first)
-        #expect(sent.command == .app(.respondPushAnyway(pr: pr, confirmed: true, wait: false)))
+        #expect(sent.command == .respondPushAnyway(pr: pr, confirmed: true, wait: false))
         try env.verify(sent)
     }
 
@@ -89,7 +89,7 @@ import PRBarWire
         #expect(!model.primaryNeedsFaceID)
         await model.push()
         let sent = try #require(env.transport.sent.first)
-        #expect(sent.command == .app(.respondReplyOnly(pr: pr, confirmed: true, wait: false)))
+        #expect(sent.command == .respondReplyOnly(pr: pr, confirmed: true, wait: false))
         #expect(sent.presence == nil)
     }
 
@@ -118,13 +118,13 @@ import PRBarWire
         let env = await env(phase: "implementing")
         let model = RespondModel(pr: pr, mode: .feedback, connection: env.connection, runner: env.runner)
         await model.stop()
-        #expect(env.transport.sentCommands == [.app(.respondCancel(pr: pr))])
+        #expect(env.transport.sentCommands == [.respondCancel(pr: pr)])
     }
 
     @Test func undoAsksToConfirmWhenThereAreManualEdits() async {
         let env = await env(phase: "readyToPush")
         env.transport.respond(to: "chatUndo") { command in
-            if case .app(.chatUndo(_, false)) = command {
+            if case .chatUndo(_, false) = command {
                 throw CommandFailure(.confirmationRequired, "Undo will also discard your manual edits since then.")
             }
             return .ok
@@ -133,8 +133,8 @@ import PRBarWire
         await model.undo()
         #expect(model.undoConfirmation == "Undo will also discard your manual edits since then.")
         await model.confirmUndo()
-        #expect(env.transport.sentCommands == [.app(.chatUndo(pr: pr, confirmed: false)),
-                                                .app(.chatUndo(pr: pr, confirmed: true))])
+        #expect(env.transport.sentCommands == [.chatUndo(pr: pr, confirmed: false),
+                                                .chatUndo(pr: pr, confirmed: true)])
         #expect(model.undoConfirmation == nil)
     }
 }

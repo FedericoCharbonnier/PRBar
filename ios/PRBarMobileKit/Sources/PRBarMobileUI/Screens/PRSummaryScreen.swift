@@ -15,7 +15,7 @@ struct PRSummaryScreen: View {
                 NavHeader { GlassCircleButton("chevron.left", label: "Back") { dismiss() } } trailing: { EmptyView() }
                     .padding(.horizontal, -Metrics.gutter)
                 PRHeader(prID: pr, info: info,
-                         authorName: info.map { app.connection.store.home?.people?[$0.author] ?? $0.author } ?? "")
+                         authorName: info.map { app.connection.store.home?.displayName($0.author) ?? $0.author } ?? "")
                 if let url = info?.url {
                     TintedButton("Open in GitHub", symbol: "arrow.up.right", height: 54) { openURL(url) }
                 }

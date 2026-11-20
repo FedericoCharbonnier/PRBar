@@ -41,8 +41,8 @@ public struct Cache: Sendable {
 
     public func loadHome() -> Entry<RemoteHome>? { read(homeURL) }
 
-    public func savePR(_ detail: RemotePRDetail, rev: Int, at date: Date) throws {
-        let url = prDirectory.appendingPathComponent(Self.fileName(forPR: detail.pr.id))
+    public func savePR(_ detail: RemotePRDetail, id: String, rev: Int, at date: Date) throws {
+        let url = prDirectory.appendingPathComponent(Self.fileName(forPR: id))
         try write(Entry(rev: rev, savedAt: date, value: detail), to: url)
         try trimPRs()
     }

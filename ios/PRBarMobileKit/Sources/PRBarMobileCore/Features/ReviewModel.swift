@@ -83,7 +83,7 @@ public final class ReviewModel {
 
     public var authorName: String {
         guard let author = info?.author else { return "" }
-        return connection.store.home?.people?[author] ?? author
+        return connection.store.home?.displayName(author) ?? author
     }
 
     public var isRunning: Bool {

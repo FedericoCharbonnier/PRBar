@@ -15,9 +15,9 @@ extension PhoneApp {
         let keychain = DeviceKeychain(backend: InMemoryKeychain(), accessGroup: nil)
         let connection = RemoteConnection(transport: transport, store: store, credentials: keychain, paired: paired,
                                           macName: Sample.macName)
-        let mac = StoredPairedMac(accountId: RemoteIDs.newAccountId(), deviceId: RemoteIDs.newDeviceId(),
+        let mac = PairedMac(accountId: RemoteIDs.newAccountId(), deviceId: RemoteIDs.newDeviceId(),
                                   relayHost: "relay.example.com", macName: Sample.macName, macStatic: Data(count: 32),
-                                  macSealKey: Data(count: 32), pairedAt: Date())
+                                  macSeal: Data(count: 32))
         let pairing = demoPairing(mac: mac)
         let app = PhoneApp(connection: connection, authorizer: SoftwarePresenceAuthorizer(), keychain: keychain,
                            pairingService: pairing,
@@ -33,7 +33,7 @@ extension PhoneApp {
     }
 
     /// Pairing that "joins", shows 482 913, and pairs once the codes are confirmed.
-    public static func demoPairing(mac: StoredPairedMac) -> FakePairingService {
+    public static func demoPairing(mac: PairedMac) -> FakePairingService {
         FakePairingService(script: [.success(.joining), .success(.code("482 913")), .success(.paired(mac))],
                            delayBeforeLast: .seconds(6))
     }
@@ -41,7 +41,7 @@ extension PhoneApp {
     /// Answers every command the screens send with the sample data.
     public static func programDemo(_ transport: FakeTransport) {
         transport.respond(to: "reviewPublish") { command in
-            guard case .app(.reviewPublish(let pr, _, _, _, _, _)) = command else { return .ok }
+            guard case .reviewPublish(let pr, _, _, _, _, _) = command else { return .ok }
             return try JSONValue(encoding: PublishedReviewInfo(pr: pr, url: URL(string: "https://github.com/acme/api/pull/317")!,
                                                                action: "posted", comments: 3, publishedAt: Date()))
         }
@@ -51,7 +51,7 @@ extension PhoneApp {
                                                        url: URL(string: "https://github.com/acme/api/pull/322")!))
         transport.respond(to: "notifyList", with: Sample.notifications)
         transport.respond(to: "chatShow") { command in
-            guard case .app(.chatShow(let pr)) = command else { return .ok }
+            guard case .chatShow(let pr) = command else { return .ok }
             let chat = Sample.details[pr]?.chat ?? ChatInfo(pr: pr, kind: "review", readOnly: false, running: false,
                                                              lockReason: nil, messages: [])
             return try JSONValue(encoding: chat)

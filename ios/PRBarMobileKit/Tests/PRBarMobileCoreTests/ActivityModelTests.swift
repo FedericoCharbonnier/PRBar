@@ -41,7 +41,7 @@ import PRBarWire
         env.store.apply(RemoteStateUpdate(topic: Topic.activity, rev: 1, data: try JSONValue(encoding: Sample.activity)))
         let activity = model(env)
         for task in activity.running { await activity.stop(task) }
-        #expect(env.transport.sentCommands == [.app(.reviewCancel(pr: "acme/api#317")),
-                                                .app(.respondCancel(pr: "acme/web-app#488"))])
+        #expect(env.transport.sentCommands == [.reviewCancel(pr: "acme/api#317"),
+                                                .respondCancel(pr: "acme/web-app#488")])
     }
 }

@@ -72,7 +72,7 @@ public final class SettingsModel {
     /// On: no Face ID. Off: Face ID first (spec P.8). The Mac answers with a new `presencePolicy`.
     public func setRequirePresence(_ enabled: Bool) async {
         do {
-            try await runner.run(.remoteSetPresenceRequirement(enabled: enabled),
+            try await runner.run(.presenceRequirement(enabled: enabled),
                                  reason: "Turn off Face ID for merge, push and approve")
         } catch .presenceCancelled {
             return

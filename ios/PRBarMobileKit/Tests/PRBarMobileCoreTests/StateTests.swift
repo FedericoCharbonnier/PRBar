@@ -8,7 +8,7 @@ import PRBarWire
     @Test func writesHomeAndPRsAndWipes() throws {
         let cache = Cache(directory: tempDirectory())
         try cache.saveHome(Sample.home, rev: 7, at: Sample.now)
-        try cache.savePR(Sample.detail317, rev: 3, at: Sample.now)
+        try cache.savePR(Sample.detail317, id: "acme/api#317", rev: 3, at: Sample.now)
         #expect(cache.loadHome()?.rev == 7)
         #expect(cache.loadHome()?.value == Sample.home)
         #expect(cache.loadPR("acme/api#317")?.value == Sample.detail317)
@@ -24,8 +24,8 @@ import PRBarWire
         let cache = Cache(directory: tempDirectory(), maxPRs: 3)
         for n in 1...5 {
             var detail = Sample.detail317
-            detail.pr.id = "acme/api#\(n)"
-            try cache.savePR(detail, rev: n, at: Sample.now.addingTimeInterval(Double(n)))
+            detail.pr?.id = "acme/api#\(n)"
+            try cache.savePR(detail, id: detail.pr!.id, rev: n, at: Sample.now.addingTimeInterval(Double(n)))
         }
         #expect(cache.cachedPRCount == 3)
         #expect(cache.loadPR("acme/api#1") == nil)

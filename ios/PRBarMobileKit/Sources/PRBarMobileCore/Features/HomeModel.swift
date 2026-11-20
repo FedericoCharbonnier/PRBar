@@ -133,7 +133,7 @@ public final class HomeModel {
         if collapsed.contains(section.id) { collapsed.remove(section.id) } else { collapsed.insert(section.id) }
     }
 
-    func displayName(_ login: String, home: RemoteHome) -> String { home.people?[login] ?? login }
+    func displayName(_ login: String, home: RemoteHome) -> String { home.displayName(login) }
 
     func row(_ pr: PRInfo, section: PopoverSection?, home: RemoteHome) -> Row {
         let name = displayName(pr.author, home: home)
@@ -169,7 +169,7 @@ public final class HomeModel {
                 if running, let job { status = .working(job.phase) }
             case .readyToMerge:
                 leading = .state(.ready)
-                let approvals = home.approvals?[pr.id]
+                let approvals = pr.approvals
                 status = .approved((approvals.map { "Approved by \($0)" } ?? "Approved") + " · checks passing")
                 action = .merge
             default:
@@ -217,7 +217,7 @@ public final class HomeModel {
 
     public func refresh() async {
         guard !isOffline else { return }
-        await perform(.app(.refresh))
+        await perform(.refresh)
     }
 
     public func tryAgain() async {
@@ -225,14 +225,14 @@ public final class HomeModel {
     }
 
     public func startReview(_ pr: PRInfo) async {
-        await perform(.app(.reviewStart(pr: pr.id, wait: false)))
+        await perform(.reviewStart(pr: pr.id, wait: false))
     }
 
     public func fixCI(_ pr: PRInfo) async {
         await perform(.ciFix(pr: pr.id, wait: false))
     }
 
-    private func perform(_ command: RemoteCommand) async {
+    private func perform(_ command: AppCommand) async {
         do {
             try await runner.run(command)
         } catch {

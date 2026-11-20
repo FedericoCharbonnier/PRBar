@@ -26,7 +26,7 @@ import PRBarWire
         let model = ReviewModel(pr: pr, connection: env.connection, runner: env.runner)
         #expect(model.review == nil)
         await model.startReview()
-        #expect(env.transport.sentCommands == [.app(.reviewStart(pr: pr, wait: false))])
+        #expect(env.transport.sentCommands == [.reviewStart(pr: pr, wait: false)])
     }
 
     @Test func findingsAreNumberedLikeTheMacAndCountIncluded() async {
@@ -36,7 +36,7 @@ import PRBarWire
         #expect(model.includedSummary == "3 of 4 included")
         await model.setIncluded(model.findings[3], true)
         #expect(model.includedSummary == "4 of 4 included")
-        #expect(env.transport.sentCommands == [.app(.reviewSetIncluded(pr: pr, findings: ["f4"], all: false, included: true))])
+        #expect(env.transport.sentCommands == [.reviewSetIncluded(pr: pr, findings: ["f4"], all: false, included: true)])
     }
 
     @Test func editAndGeneralComment() async {
@@ -45,8 +45,8 @@ import PRBarWire
         #expect(await model.saveEdit(model.findings[0], body: "Stop after the first 401."))
         await model.setGeneralComment("Nice work overall.")
         #expect(env.transport.sentCommands == [
-            .app(.reviewEdit(pr: pr, finding: "f1", title: nil, body: "Stop after the first 401.")),
-            .app(.reviewSetComment(pr: pr, text: "Nice work overall.")),
+            .reviewEdit(pr: pr, finding: "f1", title: nil, body: "Stop after the first 401."),
+            .reviewSetComment(pr: pr, text: "Nice work overall."),
         ])
     }
 
@@ -58,8 +58,8 @@ import PRBarWire
         model.decision = decision
         await model.post()
         let sent = try #require(env.transport.sent.first)
-        #expect(sent.command == .app(.reviewPublish(pr: pr, event: decision.event, only: nil, withComments: true,
-                                                    allInBody: false, confirmed: true)))
+        #expect(sent.command == .reviewPublish(pr: pr, event: decision.event, only: nil, withComments: true,
+                                                    allInBody: false, confirmed: true))
         #expect(sent.presence == nil)
         #expect(env.authorizer.reasons.isEmpty)
         #expect(model.posted?.decision == decision)
@@ -73,8 +73,8 @@ import PRBarWire
         await model.post()
         #expect(env.authorizer.reasons == ["Approve acme/api#317"])
         let sent = try #require(env.transport.sent.first)
-        #expect(sent.command == .app(.reviewPublish(pr: pr, event: .approve, only: nil, withComments: true,
-                                                    allInBody: false, confirmed: true)))
+        #expect(sent.command == .reviewPublish(pr: pr, event: .approve, only: nil, withComments: true,
+                                                    allInBody: false, confirmed: true))
         try env.verify(sent)
         let posted = try #require(model.posted)
         #expect(posted.message(prRef: "api#317") == "Approved api#317 with 3 comments.")
@@ -128,7 +128,7 @@ import PRBarWire
         let model = ReviewModel(pr: pr, connection: env.connection, runner: env.runner)
         await model.cancelReview()
         await model.dismissReview()
-        #expect(env.transport.sentCommands == [.app(.reviewCancel(pr: pr)), .app(.reviewDismiss(pr: pr))])
+        #expect(env.transport.sentCommands == [.reviewCancel(pr: pr), .reviewDismiss(pr: pr)])
     }
 
     @Test func offlineCannotPost() async {

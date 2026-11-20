@@ -10,7 +10,7 @@ public enum PairingProgress: Equatable, Sendable {
     /// The 6-digit code both screens show (`SAS.display`, "123 456").
     case code(String)
     /// The Mac confirmed: what it handed over.
-    case paired(StoredPairedMac)
+    case paired(PairedMac)
 }
 
 public enum PairingFailure: Error, Equatable, Sendable {
@@ -66,14 +66,14 @@ public final class PairingModel {
     @ObservationIgnored private let keychain: DeviceKeychain
     @ObservationIgnored private let makePresenceKey: @Sendable () throws -> (keyData: Data, publicKey: Data)
     @ObservationIgnored private let notifications: any NotificationPermission
-    @ObservationIgnored private let onPaired: @MainActor (StoredPairedMac) -> Void
+    @ObservationIgnored private let onPaired: @MainActor (PairedMac) -> Void
     @ObservationIgnored private var session: Task<Void, Never>?
     @ObservationIgnored private var mismatch = false
     @ObservationIgnored private var pendingQR: PairingQR?
 
     public init(service: any PairingService, keychain: DeviceKeychain,
                 makePresenceKey: @escaping @Sendable () throws -> (keyData: Data, publicKey: Data),
-                notifications: any NotificationPermission, onPaired: @escaping @MainActor (StoredPairedMac) -> Void) {
+                notifications: any NotificationPermission, onPaired: @escaping @MainActor (PairedMac) -> Void) {
         self.service = service
         self.keychain = keychain
         self.makePresenceKey = makePresenceKey

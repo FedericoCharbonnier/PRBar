@@ -38,10 +38,10 @@ public struct ActionRunner {
 
     /// `reason` is the Face ID prompt ("Approve acme/api#317"); it is only used for gated commands.
     @discardableResult
-    public func run(_ command: RemoteCommand, reason: String? = nil,
+    public func run(_ command: AppCommand, reason: String? = nil,
                     onEvent: ((CommandEvent) -> Void)? = nil) async throws(ActionError) -> JSONValue {
         let signer: (any PresenceSigner)? = command.needsPresence && connection.requirePresence
-            ? authorizer.signer(reason: reason ?? command.name) : nil
+            ? authorizer.signer(reason: reason ?? command.name.rawValue) : nil
         let (stream, continuation) = AsyncStream.makeStream(of: CommandEvent.self)
         let pump = Task { @MainActor in
             for await event in stream { onEvent?(event) }
@@ -66,12 +66,6 @@ public struct ActionRunner {
         } catch {
             throw .failed(error.localizedDescription)
         }
-    }
-
-    @discardableResult
-    public func run(_ command: AppCommand, reason: String? = nil,
-                    onEvent: ((CommandEvent) -> Void)? = nil) async throws(ActionError) -> JSONValue {
-        try await run(.app(command), reason: reason, onEvent: onEvent)
     }
 }
 

@@ -24,9 +24,9 @@ enum AppBootstrap {
         if store.home == nil {
             try? transport.emitState(Topic.home, rev: 1, Sample.home)
         }
-        let pairingService = PhoneApp.demoPairing(mac: StoredPairedMac(
+        let pairingService = PhoneApp.demoPairing(mac: PairedMac(
             accountId: RemoteIDs.newAccountId(), deviceId: RemoteIDs.newDeviceId(), relayHost: "relay.example.com",
-            macName: Sample.macName, macStatic: Data(count: 32), macSealKey: Data(count: 32), pairedAt: Date()))
+            macName: Sample.macName, macStatic: Data(count: 32), macSeal: Data(count: 32)))
 
         let connection = RemoteConnection(transport: transport, store: store, credentials: keychain,
                                           paired: paired != nil, macName: paired?.macName)

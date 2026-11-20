@@ -7,13 +7,13 @@ import PRBarWire
 /// transport will), and manual emission of state, chat deltas and link changes.
 public final class FakeTransport: RemoteTransport, @unchecked Sendable {
     public struct Sent: Equatable, Sendable {
-        public var command: RemoteCommand
+        public var command: AppCommand
         public var reqId: UInt64
         public var presence: PresenceProof?
         public var commandBytes: Data
     }
 
-    public typealias Responder = @Sendable (RemoteCommand) throws -> JSONValue
+    public typealias Responder = @Sendable (AppCommand) throws -> JSONValue
 
     /// The Noise handshake hash the fake session pretends to have (presence proofs are bound to it).
     public let sessionHash = Data(repeating: 0x5A, count: 32)
@@ -77,7 +77,7 @@ public final class FakeTransport: RemoteTransport, @unchecked Sendable {
     // MARK: Inspection
 
     public var sent: [Sent] { lock.withLock { _sent } }
-    public var sentCommands: [RemoteCommand] { sent.map(\.command) }
+    public var sentCommands: [AppCommand] { sent.map(\.command) }
     public var subscriptions: [[String]] { lock.withLock { _subscriptions } }
     public var connectCount: Int { lock.withLock { _connects } }
     public var disconnectCount: Int { lock.withLock { _disconnects } }
@@ -101,7 +101,7 @@ public final class FakeTransport: RemoteTransport, @unchecked Sendable {
         lock.withLock { _subscriptions.append(topics) }
     }
 
-    public func send(_ command: RemoteCommand, presence: (any PresenceSigner)?,
+    public func send(_ command: AppCommand, presence: (any PresenceSigner)?,
                      events: (@Sendable (CommandEvent) -> Void)?) async throws -> JSONValue {
         let reqId = lock.withLock { () -> UInt64 in
             defer { nextReqId += 1 }
@@ -116,7 +116,7 @@ public final class FakeTransport: RemoteTransport, @unchecked Sendable {
         }
         let (responder, scripted) = lock.withLock { () -> (Responder?, [CommandEvent]) in
             _sent.append(Sent(command: command, reqId: reqId, presence: proof, commandBytes: bytes))
-            return (responders[command.name], scriptedEvents[command.name] ?? [])
+            return (responders[command.name.rawValue], scriptedEvents[command.name.rawValue] ?? [])
         }
         for event in scripted { events?(event) }
         return try responder?(command) ?? .ok

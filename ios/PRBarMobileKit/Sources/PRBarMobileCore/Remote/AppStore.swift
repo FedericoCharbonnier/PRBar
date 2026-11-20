@@ -64,8 +64,9 @@ public final class AppStore {
                 activity = try update.data.decode(RemoteActivity.self)
             case let topic where topic.hasPrefix("pr:"):
                 let detail = try update.data.decode(RemotePRDetail.self)
-                details[String(topic.dropFirst(3))] = detail
-                try? cache?.savePR(detail, rev: update.rev, at: now())
+                let id = String(topic.dropFirst(3))
+                details[id] = detail
+                try? cache?.savePR(detail, id: id, rev: update.rev, at: now())
             default:
                 return false
             }

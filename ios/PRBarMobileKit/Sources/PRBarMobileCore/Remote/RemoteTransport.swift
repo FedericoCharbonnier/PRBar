@@ -39,7 +39,7 @@ public protocol RemoteTransport: AnyObject, Sendable {
     func disconnect() async
     /// Replaces the subscribed topic set (`sub`).
     func subscribe(_ topics: [String]) async
-    func send(_ command: RemoteCommand, presence: (any PresenceSigner)?,
+    func send(_ command: AppCommand, presence: (any PresenceSigner)?,
               events: (@Sendable (CommandEvent) -> Void)?) async throws -> JSONValue
     /// The latest mailbox `home` blob, already opened (HPKE), when the Mac is offline.
     func fetchMailbox() async throws -> RemoteStateUpdate?
@@ -49,12 +49,7 @@ public protocol RemoteTransport: AnyObject, Sendable {
 }
 
 public extension RemoteTransport {
-    func send(_ command: AppCommand, presence: (any PresenceSigner)? = nil,
-              events: (@Sendable (CommandEvent) -> Void)? = nil) async throws -> JSONValue {
-        try await send(.app(command), presence: presence, events: events)
-    }
-
-    func send(_ command: RemoteCommand) async throws -> JSONValue {
+    func send(_ command: AppCommand) async throws -> JSONValue {
         try await send(command, presence: nil, events: nil)
     }
 }

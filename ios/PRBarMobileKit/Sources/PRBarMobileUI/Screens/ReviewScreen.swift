@@ -132,6 +132,9 @@ struct PRHeader: View {
                     Text(verbatim: "\(authorName) · \(Format.age(info.updatedAt, now: clock()))")
                         .font(Typo.footnote).foregroundStyle(Tokens.fg2)
                     DiffCounts(info.additions, info.deletions, font: Typo.footnote)
+                    if let files = info.changedFiles {
+                        Text(verbatim: "· " + Format.count(files, "file")).font(Typo.footnote).foregroundStyle(Tokens.fg2)
+                    }
                 }
                 BranchChips(head: info.headRef, base: info.baseRef, trailing: trailingChip)
             }

@@ -48,10 +48,9 @@ public final class RespondModel {
     public var detail: RemotePRDetail? { connection.store.detail(for: pr) }
     public var info: PRInfo? { detail?.pr ?? connection.store.home?.prs.first { $0.id == pr } }
     public var respond: RespondInfo? { detail?.respond }
-    public var extras: RespondExtras? { detail?.respondExtras }
     public var isOffline: Bool { connection.store.isStale }
 
-    public var mode: Mode { extras?.mode.flatMap(Mode.init(rawValue:)) ?? fallbackMode }
+    public var mode: Mode { respond?.mode.flatMap { Mode(rawValue: $0.rawValue) } ?? fallbackMode }
 
     public var title: String { mode == .feedback ? "Respond" : "Fix CI" }
 
@@ -66,7 +65,7 @@ public final class RespondModel {
 
     // MARK: Header
 
-    public func displayName(_ login: String) -> String { connection.store.home?.people?[login] ?? login }
+    public func displayName(_ login: String) -> String { connection.store.home?.displayName(login) ?? login }
 
     public enum HeaderTone: Sendable { case orange, red, green }
 
@@ -76,7 +75,7 @@ public final class RespondModel {
             return (.green, "\(Format.count(files, "file")) · \(tests)")
         }
         if mode == .ciFix {
-            let failed = extras?.ciChecks?.count ?? 0
+            let failed = respond?.ciChecks?.count ?? 0
             return (.red, Format.count(failed, "check") + " failed")
         }
         let reviewers = Array(Set(items.map(\.reviewer))).sorted().map(displayName)
@@ -97,16 +96,21 @@ public final class RespondModel {
     }
 
     public func toggle(_ item: RespondItemInfo) async {
-        await perform(.app(.respondSelect(pr: pr, items: [item.id], change: RespondSelectionChange(implement: !item.implement))))
+        await perform(.respondSelect(pr: pr, items: [item.id], change: RespondSelectionChange(implement: !item.implement)))
     }
 
     // MARK: Fix CI
 
-    public var checks: [CICheck] { extras?.ciChecks ?? [] }
+    public var checks: [CICheckFailure] { respond?.ciChecks ?? [] }
 
     public var checksSummary: String? {
-        guard let failed = extras?.ciChecks?.count else { return nil }
-        return extras?.totalChecks.map { "\(failed) of \($0)" } ?? "\(failed) failed"
+        guard let failed = respond?.ciChecks?.count else { return nil }
+        return respond?.totalChecks.map { "\(failed) of \($0)" } ?? "\(failed) failed"
+    }
+
+    /// "2m 14s" for a check's run time.
+    public static func duration(_ check: CICheckFailure) -> String? {
+        check.durationSeconds.map { Format.duration($0) }
     }
 
     // MARK: Progress
@@ -118,9 +122,10 @@ public final class RespondModel {
         return "Claude is fixing \(count)"
     }
 
+    /// The run's clock: from the Mac's start time, or from when this iPhone started it.
     public var elapsed: String? {
-        guard let startedAt else { return nil }
-        return Format.clock(now().timeIntervalSince(startedAt))
+        guard let start = respond?.startedAt ?? startedAt else { return nil }
+        return Format.clock(max(0, now().timeIntervalSince(start)))
     }
 
     public var stages: [Stage] {
@@ -137,8 +142,8 @@ public final class RespondModel {
         return order.enumerated().map { index, title in
             let state: StageState = index < currentIndex ? .done : index == currentIndex ? .current : .pending
             var detail: String?
-            if index == 1, state == .current { detail = extras?.currentFile.map { "Editing \($0)" } }
-            if index == 2, state == .done || state == .current { detail = extras?.testSummary ?? respond?.tests?.outputTail }
+            if index == 1, state == .current { detail = respond?.currentFile.map { "Editing \($0)" } }
+            if index == 2, state == .done || state == .current { detail = respond?.testSummary ?? respond?.tests?.outputTail }
             return Stage(title: title, state: state, detail: detail)
         }
     }
@@ -148,22 +153,22 @@ public final class RespondModel {
     public func start() async {
         startedAt = now()
         switch mode {
-        case .feedback: await perform(.app(.respondStart(pr: pr, wait: false)))
+        case .feedback: await perform(.respondStart(pr: pr, wait: false))
         case .ciFix: await perform(.ciFix(pr: pr, wait: false))
         }
     }
 
     public func implement() async {
         startedAt = startedAt ?? now()
-        await perform(.app(.respondImplement(pr: pr, wait: false)))
+        await perform(.respondImplement(pr: pr, wait: false))
     }
 
     public func runTests() async {
-        await perform(.app(.respondTest(pr: pr, wait: false)))
+        await perform(.respondTest(pr: pr, wait: false))
     }
 
     public func stop() async {
-        await perform(.app(.respondCancel(pr: pr)))
+        await perform(.respondCancel(pr: pr))
     }
 
     public func loadDiff() async {
@@ -202,7 +207,7 @@ public final class RespondModel {
         } else {
             command = .respondPush(pr: pr, confirmed: true, wait: false)
         }
-        await perform(.app(command), reason: "Push \(pr)")
+        await perform(command, reason: "Push \(pr)")
     }
 
     /// "Undo" when done: undoes Claude's last change through the chat (spec R.4).
@@ -218,10 +223,10 @@ public final class RespondModel {
 
     public func confirmUndo() async {
         undoConfirmation = nil
-        await perform(.app(.chatUndo(pr: pr, confirmed: true)))
+        await perform(.chatUndo(pr: pr, confirmed: true))
     }
 
-    private func perform(_ command: RemoteCommand, reason: String? = nil) async {
+    private func perform(_ command: AppCommand, reason: String? = nil) async {
         isBusy = true
         defer { isBusy = false }
         do {

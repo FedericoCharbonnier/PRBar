@@ -47,7 +47,10 @@ public final class MergeModel {
 
     // MARK: Summary rows
 
-    public func displayName(_ login: String) -> String { connection.store.home?.people?[login] ?? login }
+    public func displayName(_ login: String) -> String { connection.store.home?.displayName(login) ?? login }
+
+    /// "Posted in #api-reviews" once merged, when the Mac announces merges of this repo on Slack.
+    public var slackChannel: String? { connection.store.detail(for: pr)?.slackChannel }
 
     public var reviewers: [ReviewerRow] {
         (detail?.reviews ?? []).map {

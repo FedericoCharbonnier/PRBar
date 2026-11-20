@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import PRBarRemoteKit
 import Security
 
 /// Where keychain items go. The system one uses `SecItem*`; tests use `InMemoryKeychain`.
@@ -45,27 +46,11 @@ public struct StoredDeviceKeys: Codable, Equatable, Sendable {
                          pushKey: Curve25519.KeyAgreement.PrivateKey().rawRepresentation,
                          presenceKey: presenceKey)
     }
-}
 
-/// The Mac this iPhone is paired with (what the pairing session hands over, spec P.11 step 6).
-public struct StoredPairedMac: Codable, Equatable, Sendable {
-    public var accountId: String
-    public var deviceId: String
-    public var relayHost: String
-    public var macName: String
-    public var macStatic: Data
-    public var macSealKey: Data
-    public var pairedAt: Date
-
-    public init(accountId: String, deviceId: String, relayHost: String, macName: String, macStatic: Data,
-                macSealKey: Data, pairedAt: Date) {
-        self.accountId = accountId
-        self.deviceId = deviceId
-        self.relayHost = relayHost
-        self.macName = macName
-        self.macStatic = macStatic
-        self.macSealKey = macSealKey
-        self.pairedAt = pairedAt
+    /// The three relay/Noise/push keys as RemoteKit uses them (the presence key stays a Secure Enclave handle).
+    public func deviceKeys() throws -> DeviceKeys {
+        DeviceKeys(relay: try .init(rawRepresentation: relayKey), noise: try .init(rawRepresentation: staticKey),
+                   push: try .init(rawRepresentation: pushKey))
     }
 }
 
@@ -103,12 +88,19 @@ public struct DeviceKeychain: CredentialWiping {
         try backend.get(account: Self.keysAccount).map { try JSONDecoder().decode(StoredDeviceKeys.self, from: $0) }
     }
 
-    public func save(mac: StoredPairedMac) throws {
+    /// The Mac this iPhone is paired with (RemoteKit's `PairedMac`: what the pairing session hands over, spec P.11).
+    public func save(mac: PairedMac) throws {
         try backend.set(try JSONEncoder().encode(mac), account: Self.macAccount, attributes: itemAttributes)
     }
 
-    public func loadMac() throws -> StoredPairedMac? {
-        try backend.get(account: Self.macAccount).map { try JSONDecoder().decode(StoredPairedMac.self, from: $0) }
+    public func loadMac() throws -> PairedMac? {
+        try backend.get(account: Self.macAccount).map { try JSONDecoder().decode(PairedMac.self, from: $0) }
+    }
+
+    /// Both items, ready for `RemoteClient`; nil when this iPhone isn't paired (or an item is unreadable).
+    public func loadSession() -> (mac: PairedMac, keys: DeviceKeys)? {
+        guard let mac = try? loadMac(), let keys = try? loadKeys()?.deviceKeys() else { return nil }
+        return (mac, keys)
     }
 
     public func wipe() throws {

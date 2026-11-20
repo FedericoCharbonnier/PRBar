@@ -4,30 +4,31 @@ import PRBarRemoteKit
 import PRBarWire
 @testable import PRBarMobileCore
 
-@Suite struct RemoteCommandTests {
+@Suite struct AppCommandPolicyTests {
     @Test func approveIsGatedAndCommentIsNot() {
-        let approve = RemoteCommand.app(.reviewPublish(pr: "acme/api#12", event: .approve, only: nil, withComments: true,
-                                                       allInBody: false, confirmed: true))
-        let comment = RemoteCommand.app(.reviewPublish(pr: "acme/api#12", event: .comment, only: nil, withComments: true,
-                                                       allInBody: false, confirmed: true))
+        let approve = AppCommand.reviewPublish(pr: "acme/api#12", event: .approve, only: nil, withComments: true,
+                                               allInBody: false, confirmed: true)
+        let comment = AppCommand.reviewPublish(pr: "acme/api#12", event: .comment, only: nil, withComments: true,
+                                               allInBody: false, confirmed: true)
         #expect(approve.needsPresence)
         #expect(!comment.needsPresence)
-        #expect(RemoteCommand.app(.merge(pr: "a/b#1", method: nil, confirmed: true, expectedHeadOid: "x")).needsPresence)
-        #expect(RemoteCommand.app(.respondPush(pr: "a/b#1", confirmed: true, wait: false)).needsPresence)
-        #expect(!RemoteCommand.app(.respondReplyOnly(pr: "a/b#1", confirmed: true, wait: false)).needsPresence)
+        #expect(AppCommand.merge(pr: "a/b#1", method: nil, confirmed: true, expectedHeadOid: "x").needsPresence)
+        #expect(AppCommand.respondPush(pr: "a/b#1", confirmed: true, wait: false).needsPresence)
+        #expect(!AppCommand.respondReplyOnly(pr: "a/b#1", confirmed: true, wait: false).needsPresence)
     }
 
     @Test func turningFaceIDOffIsGatedButOnIsNot() {
-        #expect(RemoteCommand.remoteSetPresenceRequirement(enabled: false).needsPresence)
-        #expect(!RemoteCommand.remoteSetPresenceRequirement(enabled: true).needsPresence)
-        #expect(!RemoteCommand.ciFix(pr: "a/b#1", wait: false).needsPresence)
+        #expect(AppCommand.presenceRequirement(enabled: false).needsPresence)
+        #expect(!AppCommand.presenceRequirement(enabled: true).needsPresence)
+        #expect(!AppCommand.ciFix(pr: "a/b#1", wait: false).needsPresence)
     }
 
-    @Test func pendingCommandsEncodeLikeAppCommand() throws {
-        let bytes = try RemoteCommand.ciFix(pr: "acme/web-app#488", wait: false).commandBytes()
+    @Test func commandsEncodeWithTheWireEncoder() throws {
+        let bytes = try AppCommand.ciFix(pr: "acme/web-app#488", wait: false).commandBytes()
         #expect(String(decoding: bytes, as: UTF8.self) == #"{"ciFix":{"pr":"acme/web-app#488","wait":false}}"#)
-        let app = try RemoteCommand.app(.refresh).commandBytes()
-        #expect(app == (try CommandProtocol.encoder.encode(AppCommand.refresh)))
+        let presence = try AppCommand.presenceRequirement(enabled: true).commandBytes()
+        #expect(try CommandProtocol.decoder.decode(AppCommand.self, from: presence)
+                == .remoteSetPresenceRequirement(device: "", enabled: true))
     }
 }
 
@@ -108,8 +109,8 @@ import PRBarWire
         let backend = InMemoryKeychain()
         let keychain = DeviceKeychain(backend: backend, accessGroup: "TEAMID.com.federico.prbar.ios.shared")
         let keys = StoredDeviceKeys.generate(presenceKey: Data([1, 2, 3]))
-        let mac = StoredPairedMac(accountId: "a", deviceId: "d", relayHost: "relay.example.com", macName: Sample.macName,
-                                  macStatic: Data(count: 32), macSealKey: Data(count: 32), pairedAt: Sample.now)
+        let mac = PairedMac(accountId: "a", deviceId: "d", relayHost: "relay.example.com", macName: Sample.macName,
+                                  macStatic: Data(count: 32), macSeal: Data(count: 32))
         try keychain.save(keys: keys)
         try keychain.save(mac: mac)
         #expect(try keychain.loadKeys() == keys)

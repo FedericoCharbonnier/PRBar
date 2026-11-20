@@ -12,7 +12,7 @@ import PRBarWire
         env.transport.respond(to: "chatShow", with: Sample.chatReview)
         let model = ChatModel(pr: pr, kind: .review, connection: env.connection, runner: env.runner)
         await model.open()
-        #expect(env.transport.sentCommands == [.app(.chatShow(pr: pr))])
+        #expect(env.transport.sentCommands == [.chatShow(pr: pr)])
         #expect(model.bubbles.count == 3)
         #expect(model.bubbles[1].change == ChatModel.Change(title: "Changed finding #3", detail: "Severity Medium → Low"))
         #expect(model.subtitle == "api#317 · Review")
@@ -28,7 +28,7 @@ import PRBarWire
         model.draft = "What does this change?"
         #expect(model.canSend)
         await model.send()
-        #expect(env.transport.sentCommands == [.app(.chatSend(pr: pr, message: "What does this change?"))])
+        #expect(env.transport.sentCommands == [.chatSend(pr: pr, message: "What does this change?")])
         #expect(model.bubbles.map(\.text) == ["What does this change?", "It only touches refresh."])
         #expect(model.draft.isEmpty)
         #expect(!model.isStreaming)
@@ -38,13 +38,13 @@ import PRBarWire
         let env = await TestEnv(details: [:])
         let model = ChatModel(pr: pr, kind: .review, connection: env.connection, runner: env.runner)
         await model.stop()
-        #expect(env.transport.sentCommands == [.app(.chatStop(pr: pr))])
+        #expect(env.transport.sentCommands == [.chatStop(pr: pr)])
     }
 
     @Test func undoConfirmsWhenThereAreManualEdits() async {
         let env = await TestEnv(details: [:])
         env.transport.respond(to: "chatUndo") { command in
-            if case .app(.chatUndo(_, false)) = command {
+            if case .chatUndo(_, false) = command {
                 throw CommandFailure(.confirmationRequired, "Undo will also discard your manual edits since then.")
             }
             return .ok
@@ -53,8 +53,8 @@ import PRBarWire
         await model.undo()
         #expect(model.undoConfirmation == "Undo will also discard your manual edits since then.")
         await model.confirmUndo()
-        #expect(env.transport.sentCommands.prefix(2) == [.app(.chatUndo(pr: pr, confirmed: false)),
-                                                         .app(.chatUndo(pr: pr, confirmed: true))])
+        #expect(env.transport.sentCommands.prefix(2) == [.chatUndo(pr: pr, confirmed: false),
+                                                         .chatUndo(pr: pr, confirmed: true)])
     }
 
     @Test func aChatContinuedOnTheMacAppearsLive() async {
