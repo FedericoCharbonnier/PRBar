@@ -223,7 +223,7 @@ enum CommandServerTests {
             let url = try shortSocketURL()
             defer { removeSocketDirectory(url) }
             let cancelled = Flag()
-            let server = CommandServer(socketURL: url, appVersion: "9.9.9", sendTimeout: 0.3) { _, sink in
+            let server = CommandServer(socketURL: url, appVersion: "9.9.9", limits: .init(sendTimeout: 0.3)) { _, sink in
                 let chunk = String(repeating: "y", count: 64 * 1024)
                 while !Task.isCancelled {
                     sink(.progress(message: chunk + "\(Date().timeIntervalSince1970)"))
@@ -302,6 +302,79 @@ enum CommandServerTests {
                 return client.appVersion
             }
             try expectEqual(version, "2.0.0")
+        },
+        TestCase("socket: sin hello en el plazo, la app corta la conexión") {
+            let url = try shortSocketURL()
+            defer { removeSocketDirectory(url) }
+            let server = CommandServer(socketURL: url, appVersion: "9.9.9", limits: .init(helloTimeout: 0.3)) { _, _ in .success(.null) }
+            try server.start()
+            defer { server.stop() }
+            let raw = try RawSocket.connect(url)
+            defer { raw.close() }
+            let closed = try await offMain { raw.waitForClose(timeout: 3) }
+            try expect(closed, "la conexión sin hello sigue abierta")
+        },
+        TestCase("socket: después del hello no hay plazo para el próximo pedido") {
+            let url = try shortSocketURL()
+            defer { removeSocketDirectory(url) }
+            let server = CommandServer(socketURL: url, appVersion: "9.9.9", limits: .init(helloTimeout: 0.2)) { _, _ in .success(.string("ok")) }
+            try server.start()
+            defer { server.stop() }
+            let result = try await offMain { () -> JSONValue in
+                let client = try CommandClient.connect(socketURL: url, clientVersion: "1.0.0")
+                defer { client.close() }
+                Thread.sleep(forTimeInterval: 0.6)
+                return try client.send(.status)
+            }
+            try expectEqual(result, .string("ok"))
+        },
+        TestCase("socket: una línea más larga que el límite corta la conexión") {
+            let url = try shortSocketURL()
+            defer { removeSocketDirectory(url) }
+            let server = try echoServer(url)
+            defer { server.stop() }
+            let raw = try RawSocket.connect(url)
+            defer { raw.close() }
+            raw.writeLine(helloLine(protocolVersion: CommandProtocol.version))
+            _ = raw.readLine()
+            let closed = try await offMain { () -> Bool in
+                // 2 MB sin salto de línea (el límite de un pedido es 1 MB).
+                raw.write(String(repeating: "a", count: 2 * 1024 * 1024))
+                return raw.waitForClose(timeout: 5)
+            }
+            try expect(closed, "la app siguió leyendo una línea de más de 1 MB")
+        },
+        TestCase("socket: con el máximo de conexiones abiertas, la siguiente recibe un error") {
+            let url = try shortSocketURL()
+            defer { removeSocketDirectory(url) }
+            let server = CommandServer(socketURL: url, appVersion: "9.9.9", limits: .init(maxConnections: 2)) { _, _ in .success(.null) }
+            try server.start()
+            defer { server.stop() }
+            let open = try (0..<2).map { _ in try RawSocket.connect(url) }
+            defer { open.forEach { $0.close() } }
+            try await Task.sleep(for: .milliseconds(200))
+            let error = try await expectThrows {
+                _ = try await offMain { try CommandClient.connect(socketURL: url, clientVersion: "1.0.0") }
+            }
+            try expect((error as? CommandFailure)?.message.contains("Too many") == true, "\(error)")
+        },
+        TestCase("socket: la CLI no habla con un socket de otro usuario") {
+            let url = try shortSocketURL()
+            defer { removeSocketDirectory(url) }
+            let server = try echoServer(url)
+            defer { server.stop() }
+            let error = try await expectThrows {
+                _ = try await offMain { try CommandClient.connect(socketURL: url, clientVersion: "1.0.0", expectedUID: getuid() + 1) }
+            }
+            try expectEqual((error as? CommandFailure)?.code, .unauthorized)
+        },
+        TestCase("socket: una carpeta del socket de otro usuario no se usa (ni se le cambian permisos)") {
+            // /tmp es de root: `secure` tiene que rechazarla antes de tocarla.
+            let url = URL(fileURLWithPath: "/tmp/prbar-\(UUID().uuidString.prefix(8)).sock")
+            let server = CommandServer(socketURL: url, appVersion: "9.9.9") { _, _ in .success(.null) }
+            let error = try await expectThrows { try server.start() }
+            try expectEqual((error as? SocketError)?.code, EPERM)
+            try expect(!FileManager.default.fileExists(atPath: url.path))
         },
         TestCase("socket: stop borra el socket") {
             let url = try shortSocketURL()

@@ -108,11 +108,11 @@ enum UnixSocket {
         setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
     }
 
-    /// Un `write` que no avanza en `seconds` falla (EAGAIN) en vez de bloquear para siempre: un cliente que dejó de
-    /// leer no traba a la app.
-    static func setSendTimeout(_ fd: Int32, seconds: TimeInterval) {
+    /// `SO_SNDTIMEO`: un `write` que no avanza en `seconds` falla (EAGAIN) en vez de bloquear para siempre (un
+    /// cliente que dejó de leer no traba a la app). `SO_RCVTIMEO`: lo mismo para `read`. `0` = sin plazo.
+    static func setTimeout(_ fd: Int32, _ option: Int32, seconds: TimeInterval) {
         var value = timeval(tv_sec: Int(seconds), tv_usec: Int32((seconds - Double(Int(seconds))) * 1_000_000))
-        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &value, socklen_t(MemoryLayout<timeval>.size))
+        setsockopt(fd, SOL_SOCKET, option, &value, socklen_t(MemoryLayout<timeval>.size))
     }
 
     /// El uid del proceso del otro lado (spec C.2: solo el del usuario).
@@ -126,33 +126,43 @@ enum UnixSocket {
 /// Un extremo del socket que lee y escribe líneas. `readLine` se llama desde un solo hilo; `write` y `close` son
 /// seguros desde varios.
 final class LineConnection: @unchecked Sendable {
-    /// Una línea más larga se considera un error y corta la conexión.
-    static let maxLine = 16 * 1024 * 1024
+    /// Lo más largo que acepta la CLI de una respuesta (un diff, el historial).
+    static let maxResponseLine = 16 * 1024 * 1024
 
     let fd: Int32
+    /// Una línea más larga se considera un error y corta la conexión.
+    private let maxLine: Int
     private var buffer = Data()
+    /// Hasta dónde ya se buscó `\n` en `buffer`: una línea larga no se recorre de nuevo con cada pedazo.
+    private var scanned = 0
     private let writeLock = NSLock()
     private let closeLock = NSLock()
     private var closed = false
 
-    init(fd: Int32) {
+    init(fd: Int32, maxLine: Int) {
         self.fd = fd
+        self.maxLine = maxLine
     }
 
     /// La próxima línea (sin `\n`), o `nil` si el otro extremo cerró.
     func readLine() -> String? {
         while true {
-            if let newline = buffer.firstIndex(of: 0x0A) {
+            if let newline = buffer[(buffer.startIndex + scanned)...].firstIndex(of: 0x0A) {
                 let line = buffer[buffer.startIndex..<newline]
-                buffer.removeSubrange(buffer.startIndex...newline)
+                defer {
+                    buffer.removeSubrange(buffer.startIndex...newline)
+                    scanned = 0
+                }
                 return String(decoding: line, as: UTF8.self)
             }
+            scanned = buffer.count
             var chunk = [UInt8](repeating: 0, count: 64 * 1024)
             let count = chunk.withUnsafeMutableBytes { Darwin.read(fd, $0.baseAddress, $0.count) }
             if count < 0 && errno == EINTR { continue }
+            // 0 = el otro lado cerró; -1 = error o `SO_RCVTIMEO` vencido (sin hello a tiempo).
             guard count > 0 else { return nil }
             buffer.append(contentsOf: chunk[0..<count])
-            guard buffer.count <= Self.maxLine else { return nil }
+            guard buffer.count <= maxLine else { return nil }
         }
     }
 

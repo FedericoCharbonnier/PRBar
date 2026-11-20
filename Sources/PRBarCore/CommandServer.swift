@@ -11,7 +11,7 @@ public final class CommandServer: @unchecked Sendable {
     private let appVersion: String
     private let allowedUID: uid_t
     private let handler: Handler
-    private let sendTimeout: TimeInterval
+    private let limits: Limits
     private let lock = NSLock()
     private var listenFD: Int32 = -1
     /// El archivo del socket que creó este servidor (`stop` no borra el de otra app).
@@ -19,13 +19,32 @@ public final class CommandServer: @unchecked Sendable {
     private var acceptSource: DispatchSourceRead?
     private var connections: [ObjectIdentifier: LineConnection] = [:]
 
-    /// `sendTimeout`: cuánto puede trabarse una escritura (un cliente que no lee) antes de cortarlo.
-    public init(socketURL: URL, appVersion: String, allowedUID: uid_t = getuid(), sendTimeout: TimeInterval = 10,
+    /// Lo que un cliente puede ocupar de la app.
+    public struct Limits: Sendable {
+        /// Cuánto puede trabarse una escritura (un cliente que no lee) antes de cortarlo.
+        public var sendTimeout: TimeInterval
+        /// Cuánto se espera el `hello` de una conexión nueva. Después no hay plazo (`prbar` puede esperar a `$EDITOR`).
+        public var helloTimeout: TimeInterval
+        /// Conexiones abiertas a la vez; la siguiente recibe un error.
+        public var maxConnections: Int
+        /// El largo máximo de un pedido (`prbar` nunca manda líneas grandes).
+        public var maxLine: Int
+
+        public init(sendTimeout: TimeInterval = 10, helloTimeout: TimeInterval = 5, maxConnections: Int = 32,
+                    maxLine: Int = 1024 * 1024) {
+            self.sendTimeout = sendTimeout
+            self.helloTimeout = helloTimeout
+            self.maxConnections = maxConnections
+            self.maxLine = maxLine
+        }
+    }
+
+    public init(socketURL: URL, appVersion: String, allowedUID: uid_t = getuid(), limits: Limits = Limits(),
                 handler: @escaping Handler) {
         self.socketURL = socketURL
         self.appVersion = appVersion
         self.allowedUID = allowedUID
-        self.sendTimeout = sendTimeout
+        self.limits = limits
         self.handler = handler
     }
 
@@ -87,11 +106,18 @@ public final class CommandServer: @unchecked Sendable {
             // Los sockets aceptados heredan O_NONBLOCK: se leen bloqueando, cada uno en su hilo.
             _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) & ~O_NONBLOCK)
             UnixSocket.noSigPipe(fd)
-            UnixSocket.setSendTimeout(fd, seconds: sendTimeout)
-            let connection = LineConnection(fd: fd)
-            guard UnixSocket.peerUID(fd) == allowedUID else {
-                let failure = CommandFailure(.unauthorized, "Only the user running PRBar can use its socket.")
-                try? connection.write(CommandProtocol.line(CommandResponse.failure(id: 0, failure)))
+            UnixSocket.setTimeout(fd, SO_SNDTIMEO, seconds: limits.sendTimeout)
+            UnixSocket.setTimeout(fd, SO_RCVTIMEO, seconds: limits.helloTimeout)
+            let connection = LineConnection(fd: fd, maxLine: limits.maxLine)
+            let refusal: CommandFailure? = if UnixSocket.peerUID(fd) != allowedUID {
+                CommandFailure(.unauthorized, "Only the user running PRBar can use its socket.")
+            } else if locked({ connections.count }) >= limits.maxConnections {
+                CommandFailure(.failed, "Too many prbar connections are open. Try again when some finish.")
+            } else {
+                nil
+            }
+            if let refusal {
+                try? connection.write(CommandProtocol.line(CommandResponse.failure(id: 0, refusal)))
                 connection.close()
                 continue
             }
@@ -123,6 +149,7 @@ public final class CommandServer: @unchecked Sendable {
         }
         let answer = HelloMessage(hello: Hello(protocolVersion: CommandProtocol.version, version: appVersion))
         guard (try? connection.write(CommandProtocol.line(answer))) != nil else { return }
+        UnixSocket.setTimeout(connection.fd, SO_RCVTIMEO, seconds: 0)
 
         var tasks: [Task<Void, Never>] = []
         let handler = self.handler
@@ -171,16 +198,21 @@ public final class CommandClient {
         self.appVersion = appVersion
     }
 
-    /// `protocolVersion` solo cambia en los tests.
-    public static func connect(socketURL: URL, clientVersion: String,
-                               protocolVersion: Int = CommandProtocol.version) throws -> CommandClient {
+    /// `protocolVersion` y `expectedUID` solo cambian en los tests.
+    public static func connect(socketURL: URL, clientVersion: String, protocolVersion: Int = CommandProtocol.version,
+                               expectedUID: uid_t = getuid()) throws -> CommandClient {
         let fd: Int32
         do {
             fd = try UnixSocket.connect(path: socketURL.path)
         } catch {
             throw ConnectError.unavailable(error.localizedDescription)
         }
-        let connection = LineConnection(fd: fd)
+        // Un socket en una ruta compartida (`PRBAR_SOCKET` en /tmp) podría ser de otro usuario: no se le manda nada.
+        guard UnixSocket.peerUID(fd) == expectedUID else {
+            Darwin.close(fd)
+            throw CommandFailure(.unauthorized, "The socket at \(socketURL.path) belongs to another user’s process.")
+        }
+        let connection = LineConnection(fd: fd, maxLine: LineConnection.maxResponseLine)
         // Si la app ya contestó con un error (uid ajeno), escribir puede fallar: igual se lee su respuesta.
         try? connection.write(CommandProtocol.line(HelloMessage(hello: Hello(protocolVersion: protocolVersion,
                                                                             version: clientVersion))))
