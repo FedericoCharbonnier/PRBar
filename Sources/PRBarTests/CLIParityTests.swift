@@ -6,12 +6,13 @@ import PRBarCore
 enum CLIParityTests {
     static let cases: [TestCase] = [
         TestCase("paridad: cada AppCommand lo produce algún comando de la CLI") {
-            let produced = Set(CLIRouter.commands.flatMap(\.produces))
+            let produced = Set(CLIRouter.commands.flatMap { $0.produces + $0.prepares })
             let missing = AppCommand.Name.allCases.filter { !produced.contains($0) }
             try expect(missing.isEmpty, "Sin comando de CLI: \(missing.map(\.rawValue))")
         },
         TestCase("paridad: los ejemplos de la tabla producen lo que dicen") {
             SlackTokenInput.read = { _ in "xoxp-test" }
+            EnrollTokenInput.read = { _ in "enroll-test" }
             for spec in CLIRouter.commands {
                 try expect(!spec.samples.isEmpty, "\(spec.path) sin ejemplos")
                 var names: Set<AppCommand.Name> = []

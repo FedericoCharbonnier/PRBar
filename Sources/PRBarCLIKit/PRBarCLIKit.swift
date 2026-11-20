@@ -18,7 +18,7 @@ public struct PRBarCommand: ParsableCommand {
             StatusCommand.self, PRsCommand.self, ResourcesCommand.self, CleanupCommand.self, RefreshCommand.self, OpenCommand.self, HistoryGroup.self, AppGroup.self,
             ReviewGroup.self, RespondGroup.self, CIGroup.self, UsageCommand.self, MergeCommand.self, ChatCommand.self, UpdateCommand.self,
             ConfigGroup.self, AccountGroup.self, RepoGroup.self, FollowGroup.self, NotifyGroup.self, ClaudeGroup.self, RunnersGroup.self, ToolsGroup.self, RulesGroup.self,
-            SlackGroup.self,
+            SlackGroup.self, RemoteGroup.self,
             VersionCommand.self, DoctorCommand.self, CompletionCommand.self,
         ]
     )
