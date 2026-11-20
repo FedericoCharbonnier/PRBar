@@ -114,6 +114,8 @@ struct ReviewWindow: View {
         // Spec B.2: the chat waits while posting (`AppModel.publishReview` locks it); after posting it stays read only
         // and its worktree goes away.
         .onChange(of: shownResult != nil, initial: true) { _, posted in if posted { chat.markReadOnly() } }
+        // Opening the chat widens the window as needed, staying on the screen.
+        .growsWindowForInspector(isPresented: showsChat && model.chatEnabled, minContentWidth: 600, inspectorWidth: chatWidth)
         // View › Show Chat (⇧⌘C) in the menu bar.
         .windowCommand(.toggleChat, enabled: model.chatEnabled, isOn: showsChat && model.chatEnabled) { showsChat.toggle() }
         .inspector(isPresented: Binding(get: { showsChat && model.chatEnabled }, set: { showsChat = $0 })) {

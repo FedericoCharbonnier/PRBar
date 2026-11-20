@@ -48,6 +48,7 @@ enum UIActionInventory {
         .init("AppMenu.swift", "ClosureMenuItem", "PRBar Activity", 1, .cli(["resources"])),
         .init("AppMenu.swift", "ClosureMenuItem", "Keyboard Shortcuts", 1, .viewOnly("lists the shortcuts")),
         .init("AppMenu.swift", "ClosureMenuItem", "Show Log", 1, .cli(["app logs"])),
+        .init("Components/InspectorWindowSizing.swift", "Component:WindowAccessor", "-", 1, .viewOnly("finds the window to widen when the chat opens")),
         .init("Components/WindowCommands.swift", "Component:WindowAccessor", "-", 1, .viewOnly("finds the window a View menu command acts on")),
         .init("Components/WindowCommands.swift", "Component:WindowCommandModifier", "-", 1, .viewOnly("registers a window’s View menu commands (Show Chat, Refresh)")),
         // PRBar Activity (plan 13, spec I)

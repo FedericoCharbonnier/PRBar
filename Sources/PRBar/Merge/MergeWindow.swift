@@ -52,6 +52,8 @@ struct MergeWindow: View {
         .onChange(of: showsChat && model.chatEnabled, initial: true) { _, shown in
             if shown && session.chat == nil { _ = model.mergeChat(prID: prID) }
         }
+        // Opening the chat widens the window as needed, staying on the screen.
+        .growsWindowForInspector(isPresented: showsChat && model.chatEnabled, minContentWidth: 620, inspectorWidth: chatWidth)
         // View › Show Chat (⇧⌘C) in the menu bar.
         .windowCommand(.toggleChat, enabled: model.chatEnabled, isOn: showsChat && model.chatEnabled) { showsChat.toggle() }
         // View › Refresh (⌘R).
