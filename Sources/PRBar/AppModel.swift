@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import PRBarCore
+import PRBarRemoteMac
 import SwiftUI
 
 struct ResolvedTools: Equatable, Sendable {
@@ -52,6 +53,8 @@ struct AppModelServices {
     var popoverDefaults: UserDefaults? = .standard
     /// `nil`: `usage.json` in Application Support (spec O).
     var usageLedger: UsageLedger? = nil
+    /// El acceso desde el iPhone (spec Q). `nil`: sin red ni llavero (el modo de capturas).
+    var remoteAccess: RemoteServiceEnvironment? = nil
 
     static func live(runner: SystemProcessRunner) -> AppModelServices {
         let accounts = AccountProvider(runner: runner, ghPath: nil)
@@ -69,11 +72,14 @@ struct AppModelServices {
         }
         // La API real se arma en `rebuildSlackAPI()` cuando se conoce la ruta de claude (antes del primer refresco).
         let slack = SlackAnnouncer(api: SlackClient(), provider: configStore.config.slack.provider, secrets: keychain)
-        return AppModelServices(
+        var services = AppModelServices(
             configStore: configStore, stateStore: SnapshotStore(), accounts: accounts, api: GitHubClient(), slack: slack,
             notifications: NotificationDelivery(), history: ReviewHistory(), respondHistory: RespondHistory(),
             claudeSkills: ClaudeSkills()
         )
+        services.remoteAccess = .live(macName: Host.current().localizedName ?? "Mac",
+                                      appVersion: AppVersion.current())
+        return services
     }
 }
 
@@ -203,6 +209,13 @@ final class AppModel: ObservableObject {
     @Published var usageRevision = 0
     /// The snapshot mode's "running" tasks' Claude usage (`liveClaudeUsage`); empty in the real app.
     var snapshotLiveUsage: [ProcessActivity: ClaudeUsage] = [:]
+    /// El acceso desde el iPhone (spec Q). `lazy` porque guarda `self` como sus acciones y su config.
+    private(set) lazy var remoteAccess = RemoteAccessService(settings: self, environment: remoteEnvironment)
+    let remoteEnvironment: RemoteServiceEnvironment
+    /// Avisos de cambios para el feed del iPhone y los chats que miran los teléfonos (AppModel+Remote).
+    var remoteObservers: [AnyCancellable] = []
+    var remoteChatWatchers: [ObjectIdentifier: AnyCancellable] = [:]
+    var remoteSystem: RemoteSystemObservers?
 
     @Published private(set) var tools = ResolvedTools()
     @Published private(set) var toolsResolved = false
@@ -246,6 +259,9 @@ final class AppModel: ObservableObject {
         self.discardStats = services.discardStats ?? DiscardStatsStore()
         self.mergeHistory = services.mergeHistory ?? MergeHistory()
         self.usageLedger = services.usageLedger ?? UsageLedger()
+        self.remoteEnvironment = services.remoteAccess
+            ?? .offline(directory: FileManager.default.temporaryDirectory.appendingPathComponent("prbar-remote-\(UUID().uuidString)"),
+                        appVersion: "0")
         self.claudeSkills = services.claudeSkills
         self.reviewPipeline = services.reviewPipeline
         self.respondPipeline = services.respondPipeline
@@ -278,6 +294,7 @@ final class AppModel: ObservableObject {
             Task { @MainActor in self?.usageRevision += 1 }
         }
         startCommandServer()
+        startRemoteAccess()
         WindowPresenter.shared.openSettings = { [weak self] in self?.openSettings() }
         WindowPresenter.shared.openHistory = { [weak self] in self?.openHistory() }
         WindowPresenter.shared.openActivity = { [weak self] in self?.openActivityWindow() }
@@ -300,6 +317,7 @@ final class AppModel: ObservableObject {
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.stopCommandServer()
+                self?.stopRemoteAccess()
                 self?.reviews.cancelAll()
                 self?.respond.cancelAll()
                 // A turn that was running stays `pending` in its record and reopens as "Interrupted" (spec B.9).
@@ -840,6 +858,7 @@ final class AppModel: ObservableObject {
                              })
         )
         chats[draft.id] = chat
+        watchChatForPhones(chat, prID: draft.prID)
         return chat
     }
 
@@ -897,6 +916,7 @@ final class AppModel: ObservableObject {
             )
         )
         chats[draft.id] = chat
+        watchChatForPhones(chat, prID: prID)
         return chat
     }
 

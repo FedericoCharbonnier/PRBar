@@ -84,6 +84,37 @@ public struct RemoteServiceEnvironment {
     }
 }
 
+/// Secretos en memoria (el modo de capturas: nunca toca el llavero del usuario).
+public final class MemorySecretStore: SecretStore, @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [String: String] = [:]
+
+    public init() {}
+
+    public func read(_ key: String) throws -> String? { lock.withLock { values[key] } }
+    public func exists(_ key: String) throws -> Bool { lock.withLock { values[key]?.isEmpty == false } }
+    public func write(_ value: String?, for key: String) throws { lock.withLock { values[key] = value } }
+}
+
+/// Una conexión que nunca llega al relay (el modo de capturas).
+final class OfflineRelayLink: RelayLink, @unchecked Sendable {
+    let incoming = AsyncThrowingStream<RelayMessage, Error> { $0.finish() }
+    func connect() async throws -> RelayReady { throw RelayClosed(code: nil, reason: "Offline") }
+    func send(_ message: RelayMessage) throws { throw RelayClosed(code: nil, reason: "Offline") }
+    func close() async {}
+}
+
+extension RemoteServiceEnvironment {
+    /// El modo de capturas: llavero en memoria, dispositivos en `directory`, sin red.
+    @MainActor
+    public static func offline(directory: URL, appVersion: String) -> RemoteServiceEnvironment {
+        RemoteServiceEnvironment(
+            keys: RemoteKeyStore(secrets: MemorySecretStore()), devices: RemoteDeviceStore(directory: directory),
+            enroller: URLSessionRelayEnroller(), linkFactory: { _ in { _ in OfflineRelayLink() } },
+            macName: "Federico’s MacBook Pro", appVersion: appVersion)
+    }
+}
+
 /// El acceso desde el iPhone del lado Mac (spec Q.1): dueño del `RemoteHost`, de la conexión con el relay, del
 /// emparejamiento, de los dispositivos, del feed de estado, del buzón, de los pushes y de "Keep awake". Implementa
 /// los comandos `remote*` (la app los expone por `AppModel`, igual para la UI, `prbar` y el test de paridad).
@@ -336,6 +367,15 @@ public final class RemoteAccessService: ObservableObject {
         let result = await CommandDispatcher.run(command, on: actions, events: events)
         // Ni rutas locales ni herramientas hacia el teléfono (spec P.7).
         return result.map(RemoteRedaction.scrub)
+    }
+
+    /// El modo de capturas: muestra un estado sin conectarse a nada.
+    public func applySnapshot(state: RemoteConnectionState, devices: [StoredDevice], online: Set<String>,
+                              pairing: RemotePairingInfo?) {
+        self.state = state
+        self.devices = devices
+        self.online = online
+        self.pairing = pairing
     }
 
     // MARK: - Pushes (spec P.9)

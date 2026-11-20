@@ -49,7 +49,11 @@ final class NotificationDelivery: NSObject, UNUserNotificationCenterDelegate {
         return await center.notificationSettings().authorizationStatus == .denied
     }
 
+    /// También a los iPhones emparejados (lo asigna `AppModel`, spec P.9). Corre aunque no haya bundle.
+    var onDeliver: (([PlannedNotification]) -> Void)?
+
     func deliver(_ notifications: [PlannedNotification]) {
+        onDeliver?(notifications)
         guard let center else { return }
         for notification in notifications {
             let content = UNMutableNotificationContent()
