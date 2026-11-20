@@ -14,6 +14,8 @@ public final class CommandServer: @unchecked Sendable {
     private let sendTimeout: TimeInterval
     private let lock = NSLock()
     private var listenFD: Int32 = -1
+    /// El archivo del socket que creó este servidor (`stop` no borra el de otra app).
+    private var socketIdentity: FileIdentity?
     private var acceptSource: DispatchSourceRead?
     private var connections: [ObjectIdentifier: LineConnection] = [:]
 
@@ -37,13 +39,14 @@ public final class CommandServer: @unchecked Sendable {
         let directory = socketURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try Self.secure(directory)
-        let fd = try UnixSocket.listen(path: socketURL.path)
+        let (fd, identity) = try UnixSocket.listen(path: socketURL.path)
         _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
         let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: DispatchQueue(label: "PRBar.CommandServer"))
         source.setEventHandler { [weak self] in self?.acceptPending() }
         source.setCancelHandler { Darwin.close(fd) }
         locked {
             listenFD = fd
+            socketIdentity = identity
             acceptSource = source
         }
         source.resume()
@@ -59,16 +62,21 @@ public final class CommandServer: @unchecked Sendable {
     }
 
     public func stop() {
-        let (source, open) = locked { () -> (DispatchSourceRead?, [LineConnection]) in
+        let (source, open, identity) = locked { () -> (DispatchSourceRead?, [LineConnection], FileIdentity?) in
             let source = acceptSource
             let open = Array(connections.values)
+            let identity = socketIdentity
             acceptSource = nil
             connections = [:]
-            return (source, open)
+            socketIdentity = nil
+            return (source, open, identity)
         }
         source?.cancel()
         open.forEach { $0.close() }
-        unlink(socketURL.path)
+        // Solo el socket propio: si otra app lo reemplazó, sigue siendo suyo.
+        if let identity, FileIdentity(path: socketURL.path) == identity {
+            unlink(socketURL.path)
+        }
     }
 
     private func acceptPending() {

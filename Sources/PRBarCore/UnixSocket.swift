@@ -19,6 +19,19 @@ public struct SocketError: Error, Equatable, LocalizedError {
     }
 }
 
+/// Dispositivo + inodo de un archivo: distingue el socket propio de uno que otra app creó en la misma ruta.
+struct FileIdentity: Equatable {
+    let device: dev_t
+    let inode: ino_t
+
+    init?(path: String) {
+        var info = stat()
+        guard lstat(path, &info) == 0 else { return nil }
+        device = info.st_dev
+        inode = info.st_ino
+    }
+}
+
 /// Lo mínimo de sockets Unix (`AF_UNIX`, `SOCK_STREAM`) que usan `CommandServer` y `CommandClient`.
 enum UnixSocket {
     static func address(_ path: String) throws -> sockaddr_un {
@@ -36,19 +49,26 @@ enum UnixSocket {
         return result
     }
 
-    /// Escucha en `path` con permisos 0600 (umask 077 durante el `bind`). Borra un socket viejo en la misma ruta.
-    static func listen(path: String) throws -> Int32 {
+    /// Escucha en `path` con permisos 0600 (la carpeta ya es 0700, así que nadie más llega antes del `chmod`). Si
+    /// hay un socket viejo sin nadie escuchando lo reemplaza; si otra app contesta en esa ruta, no se la saca
+    /// (`EADDRINUSE`). Devuelve también la identidad del archivo creado, para que `stop` borre solo el suyo.
+    static func listen(path: String) throws -> (fd: Int32, identity: FileIdentity?) {
         var addr = try address(path)
+        if let live = try? connect(path: path) {
+            close(live)
+            throw SocketError(operation: "another PRBar is already listening on \(path)", code: EADDRINUSE)
+        }
         unlink(path)
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { throw SocketError.last("socket") }
-        let previous = umask(0o077)
+        // Las conexiones aceptadas lo heredan: un `setsockopt` sobre una cuyo cliente ya cerró falla (EINVAL) y
+        // escribirle mataría a la app con SIGPIPE.
+        noSigPipe(fd)
         let bound = withUnsafePointer(to: &addr) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
                 bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
         }
-        umask(previous)
         guard bound == 0 else {
             let error = SocketError.last("bind")
             close(fd)
@@ -60,13 +80,15 @@ enum UnixSocket {
             close(fd)
             throw error
         }
-        return fd
+        return (fd, FileIdentity(path: path))
     }
 
     static func connect(path: String) throws -> Int32 {
         var addr = try address(path)
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { throw SocketError.last("socket") }
+        // Antes de conectar: si la app corta enseguida (uid ajeno), después ya no se puede poner.
+        noSigPipe(fd)
         let result = withUnsafePointer(to: &addr) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
                 Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
@@ -77,7 +99,6 @@ enum UnixSocket {
             close(fd)
             throw error
         }
-        noSigPipe(fd)
         return fd
     }
 

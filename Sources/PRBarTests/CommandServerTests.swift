@@ -242,6 +242,67 @@ enum CommandServerTests {
             for _ in 0..<250 where !cancelled.isSet { try await Task.sleep(for: .milliseconds(20)) }
             try expect(cancelled.isSet, "el servidor no cortó al cliente trabado")
         },
+        TestCase("socket: una segunda app no le saca el socket a la que está corriendo") {
+            let url = try shortSocketURL()
+            defer { removeSocketDirectory(url) }
+            let first = try echoServer(url)
+            defer { first.stop() }
+            let second = CommandServer(socketURL: url, appVersion: "2.0.0") { _, _ in .success(.null) }
+            let error = try await expectThrows { try second.start() }
+            try expectEqual((error as? SocketError)?.code, EADDRINUSE)
+            second.stop()
+            let version = try await offMain { () -> String in
+                let client = try CommandClient.connect(socketURL: url, clientVersion: "1.0.0")
+                defer { client.close() }
+                return client.appVersion
+            }
+            try expectEqual(version, "9.9.9")
+        },
+        TestCase("socket: un cliente que conecta y corta enseguida no mata a la app (SIGPIPE)") {
+            let url = try shortSocketURL()
+            defer { removeSocketDirectory(url) }
+            let server = try echoServer(url)
+            defer { server.stop() }
+            for _ in 0..<5 { try RawSocket.connect(url).close() }
+            try await Task.sleep(for: .milliseconds(300))
+            let version = try await offMain { () -> String in
+                let client = try CommandClient.connect(socketURL: url, clientVersion: "1.0.0")
+                defer { client.close() }
+                return client.appVersion
+            }
+            try expectEqual(version, "9.9.9")
+        },
+        TestCase("socket: un socket viejo sin nadie escuchando se reemplaza") {
+            let url = try shortSocketURL()
+            defer { removeSocketDirectory(url) }
+            close(try RawSocket.listen(url))
+            try expect(FileManager.default.fileExists(atPath: url.path))
+            let server = try echoServer(url)
+            defer { server.stop() }
+            let version = try await offMain { () -> String in
+                let client = try CommandClient.connect(socketURL: url, clientVersion: "1.0.0")
+                defer { client.close() }
+                return client.appVersion
+            }
+            try expectEqual(version, "9.9.9")
+        },
+        TestCase("socket: stop no borra el socket de otra app que lo reemplazó") {
+            let url = try shortSocketURL()
+            defer { removeSocketDirectory(url) }
+            let old = try echoServer(url)
+            try FileManager.default.removeItem(at: url)
+            let current = CommandServer(socketURL: url, appVersion: "2.0.0") { _, _ in .success(.null) }
+            try current.start()
+            defer { current.stop() }
+            old.stop()
+            try expect(FileManager.default.fileExists(atPath: url.path), "stop borró el socket de la otra app")
+            let version = try await offMain { () -> String in
+                let client = try CommandClient.connect(socketURL: url, clientVersion: "1.0.0")
+                defer { client.close() }
+                return client.appVersion
+            }
+            try expectEqual(version, "2.0.0")
+        },
         TestCase("socket: stop borra el socket") {
             let url = try shortSocketURL()
             defer { removeSocketDirectory(url) }
