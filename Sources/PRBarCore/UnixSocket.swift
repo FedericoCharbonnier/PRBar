@@ -1,0 +1,154 @@
+import Darwin
+import Foundation
+
+public struct SocketError: Error, Equatable, LocalizedError {
+    public let operation: String
+    public let code: Int32
+
+    public init(operation: String, code: Int32) {
+        self.operation = operation
+        self.code = code
+    }
+
+    static func last(_ operation: String) -> SocketError {
+        SocketError(operation: operation, code: errno)
+    }
+
+    public var errorDescription: String? {
+        "\(operation) failed: \(String(cString: strerror(code)))"
+    }
+}
+
+/// Lo mínimo de sockets Unix (`AF_UNIX`, `SOCK_STREAM`) que usan `CommandServer` y `CommandClient`.
+enum UnixSocket {
+    static func address(_ path: String) throws -> sockaddr_un {
+        var result = sockaddr_un()
+        result.sun_family = sa_family_t(AF_UNIX)
+        let bytes = Array(path.utf8)
+        let capacity = MemoryLayout.size(ofValue: result.sun_path)
+        guard bytes.count < capacity else {
+            throw SocketError(operation: "socket path too long (\(bytes.count) bytes)", code: ENAMETOOLONG)
+        }
+        withUnsafeMutableBytes(of: &result.sun_path) { raw in
+            raw.copyBytes(from: bytes)
+        }
+        result.sun_len = UInt8(MemoryLayout<sockaddr_un>.size)
+        return result
+    }
+
+    /// Escucha en `path` con permisos 0600 (umask 077 durante el `bind`). Borra un socket viejo en la misma ruta.
+    static func listen(path: String) throws -> Int32 {
+        var addr = try address(path)
+        unlink(path)
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { throw SocketError.last("socket") }
+        let previous = umask(0o077)
+        let bound = withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        umask(previous)
+        guard bound == 0 else {
+            let error = SocketError.last("bind")
+            close(fd)
+            throw error
+        }
+        chmod(path, 0o600)
+        guard Darwin.listen(fd, 16) == 0 else {
+            let error = SocketError.last("listen")
+            close(fd)
+            throw error
+        }
+        return fd
+    }
+
+    static func connect(path: String) throws -> Int32 {
+        var addr = try address(path)
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { throw SocketError.last("socket") }
+        let result = withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        guard result == 0 else {
+            let error = SocketError.last("connect")
+            close(fd)
+            throw error
+        }
+        noSigPipe(fd)
+        return fd
+    }
+
+    /// Escribir en un socket cerrado devuelve EPIPE en vez de matar el proceso.
+    static func noSigPipe(_ fd: Int32) {
+        var on: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
+    }
+
+    /// El uid del proceso del otro lado (spec C.2: solo el del usuario).
+    static func peerUID(_ fd: Int32) -> uid_t? {
+        var uid: uid_t = 0
+        var gid: gid_t = 0
+        return getpeereid(fd, &uid, &gid) == 0 ? uid : nil
+    }
+}
+
+/// Un extremo del socket que lee y escribe líneas. `readLine` se llama desde un solo hilo; `write` y `close` son
+/// seguros desde varios.
+final class LineConnection: @unchecked Sendable {
+    /// Una línea más larga se considera un error y corta la conexión.
+    static let maxLine = 16 * 1024 * 1024
+
+    let fd: Int32
+    private var buffer = Data()
+    private let writeLock = NSLock()
+    private let closeLock = NSLock()
+    private var closed = false
+
+    init(fd: Int32) {
+        self.fd = fd
+    }
+
+    /// La próxima línea (sin `\n`), o `nil` si el otro extremo cerró.
+    func readLine() -> String? {
+        while true {
+            if let newline = buffer.firstIndex(of: 0x0A) {
+                let line = buffer[buffer.startIndex..<newline]
+                buffer.removeSubrange(buffer.startIndex...newline)
+                return String(decoding: line, as: UTF8.self)
+            }
+            var chunk = [UInt8](repeating: 0, count: 64 * 1024)
+            let count = chunk.withUnsafeMutableBytes { Darwin.read(fd, $0.baseAddress, $0.count) }
+            if count < 0 && errno == EINTR { continue }
+            guard count > 0 else { return nil }
+            buffer.append(contentsOf: chunk[0..<count])
+            guard buffer.count <= Self.maxLine else { return nil }
+        }
+    }
+
+    func write(_ line: String) throws {
+        writeLock.lock()
+        defer { writeLock.unlock() }
+        let bytes = Array((line + "\n").utf8)
+        var offset = 0
+        while offset < bytes.count {
+            let written = bytes.withUnsafeBytes { Darwin.write(fd, $0.baseAddress! + offset, $0.count - offset) }
+            if written < 0 {
+                if errno == EINTR { continue }
+                throw SocketError.last("write")
+            }
+            offset += written
+        }
+    }
+
+    func close() {
+        closeLock.lock()
+        defer { closeLock.unlock() }
+        guard !closed else { return }
+        closed = true
+        shutdown(fd, SHUT_RDWR)
+        Darwin.close(fd)
+    }
+}
