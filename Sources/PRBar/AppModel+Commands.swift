@@ -85,7 +85,8 @@ extension AppModel: StatusActions {
             jobs: (reviewJobs + respondJobs + mergeJobs).sorted { ($0.pr, $0.kind) < ($1.pr, $1.kind) },
             accounts: configStore.config.accounts.filter(\.enabled).map(\.login), tools: toolsList(),
             blockedReason: jobsBlockedReason, updateAvailable: updates.available?.version.description,
-            tabCounts: Dictionary(uniqueKeysWithValues: tabs.map { ($0.key.rawValue, $0.value) })
+            tabCounts: Dictionary(uniqueKeysWithValues: tabs.map { ($0.key.rawValue, $0.value) }),
+            sectionCounts: Dictionary(uniqueKeysWithValues: PopoverTabs.sectionCounts(in: snapshot).map { ($0.key.rawValue, $0.value) })
         )
     }
 

@@ -23,7 +23,13 @@ struct StatusCommand: RemoteCommand {
         if let tabs = status.tabCounts {
             output.line(PopoverTab.allCases.map { "\($0.title) \(tabs[$0.rawValue] ?? 0)" }.joined(separator: " · "))
         }
-        output.table(["Section", "PRs"], PRCategory.allCases.map { [$0.title, String(status.counts[$0.rawValue] ?? 0)] })
+        if let sections = status.sectionCounts {
+            // Como el popover: las secciones de To Review y después las de My PRs (Other ≠ Waiting for Review).
+            let ordered = PopoverTab.allCases.flatMap { PopoverTabs.sections($0) }
+            output.table(["Section", "PRs"], ordered.map { [$0.title, String(sections[$0.rawValue] ?? 0)] })
+        } else {
+            output.table(["Section", "PRs"], PRCategory.allCases.map { [$0.title, String(status.counts[$0.rawValue] ?? 0)] })
+        }
         if !status.jobs.isEmpty {
             output.line()
             output.table(["Running", "Kind", "Phase"], status.jobs.map { [$0.pr, $0.kind, $0.phase] })

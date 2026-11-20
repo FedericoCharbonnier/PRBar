@@ -94,6 +94,13 @@ enum PopoverTabsTests {
             let quiet = Snapshot(items: [item(.other, number: 5), item(.other, author: "me", number: 6)], fetchedAt: t0)
             try expectEqual(PopoverTabs.counts(in: quiet), [.toReview: 0, .mine: 0])
         },
+        TestCase("popover tabs: PRs por sección (lo que muestra prbar status)") {
+            try expectEqual(PopoverTabs.sectionCounts(in: mixed), [
+                .toReview: 1, .updatedSinceMyReview: 1, .otherToReview: 1, .myFeedback: 1, .readyToMerge: 1,
+                .waitingForReview: 1,
+            ])
+            try expectEqual(PopoverTabs.sectionCounts(in: nil)[.waitingForReview], 0)
+        },
         TestCase("popover tabs: estados vacíos y etiquetas del control") {
             try expectEqual(PopoverTabs.emptyState(.toReview).title, "Nothing to review 🎉")
             try expectEqual(PopoverTabs.emptyState(.mine).title, "No PRs of yours need anything")

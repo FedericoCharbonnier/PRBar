@@ -102,6 +102,13 @@ public enum PopoverTabs {
         Dictionary(uniqueKeysWithValues: PopoverTab.allCases.map { tab in (tab, snapshot.map { count(tab, in: $0) } ?? 0) })
     }
 
+    /// PRs de cada sección (todas, también las calladas): las filas de `prbar status`.
+    public static func sectionCounts(in snapshot: Snapshot?) -> [PopoverSection: Int] {
+        Dictionary(uniqueKeysWithValues: PopoverSection.allCases.map { section in
+            (section, snapshot.map { items(section, in: $0).count } ?? 0)
+        })
+    }
+
     public static func emptyState(_ tab: PopoverTab) -> (title: String, text: String) {
         switch tab {
         case .toReview: ("Nothing to review 🎉", "No PRs are waiting for your review.")

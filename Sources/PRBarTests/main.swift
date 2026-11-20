@@ -104,6 +104,7 @@ let allTests: [TestCase] = []
     + AppCommandTests.cases
     + ReviewEditsCLITests.cases
     + CommandResultsTests.cases
+    + PopoverTabsCLITests.cases
     + CommandDispatcherTests.cases
     + CommandServerTests.cases
     + MergeDetailTests.cases

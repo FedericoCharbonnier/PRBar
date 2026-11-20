@@ -119,11 +119,15 @@ public struct StatusInfo: Codable, Equatable, Sendable {
     public var updateAvailable: String?
     /// PRs accionables por pestaña (`PopoverTab.rawValue`). Opcional: una app vieja no lo manda.
     public var tabCounts: [String: Int]?
+    /// PRs por sección del popover (`PopoverSection.rawValue`), con Other y Waiting for Review por separado.
+    /// Opcional: una app vieja no lo manda.
+    public var sectionCounts: [String: Int]?
 
     public init(appVersion: String, refreshing: Bool = false, fetchedAt: Date? = nil, offline: Bool = false,
                 rateLimitedUntil: Date? = nil, badgeCount: Int = 0, counts: [String: Int] = [:], issues: [String] = [],
                 slackIssues: [String] = [], jobs: [JobInfo] = [], accounts: [String] = [], tools: [ToolInfo] = [],
-                blockedReason: String? = nil, updateAvailable: String? = nil, tabCounts: [String: Int]? = nil) {
+                blockedReason: String? = nil, updateAvailable: String? = nil, tabCounts: [String: Int]? = nil,
+                sectionCounts: [String: Int]? = nil) {
         self.appVersion = appVersion
         self.refreshing = refreshing
         self.fetchedAt = fetchedAt
@@ -139,6 +143,7 @@ public struct StatusInfo: Codable, Equatable, Sendable {
         self.blockedReason = blockedReason
         self.updateAvailable = updateAvailable
         self.tabCounts = tabCounts
+        self.sectionCounts = sectionCounts
     }
 }
 
