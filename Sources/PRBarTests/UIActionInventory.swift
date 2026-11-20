@@ -95,6 +95,11 @@ enum UIActionInventory {
         .init("Popover/PRRowView.swift", "Button", "View Review", 1, .cli(["open", "review show"])),
         .init("Popover/PRRowView.swift", "Button", "Cancel", 1, .cli(["respond cancel"])),
         .init("Popover/PRRowView.swift", "Button", "Respond with Claude", 1, .cli(["respond start"])),
+        // Fix CI (spec K): mis PRs con el CI fallido
+        .init("Popover/PRRowView.swift", "Button", "Fix CI with Claude", 1, .cli(["ci fix"])),
+        .init("Popover/PRRowView.swift", "Button", "Cancel Fix CI", 1, .cli(["ci cancel"])),
+        .init("Popover/PRRowView.swift", "Button", "View Fix CI", 1, .cli(["open", "ci show"])),   // open --respond
+        .init("Popover/PRRowView.swift", "Component:FixCIButton", "-", 2, .cli(["ci fix"])),
         .init("Popover/PRRowView.swift", "Button", "View Response", 1, .cli(["open", "respond show"])),
         // Ready to Merge (plan 10) y la ventana de Merge (plan 11)
         .init("Popover/MergeButton.swift", "Button", "Merge…", 1, .cli(["open", "merge"])),   // la ventana (open --merge)
@@ -153,7 +158,8 @@ enum UIActionInventory {
         .init("Respond/RespondButton.swift", "Button", "-", 4, .cli(["open", "respond cancel", "history show"])),
         .init("Respond/RespondButton.swift", "ClosureMenuItem", "Open", 1, .cli(["open"])),
         .init("Respond/RespondButton.swift", "ClosureMenuItem", "Retry", 1, .cli(["respond start", "respond push"])),
-        .init("Respond/RespondButton.swift", "Component:CancellablePill", "response", 1, .cli(["respond cancel"])),   // asks first
+        .init("Respond/RespondButton.swift", "Component:CancellablePill", "CI fix", 1, .cli(["respond cancel", "ci cancel"])),   // asks first; "response" or "CI fix"
+        .init("Respond/RespondButton.swift", "Button", "Fix CI", 1, .cli(["ci fix"])),   // FixCIButton
         // Ventana de Review
         // Discarded y "Hidden by your settings" (vista; `review show` los lista), "Approve with N comments" y el botón Chat
         .init("Review/ReviewWindow.swift", "Button", "-", 4, .cli(["review publish", "review show", "chat"])),
@@ -176,7 +182,10 @@ enum UIActionInventory {
         // Ventana de Respond
         // carpeta, Push/Post, la acción de un mensaje ("Open New Analysis"…) y el botón Chat
         .init("Respond/RespondWindow.swift", "Button", "-", 4, .cli(["open", "respond push", "chat"])),
-        .init("Respond/RespondWindow.swift", "Button", "Push Anyway…", 1, .cli(["respond push"])),   // --anyway
+        .init("Respond/RespondWindow.swift", "Button", "Push Anyway…", 2, .cli(["respond push", "ci push"])),   // --anyway (tests failed / CI passes now)
+        .init("Respond/RespondWindow.swift", "Button", "Fix CI", 1, .cli(["ci fix"])),   // or "Fix CI Again"
+        .init("Respond/RespondWindow.swift", "ExternalLink", "Details", 1, .cli(["ci show"])),   // the check's details URL
+        .init("Respond/RespondWindow.swift", "Component:CIPassingBanner", "-", 1, .cli(["ci push"])),   // --anyway
         .init("Respond/RespondWindow.swift", "Button", "Reset to Claude’s Suggestions", 1, .cli(["respond select"])),
         .init("Respond/RespondWindow.swift", "Button", "Implement 1 Fix", 1, .cli(["respond implement"])),
         .init("Respond/RespondWindow.swift", "Button", "Analyze Again", 1, .cli(["respond start"])),
@@ -184,7 +193,7 @@ enum UIActionInventory {
         .init("Respond/RespondWindow.swift", "Button", "Cancel", 3, .cli(["respond cancel"])),
         .init("Respond/RespondWindow.swift", "Button", "Run Tests", 1, .cli(["respond test"])),
         .init("Respond/RespondWindow.swift", "Button", "Close", 2, .viewOnly("closes the window")),
-        .init("Respond/RespondWindow.swift", "DisclosureGroup", "-", 1, .viewOnly("test output; `prbar respond show --full` prints it")),
+        .init("Respond/RespondWindow.swift", "DisclosureGroup", "-", 2, .viewOnly("test output and what Claude saw of a failing check; `prbar respond|ci show --full` prints them")),
         .init("Respond/RespondWindow.swift", "ExternalLink", "View Reply", 1, .cli(["respond show"])),
         .init("Respond/RespondWindow.swift", "ExternalLink", "View on GitHub", 1, .cli(["open"])),
         .init("Respond/RespondWindow.swift", "Link", "-", 1, .cli(["respond show"])),   // links a los commits
@@ -331,8 +340,8 @@ enum UIActionInventory {
         .init("AppModel.swift", "Component:RespondWindow", "-", 1, .viewOnly("window plumbing (unsaved state, close)")),
         .init("Popover/PRRowView.swift", "Component:ReviewButtonActions", "-", 2,
               .cli(["review start", "review cancel", "open", "review dismiss"])),
-        .init("Popover/PRRowView.swift", "Component:RespondButtonActions", "-", 2,
-              .cli(["respond start", "respond cancel", "open", "respond dismiss"])),
+        .init("Popover/PRRowView.swift", "Component:RespondButtonActions", "-", 4,
+              .cli(["respond start", "respond cancel", "open", "respond dismiss", "ci fix", "ci cancel", "ci dismiss"])),   // Respond and Fix CI
         .init("Popover/PRRowView.swift", "Component:MergeButtonActions", "-", 2, .cli(["merge"])),   // merge, retry, --dismiss
         .init("Popover/PopoverView.swift", "Component:MessageView", "-", 3, .cli(["app settings", "refresh"])),   // Open Settings, Try Again
         .init("Popover/PopoverView.swift", "Component:MessageView", "checkmark.seal", 1, .viewOnly("a tab’s empty state, no action")),
@@ -349,7 +358,7 @@ enum UIActionInventory {
         .init("Respond/RespondWindow.swift", "Component:RespondDoneView", "-", 1, .viewOnly("closes the window")),
         .init("Respond/RespondWindow.swift", "Component:TestsBlockedPushBanner", "-", 1, .cli(["respond push"])),   // --anyway
         .init("Respond/RespondWindow.swift", "Component:TestsSection", "-", 1, .cli(["respond test", "respond cancel"])),
-        .init("Respond/RespondWindow.swift", "ConfirmAlert", "-", 3, .cli(["respond push", "respond reply-only"])),   // Push and Reply, Push Anyway, Post
+        .init("Respond/RespondWindow.swift", "ConfirmAlert", "-", 4, .cli(["respond push", "respond reply-only", "ci push"])),   // Push and Reply / Push, Push Anyway (tests, CI), Post
         .init("Review/HistoryWindow.swift", "Component:HistoryDetailView", "-", 1, .cli(["history reopen"])),
         .init("Review/HistoryWindow.swift", "Component:RespondHistoryDetailView", "-", 1, .cli(["open"])),
         .init("Review/HistoryWindow.swift", "Component:MessageView", "-", 1, .viewOnly("an empty-state message without an action")),
