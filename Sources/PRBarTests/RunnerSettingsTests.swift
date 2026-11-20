@@ -70,5 +70,32 @@ enum RunnerSettingsTests {
             let old = try JSONDecoder().decode(AppConfig.self, from: Data(#"{"refreshIntervalMinutes":5}"#.utf8))
             try expectEqual(old.runners, RunnerSettings())
         },
+        TestCase("runners: una config editada a mano con destinos inválidos los descarta al leerla") {
+            func destination(_ name: String, host: String, user: String? = nil, port: Int? = nil, dir: String = "~/.prbar") -> String {
+                var endpoint = #""host":"\#(host)""#
+                if let user { endpoint += #","user":"\#(user)""# }
+                if let port { endpoint += #","port":\#(port)"# }
+                return #"{"name":"\#(name)","endpoint":{\#(endpoint)},"remoteDir":"\#(dir)","fallbackToLocal":true}"#
+            }
+            let entries = [
+                destination("ok", host: "devbox", user: "fede", port: 2222),
+                destination("opt", host: "-oProxyCommand=touch PWNED"),
+                destination("user", host: "devbox", user: "-oX"),
+                destination("port", host: "devbox", port: 0),
+                destination("bigport", host: "devbox", port: 70_000),
+                destination("space", host: "dev box"),
+                destination("bad name", host: "devbox"),
+                destination("local", host: "devbox"),
+                destination("dir", host: "devbox", dir: "~/.ssh/x"),
+                destination("OK", host: "other"),
+                destination("v6", host: "fe80::1"),
+                #"{"name":"broken"}"#,
+            ]
+            let json = #"{"destinations":["# + entries.joined(separator: ",") + #"],"defaultTarget":"ok"}"#
+            let settings = try JSONDecoder().decode(RunnerSettings.self, from: Data(json.utf8))
+            try expectEqual(settings.destinations.map(\.name), ["ok", "v6"])
+            try expectEqual(settings.destinations[0].endpoint, SSHEndpoint(user: "fede", host: "devbox", port: 2222))
+            try expectEqual(settings.defaultTarget, .runner("ok"))
+        },
     ]
 }

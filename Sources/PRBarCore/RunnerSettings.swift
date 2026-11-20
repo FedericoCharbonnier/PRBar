@@ -62,6 +62,13 @@ public struct SSHEndpoint: Codable, Hashable, Sendable {
         return text.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "_" || $0 == "-") }
     }
 
+    /// Lo que acepta `parse`: un host de `~/.ssh/config` o un IPv6, un usuario válido y un puerto 1–65535.
+    public var isValid: Bool {
+        guard host.count <= 255, user.map(Self.isName) ?? true, port.map({ (1...65_535).contains($0) }) ?? true else { return false }
+        if host.contains(":") { return host.allSatisfy { $0.isASCII && ($0.isHexDigit || $0 == ":" || $0 == ".") } }
+        return Self.isName(host)
+    }
+
     public var display: String {
         (user.map { "\($0)@" } ?? "") + (host.contains(":") ? "[\(host)]" : host) + (port.map { ":\($0)" } ?? "")
     }
@@ -85,6 +92,11 @@ public struct RunnerDestination: Codable, Hashable, Sendable, Identifiable {
         self.endpoint = endpoint
         self.remoteDir = remoteDir
         self.fallbackToLocal = fallbackToLocal
+    }
+
+    /// Lo mismo que exige `addRunner` y `SSHEndpoint.parse`.
+    public var isValid: Bool {
+        Self.isValidName(name) && Self.isValidRemoteDir(remoteDir) && endpoint.isValid
     }
 
     public static func isValidName(_ name: String) -> Bool {
@@ -164,8 +176,25 @@ public struct RunnerSettings: Codable, Hashable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        destinations = (try? c.decodeIfPresent([RunnerDestination].self, forKey: .destinations)) ?? []
+        // Una config editada a mano: cada destino se valida como al agregarlo (host, usuario, puerto, nombre,
+        // carpeta); los inválidos o repetidos se descartan (con un aviso en el log) en vez de llegar a ssh.
+        var kept: [RunnerDestination] = []
+        for entry in (try? c.decodeIfPresent([Lossy<RunnerDestination>].self, forKey: .destinations)) ?? [] {
+            guard let destination = entry.value, destination.isValid,
+                  !kept.contains(where: { $0.name.caseInsensitiveCompare(destination.name) == .orderedSame }) else {
+                AppLog.write("Config: ignoring an invalid SSH runner destination\(entry.value.map { " (\($0.name.prefix(40)))" } ?? "").")
+                continue
+            }
+            kept.append(destination)
+        }
+        destinations = kept
         defaultTarget = (try? c.decodeIfPresent(RunTarget.self, forKey: .defaultTarget)) ?? .local
+    }
+
+    /// Un elemento que puede no decodificar.
+    struct Lossy<Value: Decodable>: Decodable {
+        let value: Value?
+        init(from decoder: Decoder) throws { value = try? Value(from: decoder) }
     }
 
     public func destination(named name: String) -> RunnerDestination? {
