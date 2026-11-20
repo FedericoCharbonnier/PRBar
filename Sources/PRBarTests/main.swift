@@ -118,6 +118,7 @@ let allTests: [TestCase] = []
     + DiskCleanupTests.cases
     + DiskCleanupSafetyTests.cases
     + ResourceMonitorTests.cases
+    + WindowVisibilityTests.cases
 
 let filter = CommandLine.arguments.dropFirst().first
 let selected = allTests.filter { test in

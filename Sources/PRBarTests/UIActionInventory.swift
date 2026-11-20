@@ -46,7 +46,7 @@ enum UIActionInventory {
         .init("Activity/ActivityWindow.swift", "Stepper", #"\(olderThanDays) days"#, 1, .cli(["cleanup"])),
         .init("Activity/ActivityWindow.swift", "Button", "-", 1, .cli(["cleanup"])),   // Clean Up… (frees X)
         .init("Activity/ActivityWindow.swift", "ConfirmAlert", "-", 1, .cli(["cleanup"])),   // --yes
-        .init("Activity/ActivityWindow.swift", "Component:WindowAccessor", "activity", 1, .viewOnly("tracks whether the window is open to sample")),
+        .init("Activity/ActivityWindow.swift", "Component:WindowAccessor", "-", 1, .viewOnly("tracks whether the window is on screen to sample")),
         // Componentes genéricos
         .init("Components/Chips.swift", "Button", "-", 1, .cli(["repo set"])),   // RemovableChip: quitar una rama base
         .init("Components/PointingHandCursor.swift", "Button", "-", 1, .viewOnly(generic)),

@@ -13,6 +13,19 @@ struct ActivityWindow: View {
     @State private var olderThanDays = 30
     @State private var cleaning = false
     @State private var lastResult: String?
+    @State private var visibility = Visibility()
+
+    /// El `WindowVisibilityTracker` de la ventana, creado la primera vez.
+    @MainActor
+    final class Visibility {
+        private var current: WindowVisibilityTracker?
+        func tracker(_ monitor: ResourceMonitor) -> WindowVisibilityTracker {
+            if let current { return current }
+            let tracker = WindowVisibilityTracker { [weak monitor] in monitor?.setVisible("activity", $0) }
+            current = tracker
+            return tracker
+        }
+    }
 
     var body: some View {
         ScrollView {
@@ -25,7 +38,9 @@ struct ActivityWindow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(minWidth: 600, minHeight: 480)
-        .background(WindowAccessor { window in monitor.setVisible("activity", window != nil) })
+        // Muestrea solo mientras se la ve: no minimizada, no tapada ni en otro Space, y nunca después de cerrarla
+        // (`WindowPresenter` guarda el contenido; decisión I.1.7).
+        .background(WindowAccessor { window in visibility.tracker(monitor).track(window) })
         .onDisappear { monitor.setVisible("activity", false) }
     }
 
