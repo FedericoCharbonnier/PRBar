@@ -52,7 +52,8 @@ extension RespondPushGate {
                 : "Nothing is blocked by failed tests: use `prbar respond push \(id)`.")
         }
         if !anyway, case .testsFailed(let run) = gate {
-            return CommandFailure(.invalidState, "“\(run.command)” failed, so PRBar didn’t push. Push anyway with `prbar respond push \(id) --anyway`.")
+            let command = record.draft.isCIFix ? "prbar ci push" : "prbar respond push"
+            return CommandFailure(.invalidState, "“\(run.command)” failed, so PRBar didn’t push. Push anyway with `\(command) \(id) --anyway`.")
         }
         if chatting {
             return CommandFailure(.invalidState, "Wait for Claude to finish answering in the chat (`prbar chat \(id) --stop` stops it).")
