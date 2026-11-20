@@ -470,6 +470,68 @@ delegado: con la app abierta en ese PR no muestra el banner. El badge lo pone la
 Lo que muestre el diseño, con esta regla: lo que es de la Mac va por `AppCommand` permitido (`notifySet`,
 `notifySetEnabled`, `remoteSetPresenceRequirement`); lo demás es local (Mac emparejada, "Unpair this iPhone", versión).
 
+### R.7 Decisiones de implementación (Plan 19)
+
+Estado: implementado contra el protocolo (`RemoteTransport`) con datos de prueba; falta enchufar el relay (planes 17 y
+18) y lo que requiere al usuario (Team ID, iPhone).
+
+- **Dónde vive el código.** La lógica y las vistas están en el paquete `ios/PRBarMobileKit` (targets
+  `PRBarMobileCore`, `PRBarMobileUI`, `PRBarMobileSnapshots`), que compila para iOS 26 **y macOS 26**: los tests de los
+  view models corren con `swift test` en la Mac, sin simulador (93 tests), y `swift run PRBarMobileSnapshots` dibuja
+  cada pantalla en claro y oscuro a `ios/snapshots/` (ignorado). El target de Xcode (`ios/PRBarMobile`) solo tiene el
+  arranque (`AppBootstrap`), el gesto de volver y los recursos. Proyecto `PRBarMobile` por XcodeGen como dice el plan.
+- **La costura con el relay.** `RemoteTransport` (conectar, `sub`, `send` con firma de presencia, buzón, `unpair`,
+  eventos) y `PairingService` (unirse a la ranura, código, resultado). Hoy los implementan `FakeTransport` y
+  `FakePairingService` (respuestas de la muestra del diseño); `AppBootstrap.make()` es el único lugar a cambiar cuando
+  existan `RemoteClient` (plan 17) y la Mac (plan 18). El transporte arma él mismo el `PresenceProof` (conoce
+  `sessionHash` y reserva el `reqId`): los view models le pasan un `PresenceSigner` solo si el comando es gated
+  (`RemotePolicy`) y la Mac exige presencia (`presencePolicy`).
+- **Comandos que el branch todavía no tiene.** `RemoteCommand` = `AppCommand` + `ciFix`, `usage` y
+  `remoteSetPresenceRequirement(enabled:)`, codificados igual que el `Codable` sintetizado de `AppCommand`
+  (`{"ciFix":{…}}`). Cuando lleguen a `PRBarWire` esos casos se borran. `remoteSetPresenceRequirement` va sin `device`:
+  desde el teléfono el dispositivo es la sesión.
+- **Tópicos.** `RemoteHome`, `RemotePRDetail`, `RemoteActivity` se decodifican en el teléfono con la forma de P.6; el
+  `respond` se lee además como `RespondExtras` para los campos de `feat/ci-cost` (`mode`, `ciChecks`). Cada pantalla
+  retiene su tópico mientras está visible (`activity` solo con Activity abierta). `rev`: por sesión para los `state`;
+  el del buzón se compara con el último `home` guardado.
+- **Datos que el diseño muestra y ningún comando da (tareas para el Plan 18).** Opcionales en los tópicos; sin ellos la
+  UI los oculta o usa un texto genérico: nombre visible de cada autor (`people`), cantidad de comentarios de un review
+  listo (`findingCounts`, "4 comments"), aprobaciones de mis PRs (`approvals`, "Approved by 2"), checks fallidos por PR en
+  `ciList` (`failedChecks`), en Fix CI la duración y el extracto de log de cada check, el total de checks ("2 of 9"),
+  el archivo que se está editando y el resumen de tests, la hora de inicio de un Respond (cronómetro), cantidad de
+  archivos del PR ("· 5 files"), totales de la Mac para las tarjetas de Activity (núcleos, RAM total, disco libre/total:
+  `ResourcesInfo` solo trae lo de PRBar), jobs en curso con tiempo y costo (`running`), mensajes de chat del mes, el
+  extracto de código en `edit`, y el canal de Slack de `merge:merged` ("Posted in #web-reviews").
+- **Copy que no está en el diseño** (de la app de la Mac cuando existe): vacíos de las pestañas (`PopoverTabs.emptyState`),
+  "Cancel this review?" / "Keep Running" / "Cancel Review" / "Dismiss", "Undo Claude’s changes?" con el mensaje de
+  `confirmationRequired`, "Review with Claude" (plan). Inventado: QR inválido ("This isn't a PRBar pairing code…"),
+  vencido, cancelado, códigos distintos, "Connecting to <Mac>…", "Confirm on your Mac" (spec P.11) tras "Codes Match",
+  la pantalla de confirmación de un link de emparejamiento, "Can't connect to <Mac>" (problema de relay),
+  "Face ID changed" + "Pair Again", "Implement" en la barra de Respond, "Respond with Claude"/"Fix CI with Claude".
+- **Pantallas.** El encabezado de cada pantalla es propio (círculos de vidrio del diseño) y se oculta la barra del
+  sistema; el gesto de volver se conserva. `pair:paired` muestra el código con "Codes Match"/"Codes Don't Match" (diseño);
+  tras "Codes Match" espera la confirmación de la Mac. "CI Failing" es una sección más de My PRs (los PRs de `ciList`
+  salen de su sección). "Waiting for Review" y "Other" arrancan colapsadas. Settings no muestra la sección CLAUDE del
+  diseño (Repositories, Claude rules): son comandos denegados (P.7, R.6). "CI failed on my PRs" maneja el interruptor
+  `approved-or-ci` de la Mac. Tipografía con estilos de texto (Dynamic Type); el título de 24 del diseño usa `title2` (22).
+- **Revisión criptográfica.** (L4) Un link `prbar://pair` o un QR nunca reemplaza un emparejamiento en silencio: pantalla
+  de confirmación con el nombre de la Mac y el host del relay, aviso "This replaces your pairing with <Mac>", toque
+  explícito, y después el código de 6 dígitos; un intento fallido no toca las claves existentes (se guardan recién con
+  la confirmación de la Mac). (M3) Los códigos de cierre del relay (4401/4403/…) no prueban nada: son
+  `LinkState.relayRejected` → problema de conexión con Try Again; las claves se borran solo con un `bye(revoked)` dentro
+  de la sesión cifrada (`LinkState.revoked`, lo emitirá `RemoteClient`) o con Unpair. Las claves privadas viven solo en
+  el llavero (la de presencia en el Secure Enclave; en el llavero va su `dataRepresentation`); la caché del App Group
+  tiene solo datos de PRs.
+- **Face ID.** `SecureEnclavePresence` evalúa primero la biometría con `LAContext` (cancelar es un `LAError` limpio) y
+  después restaura la clave con ese contexto; si igual no firma, la clave es inválida ("Face ID changed. Pair this iPhone
+  again from your Mac."). En el simulador (DEBUG) se usa una P-256 de software.
+- **Compilar sin la plataforma iOS 26.** Con Xcode 26.6 sin el componente iOS 26.5 no hay destinos para el esquema y
+  `actool` no compila el catálogo sin un runtime de simulador. `Scripts/ios-build-check.sh` compila en modo target (sin
+  destino) para el simulador, el SDK del dispositivo sin firma y el bundle de tests, dejando afuera `Assets.xcassets`.
+  Con la plataforma instalada valen los comandos del plan.
+- **Pendiente.** Task 8 (APNs, NSE, `aps-environment`, categoría `PR`): necesita Team ID y App IDs. Tasks 9, 14 y 18
+  (checklists en el iPhone real). Ícono de la app (el catálogo tiene el slot vacío).
+
 ---
 
 ## S. Testing
