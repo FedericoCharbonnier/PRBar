@@ -76,9 +76,12 @@ extension AppModel: ResourceActions {
 
     func cleanupPreview(olderThanDays: Int?) async -> CleanupPlan {
         let input = diskScanInput()
-        let disk = await Task.detached(priority: .utility) { DiskScanner.scan(input) }.value
-        let old = olderThanDays.map { DiskCleanup.oldFiles(in: [AppPaths.historyDir, AppPaths.logFile.deletingLastPathComponent()],
-                                                            olderThanDays: $0) } ?? []
+        // El escaneo y la búsqueda de archivos viejos (recorren carpetas enteras) fuera del main actor.
+        let (disk, old) = await Task.detached(priority: .utility) {
+            (DiskScanner.scan(input),
+             olderThanDays.map { DiskCleanup.oldFiles(in: [AppPaths.historyDir, AppPaths.logFile.deletingLastPathComponent()],
+                                                     olderThanDays: $0) } ?? [])
+        }.value
         return DiskCleanup.plan(usage: disk, oldFiles: old, updateInProgress: updates.session.isInstalling)
     }
 
