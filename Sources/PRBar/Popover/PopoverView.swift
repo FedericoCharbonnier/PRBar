@@ -111,10 +111,13 @@ struct PopoverView: View {
                 .keyboardShortcut(",", modifiers: .command)
             Button("Quit PRBar") { NSApp.terminate(nil) }
                 .keyboardShortcut("q", modifiers: .command)
-            Button("To Review") { tabs.selected = .toReview }
-                .keyboardShortcut("1", modifiers: .command)
-            Button("My PRs") { tabs.selected = .mine }
-                .keyboardShortcut("2", modifiers: .command)
+            // ⌘1/⌘2 solo cuando se ve el control (decisión H.4.6): sin él no hay pestañas que cambiar.
+            if showsTabs {
+                Button("To Review") { tabs.selected = .toReview }
+                    .keyboardShortcut("1", modifiers: .command)
+                Button("My PRs") { tabs.selected = .mine }
+                    .keyboardShortcut("2", modifiers: .command)
+            }
         }
         .opacity(0)
         .allowsHitTesting(false)
