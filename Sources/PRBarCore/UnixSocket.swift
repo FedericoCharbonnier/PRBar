@@ -87,6 +87,13 @@ enum UnixSocket {
         setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
     }
 
+    /// Un `write` que no avanza en `seconds` falla (EAGAIN) en vez de bloquear para siempre: un cliente que dejó de
+    /// leer no traba a la app.
+    static func setSendTimeout(_ fd: Int32, seconds: TimeInterval) {
+        var value = timeval(tv_sec: Int(seconds), tv_usec: Int32((seconds - Double(Int(seconds))) * 1_000_000))
+        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &value, socklen_t(MemoryLayout<timeval>.size))
+    }
+
     /// El uid del proceso del otro lado (spec C.2: solo el del usuario).
     static func peerUID(_ fd: Int32) -> uid_t? {
         var uid: uid_t = 0
@@ -150,5 +157,93 @@ final class LineConnection: @unchecked Sendable {
         closed = true
         shutdown(fd, SHUT_RDWR)
         Darwin.close(fd)
+    }
+}
+
+/// Lo que la app le manda a un cliente, sin bloquear a quien lo manda (el main actor): un hilo aparte escribe en
+/// orden. Si el cliente lee más lento de lo que llegan los eventos, se juntan: el texto del chat se concatena, el
+/// progreso se queda con el último y, pasado `maxPending`, el progreso nuevo se descarta. Las respuestas finales
+/// siempre se mandan. Si una escritura falla (cliente ido o trabado más que el `SO_SNDTIMEO`), cierra la conexión.
+final class OutboundQueue: @unchecked Sendable {
+    static let maxPending = 256
+
+    private enum Pending {
+        case event(id: Int, CommandEvent)
+        case response(CommandResponse)
+
+        var line: String? {
+            switch self {
+            case .event(let id, let event): try? CommandProtocol.line(CommandResponse.event(id: id, event))
+            case .response(let response): try? CommandProtocol.line(response)
+            }
+        }
+    }
+
+    private let connection: LineConnection
+    private let lock = NSLock()
+    private var pending: [Pending] = []
+    private var draining = false
+    private var failed = false
+    private let queue = DispatchQueue(label: "PRBar.CommandServer.outbound")
+
+    init(connection: LineConnection) {
+        self.connection = connection
+    }
+
+    func send(event: CommandEvent, id: Int) {
+        enqueue { pending in
+            if case .event(let lastID, let last)? = pending.last, lastID == id {
+                switch (last, event) {
+                case (.text(let a), .text(let b)):
+                    pending[pending.count - 1] = .event(id: id, .text(delta: a + b))
+                    return
+                case (.progress, .progress):
+                    pending[pending.count - 1] = .event(id: id, event)
+                    return
+                default: break
+                }
+            }
+            if case .progress = event, pending.count >= Self.maxPending { return }
+            pending.append(.event(id: id, event))
+        }
+    }
+
+    func send(_ response: CommandResponse) {
+        enqueue { $0.append(.response(response)) }
+    }
+
+    private func enqueue(_ change: (inout [Pending]) -> Void) {
+        lock.lock()
+        guard !failed else { return lock.unlock() }
+        change(&pending)
+        let start = !draining
+        draining = true
+        lock.unlock()
+        if start { queue.async { self.drain() } }
+    }
+
+    private func drain() {
+        while true {
+            lock.lock()
+            guard !pending.isEmpty, !failed else {
+                draining = false
+                lock.unlock()
+                return
+            }
+            let next = pending.removeFirst()
+            lock.unlock()
+            guard let line = next.line else { continue }
+            do {
+                try connection.write(line)
+            } catch {
+                lock.lock()
+                failed = true
+                pending = []
+                draining = false
+                lock.unlock()
+                connection.close()
+                return
+            }
+        }
     }
 }

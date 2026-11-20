@@ -182,6 +182,66 @@ enum CommandServerTests {
             }
             try expectEqual((error as? CommandFailure)?.message, "Couldn’t read the request.")
         },
+        TestCase("socket: un cliente que no lee no traba al que manda eventos; después recibe todo el texto y la respuesta") {
+            let url = try shortSocketURL()
+            defer { removeSocketDirectory(url) }
+            let chunk = String(repeating: "x", count: 32 * 1024)
+            let count = 400
+            let handlerSeconds = Box<Double>(0)
+            let server = CommandServer(socketURL: url, appVersion: "9.9.9") { @MainActor _, sink in
+                let start = Date()
+                for _ in 0..<count {
+                    sink(.text(delta: chunk))
+                    sink(.progress(message: "working"))
+                }
+                handlerSeconds.value = Date().timeIntervalSince(start)
+                return .success(.string("done"))
+            }
+            try server.start()
+            defer { server.stop() }
+            let raw = try RawSocket.connect(url)
+            defer { raw.close() }
+            raw.writeLine(helloLine(protocolVersion: CommandProtocol.version))
+            _ = raw.readLine()
+            raw.writeLine(try CommandProtocol.line(CommandRequest(id: 3, command: .status)))
+            // 12 MB de texto sin leer nada: el handler termina igual.
+            for _ in 0..<100 where handlerSeconds.value == 0 { try await Task.sleep(for: .milliseconds(20)) }
+            try expect(handlerSeconds.value > 0 && handlerSeconds.value < 1, "handler: \(handlerSeconds.value) s")
+            let (text, final) = try await offMain { () -> (Int, CommandResponse?) in
+                var text = 0
+                while let line = raw.readLine() {
+                    let response = try CommandProtocol.decode(CommandResponse.self, line: line)
+                    if case .text(let delta)? = response.event { text += delta.count }
+                    if response.ok != nil { return (text, response) }
+                }
+                return (text, nil)
+            }
+            try expectEqual(text, count * chunk.count)
+            try expectEqual(final?.result, .string("done"))
+        },
+        TestCase("socket: un cliente trabado más que el timeout se desconecta y se cancela su pedido") {
+            let url = try shortSocketURL()
+            defer { removeSocketDirectory(url) }
+            let cancelled = Flag()
+            let server = CommandServer(socketURL: url, appVersion: "9.9.9", sendTimeout: 0.3) { _, sink in
+                let chunk = String(repeating: "y", count: 64 * 1024)
+                while !Task.isCancelled {
+                    sink(.progress(message: chunk + "\(Date().timeIntervalSince1970)"))
+                    try? await Task.sleep(for: .milliseconds(5))
+                }
+                cancelled.set()
+                return .failure(CommandFailure(.cancelled, "Canceled."))
+            }
+            try server.start()
+            defer { server.stop() }
+            let raw = try RawSocket.connect(url)
+            defer { raw.close() }
+            raw.writeLine(helloLine(protocolVersion: CommandProtocol.version))
+            _ = raw.readLine()
+            raw.writeLine(try CommandProtocol.line(CommandRequest(id: 1, command: .status)))
+            for _ in 0..<250 where !cancelled.isSet { try await Task.sleep(for: .milliseconds(20)) }
+            try expect(cancelled.isSet, "el servidor no cortó al cliente trabado")
+        },
         TestCase("socket: stop borra el socket") {
             let url = try shortSocketURL()
             defer { removeSocketDirectory(url) }

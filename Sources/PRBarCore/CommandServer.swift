@@ -11,15 +11,19 @@ public final class CommandServer: @unchecked Sendable {
     private let appVersion: String
     private let allowedUID: uid_t
     private let handler: Handler
+    private let sendTimeout: TimeInterval
     private let lock = NSLock()
     private var listenFD: Int32 = -1
     private var acceptSource: DispatchSourceRead?
     private var connections: [ObjectIdentifier: LineConnection] = [:]
 
-    public init(socketURL: URL, appVersion: String, allowedUID: uid_t = getuid(), handler: @escaping Handler) {
+    /// `sendTimeout`: cuánto puede trabarse una escritura (un cliente que no lee) antes de cortarlo.
+    public init(socketURL: URL, appVersion: String, allowedUID: uid_t = getuid(), sendTimeout: TimeInterval = 10,
+                handler: @escaping Handler) {
         self.socketURL = socketURL
         self.appVersion = appVersion
         self.allowedUID = allowedUID
+        self.sendTimeout = sendTimeout
         self.handler = handler
     }
 
@@ -75,6 +79,7 @@ public final class CommandServer: @unchecked Sendable {
             // Los sockets aceptados heredan O_NONBLOCK: se leen bloqueando, cada uno en su hilo.
             _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) & ~O_NONBLOCK)
             UnixSocket.noSigPipe(fd)
+            UnixSocket.setSendTimeout(fd, seconds: sendTimeout)
             let connection = LineConnection(fd: fd)
             guard UnixSocket.peerUID(fd) == allowedUID else {
                 let failure = CommandFailure(.unauthorized, "Only the user running PRBar can use its socket.")
@@ -113,6 +118,8 @@ public final class CommandServer: @unchecked Sendable {
 
         var tasks: [Task<Void, Never>] = []
         let handler = self.handler
+        // Los eventos y las respuestas salen por acá: el handler (main actor) nunca espera al cliente.
+        let outbound = OutboundQueue(connection: connection)
         while let line = connection.readLine() {
             guard let request = try? CommandProtocol.decode(CommandRequest.self, line: line) else {
                 // Con el id, el cliente recibe el error en vez de esperar para siempre (p. ej. un `prbar` más nuevo
@@ -122,19 +129,18 @@ public final class CommandServer: @unchecked Sendable {
                 } else {
                     CommandResponse.failure(id: 0, CommandFailure(.invalidUsage, "Couldn’t read the request."))
                 }
-                try? connection.write(CommandProtocol.line(response))
+                outbound.send(response)
                 continue
             }
             tasks.append(Task {
                 let id = request.id
                 let result = await handler(request.command) { event in
-                    try? connection.write(CommandProtocol.line(CommandResponse.event(id: id, event)))
+                    outbound.send(event: event, id: id)
                 }
-                let response: CommandResponse = switch result {
-                case .success(let value): .success(id: id, value)
-                case .failure(let failure): .failure(id: id, failure)
+                switch result {
+                case .success(let value): outbound.send(.success(id: id, value))
+                case .failure(let failure): outbound.send(.failure(id: id, failure))
                 }
-                try? connection.write(CommandProtocol.line(response))
             })
         }
         tasks.forEach { $0.cancel() }

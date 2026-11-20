@@ -6,6 +6,8 @@ import Foundation
 final class RawSocket: @unchecked Sendable {
     let fd: Int32
     private var buffer = Data()
+    /// Hasta dónde ya se buscó `\n` en `buffer` (las líneas largas no se recorren de nuevo con cada pedazo).
+    private var scanned = 0
 
     init(fd: Int32) {
         self.fd = fd
@@ -53,14 +55,16 @@ final class RawSocket: @unchecked Sendable {
     }
 
     /// Lee hasta `timeout` segundos (`nil` si el otro lado cerró o se venció el plazo).
-    func readLine(timeout: TimeInterval = 5) -> String? {
+    func readLine(timeout: TimeInterval = 10) -> String? {
         let deadline = Date().addingTimeInterval(timeout)
         while true {
-            if let newline = buffer.firstIndex(of: 0x0A) {
+            if let newline = buffer[(buffer.startIndex + scanned)...].firstIndex(of: 0x0A) {
                 let line = buffer[buffer.startIndex..<newline]
-                buffer.removeSubrange(buffer.startIndex...newline)
+                buffer = Data(buffer[(newline + 1)...])
+                scanned = 0
                 return String(decoding: line, as: UTF8.self)
             }
+            scanned = buffer.count
             let remaining = deadline.timeIntervalSinceNow
             guard remaining > 0 else { return nil }
             var pfd = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
