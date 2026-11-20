@@ -141,6 +141,17 @@ public enum AppCommand: Codable, Equatable, Sendable {
     case claudePromptShow(stage: PromptStage)
     case claudePromptSet(stage: PromptStage, text: String)
     case claudePromptReset(stage: PromptStage)
+    // Dónde corre Claude (spec J)
+    case runnersList
+    /// `host`: alias de ~/.ssh/config o `user@host[:port]`; `name`: por defecto el host; `dir`: por defecto `~/.prbar`.
+    case runnerAdd(host: String, name: String?, dir: String?, fallback: Bool)
+    /// `nil` = no se toca.
+    case runnerSet(name: String, dir: String?, fallback: Bool?)
+    case runnerRemove(name: String)
+    /// "Test Connection" (incluye el login de Claude).
+    case runnerTest(name: String)
+    /// `local` o el nombre de un destino.
+    case runnerDefault(target: String)
 
     /// Lo que cambia algo en GitHub o Slack con una sola llamada: si la CLI se va a mitad (Ctrl-C), la llamada sigue
     /// hasta el final (cortarla dejaría el merge, el review o el token en un estado desconocido). Lo demás se cancela
@@ -171,6 +182,7 @@ public enum AppCommand: Codable, Equatable, Sendable {
         case claudePromptShow, claudePromptSet, claudePromptReset
         case openPopover
         case resources, cleanupPreview, cleanup, setDiskWarning
+        case runnersList, runnerAdd, runnerSet, runnerRemove, runnerTest, runnerDefault
     }
 
     public var name: Name {
@@ -280,6 +292,12 @@ public enum AppCommand: Codable, Equatable, Sendable {
         case .cleanupPreview: .cleanupPreview
         case .cleanup: .cleanup
         case .setDiskWarning: .setDiskWarning
+        case .runnersList: .runnersList
+        case .runnerAdd: .runnerAdd
+        case .runnerSet: .runnerSet
+        case .runnerRemove: .runnerRemove
+        case .runnerTest: .runnerTest
+        case .runnerDefault: .runnerDefault
         }
     }
 }

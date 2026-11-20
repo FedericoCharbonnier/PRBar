@@ -4,7 +4,7 @@ import PRBarCore
 /// `AppModel` de mentira: anota qué método se llamó (con los argumentos que importan) y devuelve algo mínimo.
 @MainActor
 final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActions, ConfigActions, SlackActions,
-    ChatCommandActions, UpdateCommandActions, InstructionCommandActions, ResourceActions {
+    ChatCommandActions, UpdateCommandActions, InstructionCommandActions, ResourceActions, RunnerActions {
     var calls: [String] = []
     /// Si no es nil, los métodos que pueden fallar la lanzan.
     var failure: Error?
@@ -286,4 +286,25 @@ final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActi
         try record("cleanup \(olderThanDays ?? 0) confirmed=\(confirmed)" + (paths.map { " paths=" + $0.joined(separator: ",") } ?? "")); return CleanupResult()
     }
     func configSetDiskWarning(gigabytes: Int?) throws { try record("setDiskWarning \(gigabytes ?? 0)") }
+
+    // MARK: RunnerActions
+    /// Los problemas de la verificación que devuelven `runnersList` y `runnerTest`.
+    var runnerProblems: [String] = []
+    private func runnerInfo(_ name: String, host: String = "devbox", dir: String? = nil, fallback: Bool = true) -> RunnerInfo {
+        let check = RunnerHostInfo(host: name, os: "Linux", arch: "x86_64", gitVersion: "git version 2.43.0", claudeVersion: "2.1.318 (Claude Code)",
+                                   root: "/home/fede/.prbar/installs/x", problems: runnerProblems, checkedAt: Date(), claudeLoggedIn: runnerProblems.isEmpty)
+        return RunnerInfo(destination: RunnerDestination(name: name, endpoint: SSHEndpoint(host: host),
+                                                         remoteDir: dir ?? RunnerDestination.defaultRemoteDir, fallbackToLocal: fallback),
+                          isDefault: true, lastCheck: check)
+    }
+    func runnersList() async -> [RunnerInfo] { calls.append("runnersList"); return [runnerInfo("devbox")] }
+    func runnerAdd(host: String, name: String?, dir: String?, fallback: Bool) async throws -> RunnerInfo {
+        try record("runnerAdd \(host) \(name ?? "-") \(dir ?? "-") fallback=\(fallback)"); return runnerInfo(name ?? host, dir: dir, fallback: fallback)
+    }
+    func runnerSet(name: String, dir: String?, fallback: Bool?) async throws -> RunnerInfo {
+        try record("runnerSet \(name) \(dir ?? "-") \(fallback.map(String.init) ?? "-")"); return runnerInfo(name, dir: dir, fallback: fallback ?? true)
+    }
+    func runnerRemove(name: String) async throws { try record("runnerRemove \(name)") }
+    func runnerTest(name: String) async throws -> RunnerInfo { try record("runnerTest \(name)"); return runnerInfo(name) }
+    func runnerDefault(target: String) throws { try record("runnerDefault \(target)") }
 }

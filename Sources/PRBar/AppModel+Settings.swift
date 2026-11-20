@@ -203,6 +203,25 @@ extension AppModel: ConfigActions {
                 mergeMethod = .some(method)
             }
         }
+        var runOn: RunTarget??
+        if let change = changes.runOn {
+            switch change {
+            case .clear:
+                runOn = .some(nil)
+            case .set(let value):
+                guard let target = RunTarget(cliValue: value) else {
+                    throw CommandFailure(.invalidUsage, "Use local, a runner’s name or default for --run-on.")
+                }
+                if case .runner(let name) = target {
+                    guard let destination = configStore.config.runners.destination(named: name) else {
+                        throw CommandFailure(.notFound, RunnerConfigError.notFound(name).localizedDescription)
+                    }
+                    runOn = .some(.runner(destination.name))
+                } else {
+                    runOn = .some(.local)
+                }
+            }
+        }
         let addIgnore = ReviewOptions.normalizePatterns(changes.addIgnore)
         let removeIgnore = ReviewOptions.normalizePatterns(changes.removeIgnore)
         if changes.addIgnore.contains(where: { $0.trimmingCharacters(in: .whitespaces).isEmpty })
@@ -233,6 +252,7 @@ extension AppModel: ConfigActions {
             }
             if changesIgnore { config.setIgnorePaths(ignorePaths, repoID: current.id, login: login) }
             if let mergeMethod { config.setMergeMethod(mergeMethod, repoID: current.id, login: login) }
+            if let runOn { config.setRunOn(runOn, repoID: current.id, login: login) }
         }
         if channel != nil { reprocessSlack() }
         return try repoInfo(login: login, repoID: current.id)

@@ -11,7 +11,8 @@ public enum CommandProtocol {
     /// 2: `merge` lleva el head confirmado (`expectedHeadOid`) y existe `mergePreview`.
     /// 3: se quita `setConfirmMerge` (spec G.1), `mergePreview` trae el resumen del PR y existe `open --merge`.
     /// 4: `listPRs` lleva la pestaña del popover (`--tab`) y existe `openPopover`.
-    public static let version = 4
+    /// 5: `RepoChanges.runOn` y los comandos de destinos SSH (`prbar runners`).
+    public static let version = 5
 
     public static var encoder: JSONEncoder {
         let encoder = JSONEncoder()

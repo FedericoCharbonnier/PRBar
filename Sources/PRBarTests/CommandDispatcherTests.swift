@@ -109,6 +109,12 @@ let dispatchSamples: [(command: AppCommand, call: String)] = [
     (.cleanupPreview(olderThanDays: 30), "cleanupPreview"),
     (.cleanup(olderThanDays: nil, confirmed: true), "cleanup"),
     (.setDiskWarning(gigabytes: 5), "setDiskWarning"),
+    (.runnersList, "runnersList"),
+    (.runnerAdd(host: "fede@devbox:2222", name: "devbox", dir: nil, fallback: true), "runnerAdd"),
+    (.runnerSet(name: "devbox", dir: "/srv/prbar", fallback: false), "runnerSet"),
+    (.runnerRemove(name: "devbox"), "runnerRemove"),
+    (.runnerTest(name: "devbox"), "runnerTest"),
+    (.runnerDefault(target: "local"), "runnerDefault"),
 ]
 
 enum CommandDispatcherTests {

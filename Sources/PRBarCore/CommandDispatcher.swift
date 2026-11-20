@@ -297,6 +297,21 @@ public enum CommandDispatcher {
         case .setDiskWarning(let gigabytes):
             try actions.configSetDiskWarning(gigabytes: gigabytes)
             return .ok
+        // Dónde corre Claude (spec J)
+        case .runnersList:
+            return try encode(await actions.runnersList())
+        case .runnerAdd(let host, let name, let dir, let fallback):
+            return try encode(try await actions.runnerAdd(host: host, name: name, dir: dir, fallback: fallback))
+        case .runnerSet(let name, let dir, let fallback):
+            return try encode(try await actions.runnerSet(name: name, dir: dir, fallback: fallback))
+        case .runnerRemove(let name):
+            try await actions.runnerRemove(name: name)
+            return .ok
+        case .runnerTest(let name):
+            return try encode(try await actions.runnerTest(name: name))
+        case .runnerDefault(let target):
+            try actions.runnerDefault(target: target)
+            return .ok
         }
     }
 }

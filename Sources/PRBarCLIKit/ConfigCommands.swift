@@ -131,6 +131,7 @@ enum RepoRender {
             ("Slack channel", repo.slackChannel ?? "no announcements"),
             ("Merge method", repo.mergeMethod?.rawValue ?? "default (GitHub’s)"),
             ("Ignored paths", repo.ignorePaths.isEmpty ? "none" : repo.ignorePaths.joined(separator: ", ")),
+            ("Run Claude on", repo.runOn.map { $0 == "local" ? "this Mac" : $0 } ?? "default"),
         ], output)
     }
 }
@@ -197,6 +198,7 @@ struct RepoSet: RemoteCommand {
     @Option(help: "How Merge merges this repo’s PRs: squash, merge, rebase, or default (GitHub’s).") var mergeMethod: String?
     @Option(help: "Hide findings in files matching this glob in this repo’s reviews (repeatable).") var ignore: [String] = []
     @Option(help: "Stop ignoring this glob (repeatable).") var unignore: [String] = []
+    @Option(help: "Where Claude runs for this repo: local, a runner’s name, or default.") var runOn: String?
     @OptionGroup var global: GlobalOptions
 
     var changes: RepoChanges {
@@ -208,7 +210,8 @@ struct RepoSet: RemoteCommand {
             addBranches: addBranch, removeBranches: removeBranch,
             channel: channel.map { $0 == "none" ? .clear : .set(value: $0) },
             addIgnore: ignore, removeIgnore: unignore,
-            mergeMethod: mergeMethod.map { $0.lowercased() == "default" ? .clear : .set(value: $0.lowercased()) }
+            mergeMethod: mergeMethod.map { $0.lowercased() == "default" ? .clear : .set(value: $0.lowercased()) },
+            runOn: runOn.map { $0 == "default" ? .clear : .set(value: $0) }
         )
     }
 
@@ -217,6 +220,7 @@ struct RepoSet: RemoteCommand {
         if let method = changes.mergeMethod?.value, MergeMethod(rawValue: method) == nil {
             throw ValidationError("--merge-method takes squash, merge, rebase or default.")
         }
+        if let runOn { try RunnerValidation.target(runOn, allowDefault: true) }
     }
 
     func appCommand(confirmed: Bool) -> AppCommand { .repoSet(repo: repo, account: account, changes: changes) }

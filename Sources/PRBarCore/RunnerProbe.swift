@@ -46,6 +46,20 @@ public struct RunnerHostInfo: Codable, Equatable, Sendable {
 
     public var isUsable: Bool { problems.isEmpty && root != nil && gitPath != nil && claudePath != nil }
 
+    /// La columna Status de Settings › Claude › Run On y de `prbar runners list`:
+    /// "✓ Linux · claude 2.1.318 · logged in · 5 min ago" o "⚠ <el primer problema> · 5 min ago".
+    public func statusSummary(now: Date = Date()) -> String {
+        let age = RelativeAge.short(from: checkedAt, now: now)
+        let when = age == "now" ? "just now" : "\(age) ago"
+        if let problem = problems.first { return "⚠ \(problem) · \(when)" }
+        var parts = [os ?? "?"]
+        let version = claudeVersion?.split(separator: " ").first.map(String.init)
+        parts.append(version.map { "claude \($0)" } ?? "claude ?")
+        if claudeLoggedIn == true { parts.append("logged in") }
+        parts.append(when)
+        return "✓ " + parts.joined(separator: " · ")
+    }
+
     /// Carpetas de `git` y `claude` del host (para el `PATH` remoto).
     public var toolDirectories: [String] {
         [claudePath, gitPath].compactMap { $0 }.map { ($0 as NSString).deletingLastPathComponent }

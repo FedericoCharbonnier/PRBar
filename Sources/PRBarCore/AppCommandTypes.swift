@@ -159,11 +159,13 @@ public struct RepoChanges: Codable, Equatable, Sendable {
     public var removeIgnore: [String]
     /// `squash`, `merge` o `rebase` (spec F.5); `.clear` = el de GitHub.
     public var mergeMethod: ValueChange?
+    /// `local`, el nombre de un destino SSH, o `.clear` = "Default" (spec J.1).
+    public var runOn: ValueChange?
 
     public init(localPath: ValueChange? = nil, worktreeDir: ValueChange? = nil, testCommand: ValueChange? = nil,
                 baseBranches: [String]? = nil, addBranches: [String] = [], removeBranches: [String] = [],
                 channel: ValueChange? = nil, addIgnore: [String] = [], removeIgnore: [String] = [],
-                mergeMethod: ValueChange? = nil) {
+                mergeMethod: ValueChange? = nil, runOn: ValueChange? = nil) {
         self.localPath = localPath
         self.worktreeDir = worktreeDir
         self.testCommand = testCommand
@@ -174,6 +176,7 @@ public struct RepoChanges: Codable, Equatable, Sendable {
         self.addIgnore = addIgnore
         self.removeIgnore = removeIgnore
         self.mergeMethod = mergeMethod
+        self.runOn = runOn
     }
 
     public var isEmpty: Bool { self == RepoChanges() }

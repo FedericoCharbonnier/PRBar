@@ -117,6 +117,10 @@ final class AppModel: ObservableObject {
     private var chats: [UUID: ChatCoordinator] = [:]
     /// Repos, ramas y usuarios de GitHub para los selectores de Configuración, cacheados durante la sesión.
     private(set) lazy var catalog = GitHubCatalog(api: api, tokens: accounts)
+    /// Dónde corre Claude (spec J). Un solo coordinador: comparte la caché de salud de los destinos.
+    let runners = RunnerCoordinator(makeHost: { try await RunnerCoordinator.liveHost($0) })
+    /// La última verificación ("Test Connection") de cada destino, por nombre (Settings y `prbar runners`).
+    @Published var runnerChecks: [String: RunnerHostInfo] = [:]
     /// Cola de reviews. Es `lazy` para que el pipeline y `onFinished` puedan capturar `self` (débil).
     private(set) lazy var reviews = ReviewQueue(
         pipeline: reviewPipeline ?? LiveReviewPipeline(

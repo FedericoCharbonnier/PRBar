@@ -75,7 +75,7 @@ shows the help of `review start`, the group’s default subcommand).
 | `prbar merge <pr> --dismiss` | Dismiss the row’s merge error |
 | `prbar config show`, `prbar config set refresh-interval 1\|2\|5\|10`, `… launch-at-login on\|off`, `… update-interval 0\|6\|12\|24\|168` (hours; 0 = check manually only), `… disk-warning 1–100\|off` (GB; notify when PRBar uses more) | General |
 | `prbar account list\|reload`, `prbar account enable\|disable <login>` | Accounts |
-| `prbar repo list\|available\|add\|remove\|branches\|open`, `prbar repo set <repo> [--path P\|none] [--worktrees P\|default] [--test-command C] [--branches a,b] [--add-branch b] [--remove-branch b] [--channel #name\|ID\|none] [--merge-method squash\|merge\|rebase\|default] [--ignore G]… [--unignore G]…` | Repos (`--ignore`: hide findings in matching files in this repo’s reviews) |
+| `prbar repo list\|available\|add\|remove\|branches\|open`, `prbar repo set <repo> [--path P\|none] [--worktrees P\|default] [--test-command C] [--branches a,b] [--add-branch b] [--remove-branch b] [--channel #name\|ID\|none] [--merge-method squash\|merge\|rebase\|default] [--ignore G]… [--unignore G]… [--run-on local\|<runner>\|default]` | Repos (`--ignore`: hide findings in matching files in this repo’s reviews; `--run-on`: see “Where Claude runs”) |
 | `prbar follow list [repo]`, `prbar follow add\|remove <repo> <users…>`, `prbar follow suggestions <repo>` | People to follow |
 | `prbar notify list\|enable\|disable\|system-settings`, `prbar notify set <kind> on\|off` | Notifications (`new-to-review`, `reviewed-updated`, `my-feedback`, `review-finished`, `approved-or-ci`, `ready-to-merge`) |
 | `prbar claude show\|reset\|skills`, `prbar claude set [--review-skill S] [--filter on\|off] [--filter-skill S] [--respond-skill S] [--model M] [--chat on\|off] [--chat-model M\|same]` | Claude |
@@ -86,6 +86,27 @@ shows the help of `review start`, the group’s default subcommand).
 | `prbar slack emoji eyes\|comment\|approved <name>`, `prbar slack search-days <7–90>` | Reactions |
 | `prbar slack template list\|show\|set\|reset <new-pr\|update\|round\|merged> [text\|--editor]` | Templates (`myPR.merged` is an alias of `merged`) |
 | `prbar slack test [--yes]` | Test message to your DM |
+
+## Where Claude runs
+
+Settings › Claude › Run On. Reviews, fixes and PR chats can run on an SSH host, with the host’s own git access,
+Claude login and plugins. GitHub, posting, pushing, merging and Slack stay on this Mac; fixes come back as a git bundle,
+are checked against the diff you saw, and are pushed from here. PRBar never stores passwords: the host needs your SSH
+key or agent (it runs `/usr/bin/ssh`, so your `~/.ssh/config` applies).
+
+| Command | Does |
+|---|---|
+| `prbar runners [list]` | The SSH hosts with their folder, fallback and last check (`✓ Linux · claude 2.1.318 · logged in · 5 min ago`) |
+| `prbar runners add <host> [--name N] [--dir D] [--no-fallback]` | Add a host (a `Host` from `~/.ssh/config` or `user@host[:port]`) and test it. `--name`: its name in PRBar (default: the host); `--dir`: the folder PRBar owns there (`~/<folder>` or an absolute path; default `~/.prbar`) |
+| `prbar runners set <name> [--dir D] [--fallback on\|off]` | Change its folder or fallback |
+| `prbar runners remove <name>` | Remove it; repos that used it go back to Default (its folder on the host is left as is) |
+| `prbar runners test <name>` | Test Connection: tools, folder and Claude’s login on the host; exits with 1 if it finds problems (also with `--json`) |
+| `prbar runners default local\|<name>` | Where repos set to Default run |
+| `prbar repo set <repo> --run-on local\|<name>\|default` | Where this repo runs (`default`: the setting above) |
+
+**Fallback** (on by default): when the host is unreachable, not ready, or can’t prepare the repo, the job runs on this
+Mac instead and the PR row says so (“Ran on this Mac — devbox unreachable”). With `--fallback off` the job fails
+instead. Respond’s later steps (fixes, tests, push) always run on the host that analyzed the PR.
 
 ## Rules, review options and prompts
 
@@ -157,7 +178,7 @@ nothing to return give `{"ok": true}`. New optional keys may appear; renaming or
 The socket is `~/Library/Application Support/PRBar/prbar.sock`, created with permissions 0600 in a 0700 folder. The
 app checks each connection’s user (`getpeereid`) and rejects anyone else, and `prbar` checks that the socket belongs
 to you before sending anything; there’s no network. A second PRBar doesn’t take over the socket of one that’s running. The first message is a
-handshake with the protocol version (4 since the popover tabs): if `prbar` and the app don’t match, you get
+handshake with the protocol version (5 since `prbar runners`): if `prbar` and the app don’t match, you get
 “prbar X can’t talk to PRBar Y — run `prbar update` or reinstall”. Tokens never travel from the app to the CLI;
 `prbar slack token set` sends the token you type to the app (never on the command line: it asks without echo or reads
 `--stdin`).

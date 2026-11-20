@@ -164,6 +164,22 @@ public protocol ResourceActions: AnyObject {
     func configSetDiskWarning(gigabytes: Int?) throws
 }
 
+/// Destinos SSH (spec J.4).
+@MainActor
+public protocol RunnerActions: AnyObject {
+    func runnersList() async -> [RunnerInfo]
+    /// Agrega el destino y lo verifica ("Test Connection").
+    func runnerAdd(host: String, name: String?, dir: String?, fallback: Bool) async throws -> RunnerInfo
+    /// Olvida la salud cacheada del destino (la próxima tarea lo verifica de nuevo).
+    func runnerSet(name: String, dir: String?, fallback: Bool?) async throws -> RunnerInfo
+    /// Los repos que lo usaban vuelven a "Default"; si era el default, el default pasa a ser This Mac.
+    func runnerRemove(name: String) async throws
+    /// "Test Connection": nunca falla por el host; los problemas van en `lastCheck.problems`.
+    func runnerTest(name: String) async throws -> RunnerInfo
+    func runnerDefault(target: String) throws
+}
+
 /// Lo que la app tiene que saber hacer para abrir el socket.
 public typealias PRBarActions = StatusActions & ReviewActions & RespondActions & MergeActions & ConfigActions
     & SlackActions & ChatCommandActions & UpdateCommandActions & InstructionCommandActions & ResourceActions
+    & RunnerActions

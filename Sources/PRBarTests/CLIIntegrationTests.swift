@@ -65,6 +65,7 @@ enum CLIIntegrationTests {
         TestCase("integración: merge sin --yes y sin terminal → exit 4; --dismiss no pregunta") { try await mergeNeedsYes() },
         TestCase("integración: cleanup solo borra lo que mostró (las rutas de la vista previa)") { try await cleanupOnlyShown() },
         TestCase("integración: update --check sale con 10 si hay versión nueva, también con --json") { try await updateCheckExit() },
+        TestCase("integración: runners test sale con 1 si hay problemas, también con --json; list muestra el estado") { try await runnersTestExit() },
         TestCase("integración: update espera a la versión nueva solo si la app se estaba reiniciando") { try await updateRelaunch() },
         TestCase("integración: chat --json sin mensaje en una terminal no se queda leyendo la terminal") { try await chatJSONWithoutMessage() },
         TestCase("chat: el mensaje sale de stdin solo si no es una terminal; no vacío") {
@@ -203,6 +204,29 @@ enum CLIIntegrationTests {
         let decoded = try JSONDecoder().decode([String: JSONValue].self, from: Data(json.out.utf8))
         guard case .object(let data)? = decoded["data"] else { throw TestFailure(description: json.out) }
         try expectEqual(data["latest"], .string("2.0.0"))
+    }
+
+    @MainActor
+    private static func runnersTestExit() async throws {
+        let harness = try Harness()
+        defer { harness.server.stop() }
+        let ok = try await runCLI(["runners", "test", "devbox"], socket: harness.url)
+        try expectEqual(ok.code, 0)
+        try expect(ok.out.contains("Logged in:") && ok.out.contains("yes"), ok.out)
+        try expect(ok.out.contains("2.1.318"), ok.out)
+        let list = try await runCLI(["runners"], socket: harness.url)
+        try expectEqual(list.code, 0)
+        try expect(list.out.contains("devbox (default)"), list.out)
+        try expect(list.out.contains("✓ Linux · claude 2.1.318 · logged in"), list.out)
+        harness.fake.runnerProblems = ["Claude isn’t signed in on devbox: run `claude` there once to log in."]
+        let failing = try await runCLI(["runners", "test", "devbox"], socket: harness.url)
+        try expectEqual(failing.code, CLIExit.generalError)
+        try expect(failing.out.contains("! Claude isn’t signed in on devbox"), failing.out)
+        let json = try await runCLI(["runners", "test", "devbox", "--json"], socket: harness.url)
+        try expectEqual(json.code, CLIExit.generalError)
+        try expect(json.out.contains("Claude isn’t signed in"), json.out)
+        let failingList = try await runCLI(["runners", "list"], socket: harness.url)
+        try expect(failingList.out.contains("⚠ Claude isn’t signed in on devbox"), failingList.out)
     }
 
     @MainActor

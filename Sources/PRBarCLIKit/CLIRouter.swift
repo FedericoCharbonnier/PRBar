@@ -85,7 +85,8 @@ public enum CLIRouter {
         .init("repo add", [.repoAdd], ["repo", "add", "acme/api"]),
         .init("repo remove", [.repoRemove], ["repo", "remove", "acme/api"]),
         .init("repo set", [.repoSet], ["repo", "set", "acme/api", "--test-command", "make test"],
-              ["repo", "set", "acme/api", "--merge-method", "default"], ["repo", "set", "acme/api", "--ignore", "dist/**"]),
+              ["repo", "set", "acme/api", "--merge-method", "default"], ["repo", "set", "acme/api", "--ignore", "dist/**"],
+              ["repo", "set", "acme/api", "--run-on", "devbox"]),
         .init("repo branches", [.repoBranches], ["repo", "branches", "acme/api"]),
         .init("repo open", [], ["repo", "open", "acme/api"]),
         .init("follow list", [.followList], ["follow", "list"]),
@@ -126,6 +127,13 @@ public enum CLIRouter {
         .init("tools list", [.toolsList], ["tools", "list"]),
         .init("tools set", [.toolsSet], ["tools", "set", "git", "/usr/bin/git"]),
         .init("tools reset", [.toolsSet], ["tools", "reset", "git"]),
+        // Dónde corre Claude (plan 14)
+        .init("runners list", [.runnersList], ["runners", "list"], ["runners"]),
+        .init("runners add", [.runnerAdd], ["runners", "add", "fede@devbox:2222", "--no-fallback"]),
+        .init("runners set", [.runnerSet], ["runners", "set", "devbox", "--fallback", "off"]),
+        .init("runners remove", [.runnerRemove], ["runners", "remove", "devbox"]),
+        .init("runners test", [.runnerTest], ["runners", "test", "devbox"]),
+        .init("runners default", [.runnerDefault], ["runners", "default", "local"]),
         // Slack
         .init("slack show", [.slackShow], ["slack", "show"]),
         .init("slack enable", [.slackSetEnabled], ["slack", "enable"]),

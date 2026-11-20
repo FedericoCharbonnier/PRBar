@@ -654,6 +654,8 @@ public struct RepoInfo: Codable, Equatable, Sendable {
     public var ignorePaths: [String]
     /// `nil` = el de GitHub.
     public var mergeMethod: MergeMethod?
+    /// `local`, el nombre de un destino SSH, o `nil` = "Default" (spec J.1).
+    public var runOn: String?
 
     public init(config: RepoConfig, account: String) {
         id = config.id
@@ -666,6 +668,28 @@ public struct RepoInfo: Codable, Equatable, Sendable {
         slackChannel = config.slackChannelName ?? config.slackChannelID
         ignorePaths = config.ignorePaths
         mergeMethod = config.mergeMethod
+        runOn = config.runOn?.cliValue
+    }
+}
+
+/// `prbar runners list|add|set|test` (Settings › Claude › Run On).
+public struct RunnerInfo: Codable, Equatable, Sendable {
+    public var name: String
+    /// `user@host:port` tal como se escribió.
+    public var host: String
+    public var dir: String
+    public var fallback: Bool
+    public var isDefault: Bool
+    /// La última verificación (`nil` = todavía no se verificó en esta sesión).
+    public var lastCheck: RunnerHostInfo?
+
+    public init(destination: RunnerDestination, isDefault: Bool, lastCheck: RunnerHostInfo?) {
+        name = destination.name
+        host = destination.endpoint.display
+        dir = destination.remoteDir
+        fallback = destination.fallbackToLocal
+        self.isDefault = isDefault
+        self.lastCheck = lastCheck
     }
 }
 

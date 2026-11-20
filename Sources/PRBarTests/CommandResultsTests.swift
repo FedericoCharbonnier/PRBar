@@ -94,6 +94,9 @@ enum CommandResultsTests {
                                 account: "me")
             try expectEqual(repo.ignorePaths, ["dist/**"])
             try expectEqual(repo.mergeMethod, .squash)
+            try expectEqual(repo.runOn, nil)
+            try expectEqual(RepoInfo(config: RepoConfig(owner: "acme", name: "api", runOn: .runner("devbox")), account: "me").runOn, "devbox")
+            try expectEqual(RepoInfo(config: RepoConfig(owner: "acme", name: "api", runOn: .local), account: "me").runOn, "local")
 
             let rule = Rule(scope: .repo("acme/web"), appliesTo: [.respond, .review], text: "Use React Query",
                             source: .prChat, createdAt: t0)
@@ -123,6 +126,26 @@ enum CommandResultsTests {
             let old = #"{"appVersion":"1.0.0","refreshing":false,"offline":false,"badgeCount":0,"counts":{},"issues":[],"slackIssues":[],"jobs":[],"accounts":[],"tools":[]}"#
             let status = try CommandProtocol.decoder.decode(StatusInfo.self, from: Data(old.utf8))
             try expectEqual(status.tabCounts, nil)
+        },
+        TestCase("results: RunnerInfo y el estado de la última verificación (Settings › Run On)") {
+            let destination = RunnerDestination(name: "devbox", endpoint: SSHEndpoint(user: "fede", host: "devbox", port: 2222),
+                                                remoteDir: "/srv/prbar", fallbackToLocal: false)
+            let checked = RunnerHostInfo(host: "devbox", os: "Linux", arch: "x86_64", claudeVersion: "2.1.318 (Claude Code)",
+                                         checkedAt: t0, claudeLoggedIn: true)
+            let info = RunnerInfo(destination: destination, isDefault: true, lastCheck: checked)
+            try expectEqual(info.name, "devbox")
+            try expectEqual(info.host, "fede@devbox:2222")
+            try expectEqual(info.dir, "/srv/prbar")
+            try expectEqual(info.fallback, false)
+            try expectEqual(info.isDefault, true)
+            try expectEqual(try CommandProtocol.decode(RunnerInfo.self, line: try CommandProtocol.line(info)), info)
+            try expectEqual(checked.statusSummary(now: t0.addingTimeInterval(300)), "✓ Linux · claude 2.1.318 · logged in · 5 min ago")
+            try expectEqual(checked.statusSummary(now: t0.addingTimeInterval(10)), "✓ Linux · claude 2.1.318 · logged in · just now")
+            var unknownLogin = checked
+            unknownLogin.claudeLoggedIn = nil
+            try expectEqual(unknownLogin.statusSummary(now: t0.addingTimeInterval(7200)), "✓ Linux · claude 2.1.318 · 2h ago")
+            let broken = RunnerHostInfo(host: "devbox", problems: ["devbox didn’t answer.", "other"], checkedAt: t0)
+            try expectEqual(broken.statusSummary(now: t0.addingTimeInterval(60)), "⚠ devbox didn’t answer. · 1 min ago")
         },
     ]
 }

@@ -335,6 +335,37 @@ enum CLIParsingTests {
                 try expect(rejects(["config", "set", "disk-warning", "101"]))
                 try expectEqual(try parsed(["cleanup", "--preview"]), .cleanupPreview(olderThanDays: nil))
             },
+            TestCase("cli parse: runners y repo set --run-on") {
+                try expectEqual(try parsed(["runners", "list"]), .runnersList)
+                try expectEqual(try parsed(["runners"]), .runnersList)
+                try expectEqual(try parsed(["runners", "add", "devbox"]), .runnerAdd(host: "devbox", name: nil, dir: nil, fallback: true))
+                try expectEqual(try parsed(["runners", "add", "fede@devbox:2222", "--name", "gpu", "--dir", "/srv/prbar", "--no-fallback"]),
+                                .runnerAdd(host: "fede@devbox:2222", name: "gpu", dir: "/srv/prbar", fallback: false))
+                try expect(rejects(["runners", "add", "-oProxyCommand=x"]))
+                try expect(rejects(["runners", "add", "--", "-oProxyCommand=x"]))
+                try expect(rejects(["runners", "add", "devbox", "--dir", "~/../x"]))
+                try expect(rejects(["runners", "add", "devbox", "--dir", "~/.ssh/prbar"]))
+                try expect(rejects(["runners", "add", "devbox", "--name", "local"]))
+                try expect(rejects(["runners", "add", "devbox", "--name", "default"]))
+                try expectEqual(try parsed(["runners", "set", "devbox", "--fallback", "off"]), .runnerSet(name: "devbox", dir: nil, fallback: false))
+                try expectEqual(try parsed(["runners", "set", "devbox", "--dir", "~/prbar"]), .runnerSet(name: "devbox", dir: "~/prbar", fallback: nil))
+                try expect(rejects(["runners", "set", "devbox"]))
+                try expect(rejects(["runners", "set", "devbox", "--dir", "relative/dir"]))
+                try expectEqual(try parsed(["runners", "remove", "devbox"]), .runnerRemove(name: "devbox"))
+                try expectEqual(try parsed(["runners", "test", "devbox"]), .runnerTest(name: "devbox"))
+                try expectEqual(try parsed(["runners", "default", "local"]), .runnerDefault(target: "local"))
+                try expectEqual(try parsed(["runners", "default", "devbox"]), .runnerDefault(target: "devbox"))
+                try expect(rejects(["runners", "default", "a b"]))
+                try expect(rejects(["runners", "default", "default"]))
+                try expectEqual(try parsed(["repo", "set", "acme/api", "--run-on", "devbox"]),
+                                .repoSet(repo: "acme/api", account: nil, changes: RepoChanges(runOn: .set(value: "devbox"))))
+                try expectEqual(try parsed(["repo", "set", "acme/api", "--run-on", "local"]),
+                                .repoSet(repo: "acme/api", account: nil, changes: RepoChanges(runOn: .set(value: "local"))))
+                try expectEqual(try parsed(["repo", "set", "acme/api", "--run-on", "default"]),
+                                .repoSet(repo: "acme/api", account: nil, changes: RepoChanges(runOn: .clear)))
+                try expect(rejects(["repo", "set", "acme/api", "--run-on", "a b"]))
+                try expect(rejects(["repo", "set", "acme/api", "--run-on", "-oProxyCommand=x"]))
+            },
         ]
     }
 }
