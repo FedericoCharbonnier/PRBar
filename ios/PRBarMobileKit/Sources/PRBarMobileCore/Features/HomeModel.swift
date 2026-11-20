@@ -198,9 +198,17 @@ public final class HomeModel {
         "\(macName), \(isOffline ? "offline" : "connected"), \(pillStatus.components(separatedBy: " · ").last ?? "")"
     }
 
-    public var offlineTitle: String { "\(macName) is offline or asleep" }
+    /// The relay can't be reached or refused the connection (not the Mac being away).
+    public var isConnectionProblem: Bool { store.link == .relayUnreachable }
+
+    public var offlineTitle: String {
+        isConnectionProblem ? "Can't connect to \(macName)" : "\(macName) is offline or asleep"
+    }
 
     public var offlineMessage: String {
+        if isConnectionProblem {
+            return "There's a problem reaching the relay. You're seeing cached data, and actions are off until the connection is back."
+        }
         let when = store.lastUpdated.map { "Last connected \(Format.dayAndTime($0, now: now(), locale: locale, timeZone: timeZone)). " } ?? ""
         return when + "You're seeing cached data, and actions are off until your Mac is back."
     }

@@ -9,7 +9,11 @@ public enum LinkState: Equatable, Sendable {
     /// The relay says the Mac is not connected (asleep, off, or PRBar quit).
     case macOffline(since: Date?)
     case relayUnreachable
-    /// The relay closed with 4403 or the Mac dropped this device.
+    /// The relay closed the socket with a code (4401, 4403, 4409, …). The relay is untrusted, so this is only ever a
+    /// connection problem: it never deletes keys or unpairs (crypto review M3).
+    case relayRejected(closeCode: Int)
+    /// The Mac itself said so inside the encrypted session (`bye` with reason `revoked`, authenticated by Noise).
+    /// The only remote event that deletes this iPhone's keys; the other is the user tapping Unpair.
     case revoked
     case incompatible(RemoteHello.Incompatibility)
 }

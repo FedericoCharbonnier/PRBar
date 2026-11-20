@@ -145,6 +145,25 @@ import PRBarWire
         #expect(env.transport.connectCount == 0)
     }
 
+    @Test(arguments: [4401, 4403, 4409])
+    func relayCloseCodesAreAConnectionProblemNotARevocation(_ code: Int) async throws {
+        let cache = Cache(directory: tempDirectory())
+        defer { try? cache.wipe() }
+        let env = await TestEnv(cache: cache)
+        try env.keychain.save(keys: .generate(presenceKey: Data()))
+        await env.connection.handle(.link(.relayRejected(closeCode: code)))
+        #expect(env.connection.state == .relayUnreachable)
+        #expect(!env.keychainBackend.isEmpty)
+        #expect(env.store.home == Sample.home)
+        #expect(cache.loadHome() != nil)
+        let home = HomeModel(connection: env.connection, runner: env.runner, now: { Sample.now })
+        #expect(home.isOffline)
+        #expect(home.offlineTitle == "Can't connect to Diego's MacBook Pro")
+        // Try Again reconnects.
+        await home.tryAgain()
+        #expect(env.transport.connectCount == 1)
+    }
+
     @Test func incompatibleSaysWhatToUpdate() async {
         let env = await TestEnv()
         await env.connection.handle(.link(.incompatible(.updateMac)))

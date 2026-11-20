@@ -19,6 +19,9 @@ public struct PairingFlow: View {
             }
         case .scanning:
             PairScan(error: model.scanError, joiningMac: nil, cancel: model.cancelScanning, scanned: model.scanned)
+        case .confirmLink(let mac, let relay, let replacing):
+            PairConfirm(macName: mac, relayHost: relay, replacing: replacing, pair: model.confirmPairing,
+                        cancel: model.cancelScanning)
         case .joining(let mac):
             PairScan(error: nil, joiningMac: mac, cancel: model.cancelScanning, scanned: { _ in })
         case .confirmCode(let code, let mac):
@@ -248,5 +251,69 @@ public struct PairPaired: View {
             .padding(.bottom, 24)
         }
         .background(Tokens.bg2)
+    }
+}
+
+/// Before joining a Mac from a link or QR: which Mac, through which relay, and what it replaces (crypto review L4).
+public struct PairConfirm: View {
+    let macName: String
+    let relayHost: String
+    let replacing: String?
+    let pair: () -> Void
+    let cancel: () -> Void
+
+    public init(macName: String, relayHost: String, replacing: String?, pair: @escaping () -> Void,
+                cancel: @escaping () -> Void) {
+        self.macName = macName
+        self.relayHost = relayHost
+        self.replacing = replacing
+        self.pair = pair
+        self.cancel = cancel
+    }
+
+    public var body: some View {
+        VStack(spacing: 0) {
+            Spacer()
+            VStack(spacing: 16) {
+                Circle().fill(Tokens.fill).frame(width: 88, height: 88)
+                    .overlay { Image(systemName: "laptopcomputer").font(.system(size: 38)).foregroundStyle(Tokens.fg) }
+                Text(verbatim: "Pair with \(macName)?").font(Typo.title1).foregroundStyle(Tokens.fg)
+                    .multilineTextAlignment(.center)
+                VStack(spacing: 0) {
+                    row("Mac", macName)
+                    Hairline(inset: 16)
+                    row("Relay", relayHost)
+                }
+                .background(Tokens.bg, in: RoundedRectangle(cornerRadius: Metrics.cardRadius, style: .continuous))
+                if let replacing {
+                    NoticeBanner(PairingModel.replaceWarning(replacing))
+                }
+                Text("Only continue if you just opened Pair iPhone on your Mac. You'll compare a 6-digit code next.")
+                    .font(Typo.footnote).foregroundStyle(Tokens.fg2).multilineTextAlignment(.center)
+            }
+            .padding(.horizontal, 24)
+            Spacer()
+            VStack(spacing: 6) {
+                PrimaryButton(replacing == nil ? "Pair" : "Replace and Pair", height: 56, action: pair)
+                Button(action: cancel) {
+                    Text("Cancel").font(Typo.headline).foregroundStyle(Tokens.accentfg)
+                        .frame(maxWidth: .infinity, minHeight: 50)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 24)
+        }
+        .background(Tokens.bg2)
+    }
+
+    func row(_ title: String, _ value: String) -> some View {
+        HStack {
+            Text(title).font(Typo.body).foregroundStyle(Tokens.fg)
+            Spacer()
+            Text(verbatim: value).font(Typo.body).foregroundStyle(Tokens.fg2).lineLimit(1).truncationMode(.middle)
+        }
+        .padding(.horizontal, 16)
+        .frame(minHeight: 46)
     }
 }

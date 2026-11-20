@@ -39,6 +39,9 @@ public final class PairingModel {
     public enum Step: Equatable, Sendable {
         case welcome
         case scanning
+        /// A pairing link or QR was read: the Mac and relay it points to, and the pairing it would replace. Nothing
+        /// happens until the user taps Pair (crypto review L4: a link never silently replaces a pairing).
+        case confirmLink(macName: String, relayHost: String, replacing: String?)
         case joining(macName: String)
         /// pair:paired: the code to compare, with "Codes Match" / "Codes Don't Match".
         case confirmCode(code: String, macName: String)
@@ -66,6 +69,7 @@ public final class PairingModel {
     @ObservationIgnored private let onPaired: @MainActor (StoredPairedMac) -> Void
     @ObservationIgnored private var session: Task<Void, Never>?
     @ObservationIgnored private var mismatch = false
+    @ObservationIgnored private var pendingQR: PairingQR?
 
     public init(service: any PairingService, keychain: DeviceKeychain,
                 makePresenceKey: @escaping @Sendable () throws -> (keyData: Data, publicKey: Data),
@@ -85,6 +89,7 @@ public final class PairingModel {
 
     /// Cancel on `pair:scan` (also while joining: the slot is released on the Mac's side by `cancel`).
     public func cancelScanning() {
+        pendingQR = nil
         if let session {
             session.cancel()
             self.session = nil
@@ -101,17 +106,34 @@ public final class PairingModel {
             scanError = Self.invalidQRMessage
             return
         }
-        join(qr)
+        confirm(qr, replacing: nil)
     }
 
-    /// `prbar://pair?…` opened from the Camera app: straight to joining.
-    public func open(_ url: URL) {
+    /// `prbar://pair?…` opened from anywhere (Camera, Safari, Messages): first the confirmation screen, with a warning
+    /// when it would replace the pairing with `replacing`.
+    public func open(_ url: URL, replacing: String? = nil) {
         guard let qr = try? PairingQR(url: url.absoluteString) else {
             message = Self.invalidQRMessage
             step = .welcome
             return
         }
+        confirm(qr, replacing: replacing)
+    }
+
+    /// The confirmation screen's Pair.
+    public func confirmPairing() {
+        guard case .confirmLink = step, let qr = pendingQR else { return }
+        pendingQR = nil
         join(qr)
+    }
+
+    public static func replaceWarning(_ mac: String) -> String { "This replaces your pairing with \(mac)." }
+
+    private func confirm(_ qr: PairingQR, replacing: String?) {
+        scanError = nil
+        message = nil
+        pendingQR = qr
+        step = .confirmLink(macName: qr.macName, relayHost: qr.relayHost, replacing: replacing)
     }
 
     public func codesMatch() {
@@ -165,6 +187,7 @@ public final class PairingModel {
                     try keychain.save(keys: keys)
                     try keychain.save(mac: mac)
                     step = .paired(macName: mac.macName)
+                    session = nil
                     _ = await notifications.request()
                     onPaired(mac)
                     return
@@ -183,8 +206,9 @@ public final class PairingModel {
         }
     }
 
+    /// Keys are only written once the Mac confirms, so a failed attempt has nothing to clean up — and must not touch
+    /// an existing pairing it was going to replace.
     private func finish(with message: String) {
-        try? keychain.wipe()
         self.message = message
         step = .welcome
     }

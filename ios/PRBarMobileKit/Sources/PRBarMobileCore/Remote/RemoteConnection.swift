@@ -18,7 +18,7 @@ public final class RemoteConnection {
         case online
         case macOffline(since: Date?)
         case relayUnreachable
-        /// The Mac removed this iPhone. Keys and cache are already gone.
+        /// The Mac removed this iPhone (an in-session, authenticated `bye(revoked)`). Keys and cache are gone.
         case revoked(macName: String?)
         case incompatible(RemoteHello.Incompatibility)
     }
@@ -185,7 +185,8 @@ public final class RemoteConnection {
             if let update = try? await transport.fetchMailbox() {
                 store.applyMailbox(update)
             }
-        case .relayUnreachable:
+        case .relayUnreachable, .relayRejected:
+            // A close code from the relay proves nothing (M3): show a connection problem with Try Again.
             setState(.relayUnreachable)
         case .revoked:
             forget()

@@ -45,6 +45,9 @@ import PRBarRemoteKit
         h.model.startScanning()
         #expect(h.model.step == .scanning)
         h.model.scanned(Self.qr.url)
+        #expect(h.model.step == .confirmLink(macName: Sample.macName, relayHost: "relay.example.com", replacing: nil))
+        #expect(h.service.joinedQR == nil)
+        h.model.confirmPairing()
         #expect(h.model.step == .joining(macName: Sample.macName))
         for _ in 0..<200 where h.model.step == .joining(macName: Sample.macName) { await Task.yield() }
         #expect(h.model.step == .confirmCode(code: "123 456", macName: Sample.macName))
@@ -75,6 +78,7 @@ import PRBarRemoteKit
         let h = harness([.success(.joining), .failure(.expired)])
         h.model.startScanning()
         h.model.scanned(Self.qr.url)
+        h.model.confirmPairing()
         await h.model.settle()
         #expect(h.model.step == .welcome)
         #expect(h.model.message == PairingModel.expiredMessage)
@@ -86,6 +90,7 @@ import PRBarRemoteKit
         let h = harness([.success(.joining), .success(.code("123 456")), .failure(.cancelled)])
         h.model.startScanning()
         h.model.scanned(Self.qr.url)
+        h.model.confirmPairing()
         await h.model.settle()
         #expect(h.model.step == .welcome)
         #expect(h.model.message == PairingModel.cancelledMessage)
@@ -95,6 +100,7 @@ import PRBarRemoteKit
         let h = harness([.success(.joining), .success(.code("123 456")), .success(.paired(Self.mac))], hold: true)
         h.model.startScanning()
         h.model.scanned(Self.qr.url)
+        h.model.confirmPairing()
         for _ in 0..<200 where h.model.code == nil { await Task.yield() }
         await h.model.codesDontMatch()
         #expect(h.service.cancelled)
@@ -103,11 +109,32 @@ import PRBarRemoteKit
         #expect(h.paired() == nil)
     }
 
-    @Test func aCameraLinkGoesStraightToJoining() async {
+    @Test func aLinkAsksBeforeJoiningAndWarnsWhenItReplacesAPairing() async {
         let h = harness([.success(.joining), .success(.code("123 456")), .success(.paired(Self.mac))], hold: true)
-        h.model.open(URL(string: Self.qr.url)!)
-        #expect(h.model.step == .joining(macName: Sample.macName))
+        h.model.open(URL(string: Self.qr.url)!, replacing: "Studio Mac")
+        #expect(h.model.step == .confirmLink(macName: Sample.macName, relayHost: "relay.example.com",
+                                             replacing: "Studio Mac"))
+        #expect(PairingModel.replaceWarning("Studio Mac") == "This replaces your pairing with Studio Mac.")
+        #expect(h.service.joinedQR == nil)
         h.model.cancelScanning()
         #expect(h.model.step == .welcome)
+        #expect(h.service.joinedQR == nil)
+        #expect(!h.service.cancelled)
+    }
+
+    @Test func aFailedReplacementKeepsTheExistingPairing() async throws {
+        let h = harness([.success(.joining), .failure(.expired)])
+        let existing = StoredPairedMac(accountId: "old", deviceId: "old", relayHost: "relay.example.com",
+                                       macName: "Studio Mac", macStatic: Data(count: 32), macSealKey: Data(count: 32),
+                                       pairedAt: Sample.now)
+        let keys = StoredDeviceKeys.generate(presenceKey: Data([9]))
+        try h.keychain.save(mac: existing)
+        try h.keychain.save(keys: keys)
+        h.model.open(URL(string: Self.qr.url)!, replacing: "Studio Mac")
+        h.model.confirmPairing()
+        await h.model.settle()
+        #expect(h.model.message == PairingModel.expiredMessage)
+        #expect(try h.keychain.loadMac() == existing)
+        #expect(try h.keychain.loadKeys() == keys)
     }
 }
