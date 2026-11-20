@@ -144,14 +144,15 @@ private struct RunOnTable: View {
             }
             .tableStyle(.bordered(alternatesRowBackgrounds: false))
             .scrollDisabled(true)
-            .frame(height: Self.height(rows: rows.count))
+            .frame(height: Self.height(hosts: settings.destinations.count))
         }
         .font(.callout)
         .accessibilityLabel("Run On destinations")
     }
 
     /// Tall enough for every row (the table doesn't scroll inside the settings page).
-    private static func height(rows: Int) -> CGFloat { 28 + CGFloat(rows) * 40 }
+    /// The header, This Mac's single line and two lines per host.
+    private static func height(hosts: Int) -> CGFloat { 28 + 28 + CGFloat(hosts) * 40 }
 
     private var localStatus: String {
         let versions = model.localToolVersions
