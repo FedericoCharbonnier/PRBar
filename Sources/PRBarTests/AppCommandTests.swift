@@ -26,8 +26,9 @@ enum AppCommandTests {
                 .slackSetToggle(toggle: .reactStart, enabled: false),
                 .slackTemplateSet(template: .newPR, text: "{link}"),
                 .toolsSet(tool: .gh, path: nil),
-                .merge(pr: "api#4", method: .squash, confirmed: true),
-                .merge(pr: "api#4", method: nil, confirmed: false),
+                .merge(pr: "api#4", method: .squash, confirmed: true, expectedHeadOid: "c0ffee"),
+                .merge(pr: "api#4", method: nil, confirmed: false, expectedHeadOid: ""),
+                .mergePreview(pr: "api#4", method: nil),
                 .repoSet(repo: "acme/api", account: "me",
                          changes: RepoChanges(addIgnore: ["dist/**"], mergeMethod: .set(value: "rebase"))),
                 .chatUndo(pr: "api#1", confirmed: true),
@@ -48,7 +49,7 @@ enum AppCommandTests {
             }
         },
         TestCase("app command: Name tiene un caso por comando") {
-            try expectEqual(AppCommand.Name.allCases.count, 100)
+            try expectEqual(AppCommand.Name.allCases.count, 101)
             try expectEqual(AppCommand.slackTokenSet(token: "xoxp-secret").name, .slackTokenSet)
             try expectEqual(AppCommand.reviewCancel(pr: "x").name.rawValue, "reviewCancel")
             try expectEqual(AppCommand.claudePromptShow(stage: .review).name, .claudePromptShow)

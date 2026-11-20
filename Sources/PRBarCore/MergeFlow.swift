@@ -32,6 +32,41 @@ public enum MergeFlow {
         return confirm ? .confirm(chosen) : .merge(chosen)
     }
 
+    /// Lo que verifica `prbar merge` (y `--preview`) contra el snapshot actual. `expectedHeadOid`: el head que la CLI
+    /// le mostró al usuario (`nil` en la vista previa); si el PR cambió desde entonces no se mergea, así nunca se
+    /// mergea un head que no se vio. Devuelve el método a usar.
+    public static func commandCheck(
+        _ item: ClassifiedPR, method: MergeMethod?, options: MergeOptions, blockedReason: String?, phase: MergePhase?,
+        expectedHeadOid: String?
+    ) -> Result<MergeMethod, CommandFailure> {
+        let id = item.id
+        guard item.category == .readyToMerge else {
+            return .failure(CommandFailure(.invalidState, "\(id) isn’t in Ready to Merge. Run `prbar prs --list ready-to-merge`."))
+        }
+        if let blockedReason { return .failure(CommandFailure(.invalidState, blockedReason)) }
+        switch phase {
+        case .merging?: return .failure(CommandFailure(.invalidState, "\(id) is already being merged."))
+        case .merged?: return .failure(CommandFailure(.invalidState, "\(id) was already merged."))
+        default: break
+        }
+        if let problem = MergePolicy.problem(item, method: method, options: options) {
+            return .failure(CommandFailure(.invalidState, problem.localizedDescription))
+        }
+        guard let chosen = method ?? options.defaultMethod else {
+            return .failure(CommandFailure(.invalidState, "This repo doesn’t allow any merge method."))
+        }
+        if let expectedHeadOid {
+            guard !expectedHeadOid.isEmpty else {
+                return .failure(CommandFailure(.invalidUsage, "The merge request doesn’t say which head was confirmed. Update prbar."))
+            }
+            guard expectedHeadOid == item.pr.headOid else {
+                return .failure(CommandFailure(.invalidState,
+                    "\(id) changed since you looked at it (head \(item.pr.headOid.prefix(7)), you saw \(expectedHeadOid.prefix(7))). Run `prbar merge \(id)` again to see it."))
+            }
+        }
+        return .success(chosen)
+    }
+
     /// Qué hace Retry después de refrescar.
     public enum RetryRoute: Equatable, Sendable {
         /// Pedir de nuevo (`request`) con el PR refrescado y el mismo método.

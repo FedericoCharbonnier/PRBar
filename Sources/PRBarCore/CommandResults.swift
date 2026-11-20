@@ -826,6 +826,40 @@ public struct MergeInfo: Codable, Equatable, Sendable {
     }
 }
 
+/// Lo que muestra la confirmación de `prbar merge` (lo mismo que el diálogo de Merge) y `prbar merge --preview`.
+public struct MergePreviewInfo: Codable, Equatable, Sendable {
+    public var pr: String
+    public var title: String
+    public var url: URL
+    public var baseRef: String
+    public var headRef: String
+    /// El head que se va a mergear: `prbar merge` lo manda de vuelta y la app no mergea otro.
+    public var headOid: String
+    public var commitCount: Int?
+    /// El método elegido (o el por defecto del repo).
+    public var method: MergeMethod
+    /// La nota del diálogo (p. ej. checks que fallan, en `UNSTABLE`).
+    public var note: String?
+    public var deletesBranch: Bool
+    /// El error de un intento anterior (la fila), que mergear ahora descarta.
+    public var previousError: String?
+
+    public init(item: ClassifiedPR, method: MergeMethod, options: MergeOptions, deletesBranch: Bool, phase: MergePhase?) {
+        let pr = item.pr
+        self.pr = item.id
+        title = pr.title
+        url = pr.url
+        baseRef = pr.baseRef
+        headRef = pr.headRef
+        headOid = pr.headOid
+        commitCount = pr.merge.commitCount
+        self.method = method
+        note = options.availability.note
+        self.deletesBranch = deletesBranch
+        previousError = phase?.message
+    }
+}
+
 // MARK: - Chat
 
 /// Una tarjeta "Save as rule" de un mensaje del chat (spec E.3).

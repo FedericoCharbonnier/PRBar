@@ -650,28 +650,35 @@ extension AppModel: RespondActions {
 // MARK: - Ready to Merge
 
 extension AppModel: MergeActions {
-    /// Lo mismo que confirmar el diálogo de Merge: valida contra el snapshot actual (`MergePolicy.problem`) y mergea.
-    /// Un error anterior de la fila se descarta antes (como Retry, pero con el PR tal como está ahora).
-    func merge(pr: String, method: MergeMethod?) async throws -> MergeInfo {
+    /// Lo mismo que confirmar el diálogo de Merge: valida contra el snapshot actual (`MergeFlow.commandCheck`,
+    /// incluido que el head siga siendo el que la CLI mostró) y mergea. Un error anterior de la fila se descarta antes
+    /// (el usuario ya vio el PR tal como está ahora en la vista previa).
+    func merge(pr: String, method: MergeMethod?, expectedHeadOid: String) async throws -> MergeInfo {
         let id = try resolvePRID(pr)
         let item = try classifiedPR(id)
-        guard item.category == .readyToMerge else {
-            throw CommandFailure(.invalidState, "\(id) isn’t in Ready to Merge. Run `prbar prs --list ready-to-merge`.")
-        }
-        try throwIfJobsBlocked()
-        if merges.phases[id]?.isActive == true { throw CommandFailure(.invalidState, "\(id) is already being merged.") }
-        let options = mergeOptions(item)
-        if let problem = MergePolicy.problem(item, method: method, options: options) {
-            throw CommandFailure(.invalidState, problem.localizedDescription)
-        }
-        guard let chosen = method ?? options.defaultMethod else {
-            throw CommandFailure(.invalidState, "This repo doesn’t allow any merge method.")
-        }
+        let chosen = try MergeFlow.commandCheck(
+            item, method: method, options: mergeOptions(item), blockedReason: jobsBlockedReason,
+            phase: merges.phases[id], expectedHeadOid: expectedHeadOid
+        ).get()
         merges.dismiss(prID: id)
         switch await merge(item, method: chosen) {
         case .success(let completion): return MergeInfo(completion: completion)
         case .failure(let error): throw CommandFailure(.failed, error.localizedDescription)
         }
+    }
+
+    /// Lo que muestra el diálogo de Merge (`openMergeConfirmation`), para la confirmación de la CLI.
+    func mergePreview(pr: String, method: MergeMethod?) throws -> MergePreviewInfo {
+        let id = try resolvePRID(pr)
+        let item = try classifiedPR(id)
+        let options = mergeOptions(item)
+        let chosen = try MergeFlow.commandCheck(
+            item, method: method, options: options, blockedReason: jobsBlockedReason, phase: merges.phases[id],
+            expectedHeadOid: nil
+        ).get()
+        let settings = prStore.snapshot?.repoMergeSettings[Snapshot.scope(account: item.account, repo: item.pr.repo)]
+        return MergePreviewInfo(item: item, method: chosen, options: options,
+                                deletesBranch: settings?.deleteBranchOnMerge ?? false, phase: merges.phases[id])
     }
 
     func mergeDismiss(pr: String) throws {

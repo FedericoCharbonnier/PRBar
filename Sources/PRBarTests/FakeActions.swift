@@ -107,12 +107,21 @@ final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActi
     func respondDismiss(pr: String) throws { try record("respondDismiss \(pr)") }
 
     // MARK: MergeActions
-    func merge(pr: String, method: MergeMethod?) async throws -> MergeInfo {
+    func merge(pr: String, method: MergeMethod?, expectedHeadOid: String) async throws -> MergeInfo {
         try await network()
-        try record("merge \(pr) \(method?.rawValue ?? "default")")
+        try record("merge \(pr) \(method?.rawValue ?? "default") head=\(expectedHeadOid)")
         return MergeInfo(pr: pr, method: method ?? .squash, mergedAt: t0, url: link.url)
     }
     func mergeDismiss(pr: String) throws { try record("mergeDismiss \(pr)") }
+    func mergePreview(pr: String, method: MergeMethod?) throws -> MergePreviewInfo {
+        try record("mergePreview \(pr) \(method?.rawValue ?? "default")")
+        let state = PRMergeState(nodeID: "PR_1", mergeable: .mergeable, status: .unstable, commitCount: 3)
+        let item = ClassifiedPR(pr: makePR(repo: RepoRef(owner: "acme", name: "api"), number: 1, author: "me",
+                                           head: "c0ffee1234", merge: state), category: .readyToMerge, account: "me")
+        let options = MergeOptions(availability: .enabled(note: "Some checks are failing"), methods: [.squash, .merge],
+                                   defaultMethod: .squash)
+        return MergePreviewInfo(item: item, method: method ?? .squash, options: options, deletesBranch: true, phase: nil)
+    }
 
     // MARK: ConfigActions
     private let repoInfo = RepoInfo(config: RepoConfig(owner: "acme", name: "api"), account: "me")

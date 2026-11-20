@@ -20,8 +20,53 @@ private func request(
     MergeFlow.request(pr, method: method, options: opts, confirm: confirm, blockedReason: blocked, phase: phase)
 }
 
+private func check(
+    _ pr: ClassifiedPR = item(), method: MergeMethod? = nil, options opts: MergeOptions = options(), blocked: String? = nil,
+    phase: MergePhase? = nil, expected: String? = nil
+) -> Result<MergeMethod, CommandFailure> {
+    MergeFlow.commandCheck(pr, method: method, options: opts, blockedReason: blocked, phase: phase, expectedHeadOid: expected)
+}
+
 enum MergeFlowTests {
     static let cases: [TestCase] = [
+        TestCase("merge flow (CLI): elige el método y mergea solo el head que se mostró") {
+            try expectEqual(check(), .success(.squash))
+            try expectEqual(check(method: .merge, expected: "cafe7"), .success(.merge))
+            guard case .failure(let changed) = check(expected: "beef1") else { throw TestFailure(description: "mergeó otro head") }
+            try expectEqual(changed.code, .invalidState)
+            try expect(changed.message.contains("changed since") && changed.message.contains("cafe7"), changed.message)
+            guard case .failure(let missing) = check(expected: "") else { throw TestFailure(description: "sin head") }
+            try expectEqual(missing.code, .invalidUsage)
+        },
+        TestCase("merge flow (CLI): lo que no se puede mergear es un error, con un error previo no") {
+            func failure(_ result: Result<MergeMethod, CommandFailure>) -> CommandFailure? {
+                if case .failure(let failure) = result { return failure }
+                return nil
+            }
+            try expect(failure(check(item(category: .myFeedback)))?.message.contains("isn’t in Ready to Merge") == true)
+            try expectEqual(failure(check(blocked: "Installing an update")), CommandFailure(.invalidState, "Installing an update"))
+            try expect(failure(check(phase: .merging(.squash)))?.message.contains("already being merged") == true)
+            try expect(failure(check(phase: .merged(.squash)))?.message.contains("already merged") == true)
+            try expectEqual(failure(check(method: .rebase)),
+                            CommandFailure(.invalidState, "This repo doesn’t allow Rebase and Merge"))
+            try expectEqual(failure(check(options: options(methods: [], default: nil)))?.code, .invalidState)
+            try expectEqual(check(phase: .failed(method: .squash, error: .headChanged)), .success(.squash))
+        },
+        TestCase("merge flow (CLI): la vista previa muestra lo del diálogo") {
+            let state = PRMergeState(nodeID: "PR_7", mergeable: .mergeable, status: .unstable, commitCount: 3)
+            let preview = MergePreviewInfo(item: item(merge: state), method: .squash,
+                                           options: options(.enabled(note: "Some checks are failing")), deletesBranch: true,
+                                           phase: .failed(method: .squash, error: .headChanged))
+            try expectEqual(preview.pr, "o/r#7")
+            try expectEqual(preview.headOid, "cafe7")
+            try expectEqual(preview.baseRef, "develop")
+            try expectEqual(preview.headRef, "feature/7")
+            try expectEqual(preview.commitCount, 3)
+            try expectEqual(preview.method, .squash)
+            try expectEqual(preview.note, "Some checks are failing")
+            try expectEqual(preview.deletesBranch, true)
+            try expectEqual(preview.previousError, MergeError.headChanged.localizedDescription)
+        },
         TestCase("merge flow: sin confirmación mergea con el método por defecto o el elegido") {
             try expectEqual(request(), .merge(.squash))
             try expectEqual(request(method: .merge), .merge(.merge))

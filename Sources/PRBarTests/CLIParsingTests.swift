@@ -210,14 +210,17 @@ enum CLIParsingTests {
                 try expectEqual(try parsed(["slack", "template", "reset", "myPR.merged"]), .slackTemplateReset(template: .merged))
             },
             TestCase("cli parse: merge") {
-                try expectEqual(try parsed(["merge", "api#4", "--yes"]), .merge(pr: "api#4", method: nil, confirmed: true))
+                // Sin la vista previa (que trae `prepare`) no hay head confirmado: la app lo rechaza.
+                try expectEqual(try parsed(["merge", "api#4", "--yes"]),
+                                .merge(pr: "api#4", method: nil, confirmed: true, expectedHeadOid: ""))
                 try expectEqual(try parsed(["merge", "api#4", "--method", "rebase"], confirmed: false),
-                                .merge(pr: "api#4", method: .rebase, confirmed: false))
+                                .merge(pr: "api#4", method: .rebase, confirmed: false, expectedHeadOid: ""))
                 try expectEqual(try parsed(["merge", "api#4", "--dismiss"]), .mergeDismiss(pr: "api#4"))
+                try expectEqual(try parsed(["merge", "api#4", "--preview", "--method", "merge"]),
+                                .mergePreview(pr: "api#4", method: .merge))
                 try expect(rejects(["merge", "api#4", "--method", "fast-forward"]))
                 try expect(rejects(["merge", "api#4", "--dismiss", "--method", "squash"]))
-                try expectEqual(MergeQuestion.text(pr: "acme/api#4", method: .squash), "Squash and Merge acme/api#4?")
-                try expectEqual(MergeQuestion.text(pr: "acme/api#4", method: nil), "Merge acme/api#4 with the repo’s default method?")
+                try expect(rejects(["merge", "api#4", "--dismiss", "--preview"]))
             },
             TestCase("cli parse: chat") {
                 try expectEqual(try parsed(["chat", "api#1", "why is #2 a bug?"]), .chatSend(pr: "api#1", message: "why is #2 a bug?"))

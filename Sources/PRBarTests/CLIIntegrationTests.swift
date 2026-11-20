@@ -206,11 +206,22 @@ enum CLIIntegrationTests {
         defer { harness.server.stop() }
         let result = try await runCLI(["merge", "acme/api#4", "--method", "squash"], socket: harness.url)
         try expectEqual(result.code, 4)
-        try expect(result.err.contains("Squash and Merge acme/api#1?") && result.err.contains("--yes"), result.err)
-        try expect(!harness.fake.calls.contains { $0.hasPrefix("merge") }, "\(harness.fake.calls)")
+        try expect(result.err.contains("Squash and Merge acme/api#1 at c0ffee1?") && result.err.contains("--yes"), result.err)
+        try expect(!harness.fake.calls.contains { $0.hasPrefix("merge ") }, "\(harness.fake.calls)")
+        // --yes: mergea el head de la vista previa (y lo dice), con el método que se mostró.
         let confirmed = try await runCLI(["merge", "acme/api#4", "--yes"], socket: harness.url)
         try expectEqual(confirmed.code, 0)
-        try expect(harness.fake.calls.contains { $0.hasPrefix("merge acme/api#4") }, "\(harness.fake.calls)")
+        try expect(harness.fake.calls.contains("merge acme/api#4 squash head=c0ffee1234"), "\(harness.fake.calls)")
+        try expect(confirmed.err.contains("c0ffee1"), confirmed.err)
+        // Con terminal muestra lo del diálogo antes de preguntar.
+        let asked = try await runCLI(["merge", "acme/api#4"], socket: harness.url, interactive: true)
+        try expectEqual(asked.code, 0)
+        for text in ["PR 1", "feature/1 → develop", "3 commits", "c0ffee1", "Some checks are failing", "deletes"] {
+            try expect(asked.out.contains(text), "falta \(text): \(asked.out)")
+        }
+        let preview = try await runCLI(["merge", "acme/api#4", "--preview"], socket: harness.url)
+        try expectEqual(preview.code, 0)
+        try expect(preview.out.contains("c0ffee1") && preview.out.contains("3 commits"), preview.out)
         let dismissed = try await runCLI(["merge", "acme/api#4", "--dismiss"], socket: harness.url)
         try expectEqual(dismissed.code, 0)
         try expect(harness.fake.calls.contains { $0.hasPrefix("mergeDismiss acme/api#4") }, "\(harness.fake.calls)")

@@ -8,7 +8,8 @@ import Foundation
 ///    `ok` + `result` o `error`.
 public enum CommandProtocol {
     /// Sube cuando un cambio rompe la compatibilidad entre la CLI y la app.
-    public static let version = 1
+    /// 2: `merge` lleva el head confirmado (`expectedHeadOid`) y existe `mergePreview`.
+    public static let version = 2
 
     public static var encoder: JSONEncoder {
         let encoder = JSONEncoder()

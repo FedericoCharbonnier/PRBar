@@ -119,9 +119,11 @@ public enum CommandDispatcher {
             try actions.respondDismiss(pr: pr)
             return .ok
         // Ready to Merge
-        case .merge(let pr, let method, let confirmed):
+        case .merge(let pr, let method, let confirmed, let expectedHeadOid):
             try requireConfirmation(confirmed, "Merging a pull request")
-            return try encode(await actions.merge(pr: pr, method: method))
+            return try encode(await actions.merge(pr: pr, method: method, expectedHeadOid: expectedHeadOid))
+        case .mergePreview(let pr, let method):
+            return try encode(actions.mergePreview(pr: pr, method: method))
         case .mergeDismiss(let pr):
             try actions.mergeDismiss(pr: pr)
             return .ok

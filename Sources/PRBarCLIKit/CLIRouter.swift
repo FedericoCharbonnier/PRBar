@@ -65,7 +65,8 @@ public enum CLIRouter {
         .init("update", [.updateCheck, .updateInstall, .updateCancel, .updateSkip],
               ["update", "--check"], ["update", "--yes"], ["update", "--cancel"], ["update", "--skip"]),
         // Ready to Merge (plan 10)
-        .init("merge", [.merge, .mergeDismiss], ["merge", "api#4", "--method", "squash", "--yes"], ["merge", "api#4", "--dismiss"]),
+        .init("merge", [.merge, .mergePreview, .mergeDismiss], ["merge", "api#4", "--method", "squash", "--yes"],
+              ["merge", "api#4", "--preview"], ["merge", "api#4", "--dismiss"]),
         // Configuración
         .init("config show", [.configShow], ["config", "show"]),
         .init("config set", [.setRefreshInterval, .setLaunchAtLogin, .setConfirmMerge, .setUpdateInterval],

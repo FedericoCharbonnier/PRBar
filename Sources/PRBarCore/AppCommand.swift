@@ -45,7 +45,10 @@ public enum AppCommand: Codable, Equatable, Sendable {
     case respondDismiss(pr: String)
     // Ready to Merge (spec F)
     /// `method == nil` = el método por defecto del repo. Mergea sin diálogo: la CLI ya confirmó (`--yes`).
-    case merge(pr: String, method: MergeMethod?, confirmed: Bool)
+    /// `expectedHeadOid`: el head que la CLI mostró (`mergePreview`); si el PR cambió, la app no mergea.
+    case merge(pr: String, method: MergeMethod?, confirmed: Bool, expectedHeadOid: String)
+    /// Lo que muestra el diálogo de Merge (título, ramas, commits, head, nota), sin mergear.
+    case mergePreview(pr: String, method: MergeMethod?)
     /// Dismiss del error de merge de la fila.
     case mergeDismiss(pr: String)
     // Configuración
@@ -146,7 +149,7 @@ public enum AppCommand: Codable, Equatable, Sendable {
         case quit, reviewStart, reviewShow, reviewEdit, reviewSetIncluded, reviewSetComment, reviewPublish, reviewCancel
         case reviewDismiss, respondStart, respondShow, respondSelect, respondReset, respondImplement, respondTest
         case respondDiff, respondPush, respondPushAnyway, respondReplyOnly, respondCancel, respondDismiss, merge
-        case mergeDismiss, configShow, setRefreshInterval, setLaunchAtLogin, setConfirmMerge, accountList
+        case mergePreview, mergeDismiss, configShow, setRefreshInterval, setLaunchAtLogin, setConfirmMerge, accountList
         case accountSetEnabled, accountReload, repoList, repoAvailable, repoAdd, repoRemove, repoSet, repoBranches
         case followList, followAdd, followRemove, followSuggestions, notifyList, notifySet, notifySetEnabled, claudeShow
         case claudeSet, claudeReset, claudeSkills, toolsList, toolsSet, slackShow, slackSetEnabled, slackSetProvider
@@ -192,6 +195,7 @@ public enum AppCommand: Codable, Equatable, Sendable {
         case .respondCancel: .respondCancel
         case .respondDismiss: .respondDismiss
         case .merge: .merge
+        case .mergePreview: .mergePreview
         case .mergeDismiss: .mergeDismiss
         case .configShow: .configShow
         case .setRefreshInterval: .setRefreshInterval

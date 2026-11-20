@@ -34,7 +34,8 @@ let dispatchSamples: [(command: AppCommand, call: String)] = [
     (.respondReplyOnly(pr: "web#2", confirmed: true, wait: false), "respondReplyOnly"),
     (.respondCancel(pr: "web#2"), "respondCancel"),
     (.respondDismiss(pr: "web#2"), "respondDismiss"),
-    (.merge(pr: "api#4", method: .rebase, confirmed: true), "merge"),
+    (.merge(pr: "api#4", method: .rebase, confirmed: true, expectedHeadOid: "c0ffee"), "merge"),
+    (.mergePreview(pr: "api#4", method: nil), "mergePreview"),
     (.mergeDismiss(pr: "api#4"), "mergeDismiss"),
     (.configShow, "configShow"),
     (.setRefreshInterval(minutes: 5), "configSetRefreshInterval"),
@@ -151,7 +152,7 @@ enum CommandDispatcherTests {
     @MainActor
     private static func notCutByDisconnect() async throws {
         let commands: [AppCommand] = [
-            .merge(pr: "a#4", method: nil, confirmed: true),
+            .merge(pr: "a#4", method: nil, confirmed: true, expectedHeadOid: "c0ffee"),
             .reviewPublish(pr: "a#1", event: .comment, only: nil, withComments: true, allInBody: false, confirmed: true),
             .slackSelfTest(confirmed: true),
             .slackTokenSet(token: "xoxp-1"),
@@ -174,7 +175,7 @@ enum CommandDispatcherTests {
             .reviewPublish(pr: "a#1", event: .comment, only: nil, withComments: true, allInBody: false, confirmed: false),
             .respondPush(pr: "a#1", confirmed: false, wait: false),
             .respondPushAnyway(pr: "a#1", confirmed: false, wait: false),
-            .merge(pr: "a#1", method: nil, confirmed: false),
+            .merge(pr: "a#1", method: nil, confirmed: false, expectedHeadOid: "c0ffee"),
             .updateInstall(confirmed: false, cancelJobs: false),
             .respondReplyOnly(pr: "a#1", confirmed: false, wait: false),
             .slackSelfTest(confirmed: false),
