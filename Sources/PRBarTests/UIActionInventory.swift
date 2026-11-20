@@ -39,6 +39,14 @@ enum UIActionInventory {
         .init("AppMenu.swift", "MenuItem", "Select All", 1, .viewOnly("text editing")),
         .init("AppMenu.swift", "MenuItem", "Minimize", 1, .viewOnly("window management")),
         .init("AppMenu.swift", "MenuItem", "Close", 1, .viewOnly("window management")),
+        // PRBar Activity (plan 13, spec I)
+        .init("Activity/ActivityWindow.swift", "Button", "Stop", 2, .cli(["review cancel", "respond cancel", "chat", "rules chat", "update"])),   // por tarea; el de update deshabilitado
+        .init("Activity/ActivityWindow.swift", "Button", "Refresh", 1, .cli(["resources"])),
+        .init("Activity/ActivityWindow.swift", "Toggle", "Also delete history and logs older than", 1, .cli(["cleanup"])),   // --older-than
+        .init("Activity/ActivityWindow.swift", "Stepper", #"\(olderThanDays) days"#, 1, .cli(["cleanup"])),
+        .init("Activity/ActivityWindow.swift", "Button", "-", 1, .cli(["cleanup"])),   // Clean Up… (frees X)
+        .init("Activity/ActivityWindow.swift", "ConfirmAlert", "-", 1, .cli(["cleanup"])),   // --yes
+        .init("Activity/ActivityWindow.swift", "Component:WindowAccessor", "activity", 1, .viewOnly("tracks whether the window is open to sample")),
         // Componentes genéricos
         .init("Components/Chips.swift", "Button", "-", 1, .cli(["repo set"])),   // RemovableChip: quitar una rama base
         .init("Components/PointingHandCursor.swift", "Button", "-", 1, .viewOnly(generic)),
@@ -63,6 +71,8 @@ enum UIActionInventory {
         .init("Popover/PopoverView.swift", "Picker", "Tab", 1, .cli(["app popover", "prs"])),   // --tab
         .init("Popover/PopoverView.swift", "Button", "To Review", 1, .cli(["app popover"])),   // ⌘1
         .init("Popover/PopoverView.swift", "Button", "My PRs", 1, .cli(["app popover"])),   // ⌘2
+        .init("Popover/PopoverView.swift", "Component:ResourceFooter", "-", 1, .cli(["resources"])),
+        .init("Popover/ResourceFooter.swift", "Button", "-", 1, .cli(["resources"])),   // abre PRBar Activity
         .init("Popover/PRRowView.swift", "Button", "-", 1, .cli(["open"])),   // la fila
         .init("Popover/PRRowView.swift", "Button", "Merge…", 1, .cli(["open", "merge"])),   // abre la ventana de Merge (open --merge)
         .init("Popover/PRRowView.swift", "Button", "Open on GitHub", 1, .cli(["open"])),
@@ -195,6 +205,8 @@ enum UIActionInventory {
         .init("Settings/GeneralTab.swift", "Toggle", "My PR was approved or CI failed", 1, .cli(["notify set"])),
         .init("Settings/GeneralTab.swift", "Toggle", "My PR is ready to merge", 1, .cli(["notify set"])),
         .init("Settings/GeneralTab.swift", "Button", "Open System Settings…", 1, .cli(["notify system-settings"])),
+        .init("Settings/GeneralTab.swift", "Toggle", "Warn when PRBar uses more than", 1, .cli(["config set"])),   // disk-warning
+        .init("Settings/GeneralTab.swift", "Stepper", #"\(limit) GB"#, 1, .cli(["config set"])),
         .init("Settings/PathRow.swift", "Button", "-", 1, .cli(["tools reset", "repo set"])),
         .init("Settings/PathRow.swift", "Button", "Choose…", 1, .cli(["tools set", "repo set"])),
         // Settings › Claude

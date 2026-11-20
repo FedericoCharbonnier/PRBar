@@ -20,11 +20,24 @@ struct PopoverView: View {
             }
             Divider().padding(.bottom, 4)
             content
-            // Acá, debajo del contenido y visible en las dos pestañas, va el pie de recursos (Plan 13, spec I).
+            // El pie de recursos, debajo del contenido y visible en las dos pestañas (spec I).
+            if showsTabs {
+                Divider()
+                ResourceFooter(monitor: model.resources) { model.openActivityWindow() }
+            }
             UpdateRow(updates: model.updates) { model.openUpdateWindow() }
         }
         .frame(width: Theme.popoverWidth)
-        .background(WindowAccessor { window in model.popoverWindow = window })
+        .background(WindowAccessor { window in
+            model.popoverWindow = window
+            model.resources.setVisible("popover", window != nil)
+        })
+        // `MenuBarExtra` deja la ventana creada al cerrarse: su `occlusionState` dice si está en pantalla, y el
+        // muestreo se para en cuanto deja de estarlo (spec I).
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didChangeOcclusionStateNotification)) { note in
+            guard let window = note.object as? NSWindow, window === model.popoverWindow else { return }
+            model.resources.setVisible("popover", window.occlusionState.contains(.visible))
+        }
     }
 
     // MARK: Header

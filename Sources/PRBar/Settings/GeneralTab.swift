@@ -67,6 +67,25 @@ struct GeneralTab: View {
                 }
             }
 
+            Section {
+                Toggle("Warn when PRBar uses more than", isOn: Binding(
+                    get: { configStore.config.resources.diskWarningGB != nil },
+                    set: { on in model.updateConfig(refresh: false) { $0.resources.setDiskWarning(gigabytes: on ? 5 : nil) } }
+                ))
+                if let limit = configStore.config.resources.diskWarningGB {
+                    Stepper("\(limit) GB", value: Binding(
+                        get: { limit },
+                        set: { gigabytes in model.updateConfig(refresh: false) { $0.resources.setDiskWarning(gigabytes: gigabytes) } }
+                    ), in: ResourceSettings.gigabyteRange)
+                }
+            } header: {
+                Text("Disk")
+            } footer: {
+                Text("A notification when PRBar’s worktrees, history and logs pass this size. See them in PRBar Activity.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             UpdatesSection(model: model, updates: model.updates, configStore: configStore)
         }
         .formStyle(.grouped)
