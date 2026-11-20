@@ -96,18 +96,12 @@ enum PopoverTabsTests {
                 try expectEqual(PopoverTabState(store: store).selected, .toReview)
             }
         },
-        TestCase("popover tabs: UserDefaults guarda la pestaña y el test no deja su plist") {
+        TestCase("popover tabs: UserDefaults sirve de almacén (sin escribir en disco)") {
+            // Solo el dominio de registro, que no se guarda: escribir en un suite deja un .plist en
+            // ~/Library/Preferences que cfprefsd vuelve a crear aunque se lo borre al terminar.
             try await MainActor.run {
-                let suite = "prbar-tests-\(UUID().uuidString)"
-                let defaults = UserDefaults(suiteName: suite)!
-                defer {
-                    defaults.removePersistentDomain(forName: suite)
-                    let plist = FileManager.default.homeDirectoryForCurrentUser
-                        .appendingPathComponent("Library/Preferences/\(suite).plist")
-                    try? FileManager.default.removeItem(at: plist)
-                }
-                PopoverTabState(store: defaults).selected = .mine
-                try expectEqual(defaults.string(forKey: PopoverTabState.defaultsKey), "mine")
+                let defaults = UserDefaults(suiteName: "prbar-tests-registration-only")!
+                defaults.register(defaults: [PopoverTabState.defaultsKey: "mine"])
                 try expectEqual(PopoverTabState(store: defaults).selected, .mine)
             }
         },
