@@ -3,6 +3,15 @@ import PRBarCore
 
 enum ConfigTests {
     static let cases: [TestCase] = [
+        TestCase("config: setBaseBranches reemplaza la lista sin duplicados") {
+            var config = AppConfig()
+            config.setAccountEnabled("me", true)
+            config.addRepo(RepoRef(owner: "o", name: "r"), to: "me")
+            config.setBaseBranches(["main", "develop", "main", " "], repoID: "o/r", login: "me")
+            try expectEqual(config.accounts[0].repos[0].baseBranches, ["main", "develop"])
+            config.setBaseBranches([], repoID: "o/r", login: "me")
+            try expectEqual(config.accounts[0].repos[0].baseBranches, [])
+        },
         TestCase("config: archivo inexistente → valores por defecto") {
             let dir = try temporaryDirectory()
             let store = await ConfigStore(fileURL: dir.appendingPathComponent("config.json"))

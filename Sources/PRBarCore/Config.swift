@@ -623,6 +623,16 @@ extension AppConfig {
         }
     }
 
+    /// `prbar repo set --branches/--add-branch/--remove-branch`: la lista final (sin vacíos ni repetidos; vacía = la
+    /// rama por defecto del repo).
+    public mutating func setBaseBranches(_ branches: [String], repoID: String, login: String) {
+        var unique: [String] = []
+        for branch in branches.map({ $0.trimmingCharacters(in: .whitespaces) }) where !branch.isEmpty && !unique.contains(branch) {
+            unique.append(branch)
+        }
+        withRepo(repoID, login: login) { $0.baseBranches = unique }
+    }
+
     public mutating func addWatchedUser(_ user: String, repoID: String, login: String) {
         withRepo(repoID, login: login) { repo in
             guard !repo.watchedUsers.contains(where: { $0.lowercased() == user.lowercased() }) else { return }
