@@ -30,6 +30,10 @@ public enum MergePreviewRender {
     static let maxDescriptionLines = 12
 
     public static func prSummary(_ detail: MergeDetail, _ output: Output) {
+        if let note = detail.incompleteNote {
+            output.line()
+            output.line(output.paint(note, .yellow))
+        }
         output.line()
         output.line(output.paint("Description", .bold))
         let body = detail.body.trimmingCharacters(in: .whitespacesAndNewlines)

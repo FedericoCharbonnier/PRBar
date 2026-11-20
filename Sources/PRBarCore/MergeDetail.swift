@@ -33,8 +33,40 @@ public struct MergeDetail: Codable, Equatable, Sendable {
     public var files: [MergeChangedFile]
     /// Todos los archivos del PR (`changedFiles`).
     public var changedFiles: Int
+    /// Las secciones que GitHub no pudo dar (respondió con datos y errores de algunos campos): se muestran con lo que
+    /// llegó y la nota `incompleteNote`.
+    public var incomplete: [Section] = []
 
     public static let maxFiles = 100
+
+    /// Una parte del resumen, para decir cuál no se pudo cargar.
+    public enum Section: String, Codable, Sendable, CaseIterable {
+        case reviews, checks, conversations, files, details
+
+        /// Las secciones de los errores de GraphQL según su `path` (sin repetir, en el orden de `allCases`). Un error
+        /// sin path, o de un campo que no es una sección, cuenta como `details`.
+        public static func sections(forErrorPaths paths: [[String]?]) -> [Section] {
+            let found = Set(paths.map { path -> Section in
+                guard let path, let index = path.firstIndex(of: "pullRequest"), index + 1 < path.count else { return .details }
+                switch path[index + 1] {
+                case "latestOpinionatedReviews", "latestReviews", "reviewRequests": return .reviews
+                case "statusCheckRollup": return .checks
+                case "reviewThreads": return .conversations
+                case "files": return .files
+                default: return .details
+                }
+            })
+            return allCases.filter(found.contains)
+        }
+    }
+
+    /// "Some checks and files couldn’t be loaded from GitHub." (`nil` si llegó todo).
+    public var incompleteNote: String? {
+        guard !incomplete.isEmpty else { return nil }
+        let names = incomplete.map(\.rawValue)
+        let list = names.count == 1 ? names[0] : names.dropLast().joined(separator: ", ") + " and " + names.last!
+        return "Some \(list) couldn’t be loaded from GitHub."
+    }
 
     public init(number: Int, title: String, body: String, url: URL?, author: String, authorAvatarURL: URL?,
                 baseRef: String, headRef: String, headOid: String, additions: Int, deletions: Int, commitCount: Int?,
@@ -101,7 +133,7 @@ public struct MergeDetail: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case number, title, body, url, author, authorAvatarURL, baseRef, headRef, headOid, additions, deletions, commitCount
         case mergeable, status, reviewDecision, reviews, pendingReviewers, checks, checksTotal, unresolvedThreads
-        case totalThreads, files, changedFiles
+        case totalThreads, files, changedFiles, incomplete
     }
 
     public init(from decoder: Decoder) throws {
@@ -129,6 +161,7 @@ public struct MergeDetail: Codable, Equatable, Sendable {
         totalThreads = (try? c.decodeIfPresent(Int.self, forKey: .totalThreads)) ?? 0
         files = (try? c.decodeIfPresent(LossyArray<MergeChangedFile>.self, forKey: .files))?.elements ?? []
         changedFiles = (try? c.decodeIfPresent(Int.self, forKey: .changedFiles)) ?? files.count
+        incomplete = (try? c.decodeIfPresent(LossyArray<Section>.self, forKey: .incomplete))?.elements ?? []
     }
 }
 

@@ -97,6 +97,12 @@ struct MergeWindow: View {
                     if let error = window.loadError {
                         ErrorBanner(messages: ["Couldn’t refresh: \(error)"], horizontalInset: 0)
                     }
+                    if let note = detail.incompleteNote {
+                        Label(note, systemImage: "exclamationmark.triangle")
+                            .font(.callout)
+                            .foregroundStyle(Theme.orangeText)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     descriptionSection(detail)
                     MergeReviewsSection(detail: detail)
                     MergeChecksSection(detail: detail, prURL: record.url)

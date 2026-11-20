@@ -51,7 +51,7 @@ enum Queries {
           commits { totalCount }
           latestOpinionatedReviews(first: 50) { nodes { author { login avatarUrl __typename } state submittedAt } }
           latestReviews(first: 50) { nodes { author { login avatarUrl __typename } state submittedAt } }
-          reviewRequests(first: 20) { nodes { requestedReviewer { ... on User { login } ... on Team { name } } } }
+          reviewRequests(first: 20) { nodes { requestedReviewer { ... on User { login } ... on Bot { login } ... on Mannequin { login } ... on Team { name } } } }
           reviewThreads(first: 100) { totalCount nodes { isResolved } }
           files(first: 100) { totalCount nodes { path additions deletions changeType } }
           statusCheckRollup {
@@ -102,6 +102,26 @@ struct GraphQLErrorItem: Decodable {
     let message: String
     /// p. ej. `"RATE_LIMITED"`, `"NOT_FOUND"`.
     let type: String?
+    /// El campo que falló (`["repository", "pullRequest", "files"]`); los índices de listas se omiten. `nil` si no vino.
+    let path: [String]?
+
+    private enum CodingKeys: String, CodingKey { case message, type, path }
+
+    /// Un índice entero o una clave del `path`.
+    private struct PathItem: Decodable {
+        let key: String?
+        init(from decoder: Decoder) throws {
+            let c = try decoder.singleValueContainer()
+            key = try? c.decode(String.self)
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        message = (try? c.decode(String.self, forKey: .message)) ?? "Unknown GraphQL error"
+        type = (try? c.decodeIfPresent(String.self, forKey: .type)) ?? nil
+        path = ((try? c.decodeIfPresent([PathItem].self, forKey: .path)) ?? nil)?.compactMap(\.key)
+    }
 }
 
 struct Nodes<T: Decodable>: Decodable {

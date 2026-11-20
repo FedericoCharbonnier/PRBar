@@ -321,13 +321,26 @@ public struct GitHubClient: GitHubAPI {
         return pr.mergedAt
     }
 
+    /// Tolerante a errores parciales (spec G.8): GitHub puede responder con el PR y errores de algunos campos (un
+    /// `isRequired` sin permiso, `files` con timeout, un nodo bajo SSO). Con el PR, se muestra lo que llegó y las
+    /// secciones afectadas quedan en `incomplete`; solo el rate limit o la falta del PR son un error.
     public func mergeDetail(repo: RepoRef, number: Int, token: String) async throws -> MergeDetail {
-        let data: MergeDetailQueryData = try await graphQL(
+        let (envelope, response): (GraphQLEnvelope<MergeDetailQueryData>, HTTPURLResponse) = try await graphQLEnvelope(
             Queries.mergeDetail, jsonVariables: ["owner": repo.owner, "name": repo.name, "number": number], token: token)
-        guard let pr = data.repository?.pullRequest else {
-            throw PRBarError.graphQL("Couldn't find the PR \(repo.fullName)#\(number)")
+        let errors = envelope.errors ?? []
+        try throwIfRateLimited(errors, response: response)
+        let messages = errors.map(\.message).joined(separator: "; ")
+        guard let pr = envelope.data?.repository?.pullRequest else {
+            AppLog.write("GitHub: couldn't load the summary of \(repo.fullName)#\(number)\(errors.isEmpty ? "" : ": \(messages)")")
+            throw PRBarError.graphQL(errors.isEmpty ? "Couldn't find the PR \(repo.fullName)#\(number)" : messages)
         }
-        return pr.toDetail()
+        var detail = pr.toDetail()
+        if !errors.isEmpty {
+            detail.incomplete = MergeDetail.Section.sections(forErrorPaths: errors.map(\.path))
+            AppLog.write("GitHub: the summary of \(repo.fullName)#\(number) came with errors "
+                + "(\(detail.incomplete.map(\.rawValue).joined(separator: ", "))): \(messages)")
+        }
+        return detail
     }
 
     /// POST de JSON que devuelve el `html_url` de lo creado. `perform` solo vuelve con un 2xx: lo publicado ya está

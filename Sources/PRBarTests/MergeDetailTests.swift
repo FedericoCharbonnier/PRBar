@@ -101,6 +101,67 @@ enum MergeDetailTests {
             }
             guard case PRBarError.graphQL? = error as? PRBarError else { throw TestFailure(description: "\(error)") }
         },
+        TestCase("merge detail: un error de un campo no tira el resumen; lo dice como nota") {
+            // GitHub responde 200 con datos y errores: `isRequired` de un check y `files` (timeout) fallaron.
+            let partial = """
+            {"data":{"repository":{"pullRequest":{"number":7,"title":"T","url":"https://github.com/acme/api/pull/7",
+              "baseRefName":"main","headRefName":"x","headRefOid":"1111111111111111111111111111111111111111","files":null,
+              "statusCheckRollup":{"contexts":{"totalCount":2,"nodes":[null,
+                {"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"SUCCESS","isRequired":true}]}}}}},
+             "errors":[{"message":"isRequired: resource not accessible","type":"FORBIDDEN",
+                        "path":["repository","pullRequest","statusCheckRollup","contexts","nodes",0,"isRequired"]},
+                       {"message":"timeout","path":["repository","pullRequest","files"]}]}
+            """
+            let transport = FakeTransport([(200, [:], partial)])
+            let detail = try await GitHubClient(transport: transport).mergeDetail(repo: repo, number: 7, token: "tok")
+            try expectEqual(detail.headOid, "1111111111111111111111111111111111111111")
+            try expectEqual(detail.checks.map(\.name), ["build"])
+            try expectEqual(detail.incomplete, [.checks, .files])
+            try expectEqual(detail.incompleteNote, "Some checks and files couldn’t be loaded from GitHub.")
+            // Sin path (o fuera del PR) cuenta como "details".
+            try expectEqual(MergeDetail.Section.sections(forErrorPaths: [nil, ["repository", "pullRequest", "reviewThreads"],
+                                                                         ["repository", "pullRequest", "latestReviews", "nodes"]]),
+                            [.reviews, .conversations, .details])
+            try expectEqual(MergeDetail.empty(number: 1, headOid: "a").incompleteNote, nil)
+            let decoded = try JSONCoding.decoder.decode(MergeDetail.self, from: JSONCoding.encoder.encode(detail))
+            try expectEqual(decoded.incomplete, [.checks, .files])
+            // `prbar merge --preview` también lo dice.
+            var out = ""
+            MergePreviewRender.prSummary(detail, Output(terminal: .plain, json: false, out: { out += $0 }, err: { _ in }))
+            try expect(out.contains("Some checks and files couldn’t be loaded from GitHub."), out)
+        },
+        TestCase("merge detail: errores sin el PR, o rate limit, siguen siendo errores") {
+            let missing = #"{"data":{"repository":null},"errors":[{"message":"Could not resolve to a Repository","type":"NOT_FOUND","path":["repository"]}]}"#
+            let error = try await expectThrows {
+                _ = try await GitHubClient(transport: FakeTransport([(200, [:], missing)])).mergeDetail(repo: repo, number: 9, token: "tok")
+            }
+            guard case PRBarError.graphQL(let message)? = error as? PRBarError, message.contains("Could not resolve") else {
+                throw TestFailure(description: "\(error)")
+            }
+            let limited = #"{"data":{"repository":{"pullRequest":null}},"errors":[{"message":"API rate limit exceeded","type":"RATE_LIMITED"}]}"#
+            let rate = try await expectThrows {
+                _ = try await GitHubClient(transport: FakeTransport([(200, ["x-ratelimit-reset": "2000000000"], limited)]))
+                    .mergeDetail(repo: repo, number: 9, token: "tok")
+            }
+            guard case PRBarError.rateLimited? = rate as? PRBarError else { throw TestFailure(description: "\(rate)") }
+            // Un rate limit con datos tampoco se muestra como resumen parcial.
+            let limitedWithData = #"{"data":{"repository":{"pullRequest":\#(full)}},"errors":[{"message":"rate","type":"RATE_LIMITED"}]}"#
+            let rate2 = try await expectThrows {
+                _ = try await GitHubClient(transport: FakeTransport([(200, [:], limitedWithData)])).mergeDetail(repo: repo, number: 42, token: "tok")
+            }
+            guard case PRBarError.rateLimited? = rate2 as? PRBarError else { throw TestFailure(description: "\(rate2)") }
+        },
+        TestCase("merge detail: reviews pedidas a bots y mannequins") {
+            let (detail, transport) = try await detail("""
+            {"number":7,"title":"T","url":"https://github.com/acme/api/pull/7","baseRefName":"main","headRefName":"x",
+             "headRefOid":"1111111111111111111111111111111111111111",
+             "reviewRequests":{"nodes":[{"requestedReviewer":{"login":"copilot-pull-request-reviewer"}},{"requestedReviewer":{"login":"old-user"}}]}}
+            """, number: 7)
+            let body = try JSONSerialization.jsonObject(with: transport.requests[0].httpBody ?? Data()) as? [String: Any]
+            let query = body?["query"] as? String ?? ""
+            try expect(query.contains("... on Bot { login }") && query.contains("... on Mannequin { login }"), query)
+            try expectEqual(detail.pendingReviewers, ["copilot-pull-request-reviewer", "old-user"])
+        },
         TestCase("merge detail: resumen de checks (requeridos y no requeridos)") {
             func check(_ state: MergeCheck.State, required: Bool) -> MergeCheck {
                 MergeCheck(name: "c", kind: .checkRun, state: state, isRequired: required)
