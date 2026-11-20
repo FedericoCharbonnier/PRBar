@@ -152,6 +152,24 @@ enum RemoteWorkspacesTests {
             try expect(FileManager.default.fileExists(atPath: URL(fileURLWithPath: otherRoot.jobs).appendingPathComponent("x.pid").path))
             try expect(!(try TempGitRepo.run(URL(fileURLWithPath: otherBare), ["for-each-ref", "refs/prbar/"])).isEmpty)
         },
+        TestCase("remote workspaces: leer un archivo de contexto trae a lo sumo el tope (nunca uno enorme ni un symlink infinito)") {
+            let (ssh, host, _, root) = try await verifiedFake()
+            defer { ssh.remove() }
+            let files = RemoteContextFiles(host: host, root: root)
+            let dir = URL(fileURLWithPath: try root.child(["work", "r-1-1700000000-0a0b0c0d.context"]))
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try Data(repeating: 65, count: 1000).write(to: dir.appendingPathComponent("exact.diff"))
+            try Data(repeating: 65, count: 1001).write(to: dir.appendingPathComponent("big.diff"))
+            try FileManager.default.createSymbolicLink(atPath: dir.appendingPathComponent("zero.diff").path, withDestinationPath: "/dev/zero")
+            let exact = await files.read(dir.appendingPathComponent("exact.diff").path, limit: 1000)
+            try expectEqual(exact?.count, 1000)
+            let big = await files.read(dir.appendingPathComponent("big.diff").path, limit: 1000)
+            try expectEqual(big, nil)
+            let zero = await files.read(dir.appendingPathComponent("zero.diff").path, limit: 1000)
+            try expectEqual(zero, nil)
+            let missing = await files.read(dir.appendingPathComponent("missing.diff").path, limit: 1000)
+            try expectEqual(missing, nil)
+        },
         TestCase("remote workspaces: la limpieza de huérfanos no pisa un trabajo que arranca mientras limpia (refs y worktree nuevos)") {
             let repo = try TempGitRepo.make()
             defer { repo.remove() }

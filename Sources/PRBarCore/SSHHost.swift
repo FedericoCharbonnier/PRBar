@@ -79,6 +79,19 @@ public struct SSHHost: Sendable {
         try checked(try await runScript("cat -- \(try ShellQuote.posix(path))", timeout: timeout, standardOutput: local), "download")
     }
 
+    /// Como `download`, pero el host manda a lo sumo `maxBytes + 1` bytes (`head -c`): un archivo enorme (o un
+    /// symlink a algo infinito) no llena el disco de la Mac. `false` si era más grande que `maxBytes`.
+    public func download(_ path: String, to local: URL, root: RemoteRoot, maxBytes: Int, timeout: TimeInterval = 300) async throws -> Bool {
+        guard root.contains(path) else { throw RemoteRunnerError.outsideRoot(path) }
+        guard maxBytes >= 0, maxBytes < Int.max else { throw RemoteRunnerError.outsideRoot(path) }
+        let quoted = try ShellQuote.posix(path)
+        // `[ -r ]` primero: `head` sobre algo que no existe tiene que fallar como `cat`.
+        try checked(try await runScript("[ -r \(quoted) ] && head -c \(maxBytes + 1) -- \(quoted)", timeout: timeout, standardOutput: local),
+                    "download")
+        let size = (try? FileManager.default.attributesOfItem(atPath: local.path)[.size] as? Int) ?? Int.max
+        return size <= maxBytes
+    }
+
     /// `rm -rf` de `path`, solo si está dentro de la raíz, dos niveles abajo, y la raíz tiene la marca.
     public func removeTree(_ path: String, root: RemoteRoot) async throws {
         guard root.isRemovable(path) else { throw RemoteRunnerError.outsideRoot(path) }

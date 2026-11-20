@@ -47,7 +47,7 @@ public struct RemoteContextFiles: ContextFiles {
     public func read(_ path: String, limit: Int) async -> Data? {
         guard root.contains(path), let local = try? LocalScratch.newFile() else { return nil }
         defer { try? FileManager.default.removeItem(at: local) }
-        guard (try? await host.download(path, to: local, root: root)) != nil,
+        guard (try? await host.download(path, to: local, root: root, maxBytes: limit)) == true,
               let data = FileManager.default.contents(atPath: local.path), data.count <= limit else { return nil }
         return data
     }
