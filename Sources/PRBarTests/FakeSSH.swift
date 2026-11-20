@@ -34,12 +34,17 @@ struct FakeSSH {
     cd "$FAKE_SSH_HOME" || exit 255
     exec /usr/bin/perl -e 'use POSIX (); my $pid = fork(); die "fork" unless defined $pid;
       if ($pid == 0) { POSIX::setsid(); exec @ARGV or exit 127 } waitpid($pid, 0); exit($? >> 8)' -- \
-      /usr/bin/env -i HOME="$FAKE_SSH_HOME" USER=tester LOGNAME=tester LANG=en_US.UTF-8 PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+      /usr/bin/env -i HOME="$FAKE_SSH_HOME" USER=tester LOGNAME=tester LANG=en_US.UTF-8 SHELL=/bin/sh PATH=/usr/bin:/bin:/usr/sbin:/sbin \
       SSH_AUTH_SOCK=/remote/agent.sock /bin/sh -c "$cmd"
     """#
 
     static func make() throws -> FakeSSH {
-        let base = try temporaryDirectory().resolvingSymlinksInPath()
+        // `realpath` y no `resolvingSymlinksInPath`: esa le saca el `/private` a `/private/var/…`, y la raíz que
+        // informa el host (`pwd -P`) lo tiene.
+        let temporary = try temporaryDirectory()
+        guard let resolved = realpath(temporary.path, nil) else { throw TestFailure(description: "realpath \(temporary.path)") }
+        defer { free(resolved) }
+        let base = URL(fileURLWithPath: String(cString: resolved), isDirectory: true)
         let fake = FakeSSH(base: base)
         try FileManager.default.createDirectory(at: fake.executable.deletingLastPathComponent(), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: fake.home.appendingPathComponent("bin"), withIntermediateDirectories: true)
