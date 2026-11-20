@@ -239,7 +239,23 @@ extension PRInfo {
                   account: item.account, category: item.category.rawValue, baseRef: pr.baseRef, headRef: pr.headRef,
                   isDraft: pr.isDraft, ci: pr.ciState.rawValue, additions: pr.additions, deletions: pr.deletions,
                   updatedAt: pr.updatedAt, review: review?.cliName, respond: respond?.cliName, merge: merge?.cliName,
-                  mergeError: merge?.message, tab: PopoverTabs.tab(of: item), section: PopoverTabs.section(of: item))
+                  mergeError: merge?.message, tab: PopoverTabs.tab(of: item), section: PopoverTabs.section(of: item),
+                  authorName: pr.authorName, approvals: pr.approvalCount > 0 ? pr.approvalCount : nil,
+                  changedFiles: pr.changedFiles)
+    }
+}
+
+extension PullRequest {
+    /// Revisores (personas, no el autor) cuyo último review que cuenta es un approve. Un comentario después de aprobar
+    /// no lo deshace (como en GitHub); un "changes requested" o un dismiss sí.
+    public var approvalCount: Int {
+        var latest: [String: PRReview] = [:]
+        for review in reviews where !review.isBot && review.author != author
+            && [.approved, .changesRequested, .dismissed].contains(review.state) {
+            if let seen = latest[review.author], seen.submittedAt > review.submittedAt { continue }
+            latest[review.author] = review
+        }
+        return latest.values.filter { $0.state == .approved }.count
     }
 }
 
@@ -308,7 +324,10 @@ extension RespondInfo {
         errorMessage = record.errorMessage
         mode = draft.mode
         ciChecks = draft.ci?.checks
+        totalChecks = draft.ci?.totalChecks
         usage = record.totalUsage
+        startedAt = record.startedAt
+        testSummary = tests.flatMap { TestSummary.extract(from: $0.outputTail) }
     }
 }
 

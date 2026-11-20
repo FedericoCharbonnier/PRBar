@@ -79,7 +79,7 @@ final class RemoteStateFeed {
             if only == nil, !list.contains(.home) { list.insert(.home, at: 0) }
             for topic in list {
                 do {
-                    let value = try await RemoteStateTopics.compute(topic, actions)
+                    let value = try await RemoteStateTopics.compute(topic, actions, system: { MacSystemSampler.sample() })
                     if topic == .home { onHome?(value) }
                     await host.publish(topic: topic.name, data: value)
                 } catch {

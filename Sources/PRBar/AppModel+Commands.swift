@@ -676,8 +676,15 @@ extension AppModel: CIFixUsageActions {
             let phase = respond.runningTests.contains(item.id) ? "testing" : respond.phases[item.id]?.cliName
             return CIListEntry(pr: item.id, title: item.pr.title, url: item.pr.url, account: item.account,
                                phase: isCI ? phase : nil, respondInProgress: !isCI && respond.phases[item.id] != nil,
-                               unavailableReason: ciFixUnavailableReason(item))
+                               unavailableReason: ciFixUnavailableReason(item),
+                               failedChecks: failedCheckCount(item))
         }
+    }
+
+    /// Los checks que fallaron en el head actual, si un Fix CI ya los leyó (sin pedirle nada nuevo a GitHub).
+    private func failedCheckCount(_ item: ClassifiedPR) -> Int? {
+        guard let ci = respond.records[item.id]?.draft.ci, ci.headOid == item.pr.headOid else { return nil }
+        return ci.checks.count + ci.omitted.count
     }
 
     func ciFix(pr: String, wait: Bool, events: CommandEventSink) async throws -> RespondInfo {

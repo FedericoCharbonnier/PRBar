@@ -106,11 +106,18 @@ public struct PRInfo: Codable, Equatable, Sendable {
     /// Pestaña y sección del popover (spec H). Opcionales: una app con protocolo 3 no las manda.
     public var tab: PopoverTab?
     public var section: PopoverSection?
+    /// El nombre visible del autor en GitHub ("Laura Méndez"), si tiene uno (el iPhone lo muestra en vez del login).
+    public var authorName: String?
+    /// Cuántos revisores aprobaron (su último review es un approve); nil si ninguno.
+    public var approvals: Int?
+    /// Archivos que cambia el PR, si GitHub lo dijo en el último refresh.
+    public var changedFiles: Int?
 
     public init(id: String, repo: String, number: Int, title: String, url: URL, author: String, account: String,
                 category: String, baseRef: String, headRef: String, isDraft: Bool, ci: String, additions: Int,
                 deletions: Int, updatedAt: Date, review: String? = nil, respond: String? = nil, merge: String? = nil,
-                mergeError: String? = nil, tab: PopoverTab? = nil, section: PopoverSection? = nil) {
+                mergeError: String? = nil, tab: PopoverTab? = nil, section: PopoverSection? = nil,
+                authorName: String? = nil, approvals: Int? = nil, changedFiles: Int? = nil) {
         self.id = id
         self.repo = repo
         self.number = number
@@ -132,6 +139,9 @@ public struct PRInfo: Codable, Equatable, Sendable {
         self.mergeError = mergeError
         self.tab = tab
         self.section = section
+        self.authorName = authorName
+        self.approvals = approvals
+        self.changedFiles = changedFiles
     }
 }
 
@@ -331,6 +341,14 @@ public struct RespondInfo: Codable, Equatable, Sendable {
     public var pushBlockedByCI: String?
     /// Claude's usage for the run and its chat (spec O); nil if unknown.
     public var usage: ClaudeUsage?
+    /// Cuándo arrancó la corrida (el cronómetro del iPhone).
+    public var startedAt: Date?
+    /// Fix CI: cuántos checks corrieron en el head que falló ("2 of 9").
+    public var totalChecks: Int?
+    /// El resumen de los últimos tests ("142 passed"), sacado de su salida.
+    public var testSummary: String?
+    /// El archivo que Claude está editando. Todavía no se llena (la cola de Responder no sigue las herramientas).
+    public var currentFile: String?
 
     public init(pr: String, phase: String, detail: String? = nil, runningTests: Bool, title: String? = nil,
                 account: String? = nil, headRef: String? = nil, worktree: String? = nil, language: String? = nil,
@@ -976,9 +994,11 @@ public struct CIListEntry: Codable, Equatable, Sendable {
     public var respondInProgress: Bool
     /// Por qué no se puede arrancar ahora (sin carpeta local, una actualización en curso…).
     public var unavailableReason: String?
+    /// Cuántos checks fallaron, si PRBar ya los leyó (un Fix CI); nil si todavía no se sabe.
+    public var failedChecks: Int?
 
     public init(pr: String, title: String, url: URL, account: String, phase: String?, respondInProgress: Bool,
-                unavailableReason: String?) {
+                unavailableReason: String?, failedChecks: Int? = nil) {
         self.pr = pr
         self.title = title
         self.url = url
@@ -986,6 +1006,7 @@ public struct CIListEntry: Codable, Equatable, Sendable {
         self.phase = phase
         self.respondInProgress = respondInProgress
         self.unavailableReason = unavailableReason
+        self.failedChecks = failedChecks
     }
 }
 

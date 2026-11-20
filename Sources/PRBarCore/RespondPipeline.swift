@@ -300,7 +300,8 @@ public struct RespondPipeline: RespondPipelineRunning {
         let feedback = try await api.reviewFeedback(repo: pr.repo, number: pr.number, token: token)
         if feedback.isCrossRepository { throw PRBarError.respond(Self.forkMessage) }
         let head = feedback.headRefOid
-        let failing = CILogs.failing(try await ciAPI.checkRuns(repo: pr.repo, headOid: head, token: token))
+        let runs = try await ciAPI.checkRuns(repo: pr.repo, headOid: head, token: token)
+        let failing = CILogs.failing(runs)
         guard !failing.isEmpty else { throw PRBarError.respond(Self.noFailingChecksMessage) }
         var logs: [Int: String] = [:]
         for run in failing.prefix(CILogs.maxChecks) where run.isActions {
@@ -319,7 +320,8 @@ public struct RespondPipeline: RespondPipelineRunning {
             await Task.detached { [self] in await removeWorktree(worktree) }.value
             throw PRBarError.respond("The PR got new commits while PRBar was reading its CI (now at \(startHeadOid.prefix(7))). Try Fix CI again.")
         }
-        let (ciItem, context) = CIFixItem.make(headOid: head, failing: failing, logs: logs, secrets: [token], prURL: pr.url)
+        let (ciItem, context) = CIFixItem.make(headOid: head, failing: failing, logs: logs, secrets: [token], prURL: pr.url,
+                                               total: Set(runs.map { $0.name.lowercased() }).count)
         return RespondDraft(
             id: draftID, prID: item.id, repo: pr.repo, number: pr.number, title: pr.title, url: pr.url,
             headRef: feedback.headRefName, account: item.account, worktree: worktree, startHeadOid: startHeadOid,
