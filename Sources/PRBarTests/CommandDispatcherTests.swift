@@ -148,6 +148,9 @@ enum CommandDispatcherTests {
         try expectEqual(fake.calls.last, "listPRs other me mine")
         _ = await run(.openPopover(tab: nil), fake)
         try expectEqual(fake.calls.last, "openPopover -")
+        fake.popoverShown = false
+        let notShown = await run(.openPopover(tab: .mine), fake)
+        try expectEqual(notShown, .success(try JSONValue(encoding: PopoverInfo(tab: .mine, shown: false))))
         let result = await run(.reviewCancel(pr: "x"), fake)
         try expectEqual(result, .success(.ok))
     }

@@ -121,6 +121,35 @@ enum PopoverTabsTests {
             try expectEqual(PopoverTabs.accessibilityValue(counts: [:], selected: .toReview),
                             "To Review selected, 0 need your action; My PRs, 0 need your action")
         },
+        TestCase("popover tabs: prbar app popover no hace clic si el popover ya está abierto") {
+            try expectEqual(PopoverOpening.step(windowVisible: true, buttonFound: true, buttonShowsOpen: false), .bringToFront)
+            try expectEqual(PopoverOpening.step(windowVisible: false, buttonFound: true, buttonShowsOpen: true), .bringToFront)
+            try expectEqual(PopoverOpening.step(windowVisible: false, buttonFound: true, buttonShowsOpen: false), .click)
+            try expectEqual(PopoverOpening.step(windowVisible: false, buttonFound: false, buttonShowsOpen: false), .unavailable)
+            try expectEqual(PopoverOpening.step(windowVisible: true, buttonFound: false, buttonShowsOpen: false), .bringToFront)
+        },
+        TestCase("popover tabs: el botón de la barra se busca primero en NSStatusBarWindow y después en todas") {
+            try expectEqual(PopoverOpening.searchOrder(["NSWindow", "NSStatusBarWindow", "SwiftUI.AppKitWindow", "NSStatusBarWindow"]),
+                            [1, 3, 0, 2])
+            try expectEqual(PopoverOpening.searchOrder(["NSWindow", "NSPanel"]), [0, 1])
+            try expectEqual(PopoverOpening.searchOrder([]), [])
+        },
+        TestCase("popover tabs: prbar app popover espera a que el popover esté en pantalla") {
+            var checks = 0
+            let shown = await PopoverOpening.waitUntilShown(attempts: 5, interval: .milliseconds(1)) {
+                checks += 1
+                return checks == 3
+            }
+            try expect(shown)
+            try expectEqual(checks, 3)
+            checks = 0
+            let never = await PopoverOpening.waitUntilShown(attempts: 4, interval: .milliseconds(1)) {
+                checks += 1
+                return false
+            }
+            try expect(!never)
+            try expectEqual(checks, 4)
+        },
         TestCase("popover tabs: la pestaña elegida se guarda (popoverTab)") {
             try await MainActor.run {
                 let store = MemoryTabStore()

@@ -20,7 +20,8 @@ public protocol StatusActions: AnyObject {
     func openSettings(tab: SettingsTabName?)
     func openHistory(id: String?) throws
     func quit()
-    func openPopover(tab: PopoverTab?) -> PopoverInfo
+    /// Async: responde si el popover quedó realmente en pantalla después del clic.
+    func openPopover(tab: PopoverTab?) async -> PopoverInfo
 }
 
 @MainActor

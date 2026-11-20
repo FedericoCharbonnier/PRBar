@@ -208,6 +208,44 @@ public final class PopoverTabState: ObservableObject {
     }
 }
 
+/// Cómo abre la app el popover para `prbar app popover` (spec H.4.8). AppKit no tiene API: se hace clic en el botón
+/// de la barra de menú. La parte de AppKit está en `StatusItemPopover`; acá, las decisiones.
+public enum PopoverOpening {
+    public enum Step: Equatable, Sendable {
+        /// Ya está abierto: solo traerlo al frente (un clic lo cerraría).
+        case bringToFront
+        case click
+        /// No se encontró el botón.
+        case unavailable
+    }
+
+    /// `buttonShowsOpen`: el botón está resaltado o en `.on` (el popover está abierto aunque la app todavía no
+    /// conozca su ventana).
+    public static func step(windowVisible: Bool, buttonFound: Bool, buttonShowsOpen: Bool) -> Step {
+        if windowVisible { return .bringToFront }
+        guard buttonFound else { return .unavailable }
+        return buttonShowsOpen ? .bringToFront : .click
+    }
+
+    /// En qué orden revisar las ventanas de la app (por el nombre de su clase): primero las `NSStatusBarWindow`
+    /// (el camino rápido), después todas las demás, por si AppKit cambia el nombre de esa clase privada.
+    public static func searchOrder(_ classNames: [String]) -> [Int] {
+        let fast = classNames.indices.filter { classNames[$0].contains("NSStatusBarWindow") }
+        return fast + classNames.indices.filter { !fast.contains($0) }
+    }
+
+    /// Después del clic, espera (de a `interval`, hasta `attempts` veces) a que el popover esté en pantalla.
+    @MainActor
+    public static func waitUntilShown(attempts: Int = 10, interval: Duration = .milliseconds(50),
+                                      isShown: () -> Bool) async -> Bool {
+        for _ in 0..<attempts {
+            try? await Task.sleep(for: interval)
+            if isShown() { return true }
+        }
+        return false
+    }
+}
+
 /// Respuesta de `prbar app popover`.
 public struct PopoverInfo: Codable, Equatable, Sendable {
     public var tab: PopoverTab

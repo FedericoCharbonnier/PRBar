@@ -51,8 +51,12 @@ final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActi
     func openSettings(tab: SettingsTabName?) { calls.append("openSettings \(tab?.rawValue ?? "-")") }
     func openHistory(id: String?) throws { try record("openHistory \(id ?? "-")") }
     func quit() { calls.append("quit") }
-    func openPopover(tab: PopoverTab?) -> PopoverInfo {
-        calls.append("openPopover \(tab?.rawValue ?? "-")"); return PopoverInfo(tab: tab ?? .toReview, shown: true)
+    /// Lo que responde `openPopover` después de esperar (la app mira si el popover quedó en pantalla).
+    var popoverShown = true
+    func openPopover(tab: PopoverTab?) async -> PopoverInfo {
+        calls.append("openPopover \(tab?.rawValue ?? "-")")
+        await Task.yield()
+        return PopoverInfo(tab: tab ?? .toReview, shown: popoverShown)
     }
 
     // MARK: ReviewActions

@@ -4,10 +4,10 @@ import PRBarCore
 // MARK: - Pestañas del popover (spec H)
 
 extension AppModel {
-    /// `prbar app popover [--tab]`: elige la pestaña (si viene) y abre el popover.
-    func openPopover(tab: PopoverTab?) -> PopoverInfo {
+    /// `prbar app popover [--tab]`: elige la pestaña (si viene) y abre el popover. `shown` dice si quedó en pantalla.
+    func openPopover(tab: PopoverTab?) async -> PopoverInfo {
         if let tab { popoverTab.selected = tab }
-        let shown = StatusItemPopover.show(popoverWindow: popoverWindow)
+        let shown = await StatusItemPopover.show { [weak self] in self?.popoverWindow }
         return PopoverInfo(tab: popoverTab.selected, shown: shown)
     }
 

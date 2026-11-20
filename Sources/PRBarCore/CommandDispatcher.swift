@@ -68,7 +68,7 @@ public enum CommandDispatcher {
             actions.quit()
             return .ok
         case .openPopover(let tab):
-            return try encode(actions.openPopover(tab: tab))
+            return try encode(await actions.openPopover(tab: tab))
         // Review
         case .reviewStart(let pr, let wait):
             return try encode(await actions.reviewStart(pr: pr, wait: wait, events: events))
