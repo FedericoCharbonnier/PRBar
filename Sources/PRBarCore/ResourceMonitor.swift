@@ -22,6 +22,8 @@ public final class ResourceMonitor: ObservableObject {
     private var samplingTask: Task<Void, Never>?
     private var previous: ProcessSample?
     private var diskTask: Task<Void, Never>?
+    /// Modo de capturas: los números quedan fijos (no se muestrea ni se escanea nada real).
+    private var frozen = false
 
     public init(sampler: ProcessSampler, registry: ProcessRegistry = .shared, interval: Duration = .seconds(2),
                 diskScan: @escaping @Sendable () async -> DiskUsage) {
@@ -35,6 +37,7 @@ public final class ResourceMonitor: ObservableObject {
 
     /// `consumer`: "popover" o "activity".
     public func setVisible(_ consumer: String, _ visible: Bool) {
+        guard !frozen else { return }
         if visible { consumers.insert(consumer) } else { consumers.remove(consumer) }
         if consumers.isEmpty {
             samplingTask?.cancel()
@@ -56,7 +59,7 @@ public final class ResourceMonitor: ObservableObject {
     }
 
     public func refreshDisk(force: Bool) {
-        guard diskTask == nil else { return }
+        guard diskTask == nil, !frozen else { return }
         if !force, let disk, Date().timeIntervalSince(disk.scannedAt) < Self.diskMinInterval { return }
         scanningDisk = true
         let scan = diskScan
@@ -88,6 +91,15 @@ public final class ResourceMonitor: ObservableObject {
         disk = result
         onDisk?(result)
         return result
+    }
+
+    /// Modo de capturas: números fijos, sin muestrear ni escanear.
+    public func applySnapshotState(usage: ResourceUsage, disk: DiskUsage) {
+        frozen = true
+        samplingTask?.cancel()
+        samplingTask = nil
+        self.usage = usage
+        self.disk = disk
     }
 
     private func startSampling() {

@@ -636,3 +636,42 @@ extension SnapshotFixtures {
         return session
     }
 }
+
+// MARK: - Recursos (spec I)
+
+extension SnapshotFixtures {
+    private static let megabyte: UInt64 = 1_048_576
+
+    /// El pie del popover y PRBar Activity: CPU 12 %, RAM 640 MB, un review corriendo (claude y git).
+    var resourceUsage: ResourceUsage {
+        let review = ProcessActivity.review("acme/api#317")
+        let processes = [
+            ProcessUsage(pid: 501, name: "PRBar", activity: nil, cpuPercent: 2, memoryBytes: 180 * Self.megabyte,
+                         startedAt: date(days: -1), isApp: true),
+            ProcessUsage(pid: 9123, name: "claude", activity: review, cpuPercent: 9, memoryBytes: 410 * Self.megabyte,
+                         startedAt: date(minutes: -3), isApp: false),
+            ProcessUsage(pid: 9188, name: "git", activity: review, cpuPercent: 1, memoryBytes: 50 * Self.megabyte,
+                         startedAt: date(minutes: -3), isApp: false),
+        ]
+        return ResourceUsage(cpuPercent: 12, memoryBytes: 640 * Self.megabyte, processes: processes, sampledAt: now)
+    }
+
+    /// 2,3 GB: worktrees 1,1 GB (acme/api activo, acme/web-app huérfano), updater 900 MB, historial 210 MB, logs 60 MB,
+    /// datos 30 MB.
+    var diskUsage: DiskUsage {
+        let mb: Int64 = 1_000_000
+        let worktrees = "/private/var/folders/xy/T/PRBar/worktrees"
+        let support = "/Users/sam/Library/Application Support/PRBar"
+        return DiskUsage(items: [
+            DiskItem(path: "\(worktrees)/api-317-1800000000-1a2b3c4d", bytes: 640 * mb, kind: .worktrees, state: .active,
+                     repo: "acme/api", clone: "/Users/sam/Code/api", title: "api-317-1800000000-1a2b3c4d"),
+            DiskItem(path: "/Users/sam/Code/worktrees/web-app-475-respond-0a0b0c0d", bytes: 460 * mb, kind: .worktrees,
+                     state: .orphan, repo: "acme/web-app", clone: "/Users/sam/Code/web-app", title: "web-app-475-respond-0a0b0c0d"),
+            DiskItem(path: "\(support)/source/.build", bytes: 700 * mb, kind: .updater, state: .cache, title: "Updater builds"),
+            DiskItem(path: "\(support)/source", bytes: 200 * mb, kind: .updater, state: .data, title: "Updater clone"),
+            DiskItem(path: "\(support)/history", bytes: 210 * mb, kind: .history, state: .data, title: "History"),
+            DiskItem(path: "/Users/sam/Library/Logs/PRBar", bytes: 60 * mb, kind: .logs, state: .data, title: "Logs"),
+            DiskItem(path: support, bytes: 30 * mb, kind: .appData, state: .data, title: "Settings and state"),
+        ], scannedAt: now)
+    }
+}

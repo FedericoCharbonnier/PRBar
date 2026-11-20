@@ -61,6 +61,24 @@ enum ResourceMonitorTests {
             try await Task.sleep(for: .milliseconds(100))
             try expectEqual(scans.count, 2)
         },
+        TestCase("resources: con datos de captura no muestrea ni escanea") {
+            let info = FakeProcessInfo()
+            info.children = [1: []]
+            info.set(1, cpu: 0, memory: 1)
+            let scans = ScanCounter()
+            let monitor = await monitor(info, scans: scans)
+            let usage = ResourceUsage(cpuPercent: 12, memoryBytes: 640, processes: [], sampledAt: t0)
+            await MainActor.run {
+                monitor.applySnapshotState(usage: usage, disk: DiskUsage(items: [], scannedAt: t0))
+                monitor.setVisible("popover", true)
+                monitor.refreshDisk(force: true)
+            }
+            try await Task.sleep(for: .milliseconds(100))
+            try expectEqual(info.statCalls, 0)
+            try expectEqual(scans.count, 0)
+            let shown = await MainActor.run { monitor.usage }
+            try expectEqual(shown, usage)
+        },
         TestCase("resources: el umbral avisa una vez al cruzarlo hacia arriba") {
             var crossing = DiskWarningState()
             let gb: Int64 = 1_000_000_000

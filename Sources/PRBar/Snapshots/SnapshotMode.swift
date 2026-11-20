@@ -97,6 +97,10 @@ private final class SnapshotSession {
         try await settings()
         try await notification()
         try await updateWindow()
+        let activity = try makeModel("activity", snapshot: fixtures.snapshot)
+        try await window("activity", title: "PRBar Activity", size: NSSize(width: 720, height: 640)) {
+            ActivityWindow(model: activity, monitor: activity.resources)
+        }
         return written
     }
 
@@ -139,6 +143,7 @@ private final class SnapshotSession {
         )
         let model = AppModel(services: services, startsServices: false)
         model.applySnapshotState(tools: SnapshotFixtures.tools, ghAccounts: SnapshotFixtures.ghAccounts, launchAtLogin: true)
+        model.resources.applySnapshotState(usage: fixtures.resourceUsage, disk: fixtures.diskUsage)
         return model
     }
 

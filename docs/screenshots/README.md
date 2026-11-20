@@ -20,7 +20,7 @@ Every screen comes in `-light` and `-dark`, at 2x:
 | File | What it shows |
 | --- | --- |
 | `menubar-icon` | The menu bar icon with a badge of 5, on a menu-bar-like strip |
-| `popover` | The popover's To Review tab (selected; My PRs shows "3 •"): To Review (one idle, one "Reviewing…"), Updated Since My Review (ready, 4 comments), Other collapsed |
+| `popover` | The popover's To Review tab (selected; My PRs shows "3 •"): To Review (one idle, one "Reviewing…"), Updated Since My Review (ready, 4 comments), Other collapsed; at the bottom the resources footer (CPU 12%, RAM 640 MB, Disk 2.3 GB) |
 | `popover-mine` | The My PRs tab: My PRs with Feedback (Changes requested, Respond), Ready to Merge (one ready, one blocked) and Waiting for Review (collapsed) |
 | `popover-empty` | The To Review tab with nothing to review ("Nothing to review 🎉"), Other collapsed |
 | `popover-empty-mine` | The My PRs tab with nothing to do ("No PRs of yours need anything"), Waiting for Review collapsed |
@@ -33,8 +33,9 @@ Every screen comes in `-light` and `-dark`, at 2x:
 | `respond-chat` | Respond, ready to push, with the chat open: a reply drafted for a reviewer and a change to the fixes’ code |
 | `merge-window` | The Merge window: description, reviews, checks, unresolved conversations, files, and the bar with the method, the head and "Squash and Merge" |
 | `merge-chat` | The Merge window with the read-only chat open |
+| `activity` | PRBar Activity: CPU, RAM and Disk tiles, what's running now by task (a review with its `claude` and `git`, with Stop), disk by category (active and orphaned worktrees by repo, update clone and builds, logs and history) and Clean Up |
 | `history` | The History window with 6 reviews and responses, one selected |
-| `settings-general`, `settings-claude`, `settings-instructions`, `settings-accounts`, `settings-repos`, `settings-slack` | Each Settings tab, configured |
+| `settings-general` (with the Disk warning), `settings-claude`, `settings-instructions`, `settings-accounts`, `settings-repos`, `settings-slack` | Each Settings tab, configured |
 | `notification` | **An illustration** of the "Review Ready" notification, not a capture of the real macOS banner |
 
 Notes on fidelity (the windows are drawn offscreen and never shown):

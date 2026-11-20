@@ -73,6 +73,17 @@ public struct ProcessUsage: Codable, Equatable, Sendable, Identifiable {
     public var startedAt: Date?
     public var isApp: Bool
 
+    public init(pid: Int32, name: String, activity: ProcessActivity?, cpuPercent: Double, memoryBytes: UInt64,
+                startedAt: Date?, isApp: Bool) {
+        self.pid = pid
+        self.name = name
+        self.activity = activity
+        self.cpuPercent = cpuPercent
+        self.memoryBytes = memoryBytes
+        self.startedAt = startedAt
+        self.isApp = isApp
+    }
+
     public var id: Int32 { pid }
     /// Los trabajos remotos (Plan 14) se muestran "on <host>" y sin CPU/RAM locales.
     public var remoteHost: String? { activity?.host }
