@@ -95,6 +95,7 @@ enum RemoteWorkspacesTests {
             try Data().write(to: tmp.appendingPathComponent("leftover.stdin"))
             try Data().write(to: tmp.appendingPathComponent("fresh.stdin"))
             try makeOld(old.directory)
+            try makeOld(URL(fileURLWithPath: bare + "/refs/prbar"))
             try makeOld(tmp.appendingPathComponent("leftover.stdin"))
             await spaces.cleanupOrphans()
             try expect(!FileManager.default.fileExists(atPath: old.directory.path))
@@ -150,6 +151,55 @@ enum RemoteWorkspacesTests {
             try expect(FileManager.default.fileExists(atPath: otherWork.directory.path))
             try expect(FileManager.default.fileExists(atPath: URL(fileURLWithPath: otherRoot.jobs).appendingPathComponent("x.pid").path))
             try expect(!(try TempGitRepo.run(URL(fileURLWithPath: otherBare), ["for-each-ref", "refs/prbar/"])).isEmpty)
+        },
+        TestCase("remote workspaces: la limpieza de huérfanos no pisa un trabajo que arranca mientras limpia (refs y worktree nuevos)") {
+            let repo = try TempGitRepo.make()
+            defer { repo.remove() }
+            let (ssh, host, info, root) = try await verifiedFake()
+            defer { ssh.remove() }
+            let realGit = info.gitPath!
+            let plain = remoteWorkspaces(host, info, root, origin: repo.origin)
+            let bare = try await plain.mirror(RepoRef(owner: "o", name: "r"))
+            // Un `git` que, la próxima vez que la limpieza lista los worktrees, corre antes `race.sh`: un trabajo nuevo
+            // que arrancó después de que la limpieza miró `work/`.
+            let trigger = ssh.home.appendingPathComponent("race-trigger").path
+            let hook = ssh.home.appendingPathComponent("race.sh").path
+            try ssh.installTool("racegit", """
+            #!/bin/sh
+            case "$*" in *"worktree list"*) if [ -f '\(trigger)' ]; then rm -f '\(trigger)'; /bin/sh '\(hook)'; fi ;; esac
+            exec '\(realGit)' "$@"
+            """)
+            let spaces = RemoteWorkspaces(host: host, root: root, gitPath: ssh.home.appendingPathComponent("bin/racegit").path,
+                                          runner: plain.runner, fs: plain.fs,
+                                          gitEnvironment: ["GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"],
+                                          remoteURLs: { _ in [repo.origin.path] }, originMatches: { _, _ in true })
+            func race(_ script: String) throws {
+                try Data(script.utf8).write(to: URL(fileURLWithPath: hook))
+                try Data().write(to: URL(fileURLWithPath: trigger))
+            }
+            let refs = { try TempGitRepo.run(URL(fileURLWithPath: bare), ["for-each-ref", "--format=%(refname)", "refs/prbar/"]) }
+
+            // 1. Un huérfano viejo (worktree y refs) y un trabajo que recién fetcheó sus refs (todavía sin worktree).
+            let old = try await plain.prepare(repo: RepoRef(owner: "o", name: "r"), number: 7, baseRef: "main", localPath: bare,
+                                              name: nil, pinnedHeadOid: nil)
+            try makeOld(old.directory)
+            try makeOld(URL(fileURLWithPath: bare + "/refs/prbar"))
+            try race("'\(realGit)' -C '\(bare)' update-ref refs/prbar/pr-10-fetchonly \(repo.prSHA)\n")
+            await spaces.cleanupOrphans()
+            try expect(!FileManager.default.fileExists(atPath: old.directory.path))
+            try expectEqual(try refs().trimmingCharacters(in: .whitespacesAndNewlines), "refs/prbar/pr-10-fetchonly")
+
+            // 2. Un trabajo que agregó su worktree después de que la limpieza miró `work/`.
+            let fresh = try root.child(["work", "r-9-1700000000-0a0b0c0d"])
+            try race("""
+            '\(realGit)' -C '\(bare)' update-ref refs/prbar/pr-9-0a0b0c0d \(repo.prSHA)
+            '\(realGit)' -C '\(bare)' worktree add -q --detach '\(fresh)' refs/prbar/pr-9-0a0b0c0d
+            """)
+            await spaces.cleanupOrphans()
+            try expect(FileManager.default.fileExists(atPath: fresh + "/README.md"), "the new worktree was removed")
+            let worktrees = try TempGitRepo.run(URL(fileURLWithPath: bare), ["worktree", "list", "--porcelain"])
+            try expect(worktrees.contains(fresh), worktrees)
+            try expect(try refs().contains("refs/prbar/pr-9-0a0b0c0d"))
         },
     ]
 }

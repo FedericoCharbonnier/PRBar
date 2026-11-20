@@ -243,8 +243,9 @@ public struct RemoteWorkspaces: Sendable {
     /// Al arrancar (decisión J.7.16). Solo dentro de la raíz de esta instalación (`installs/<id>`: otra Mac con la
     /// misma carpeta tiene la suya) y con un candado (`cleanup.lock`, un `mkdir` atómico: la app y la CLI de esta Mac
     /// comparten la raíz). Aun así, solo lo que seguro no está en uso: los pid de grupos que ya no existen (y su
-    /// lápida), y en `work/` y `tmp/` lo que no cambió en `olderThan`. Las refs `refs/prbar/*` de un mirror se borran
-    /// solo si ya no le queda ningún worktree. Nunca lanza.
+    /// lápida), y en `work/` y `tmp/` lo que no cambió en `olderThan`. Los trabajos no la esperan: un worktree
+    /// registrado sin carpeta se vuelve a mirar antes de sacarlo, y las refs `refs/prbar/*` de un mirror se borran
+    /// solo si ya no le queda ningún worktree y no cambiaron en `olderThan`. Nunca lanza.
     public func cleanupOrphans(olderThan age: TimeInterval = 12 * 3600) async {
         guard let marker = try? ShellQuote.posix(root.markerPath), let lockPath = try? root.child(["cleanup.lock"]),
               let lock = try? ShellQuote.posix(lockPath), let work = try? ShellQuote.posix(root.work),
@@ -301,19 +302,27 @@ public struct RemoteWorkspaces: Sendable {
         let listing = "for d in \(repos)/*/*.git; do [ -d \"$d/objects\" ] && printf '%s\\n' \"$d\"; done; exit 0"
         let mirrors = ((try? await host.runScript(listing, timeout: 60))?.stdout ?? "")
             .split(separator: "\n").map(String.init).filter(root.contains)
+        // Los trabajos no esperan a esta limpieza (ni toman el candado): uno puede fetchear sus refs o agregar su
+        // worktree mientras corre. Por eso un worktree "perdido" se vuelve a mirar justo antes de sacarlo, y una ref
+        // se borra solo si también es vieja.
         for bare in mirrors {
             guard let list = await gitLogged(bare, ["worktree", "list", "--porcelain"]) else { continue }
             var remaining = 0
             for path in WorktreeManager.worktreePaths(fromPorcelain: list) where path.hasPrefix(root.work + "/") {
-                // Viejo, o perdido (registrado pero su carpeta ya no está).
-                if stale.contains(path) || !present.contains(path) {
+                // Viejo, o perdido: registrado pero su carpeta no está (ni estaba al mirar `work/`, ni ahora: un
+                // `worktree add` crea la carpeta antes de registrarlo).
+                var dead = stale.contains(path)
+                if !dead && !present.contains(path) { dead = !(await exists(path)) }
+                if dead {
                     await gitLogged(bare, ["worktree", "remove", "--force", path])
                 } else {
                     remaining += 1
                 }
             }
             guard remaining == 0, let refs = await gitLogged(bare, ["for-each-ref", "--format=%(refname)", "refs/prbar/"]) else { continue }
-            for ref in refs.split(separator: "\n").map(String.init) where ref.hasPrefix("refs/prbar/") && !ref.contains("..") {
+            let old = await oldRefs(bare, minutes: minutes)
+            for ref in refs.split(separator: "\n").map(String.init)
+            where ref.hasPrefix("refs/prbar/") && !ref.contains("..") && old(ref) {
                 await gitLogged(bare, ["update-ref", "-d", ref])
             }
         }
@@ -321,5 +330,37 @@ public struct RemoteWorkspaces: Sendable {
         _ = try? await host.runScript("[ -f \(marker) ] || exit 96\nfind \(tmp) -mindepth 1 -maxdepth 1 -mmin +\(minutes) -exec rm -rf -- {} +",
                                       timeout: 300)
         _ = try? await host.runScript("rmdir -- \(lock)", timeout: 30)
+    }
+
+    /// Si `path` existe en el host (también un symlink roto). Ante la duda, sí.
+    private func exists(_ path: String) async -> Bool {
+        guard let quoted = try? ShellQuote.posix(path), let result = try? await host.runScript("[ -e \(quoted) ] || [ -L \(quoted) ]", timeout: 30),
+              result.status == 0 || result.status == 1 else { return true }
+        return result.status == 0
+    }
+
+    /// Qué refs de `refs/prbar/` del mirror no cambiaron en `minutes`: una ref suelta por la fecha de su archivo, una
+    /// empaquetada por la de `packed-refs`. Ante la duda (no se pudo mirar), ninguna.
+    private func oldRefs(_ bare: String, minutes: Int) async -> @Sendable (String) -> Bool {
+        guard let quoted = try? ShellQuote.posix(bare) else { return { _ in false } }
+        let script = """
+        cd -- \(quoted) || exit 1
+        if [ -d refs/prbar ]; then
+          find refs/prbar -type f -print | sed 's/^/loose /'
+          find refs/prbar -type f -mmin +\(minutes) -print | sed 's/^/old /'
+        fi
+        if [ -f packed-refs ] && [ -n "$(find packed-refs -mmin +\(minutes) 2>/dev/null)" ]; then echo packed-old; fi
+        exit 0
+        """
+        guard let result = try? await host.runScript(script, timeout: 60), result.status == 0 else { return { _ in false } }
+        var loose: Set<String> = []
+        var old: Set<String> = []
+        var packedOld = false
+        for line in result.stdout.split(separator: "\n").map(String.init) {
+            if line == "packed-old" { packedOld = true }
+            else if line.hasPrefix("loose ") { loose.insert(String(line.dropFirst(6))) }
+            else if line.hasPrefix("old ") { old.insert(String(line.dropFirst(4))) }
+        }
+        return { [loose, old, packedOld] ref in loose.contains(ref) ? old.contains(ref) : packedOld }
     }
 }

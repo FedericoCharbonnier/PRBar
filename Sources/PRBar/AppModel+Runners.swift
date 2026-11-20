@@ -105,8 +105,9 @@ extension AppModel {
     }
 
     /// Al arrancar (decisión J.7.16): en segundo plano, cada destino que responde limpia lo que quedó de corridas
-    /// anteriores de esta instalación. Nunca bloquea nada: un trabajo nuevo no espera, y `cleanupOrphans` solo toca
-    /// grupos muertos y lo que no cambió en 12 h (con su candado), así que no pisa un trabajo en curso.
+    /// anteriores de esta instalación. Nunca bloquea nada: un trabajo nuevo no espera. `cleanupOrphans` solo toca
+    /// grupos muertos, lo que no cambió en 12 h y worktrees registrados cuya carpeta no existe (mirado de nuevo justo
+    /// antes de sacarlos); las refs, solo si también son viejas. Así un trabajo que arranca mientras limpia queda.
     func startRemoteOrphanCleanup() {
         let destinations = configStore.config.runners.destinations
         guard !destinations.isEmpty else { return }
