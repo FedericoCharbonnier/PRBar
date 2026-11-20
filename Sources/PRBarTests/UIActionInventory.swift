@@ -322,6 +322,23 @@ enum UIActionInventory {
         .init("Settings/SlackTab.swift", "Toggle", "Reply “Merged” in the thread when I merge from PRBar", 1, .cli(["slack set"])),
         .init("Settings/SlackTab.swift", "TextField", "Emoji", 1, .cli(["slack emoji"])),
         .init("Settings/SlackTab.swift", "Stepper", "-", 1, .cli(["slack search-days"])),
+        // Settings › iPhone (spec Q.2)
+        .init("Settings/IPhoneTab.swift", "Button", "Copy Link", 1, .cli(["remote app-link set"])),   // the link `remote status` prints
+        .init("Settings/IPhoneTab.swift", "Button", "Open Link", 1, .viewOnly("opens the install link in the browser; `prbar remote status` prints it")),
+        .init("Settings/IPhoneTab.swift", "Toggle", "-", 3, .cli(["remote enable", "remote disable", "remote keep-awake", "remote mailbox"])),   // Allow…, Keep awake, mailbox
+        .init("Settings/IPhoneTab.swift", "Button", "Pair iPhone…", 1, .cli(["remote pair"])),
+        .init("Settings/IPhoneTab.swift", "Component:PairIPhoneSheet", "-", 1, .cli(["remote pair"])),
+        .init("Settings/IPhoneTab.swift", "Component:EnableRemoteSheet", "-", 1, .cli(["remote enable"])),
+        .init("Settings/IPhoneTab.swift", "Toggle", "Require Face ID", 1, .cli(["remote devices"])),   // --require-face-id
+        .init("Settings/IPhoneTab.swift", "Button", "Revoke…", 1, .cli(["remote revoke"])),
+        .init("Settings/IPhoneTab.swift", "Button", "Reset iPhone Access…", 1, .cli(["remote reset"])),
+        .init("Settings/IPhoneTab.swift", "ConfirmAlert", "-", 2, .cli(["remote revoke", "remote reset"])),
+        .init("Settings/PairIPhoneSheet.swift", "Button", "Codes Match", 1, .cli(["remote pair"])),   // y
+        .init("Settings/PairIPhoneSheet.swift", "Button", "Cancel", 1, .cli(["remote pair"])),   // n closes the slot
+        .init("Settings/EnableRemoteSheet.swift", "TextField", "Relay server", 1, .cli(["remote enable"])),   // --relay
+        .init("Settings/EnableRemoteSheet.swift", "SecureField", "Enrollment token", 1, .cli(["remote enable"])),   // asked without echo
+        .init("Settings/EnableRemoteSheet.swift", "Button", "Enable", 1, .cli(["remote enable"])),
+        .init("Settings/EnableRemoteSheet.swift", "Button", "Cancel", 1, .viewOnly("closes the sheet")),
         .init("Settings/SlackTemplateEditor.swift", "TextField", "-", 1, .cli(["slack template set"])),
         .init("Settings/SlackTemplateEditor.swift", "Button", "-", 1, .cli(["slack template set"])),   // Insert Variable
         .init("Settings/SlackTemplateEditor.swift", "Button", "Reset to Default", 1, .cli(["slack template reset"])),

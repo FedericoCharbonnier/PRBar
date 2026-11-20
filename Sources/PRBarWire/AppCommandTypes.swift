@@ -41,7 +41,7 @@ public enum OpenTarget: String, Codable, CaseIterable, Sendable {
 
 /// Las pestañas de Configuración (`SettingsWindow.Tab`).
 public enum SettingsTabName: String, Codable, CaseIterable, Sendable {
-    case general, claude, instructions, accounts, repos, slack
+    case general, claude, instructions, accounts, repos, slack, iphone
 }
 
 public enum NotificationSettingName: String, Codable, CaseIterable, Sendable {

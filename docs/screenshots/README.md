@@ -41,6 +41,9 @@ Every screen comes in `-light` and `-dark`, at 2x:
 | `history` | The History window with reviews, responses and a Fix CI (each with its estimated Claude cost), the published review selected with its Claude line |
 | `history-ci-fix` | The History window with the Fix CI entry selected: Claude's time, tokens and estimated cost, the commit and the diff stat |
 | `settings-general` (with the Disk warning), `settings-claude`, `settings-instructions`, `settings-accounts`, `settings-repos`, `settings-slack` | Each Settings tab, configured. `settings-claude` includes Run On (after Chat): Default devbox, the table with This Mac and devbox (folder, "✓ Linux · claude 2.1.318 · logged in · 5 min ago", fallback on), Add SSH Host…, Test Connection, Remove; `settings-repos` shows "Run Claude on: Default (devbox)" and the warning "Last job ran on this Mac — devbox was unreachable (fallback)." |
+| `settings-iphone` | Settings › iPhone connected to the relay: Get PRBar for iPhone with the TestFlight QR, Copy Link and Open Link; "Connected to prbar.fcharbonnier.duckdns.org · 1 iPhone online", Pair iPhone…; two iPhones (one online with Face ID required, one last seen 5 min ago without it), keep awake and mailbox on |
+| `settings-iphone-off`, `settings-iphone-off-link` | iPhone access off, without an install link ("install it from Xcode") and with one (its QR) |
+| `iphone-pair-qr`, `iphone-pair-code`, `iphone-enable` | Pair iPhone… with the pairing QR and its countdown; the 6-digit code with Codes Match; the Enable sheet (relay and enrollment token) |
 | `notification` | **An illustration** of the "Review Ready" notification, not a capture of the real macOS banner |
 
 Notes on fidelity (the windows are drawn offscreen and never shown):

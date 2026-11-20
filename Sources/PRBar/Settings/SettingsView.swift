@@ -15,7 +15,7 @@ enum SettingsWindow {
     /// Pestañas en orden, con el tamaño de contenido de cada una: al cambiar de pestaña la ventana se anima a ese
     /// tamaño (el comportamiento estándar de `NSTabViewController` con estilo `.toolbar`).
     enum Tab: String, CaseIterable {
-        case general, claude, instructions, accounts, repos, slack
+        case general, claude, instructions, accounts, repos, slack, iphone
 
         var title: String {
             switch self {
@@ -25,6 +25,7 @@ enum SettingsWindow {
             case .accounts: "Accounts"
             case .repos: "Repos"
             case .slack: "Slack"
+            case .iphone: "iPhone"
             }
         }
 
@@ -36,6 +37,7 @@ enum SettingsWindow {
             case .accounts: "person.crop.circle"
             case .repos: "books.vertical"
             case .slack: "number"
+            case .iphone: "iphone"
             }
         }
 
@@ -47,6 +49,7 @@ enum SettingsWindow {
             case .accounts: NSSize(width: 700, height: 300)
             case .repos: NSSize(width: 700, height: 580)
             case .slack: NSSize(width: 700, height: 620)
+            case .iphone: NSSize(width: 700, height: 520)
             }
         }
     }
@@ -97,6 +100,10 @@ enum SettingsWindow {
                 }
             case .slack:
                 tabs.addTab(tab, model: model) { SlackTab(model: model, configStore: store, slack: model.slack) }
+            case .iphone:
+                tabs.addTab(tab, model: model) {
+                    IPhoneTab(model: model, configStore: store, remote: model.remoteAccess)
+                }
             }
         }
         tabs.selectedTabViewItemIndex = Tab.allCases.firstIndex(of: initialTab ?? savedTab) ?? 0
