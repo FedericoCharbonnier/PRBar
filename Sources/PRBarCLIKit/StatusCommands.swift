@@ -68,7 +68,7 @@ struct RefreshCommand: RemoteCommand {
 }
 
 enum OpenTargetFlag: String, EnumerableFlag {
-    case browser, review, respond, posted, worktree
+    case browser, review, respond, posted, worktree, merge
 
     var target: OpenTarget { OpenTarget(rawValue: rawValue) ?? .browser }
 
@@ -79,6 +79,7 @@ enum OpenTargetFlag: String, EnumerableFlag {
         case .respond: "Its Respond window."
         case .posted: "The posted review on GitHub."
         case .worktree: "The Respond worktree in Finder."
+        case .merge: "Its Merge window (a PR of yours that’s Ready to Merge)."
         }
     }
 }

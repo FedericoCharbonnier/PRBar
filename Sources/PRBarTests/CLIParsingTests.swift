@@ -32,6 +32,7 @@ enum CLIParsingTests {
                 try expectEqual(try parsed(["open", "api#3"]), .open(pr: "api#3", target: .browser))
                 try expectEqual(try parsed(["open", "api#3", "--review"]), .open(pr: "api#3", target: .review))
                 try expectEqual(try parsed(["open", "api#3", "--worktree"]), .open(pr: "api#3", target: .worktree))
+                try expectEqual(try parsed(["open", "api#3", "--merge"]), .open(pr: "api#3", target: .merge))
                 try expectEqual(try parsed(["open", "api#3", "--copy"]), .resolvePR(pr: "api#3"))
                 try expect(rejects(["open", "api#3", "--review", "--respond"]))
                 try expect(rejects(["open", "api#3", "--review", "--copy"]))

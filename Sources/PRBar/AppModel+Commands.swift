@@ -218,6 +218,11 @@ extension AppModel: StatusActions {
             let folder = URL(fileURLWithPath: record.draft.worktree.path, isDirectory: true)
             NSWorkspace.shared.open(folder)
             return PRLink(pr: id, url: folder)
+        case .merge:
+            guard let item = currentItem(id), item.category == .readyToMerge else {
+                throw CommandFailure(.invalidState, "\(id) isn’t in Ready to Merge. Run `prbar prs --list ready-to-merge`.")
+            }
+            requestMerge(item)
         }
         return PRLink(pr: id, url: try prURL(id))
     }
@@ -662,18 +667,42 @@ extension AppModel: MergeActions {
         }
     }
 
-    /// Lo que muestra el diálogo de Merge (`openMergeConfirmation`), para la confirmación de la CLI.
-    func mergePreview(pr: String, method: MergeMethod?) throws -> MergePreviewInfo {
+    /// Lo que muestra la ventana de Merge, para `prbar merge --preview` y la confirmación de `prbar merge` (spec G.5):
+    /// lo del snapshot y el resumen que se pide a GitHub. El head que se va a mergear es el del snapshot (el que valida
+    /// `merge`); si GitHub ya tiene otro, refresca una vez y, si siguen distintos, no muestra un resumen de otro head
+    /// (`detailError`; plan 11, decisión 10).
+    func mergePreview(pr: String, method: MergeMethod?) async throws -> MergePreviewInfo {
         let id = try resolvePRID(pr)
-        let item = try classifiedPR(id)
-        let options = mergeOptions(item)
-        let chosen = try MergeFlow.commandCheck(
-            item, method: method, options: options, blockedReason: jobsBlockedReason, phase: merges.phases[id],
-            expectedHeadOid: nil
-        ).get()
+        var item = try classifiedPR(id)
+        _ = try check(item, method: method)
+        var detail: MergeDetail?
+        var detailError: String?
+        do {
+            let token = try await accounts.token(for: item.account)
+            detail = try await api.mergeDetail(repo: item.pr.repo, number: item.pr.number, token: token)
+        } catch {
+            detailError = "Couldn’t load the PR’s summary: \(MergeError(error).localizedDescription)"
+        }
+        if let fetched = detail, fetched.headOid != item.pr.headOid {
+            await prStore.refreshNow()
+            item = try classifiedPR(id)
+            if fetched.headOid != item.pr.headOid {
+                detail = nil
+                detailError = "GitHub has newer commits than PRBar’s list. Run `prbar refresh` and try again."
+            }
+        }
+        let chosen = try check(item, method: method)
         let settings = prStore.snapshot?.repoMergeSettings[Snapshot.scope(account: item.account, repo: item.pr.repo)]
-        return MergePreviewInfo(item: item, method: chosen, options: options,
-                                deletesBranch: settings?.deleteBranchOnMerge ?? false, phase: merges.phases[id])
+        return MergePreviewInfo(item: item, method: chosen, options: mergeOptions(item),
+                                deletesBranch: settings?.deleteBranchOnMerge ?? false, phase: merges.phases[id],
+                                detail: detail, detailError: detailError)
+    }
+
+    private func check(_ item: ClassifiedPR, method: MergeMethod?) throws -> MergeMethod {
+        try MergeFlow.commandCheck(
+            item, method: method, options: mergeOptions(item), blockedReason: jobsBlockedReason,
+            phase: merges.phases[item.id], expectedHeadOid: nil
+        ).get()
     }
 
     func mergeDismiss(pr: String) throws {

@@ -1,4 +1,5 @@
 import Foundation
+import PRBarCLIKit
 import PRBarCore
 
 private let repo = RepoRef(owner: "acme", name: "api")
@@ -141,6 +142,33 @@ enum MergeDetailTests {
             try expectEqual(pinned.category, item.category)
             try expectEqual(pinned.pr.merge, item.pr.merge)
             try expectEqual(pinned.pr.title, item.pr.title)
+        },
+        TestCase("merge detail: prbar merge --preview muestra el resumen de la ventana") {
+            let (detail, _) = try await detail(full)
+            let state = PRMergeState(nodeID: "PR_42", mergeable: .mergeable, status: .unstable, commitCount: 4)
+            let item = ClassifiedPR(pr: makePR(repo: repo, number: 42, author: "me", head: detail.headOid, merge: state),
+                                    category: .readyToMerge, account: "me")
+            let options = MergeOptions(availability: .enabled(note: nil), methods: [.squash], defaultMethod: .squash)
+            var out = ""
+            let output = Output(terminal: .plain, json: false, out: { out += $0 }, err: { _ in })
+            MergePreviewRender.summary(MergePreviewInfo(item: item, method: .squash, options: options, deletesBranch: false,
+                                                        phase: nil, detail: detail), output)
+            for expected in ["Adds **limits**.", "Reviews  Approved", "ana · Approved", "bob · Commented", "Waiting for: carl, Backend",
+                             "Checks: 2 passed · 1 failed (not required) · 1 running", "failed  lint  https://ci/2",
+                             "and 1 more on GitHub", "2 unresolved conversations", "Files (3)  +120 −8",
+                             "A src/limit.ts  +100 −0", "D old.ts  +0 −3"] {
+                try expect(out.contains(expected), "\(expected) missing in\n\(out)")
+            }
+            var missing = ""
+            let plain = Output(terminal: .plain, json: false, out: { missing += $0 }, err: { _ in })
+            MergePreviewRender.summary(MergePreviewInfo(item: item, method: .squash, options: options, deletesBranch: false,
+                                                        phase: nil, detailError: "Couldn’t load the PR’s summary: offline"), plain)
+            try expect(missing.contains("Couldn’t load the PR’s summary: offline"), missing)
+            try expect(!missing.contains("Reviews"), missing)
+            // `--json` lo lleva completo.
+            let json = String(decoding: try JSONCoding.encoder.encode(MergePreviewInfo(
+                item: item, method: .squash, options: options, deletesBranch: false, phase: nil, detail: detail)), as: UTF8.self)
+            try expect(json.contains("\"detail\"") && json.contains("isRequired"), json)
         },
     ]
 }

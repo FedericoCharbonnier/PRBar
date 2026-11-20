@@ -57,8 +57,9 @@ public protocol MergeActions: AnyObject {
     /// Mergea sin diálogo (la CLI ya confirmó). `method == nil` = el método por defecto del repo. Si el head del PR
     /// ya no es `expectedHeadOid` (el que se mostró), no mergea.
     func merge(pr: String, method: MergeMethod?, expectedHeadOid: String) async throws -> MergeInfo
-    /// Lo que mostraría el diálogo de Merge; falla igual que `merge` si no se puede mergear.
-    func mergePreview(pr: String, method: MergeMethod?) throws -> MergePreviewInfo
+    /// Lo que muestra la ventana de Merge (con el resumen del PR, spec G.5); falla igual que `merge` si no se puede
+    /// mergear.
+    func mergePreview(pr: String, method: MergeMethod?) async throws -> MergePreviewInfo
     func mergeDismiss(pr: String) throws
 }
 

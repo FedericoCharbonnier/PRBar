@@ -82,9 +82,9 @@ public enum UpdateInstallRunner {
         before?.close()
         var relaunching = false
         do {
-            try CLIRunner.run(command, environment: environment) { event in
+            try CLIRunner.run(command, environment: environment, observe: { event in
                 if case .progress(let message) = event, message == UpdatePhase.relaunching.title { relaunching = true }
-            }
+            }, quietWhenUnavailable: { relaunching })
         } catch let exit as ExitCode where exit.rawValue == CLIExit.appUnavailable && relaunching {
             let deadline = Date().addingTimeInterval(timeout)
             var current: String?

@@ -4,13 +4,13 @@ import PRBarCore
 
 extension MergeMethod: ExpressibleByArgument {}
 
-/// La confirmación de `prbar merge` y `prbar merge --preview`: lo mismo que muestra el diálogo de Merge.
-enum MergePreviewRender {
-    static func question(_ preview: MergePreviewInfo) -> String {
+/// La confirmación de `prbar merge` y `prbar merge --preview`: lo mismo que muestra la ventana de Merge (spec G.5).
+public enum MergePreviewRender {
+    public static func question(_ preview: MergePreviewInfo) -> String {
         "\(preview.method.actionTitle) \(preview.pr) at \(preview.headOid.prefix(7))?"
     }
 
-    static func summary(_ preview: MergePreviewInfo, _ output: Output) {
+    public static func summary(_ preview: MergePreviewInfo, _ output: Output) {
         output.line(output.paint(preview.pr, .bold) + "  " + preview.title)
         var details = ["\(preview.headRef) → \(preview.baseRef)"]
         if let commits = preview.commitCount { details.append(commits == 1 ? "1 commit" : "\(commits) commits") }
@@ -19,6 +19,77 @@ enum MergePreviewRender {
         output.line("  \(preview.method.actionTitle)" + (preview.deletesBranch ? " · deletes \(preview.headRef) afterwards" : ""))
         if let note = preview.note { output.line("  " + output.paint("Note: \(note)", .yellow)) }
         if let error = preview.previousError { output.line("  " + output.paint("Last attempt failed: \(error)", .dim)) }
+        if let detail = preview.detail {
+            prSummary(detail, output)
+        } else if let error = preview.detailError {
+            output.line("  " + output.paint(error, .yellow))
+        }
+    }
+
+    /// Lo que muestra la ventana de Merge (spec G.5): descripción, reviews, checks, conversaciones sin resolver y archivos.
+    static let maxDescriptionLines = 12
+
+    public static func prSummary(_ detail: MergeDetail, _ output: Output) {
+        output.line()
+        output.line(output.paint("Description", .bold))
+        let body = detail.body.trimmingCharacters(in: .whitespacesAndNewlines)
+        if body.isEmpty {
+            output.line("  " + output.paint("(no description)", .dim))
+        } else {
+            let lines = body.components(separatedBy: .newlines)
+            for line in lines.prefix(maxDescriptionLines) { output.line("  " + line) }
+            if lines.count > maxDescriptionLines {
+                output.line("  " + output.paint("… \(lines.count - maxDescriptionLines) more lines (--json has all)", .dim))
+            }
+        }
+
+        output.line()
+        output.line(output.paint("Reviews", .bold) + reviewDecision(detail.reviewDecision, output))
+        if detail.reviews.isEmpty { output.line("  " + output.paint("No reviews yet", .dim)) }
+        for review in detail.reviews {
+            let style: Style = switch review.state {
+            case .approved: .green
+            case .changesRequested: .red
+            case .commented, .dismissed: .dim
+            }
+            output.line("  \(review.author) · " + output.paint(review.state.title, style))
+        }
+        if !detail.pendingReviewers.isEmpty {
+            output.line("  Waiting for: " + detail.pendingReviewers.joined(separator: ", "))
+        }
+
+        output.line()
+        output.line(output.paint("Checks: ", .bold) + detail.checksSummary)
+        for check in detail.checks where check.state != .passed && check.state != .skipped {
+            let style: Style = check.state == .failed ? (check.isRequired ? .red : .yellow) : .dim
+            output.line("  " + output.paint("\(check.state.title.lowercased())", style) + "  \(check.name)"
+                + (check.isRequired ? " (required)" : "") + (check.url.map { "  \($0.absoluteString)" } ?? ""))
+        }
+        if detail.moreChecks > 0 { output.line("  and \(detail.moreChecks) more on GitHub") }
+
+        output.line()
+        let unresolved = detail.unresolvedThreads
+        if unresolved > 0 {
+            output.line(output.paint("\(unresolved) unresolved conversation\(unresolved == 1 ? "" : "s")", .yellow))
+        } else {
+            output.line(output.paint(detail.totalThreads == 0 ? "No review conversations" : "All conversations are resolved", .dim))
+        }
+
+        output.line()
+        output.line(output.paint("Files (\(detail.changedFiles))", .bold) + "  +\(detail.additions) −\(detail.deletions)")
+        for file in detail.files {
+            output.line("  \(file.change.letter) \(file.path)  +\(file.additions) −\(file.deletions)")
+        }
+        if detail.moreFiles > 0 { output.line("  and \(detail.moreFiles) more on GitHub") }
+    }
+
+    private static func reviewDecision(_ decision: ReviewDecision, _ output: Output) -> String {
+        switch decision {
+        case .approved: "  " + output.paint("Approved", .green)
+        case .changesRequested: "  " + output.paint("Changes requested", .red)
+        case .reviewRequired: "  " + output.paint("Review required", .yellow)
+        case .none: ""
+        }
     }
 }
 
@@ -28,7 +99,7 @@ enum MergePreviewRender {
 struct MergeCommand: RemoteCommand {
     static let configuration = CommandConfiguration(
         commandName: "merge", abstract: "Merge a PR of yours that’s Ready to Merge (Merge / Merge With…).",
-        discussion: "Uses the repo’s merge method unless you pass --method. Shows the PR (branches, commits, head) and asks; without a terminal it needs --yes. It only merges the head it showed. --preview shows it without merging; --dismiss clears a merge error from the row.")
+        discussion: "Uses the repo’s merge method unless you pass --method. Shows the PR’s summary (description, reviews, checks, unresolved conversations, files) and asks; without a terminal it needs --yes. It only merges the head it showed. --preview shows it without merging (--json has all of it); --dismiss clears a merge error from the row. `prbar open <pr> --merge` opens the Merge window.")
     @Argument(help: prHelp) var pr: String
     @Option(help: "squash, merge or rebase (default: the repo’s).") var method: MergeMethod?
     @Flag(help: "Only show what would be merged.") var preview = false

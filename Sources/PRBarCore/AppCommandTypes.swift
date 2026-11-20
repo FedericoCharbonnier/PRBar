@@ -33,6 +33,8 @@ public enum OpenTarget: String, Codable, CaseIterable, Sendable {
     case posted
     /// El worktree de Responder, en Finder.
     case worktree
+    /// La ventana de Merge de un PR propio en Ready to Merge (spec G.5).
+    case merge
 }
 
 /// Las pestañas de Configuración (`SettingsWindow.Tab`).

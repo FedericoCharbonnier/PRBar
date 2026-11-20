@@ -3,15 +3,17 @@ import PRBarCore
 
 /// `prbar chat …` (spec C.4): el mismo coordinador del chat que el panel de la ventana de Review o Respond.
 extension AppModel: ChatCommandActions {
-    /// El coordinador del chat del PR: el del review listo (PR ajeno) o el del análisis de Respond (PR propio).
+    /// El coordinador del chat del PR: el de la ventana de Merge si el PR está en Ready to Merge (spec G.5), el del review
+    /// listo (PR ajeno) o el del análisis de Respond (PR propio).
     func chatCoordinator(_ prID: String) throws -> ChatCoordinator {
+        if currentItem(prID)?.category == .readyToMerge, let chat = mergeChat(prID: prID) { return chat }
         if case .ready(let draft)? = reviews.phases[prID] { return reviewChat(for: draft) }
         if let record = respond.records[prID] {
             let chat = respondChat(for: record.draft)
             syncRespondChatState(prID, chat)
             return chat
         }
-        throw CommandFailure(.invalidState, "There’s no ready review or Respond analysis of \(prID) to chat about. Run `prbar review \(prID)` or `prbar respond \(prID)`.")
+        throw CommandFailure(.invalidState, "There’s no ready review, Respond analysis or Ready to Merge PR \(prID) to chat about. Run `prbar review \(prID)` or `prbar respond \(prID)`.")
     }
 
     /// Lo que la ventana de Respond le pone al chat (`chatLock`, `isFinished`), también sin la ventana abierta.
@@ -44,6 +46,10 @@ extension AppModel: ChatCommandActions {
         }
         if chat.isRunning { throw CommandFailure(.invalidState, "Claude is still answering. Wait, or stop it with `prbar chat \(id) --stop`.") }
         if let reason = chat.lockReason { throw CommandFailure(.invalidState, reason) }
+        // The merge chat reads the window's summary (pr.md): without a window it's loaded now (spec G.5).
+        if case .merge = chat.subject, let window = mergeSessions[id]?.window, window.detail == nil {
+            await window.load()
+        }
         guard chat.send(message) else { throw CommandFailure(.invalidUsage, "Write a message.") }
         let streamed = try await streamTurn(isRunning: { chat.isRunning }, partial: { chat.partialText },
                                             activity: { chat.activity }, events: events)

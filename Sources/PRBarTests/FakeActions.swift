@@ -113,7 +113,7 @@ final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActi
         return MergeInfo(pr: pr, method: method ?? .squash, mergedAt: t0, url: link.url)
     }
     func mergeDismiss(pr: String) throws { try record("mergeDismiss \(pr)") }
-    func mergePreview(pr: String, method: MergeMethod?) throws -> MergePreviewInfo {
+    func mergePreview(pr: String, method: MergeMethod?) async throws -> MergePreviewInfo {
         try record("mergePreview \(pr) \(method?.rawValue ?? "default")")
         let state = PRMergeState(nodeID: "PR_1", mergeable: .mergeable, status: .unstable, commitCount: 3)
         let item = ClassifiedPR(pr: makePR(repo: RepoRef(owner: "acme", name: "api"), number: 1, author: "me",

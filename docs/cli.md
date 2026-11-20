@@ -37,8 +37,8 @@ shows the help of `review start`, the group’s default subcommand).
 | `prbar status [--json]` | What the menu bar shows: counts, running jobs, issues |
 | `prbar prs [--list to-review\|updated\|mine\|ready-to-merge\|other] [--account L]` | The PRs |
 | `prbar refresh` | Refresh now |
-| `prbar open <pr> [--review\|--respond\|--posted\|--worktree] [--copy]` | Open the PR, its window, the posted review or the worktree; `--copy` copies the link |
-| `prbar history [--repo R] [--kind review\|respond] [--search Q] [--limit N]` | History |
+| `prbar open <pr> [--review\|--respond\|--merge\|--posted\|--worktree] [--copy]` | Open the PR, its window (`--merge`: the Merge window of a PR of yours that’s Ready to Merge), the posted review or the worktree; `--copy` copies the link |
+| `prbar history [--repo R] [--kind review\|respond\|merge] [--search Q] [--limit N]` | History |
 | `prbar history show <id> [--open-log\|--reveal-log]` | One record (id or its first 4+ characters), with its chat |
 | `prbar history reopen <id>` | Open to Post |
 | `prbar app start\|quit\|settings [tab]\|history [id]` | The app (tabs: `general`, `claude`, `instructions`, `accounts`, `repos`, `slack`) |
@@ -65,10 +65,10 @@ shows the help of `review start`, the group’s default subcommand).
 | `prbar respond push <pr> --anyway [--yes]` | Push Anyway: the tests before the push failed and you push anyway |
 | `prbar respond reply-only <pr> [--wait] [--yes]` | Only replies |
 | `prbar respond cancel\|dismiss <pr>` | Cancel / dismiss |
-| `prbar chat <pr> ["message"]` | Chat with Claude about the review or the Respond analysis; without a message in a terminal, an interactive chat (`/undo`, `/show`, `/stop`, `/quit`); without a terminal the message comes from stdin |
+| `prbar chat <pr> ["message"]` | Chat with Claude about the review, the Respond analysis or, for a PR that’s Ready to Merge, the PR before merging (read only, like the Merge window’s chat); without a message in a terminal, an interactive chat (`/undo`, `/show`, `/stop`, `/quit`); without a terminal the message comes from stdin |
 | `prbar chat <pr> --undo [--yes]\|--show\|--stop` | Undo Claude’s last change (asks if it would discard your manual edits), print the conversation, stop the answer |
 | `prbar merge <pr> [--method squash\|merge\|rebase] [--yes]` | Merge a PR of yours that’s Ready to Merge (the repo’s method unless `--method`) |
-| `prbar merge <pr> --preview [--method M]` | What would be merged (title, branches, commits, head, the dialog’s note), without merging |
+| `prbar merge <pr> --preview [--method M]` | What would be merged, without merging: the Merge window’s summary (description, reviews, checks, unresolved conversations, files; `--json` has all of it), branches, commits, head and the note |
 | `prbar merge <pr> --dismiss` | Dismiss the row’s merge error |
 | `prbar config show`, `prbar config set refresh-interval 1\|2\|5\|10`, `… launch-at-login on\|off`, `… update-interval 0\|6\|12\|24\|168` (hours; 0 = check manually only) | General |
 | `prbar account list\|reload`, `prbar account enable\|disable <login>` | Accounts |
@@ -112,9 +112,9 @@ In a terminal (stdin and stdout are a TTY, no `--json`): colored tables (`NO_COL
   `e` edits the comment in `$EDITOR`, ↩ done, `q` cancels), then a confirmation with the review type and the number of
   comments. What you choose is applied in the app, so the window shows the same.
 - `respond push` / `reply-only`: the summary and the diff stat, then a confirmation.
-- `merge`: what the app’s Merge dialog shows (title, head → base, commits, head SHA, method, the note about failing
-  checks, a previous error), then a confirmation (whatever “Confirm before merging” says: the app’s dialog doesn’t
-  show up for the CLI). `prbar merge` only merges the head it showed: if someone pushes in between, the app refuses
+- `merge`: what the app’s Merge window shows (title, head → base, commits, head SHA, method, the note about failing
+  checks, a previous error, and the PR’s description, reviews, checks, unresolved conversations and files), then a
+  confirmation. `prbar merge` only merges the head it showed: if someone pushes in between, the app refuses
   (exit 6) and you run it again. With `--yes` it prints the head it’s merging to stderr.
 - `repo remove`, `slack token clear`: a confirmation (only in a terminal).
 
@@ -152,7 +152,7 @@ nothing to return give `{"ok": true}`. New optional keys may appear; renaming or
 The socket is `~/Library/Application Support/PRBar/prbar.sock`, created with permissions 0600 in a 0700 folder. The
 app checks each connection’s user (`getpeereid`) and rejects anyone else, and `prbar` checks that the socket belongs
 to you before sending anything; there’s no network. A second PRBar doesn’t take over the socket of one that’s running. The first message is a
-handshake with the protocol version: if `prbar` and the app don’t match, you get
+handshake with the protocol version (3 since the Merge window): if `prbar` and the app don’t match, you get
 “prbar X can’t talk to PRBar Y — run `prbar update` or reinstall”. Tokens never travel from the app to the CLI;
 `prbar slack token set` sends the token you type to the app (never on the command line: it asks without echo or reads
 `--stdin`).

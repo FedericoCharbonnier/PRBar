@@ -863,8 +863,13 @@ public struct MergePreviewInfo: Codable, Equatable, Sendable {
     public var deletesBranch: Bool
     /// El error de un intento anterior (la fila), que mergear ahora descarta.
     public var previousError: String?
+    /// El resumen del PR (spec G.5): descripción, reviews, checks, conversaciones y archivos. `nil` si no se pudo traer.
+    public var detail: MergeDetail?
+    /// Por qué no está `detail`.
+    public var detailError: String?
 
-    public init(item: ClassifiedPR, method: MergeMethod, options: MergeOptions, deletesBranch: Bool, phase: MergePhase?) {
+    public init(item: ClassifiedPR, method: MergeMethod, options: MergeOptions, deletesBranch: Bool, phase: MergePhase?,
+                detail: MergeDetail? = nil, detailError: String? = nil) {
         let pr = item.pr
         self.pr = item.id
         title = pr.title
@@ -877,6 +882,8 @@ public struct MergePreviewInfo: Codable, Equatable, Sendable {
         note = options.availability.note
         self.deletesBranch = deletesBranch
         previousError = phase?.message
+        self.detail = detail
+        self.detailError = detailError
     }
 }
 

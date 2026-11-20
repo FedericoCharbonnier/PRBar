@@ -154,6 +154,9 @@ enum CLIIntegrationTests {
         newer.stop()
         try expectEqual(result.code, 0)
         try expect(result.out.contains("PRBar 9.9.10 is running"), result.out + result.err)
+        // Spec G.6: after "Restarting PRBar" the lost connection isn't an error.
+        try expect(!result.err.contains("Lost the connection"), result.err)
+        try expect(result.err.contains(UpdatePhase.relaunching.title), result.err)
 
         // Vuelve la misma versión: no se dice que se actualizó.
         harness = try Harness(url: url)
@@ -180,6 +183,7 @@ enum CLIIntegrationTests {
         harness.server.stop()
         let lostResult = try await lost
         try expectEqual(lostResult.code, CLIExit.appUnavailable)
+        try expect(lostResult.err.contains("Lost the connection"), lostResult.err)
         try expect(Date().timeIntervalSince(start) < 3, "esperó \(Date().timeIntervalSince(start)) s")
     }
 

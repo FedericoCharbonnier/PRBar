@@ -83,9 +83,12 @@ public struct CLIEnvironment {
 }
 
 public enum CLIRunner {
-    /// `observe` ve cada evento de la app (además de mostrarlo).
+    /// `observe` ve cada evento de la app (además de mostrarlo). `quietWhenUnavailable`: si devuelve `true` cuando se
+    /// corta la conexión, no se imprime el error (sale igual con `CLIExit.appUnavailable`): `prbar update` después de
+    /// "Restarting PRBar" (spec G.6).
     public static func run<C: RemoteCommand>(_ command: C, environment: CLIEnvironment = .live,
-                                             observe: (CommandEvent) -> Void = { _ in }) throws {
+                                             observe: (CommandEvent) -> Void = { _ in },
+                                             quietWhenUnavailable: () -> Bool = { false }) throws {
         var command = command
         let output = Output(terminal: environment.terminal, json: command.global.json, out: environment.out,
                             err: environment.err)
@@ -124,7 +127,7 @@ public enum CLIRunner {
             output.error(failure.message)
             throw ExitCode(CLIExit.code(for: failure))
         } catch let unavailable as AppUnavailable {
-            output.error(unavailable.message)
+            if !quietWhenUnavailable() { output.error(unavailable.message) }
             throw ExitCode(CLIExit.appUnavailable)
         }
     }
