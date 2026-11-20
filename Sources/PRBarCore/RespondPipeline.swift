@@ -49,10 +49,12 @@ public struct RespondRecord: Codable, Equatable, Sendable, Identifiable {
     public var errorMessage: String?
     /// The chat about this run (spec B.3).
     public var chat: ChatSession?
+    /// Claude's usage for the analysis and the fixes (spec O; the chat keeps its own). Nil in older history files.
+    public var usage: ClaudeUsage?
 
     public init(draft: RespondDraft, selections: [String: RespondSelection] = [:], result: RespondResult? = nil,
                 posted: [String: PostedReply] = [:], pushed: Bool = false, startedAt: Date, finishedAt: Date? = nil,
-                errorMessage: String? = nil, chat: ChatSession? = nil) {
+                errorMessage: String? = nil, chat: ChatSession? = nil, usage: ClaudeUsage? = nil) {
         self.draft = draft
         self.selections = selections
         self.result = result
@@ -62,11 +64,15 @@ public struct RespondRecord: Codable, Equatable, Sendable, Identifiable {
         self.finishedAt = finishedAt
         self.errorMessage = errorMessage
         self.chat = chat
+        self.usage = usage
     }
 
     private enum CodingKeys: String, CodingKey {
-        case draft, selections, result, posted, pushed, startedAt, finishedAt, errorMessage, chat
+        case draft, selections, result, posted, pushed, startedAt, finishedAt, errorMessage, chat, usage
     }
+
+    /// The run and its chat (spec O.4.4); nil if neither has data (older history files).
+    public var totalUsage: ClaudeUsage? { ClaudeUsage.sum([usage, chat?.usage]) }
 
     /// A broken `chat` doesn't lose the record.
     public init(from decoder: Decoder) throws {
@@ -80,6 +86,7 @@ public struct RespondRecord: Codable, Equatable, Sendable, Identifiable {
         finishedAt = try c.decodeIfPresent(Date.self, forKey: .finishedAt)
         errorMessage = try c.decodeIfPresent(String.self, forKey: .errorMessage)
         chat = (try? c.decodeIfPresent(ChatSession.self, forKey: .chat)) ?? nil
+        usage = (try? c.decodeIfPresent(ClaudeUsage.self, forKey: .usage)) ?? nil
     }
 }
 

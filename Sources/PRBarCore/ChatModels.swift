@@ -271,6 +271,8 @@ public struct ChatSession: Codable, Equatable, Sendable {
     /// Review/Merge: the host where its worktree is (`RunnerDestination.name`); nil = this Mac. Set with
     /// `worktreePath`: later turns (`--resume`) and the cleanup go there (spec J).
     public var runner: String?
+    /// Claude's usage for every turn of this chat (spec O). Nil until a turn ran (and in older files).
+    public var usage: ClaudeUsage?
 
     public init(id: UUID = UUID(), prID: String, kind: Kind) {
         self.id = id
@@ -287,11 +289,12 @@ public struct ChatSession: Codable, Equatable, Sendable {
         lastRules = nil
         promptNonce = nil
         runner = nil
+        usage = nil
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, prID, kind, claudeSessionID, worktreePath, worktreeRefs, messages, readOnly, pending, lastState, canEditFiles
-        case lastRules, promptNonce, runner
+        case lastRules, promptNonce, runner, usage
     }
 
     /// Lenient: only `id`, `prID` and `kind` are required.
@@ -311,6 +314,7 @@ public struct ChatSession: Codable, Equatable, Sendable {
         lastRules = (try? c.decodeIfPresent(String.self, forKey: .lastRules)) ?? nil
         promptNonce = (try? c.decodeIfPresent(String.self, forKey: .promptNonce)) ?? nil
         runner = (try? c.decodeIfPresent(String.self, forKey: .runner)) ?? nil
+        usage = (try? c.decodeIfPresent(ClaudeUsage.self, forKey: .usage)) ?? nil
     }
 
     /// The only message that offers Undo: the last one with changes that wasn't undone. Undoing goes backwards.

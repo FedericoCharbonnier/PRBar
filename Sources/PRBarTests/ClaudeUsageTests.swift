@@ -127,6 +127,99 @@ enum ClaudeUsageTests {
             try await waitFor { center.liveJobs().isEmpty }
             try expectEqual(center.liveUsage(for: activity), nil)
         },
+        TestCase("usage ledger: guarda, recorta a 400 días, tolera JSON roto (.bak) y entradas rotas") {
+            let dir = try temporaryDirectory()
+            let url = dir.appendingPathComponent("usage.json")
+            let now = Date(timeIntervalSince1970: 1_800_000_000)
+            let ledger = UsageLedger(url: url)
+            ledger.append(ClaudeUsageEntry(date: now.addingTimeInterval(-401 * 86_400), jobID: nil, activity: nil, stage: "old",
+                                           usage: .run(duration: 1, tokens: nil, cost: 1)), now: now)
+            ledger.append(ClaudeUsageEntry(date: now, jobID: nil, activity: .review("o/r#1"), stage: "review",
+                                           usage: .run(duration: 2, tokens: nil, cost: 0.5)), now: now)
+            try expectEqual(ledger.entries().map(\.stage), ["review"])
+            try expectEqual(UsageLedger(url: url).entries().map(\.stage), ["review"])
+            // Una entrada rota se saltea; el resto queda.
+            var text = try String(contentsOf: url, encoding: .utf8)
+            text = text.replacingOccurrences(of: "\"entries\" : [", with: "\"entries\" : [{\"broken\": true},")
+            try text.write(to: url, atomically: true, encoding: .utf8)
+            try expectEqual(UsageLedger(url: url).entries().count, 1)
+            try "{nope".write(to: url, atomically: true, encoding: .utf8)
+            try expectEqual(UsageLedger(url: url).entries().count, 0)
+            try expect(FileManager.default.fileExists(atPath: url.appendingPathExtension("bak").path))
+        },
+        TestCase("usage summary: total del mes por tipo y tareas recientes (una por trabajo)") {
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = TimeZone(identifier: "UTC")!
+            let nov = calendar.date(from: DateComponents(year: 2026, month: 11, day: 10, hour: 12))!
+            let oct = calendar.date(from: DateComponents(year: 2026, month: 10, day: 30, hour: 12))!
+            let job = UUID()
+            let entries = [
+                ClaudeUsageEntry(date: oct, jobID: nil, activity: .review("o/r#1"), stage: "review", usage: .run(duration: 1, tokens: nil, cost: 9)),
+                ClaudeUsageEntry(date: nov, jobID: job, activity: .review("o/r#2"), stage: "review", usage: .run(duration: 60, tokens: ClaudeTokenUsage(inputTokens: 100), cost: 0.4)),
+                ClaudeUsageEntry(date: nov.addingTimeInterval(30), jobID: job, activity: .review("o/r#2"), stage: "filter", usage: .run(duration: 30, tokens: nil, cost: 0.1)),
+                ClaudeUsageEntry(date: nov.addingTimeInterval(90), jobID: nil, activity: .chat("o/r#2"), stage: "chat", usage: .run(duration: 5, tokens: nil, cost: nil)),
+            ]
+            let month = UsageSummary.month("2026-11", entries: entries, calendar: calendar)
+            try expectEqual(month.usage.runs, 3)
+            try expectEqual(month.usage.unknownRuns, 1)
+            try expect(abs((month.usage.costUSD ?? 0) - 0.5) < 1e-9)
+            try expectEqual(month.byKind["review"]?.runs, 2)
+            try expectEqual(month.byKind["chat"]?.runs, 1)
+            let tasks = UsageSummary.recentTasks(entries, limit: 2)
+            try expectEqual(tasks.count, 2)
+            try expectEqual(tasks[0].title, "Chat r#2")
+            try expectEqual(tasks[1].id, job)
+            try expectEqual(tasks[1].stages, ["review", "filter"])
+            try expectEqual(tasks[1].usage.runs, 2)
+            try expectEqual(UsageSummary.parseMonth("2026-11"), "2026-11")
+            try expectEqual(UsageSummary.parseMonth("2026-13"), nil)
+            try expectEqual(UsageSummary.parseMonth("26-11"), nil)
+            try expectEqual(UsageSummary.monthKey(nov, calendar: calendar), "2026-11")
+        },
+        TestCase("usage format: costo, tokens, duración y resumen; sin datos → —") {
+            try expectEqual(UsageFormat.cost(nil), "—")
+            try expectEqual(UsageFormat.cost(.run(duration: 3, tokens: nil, cost: nil)), "—")
+            try expectEqual(UsageFormat.cost(.run(duration: 3, tokens: nil, cost: 0.004)), "<$0.01")
+            try expectEqual(UsageFormat.cost(.run(duration: 3, tokens: nil, cost: 1.234)), "$1.23")
+            try expectEqual(UsageFormat.count(850), "850")
+            try expectEqual(UsageFormat.count(92_100), "92.1k")
+            try expectEqual(UsageFormat.count(1_250_000), "1.2M")
+            try expectEqual(UsageFormat.duration(seconds: 45), "45s")
+            try expectEqual(UsageFormat.duration(seconds: 192), "3m 12s")
+            try expectEqual(UsageFormat.duration(seconds: 3900), "1h 05m")
+            let mixed = ClaudeUsage.run(duration: 192, tokens: ClaudeTokenUsage(inputTokens: 90_000, outputTokens: 2_100), cost: 0.42)
+                + .run(duration: 0, tokens: nil, cost: nil)
+            try expectEqual(UsageFormat.summary(mixed), "3m 12s · 92.1k tokens · $0.42 (estimated) · 1 run without usage data")
+            try expectEqual(UsageFormat.summary(.run(duration: 5, tokens: nil, cost: nil)), "5s · no usage data")
+            try expectEqual(UsageFormat.summary(nil), "—")
+        },
+        TestCase("usage: registros viejos sin uso se leen con nil (\"—\")") {
+            let draft = ReviewDraft(prID: "o/r#1", repo: RepoRef(owner: "o", name: "r"), number: 1, title: "t",
+                                    url: URL(string: "https://github.com/o/r/pull/1")!, author: "a", headOid: "h", account: "me",
+                                    summary: "s", items: [])
+            var object = try JSONSerialization.jsonObject(with: JSONCoding.encoder.encode(draft)) as! [String: Any]
+            try expect(object["usage"] == nil)
+            object["usage"] = "roto"
+            let decoded = try JSONCoding.decoder.decode(ReviewDraft.self, from: JSONSerialization.data(withJSONObject: object))
+            try expectEqual(decoded.usage, nil)
+            try expectEqual(decoded.totalUsage, nil)
+            let session = try JSONDecoder().decode(ChatSession.self, from: Data(#"{"id":"\#(UUID().uuidString)","prID":"x","kind":"review"}"#.utf8))
+            try expectEqual(session.usage, nil)
+        },
+        TestCase("usage: el review guarda en su draft el uso de sus corridas") { @MainActor in
+            let events = QueueEventLog()
+            let pipeline = SpendingReviewPipeline()
+            var finished: ReviewDraft?
+            let queue = ReviewQueue(pipeline: pipeline) { _, result in
+                finished = try? result.get()
+                events.record(.finished("review"))
+            }
+            let pr = makePR(number: 4)
+            queue.enqueue(ReviewRequest(item: ClassifiedPR(pr: pr, category: .toReview, account: "me"), localPath: nil, baseRef: pr.baseRef))
+            try await events.wait(for: [.finished("review")])
+            try expectEqual(finished?.usage?.runs, 2)
+            try expect(abs((finished?.usage?.costUSD ?? 0) - 0.3) < 1e-9)
+        },
     ]
 }
 
@@ -162,4 +255,15 @@ func waitFor(_ condition: @escaping () async -> Bool, file: StaticString = #file
         try await Task.sleep(nanoseconds: 10_000_000)
     }
     throw TestFailure(description: "\(file):\(line) condition never became true")
+}
+
+/// Un review que "gasta" dos corridas de Claude y termina enseguida.
+private final class SpendingReviewPipeline: ReviewPipelineRunning, @unchecked Sendable {
+    func run(_ request: ReviewRequest, onPhase: @escaping @MainActor @Sendable (ReviewPhase) -> Void) async throws -> ReviewDraft {
+        ClaudeUsageCenter.shared.record(.run(duration: 10, tokens: nil, cost: 0.1), stage: "review")
+        ClaudeUsageCenter.shared.record(.run(duration: 5, tokens: nil, cost: 0.2), stage: "filter")
+        let pr = request.item.pr
+        return ReviewDraft(prID: pr.id, repo: pr.repo, number: pr.number, title: pr.title, url: pr.url, author: pr.author,
+                           headOid: pr.headOid, account: "me", summary: "s", items: [])
+    }
 }

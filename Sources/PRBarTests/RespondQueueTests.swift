@@ -72,6 +72,8 @@ final class FakeRespondPipeline: RespondPipelineRunning, @unchecked Sendable {
     var slowCancel = false
     /// Lo que lanza un análisis cancelado (p. ej. `jobNotStopped`: no se pudo confirmar que Claude paró en el host).
     var analyzeCancelError: Error?
+    /// Lo que "gasta" cada análisis e implementación en Claude (spec O), anotado antes de esperar.
+    var spend: ClaudeUsage?
 
     init(events: QueueEventLog, api: FakeFeedbackAPI = FakeFeedbackAPI()) {
         self.events = events
@@ -89,6 +91,7 @@ final class FakeRespondPipeline: RespondPipelineRunning, @unchecked Sendable {
                  onPhase: @escaping @MainActor @Sendable (RespondPhase) -> Void) async throws -> RespondDraft {
         let prID = request.item.id
         let events = self.events
+        if let spend = lock.withLock({ self.spend }) { ClaudeUsageCenter.shared.record(spend, stage: "analysis") }
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 lock.withLock { analyses[prID] = (draftID, onPhase, continuation) }
@@ -104,6 +107,7 @@ final class FakeRespondPipeline: RespondPipelineRunning, @unchecked Sendable {
                    onProgress: @escaping @MainActor @Sendable (Int, Int) -> Void) async throws -> RespondResult {
         let prID = draft.prID
         let events = self.events
+        if let spend = lock.withLock({ self.spend }) { ClaudeUsageCenter.shared.record(spend, stage: "fix") }
         do {
             return try await withTaskCancellationHandler {
                 try await withCheckedThrowingContinuation { continuation in
@@ -908,6 +912,25 @@ enum RespondPipelineTests {
             try expect(!h.queue.pushBlockedByTests.contains(prID(1)))
             try await h.events.wait(for: reached(1, "done"))
             try expectEqual(h.pipeline.pushes.count, 1)
+        },
+        TestCase("respond queue: el uso de Claude del análisis y de los fixes se suma en el registro (spec O)") { @MainActor in
+            let h = try Harness()
+            h.pipeline.spend = .run(duration: 10, tokens: ClaudeTokenUsage(inputTokens: 100, outputTokens: 20), cost: 0.5)
+            try await h.toReadyToPush(1)
+            let record = try h.saved(1)
+            try expectEqual(record.usage?.runs, 2)
+            try expectEqual(record.usage?.costUSD, 1.0)
+            try expectEqual(record.totalUsage?.inputTokens, 200)
+        },
+        TestCase("respond queue: un análisis fallido guarda su uso en el registro vacío del historial") { @MainActor in
+            let h = try Harness()
+            h.pipeline.spend = .run(duration: 4, tokens: nil, cost: 0.2)
+            h.queue.analyze(classified(3), localPath: "/repos/r", worktreeDir: nil)
+            try await h.events.wait(for: [.started("analyze:\(prID(3))")])
+            h.pipeline.completeAnalysis(3, .failure(Boom()))
+            try await h.events.wait(for: reached(3, "failed"))
+            let saved = h.history.all().first { $0.draft.number == 3 }
+            try expectEqual(saved?.usage?.costUSD, 0.2)
         },
     ]
 }

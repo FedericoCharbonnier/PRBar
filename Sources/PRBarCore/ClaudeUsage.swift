@@ -233,3 +233,214 @@ public enum ClaudeUsageStage {
         return text.isEmpty ? "claude" : String(text.prefix(40))
     }
 }
+
+// MARK: - Libro (usage.json)
+
+/// El libro de uso (spec O.4.2): `{"version":1,"entries":[…]}`, escrito solo por la app. Guarda 400 días (y a lo sumo
+/// `maxEntries`). Un JSON roto se copia a `usage.json.bak` y se arranca vacío; una entrada rota se saltea.
+public final class UsageLedger: Sendable {
+    public static let retentionDays = 400
+    public static let maxEntries = 50_000
+
+    private struct File: Codable {
+        var version = 1
+        var entries: [ClaudeUsageEntry]
+
+        init(entries: [ClaudeUsageEntry]) { self.entries = entries }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            version = (try? c.decodeIfPresent(Int.self, forKey: .version)) ?? 1
+            entries = (try c.decodeIfPresent(LossyArray<ClaudeUsageEntry>.self, forKey: .entries))?.elements ?? []
+        }
+    }
+
+    private let url: URL
+    private let state = OSAllocatedUnfairLock<[ClaudeUsageEntry]?>(initialState: nil)
+
+    public init(url: URL = AppPaths.usageFile) {
+        self.url = url
+    }
+
+    public func entries() -> [ClaudeUsageEntry] {
+        state.withLock { cached in
+            if let cached { return cached }
+            let loaded = load()
+            cached = loaded
+            return loaded
+        }
+    }
+
+    /// Agrega, recorta y guarda. Nunca lanza (un error se loguea).
+    public func append(_ entry: ClaudeUsageEntry, now: Date = Date()) {
+        state.withLock { cached in
+            var entries = cached ?? load()
+            entries.append(entry)
+            entries = Self.pruned(entries, now: now)
+            cached = entries
+            save(entries)
+        }
+    }
+
+    static func pruned(_ entries: [ClaudeUsageEntry], now: Date) -> [ClaudeUsageEntry] {
+        let cutoff = now.addingTimeInterval(-Double(retentionDays) * 86_400)
+        let kept = entries.filter { $0.date >= cutoff }
+        return kept.count > maxEntries ? Array(kept.suffix(maxEntries)) : kept
+    }
+
+    private func load() -> [ClaudeUsageEntry] {
+        guard let data = try? Data(contentsOf: url) else { return [] }
+        do {
+            return try JSONCoding.decoder.decode(File.self, from: data).entries
+        } catch {
+            let backup = url.appendingPathExtension("bak")
+            try? FileManager.default.removeItem(at: backup)
+            try? FileManager.default.copyItem(at: url, to: backup)
+            AppLog.write("Usage: \(url.lastPathComponent) couldn't be read (\(error)); starting empty, copy in \(backup.lastPathComponent)")
+            return []
+        }
+    }
+
+    private func save(_ entries: [ClaudeUsageEntry]) {
+        do {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try JSONCoding.encoder.encode(File(entries: entries)).write(to: url, options: .atomic)
+        } catch {
+            AppLog.write("Usage: couldn't save \(url.path): \(error)")
+        }
+    }
+}
+
+// MARK: - Resúmenes
+
+/// Una tarea de Activity con su uso: un trabajo de `JobScheduler` (o una corrida suelta).
+public struct UsageTask: Codable, Equatable, Sendable, Identifiable {
+    public var id: UUID
+    public var activity: ProcessActivity?
+    public var stages: [String]
+    public var startedAt: Date
+    public var finishedAt: Date
+    public var usage: ClaudeUsage
+
+    public var title: String { activity?.title ?? "Claude" }
+}
+
+/// El total de un mes (spec O.2), por tipo de tarea.
+public struct UsageMonth: Codable, Equatable, Sendable {
+    /// `YYYY-MM`.
+    public var month: String
+    public var usage: ClaudeUsage
+    /// Por `ProcessActivity.Kind` (`rawValue`; "other" fuera de una tarea).
+    public var byKind: [String: ClaudeUsage]
+}
+
+public enum UsageSummary {
+    /// `YYYY-MM` de `date` en el calendario local.
+    public static func monthKey(_ date: Date, calendar: Calendar = .current) -> String {
+        let parts = calendar.dateComponents([.year, .month], from: date)
+        return String(format: "%04d-%02d", parts.year ?? 0, parts.month ?? 0)
+    }
+
+    /// `YYYY-MM` válido (mes 1–12) o nil.
+    public static func parseMonth(_ text: String) -> String? {
+        let parts = text.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count == 2, parts[0].count == 4, parts[1].count == 2,
+              let year = Int(parts[0]), let month = Int(parts[1]), year >= 2000, (1...12).contains(month) else { return nil }
+        return String(format: "%04d-%02d", year, month)
+    }
+
+    public static func month(_ key: String, entries: [ClaudeUsageEntry], calendar: Calendar = .current) -> UsageMonth {
+        let inMonth = entries.filter { monthKey($0.date, calendar: calendar) == key }
+        var byKind: [String: ClaudeUsage] = [:]
+        for entry in inMonth { byKind[entry.activity?.kind.rawValue ?? "other", default: .zero] += entry.usage }
+        return UsageMonth(month: key, usage: inMonth.map(\.usage).reduce(.zero, +), byKind: byKind)
+    }
+
+    /// Las últimas `limit` tareas, de la más nueva a la más vieja: las corridas de un mismo trabajo van juntas.
+    public static func recentTasks(_ entries: [ClaudeUsageEntry], limit: Int = 20) -> [UsageTask] {
+        var tasks: [UUID: UsageTask] = [:]
+        for entry in entries {
+            let key = entry.jobID ?? entry.id
+            if var task = tasks[key] {
+                task.usage += entry.usage
+                if !task.stages.contains(entry.stage) { task.stages.append(entry.stage) }
+                task.startedAt = min(task.startedAt, entry.date.addingTimeInterval(-entry.usage.durationSeconds))
+                task.finishedAt = max(task.finishedAt, entry.date)
+                task.activity = task.activity ?? entry.activity
+                tasks[key] = task
+            } else {
+                tasks[key] = UsageTask(id: key, activity: entry.activity, stages: [entry.stage],
+                                       startedAt: entry.date.addingTimeInterval(-entry.usage.durationSeconds),
+                                       finishedAt: entry.date, usage: entry.usage)
+            }
+        }
+        return Array(tasks.values.sorted { $0.finishedAt > $1.finishedAt }.prefix(max(0, limit)))
+    }
+}
+
+/// Cómo se muestra el uso en la app y en la CLI (spec O.2).
+public enum UsageFormat {
+    public static let note = "Estimated from what Claude Code reports. On a Claude subscription you may not be billed per token."
+
+    /// "$0.42", "<$0.01", "$12.30"; "—" sin datos.
+    public static func cost(_ usage: ClaudeUsage?) -> String {
+        guard let usage, usage.hasData, let value = usage.costUSD else { return "—" }
+        return cost(value)
+    }
+
+    public static func cost(_ value: Double) -> String {
+        if value > 0 && value < 0.01 { return "<$0.01" }
+        return String(format: "$%.2f", value)
+    }
+
+    /// "12.3k", "1.2M", "850"; "—" sin datos.
+    public static func tokens(_ usage: ClaudeUsage?) -> String {
+        guard let usage, usage.hasData else { return "—" }
+        return count(usage.totalTokens)
+    }
+
+    public static func count(_ value: Int) -> String {
+        switch value {
+        case ..<1000: "\(value)"
+        case ..<1_000_000: String(format: "%.1fk", Double(value) / 1000)
+        default: String(format: "%.1fM", Double(value) / 1_000_000)
+        }
+    }
+
+    /// "45s", "3m 12s", "1h 05m"; "—" sin corridas.
+    public static func duration(_ usage: ClaudeUsage?) -> String {
+        guard let usage, usage.runs > 0 else { return "—" }
+        return duration(seconds: usage.durationSeconds)
+    }
+
+    public static func duration(seconds: Double) -> String {
+        let total = Int(seconds.rounded())
+        if total < 60 { return "\(total)s" }
+        if total < 3600 { return "\(total / 60)m \(String(format: "%02d", total % 60))s" }
+        return "\(total / 3600)h \(String(format: "%02d", (total % 3600) / 60))m"
+    }
+
+    /// "1.2k in · 340 out · 85.0k cache" (solo con datos).
+    public static func tokenBreakdown(_ usage: ClaudeUsage) -> String {
+        var parts = ["\(count(usage.inputTokens)) in", "\(count(usage.outputTokens)) out"]
+        let cache = usage.cacheCreationTokens + usage.cacheReadTokens
+        if cache > 0 { parts.append("\(count(cache)) cache") }
+        return parts.joined(separator: " · ")
+    }
+
+    /// "3m 12s · 92.1k tokens · $0.42 (estimated)"; con corridas sin datos lo agrega. "—" sin corridas.
+    public static func summary(_ usage: ClaudeUsage?) -> String {
+        guard let usage, usage.runs > 0 else { return "—" }
+        var parts = [duration(seconds: usage.durationSeconds)]
+        if usage.hasData {
+            parts.append("\(count(usage.totalTokens)) tokens")
+            parts.append(usage.costUSD.map { "\(cost($0)) (estimated)" } ?? "cost unknown")
+        } else {
+            parts.append("no usage data")
+        }
+        if usage.unknownRuns > 0 && usage.hasData {
+            parts.append("\(usage.unknownRuns) run\(usage.unknownRuns == 1 ? "" : "s") without usage data")
+        }
+        return parts.joined(separator: " · ")
+    }
+}

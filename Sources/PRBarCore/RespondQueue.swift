@@ -128,7 +128,8 @@ public final class RespondQueue: ObservableObject {
                     worktree: ResolvedWorktree(path: localPath ?? "", origin: .mainClone), startHeadOid: "", items: [])
                 self.records[prID] = nil
                 self.save(RespondRecord(draft: empty, startedAt: startedAt, finishedAt: Date(),
-                                        errorMessage: error.localizedDescription))
+                                        errorMessage: error.localizedDescription,
+                                        usage: self.jobUsage[prID].flatMap { $0.runs > 0 ? $0 : nil }))
                 self.finish(prID, .failed(error.localizedDescription, logURL: self.existingLog(draftID)))
             }
         })
@@ -319,18 +320,42 @@ public final class RespondQueue: ObservableObject {
         guard canStart(prID) else { return }
         let jobID = UUID()
         let slot = Slot<T>()
+        let usage = Slot<ClaudeUsage>()
         jobs[prID] = Job(id: jobID, kind: kind, previous: previous ?? phases[prID])
         if let phase { phases[prID] = phase }
-        scheduler.enqueue(prID, activity: .respond(prID), onStart: { [weak self] in
+        scheduler.enqueue(prID, activity: activity(prID), onStart: { [weak self] in
             if let onStart, self?.jobs[prID]?.id == jobID { self?.phases[prID] = onStart }
         }, work: {
-            slot.value = try await work(jobID)
+            // Claude's usage for this job goes to the record (spec O.4.4), also when it fails or is canceled.
+            let sink = ClaudeUsageSink()
+            defer { usage.value = sink.total }
+            slot.value = try await sink.measure { try await work(jobID) }
         }, onComplete: { [weak self] result in
             guard let self, self.jobs[prID]?.id == jobID else { return }
             self.jobs[prID] = nil
+            self.jobUsage[prID] = usage.value
             completion(result.map { slot.value! })
+            self.jobUsage[prID] = nil
+            self.addUsage(prID, usage.value)
+        }, onCancelledEnd: { [weak self] _ in
+            self?.addUsage(prID, usage.value)
         })
     }
+
+    /// Lo que gastó en Claude el job que acaba de terminar, mientras corre su `completion` (un análisis fallido lo
+    /// guarda en su registro vacío).
+    private var jobUsage: [String: ClaudeUsage] = [:]
+
+    /// Suma el uso de un job al registro vigente del PR y lo guarda.
+    private func addUsage(_ prID: String, _ usage: ClaudeUsage?) {
+        guard let usage, usage.runs > 0, var record = records[prID] else { return }
+        record.usage = (record.usage ?? .zero) + usage
+        records[prID] = record
+        save(record)
+    }
+
+    /// La tarea de Activity del PR.
+    private func activity(_ prID: String) -> ProcessActivity { .respond(prID) }
 
     private func progress(_ prID: String, _ jobID: UUID, _ phase: RespondPhase) {
         guard jobs[prID]?.id == jobID, phase.isActive else { return }
