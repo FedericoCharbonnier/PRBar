@@ -226,6 +226,16 @@ public struct RemoteFixImport: Sendable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard remoteHead == reviewed else { throw mismatch("the server’s worktree is now at \(remoteHead.prefix(12)).") }
 
+        // El clone puede haber cambiado desde el import: cada URL de fetch y de push (con `pushurl` y
+        // `pushInsteadOf` ya aplicados) tiene que ser la del repo.
+        let fetchURLs = try await local(repository, ["remote", "get-url", "--all", "origin"])
+        let pushURLs = try await local(repository, ["remote", "get-url", "--push", "--all", "origin"])
+        let urls = (fetchURLs + "\n" + pushURLs).split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        if urls.isEmpty || urls.contains(where: { !originMatches($0, draft.repo) }) {
+            throw PRBarError.respond("The origin remote of \(repository) no longer points only to github.com/\(draft.repo.fullName) "
+                                     + "(\(urls.joined(separator: ", "))): not pushing.")
+        }
         let pushed = try await withCredentials(token, temporary: objects.temporary) { credentials in
             let args = ["-C", repository] + RespondPublisher.pushHardening + credentials
                 + ["push", "origin", "\(reviewed):refs/heads/\(draft.headRef)"]
@@ -242,7 +252,15 @@ public struct RemoteFixImport: Sendable {
     public func discard(_ result: RespondResult) async {
         guard let objects = result.remoteObjects else { return }
         if objects.temporary {
-            try? FileManager.default.removeItem(atPath: objects.repoPath)
+            // Solo un clone de `localRepository`: `<tempRoot>/<uuid>` (el resultado viene de disco y pudo cambiar).
+            let url = URL(fileURLWithPath: objects.repoPath).standardizedFileURL
+            let name = url.lastPathComponent
+            guard url.deletingLastPathComponent().standardizedFileURL.path == tempRoot.standardizedFileURL.path,
+                  RemoteInstallation.isValidID(name) else {
+                AppLog.write("Remote fixes: not deleting \(objects.repoPath): it isn’t one of PRBar’s temporary clones.")
+                return
+            }
+            try? FileManager.default.removeItem(at: url)
         } else if objects.ref.hasPrefix("refs/prbar/remote-") {
             _ = try? await local(objects.repoPath, ["update-ref", "-d", objects.ref])
         }

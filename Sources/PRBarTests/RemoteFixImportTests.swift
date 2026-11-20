@@ -40,7 +40,7 @@ private final class RecordingLocalRunner: FileIOProcessRunning, ProcessRunning, 
 }
 
 private func remoteFix(localRunner: FileIOProcessRunning & ProcessRunning = SystemProcessRunner(), maxBundleBytes: Int = 1 << 20,
-                       beforeRemote: (TempGitRepo) throws -> Void = { _ in }) async throws
+                       strictOrigin: Bool = false, beforeRemote: (TempGitRepo) throws -> Void = { _ in }) async throws
     -> (TempGitRepo, FakeSSH, RemoteWorkspaces, ResolvedWorktree, String, RemoteFixImport) {
     let repo = try TempGitRepo.make()
     try beforeRemote(repo)
@@ -54,7 +54,8 @@ private func remoteFix(localRunner: FileIOProcessRunning & ProcessRunning = Syst
     try TempGitRepo.run(wt, ["commit", "-q", "-am", "Fix the thing"])
     let importer = RemoteFixImport(spaces: spaces, localGit: TempGitRepo.git, localRunner: localRunner,
                                    gitEnvironment: localGitEnvironment, tempRoot: repo.base.appendingPathComponent("push"),
-                                   originURL: { _ in repo.origin.path }, originMatches: { _, _ in true }, maxBundleBytes: maxBundleBytes)
+                                   originURL: { _ in repo.origin.path }, originMatches: { url, _ in !strictOrigin || url == repo.origin.path },
+                                   maxBundleBytes: maxBundleBytes)
     return (repo, ssh, spaces, worktree, start, importer)
 }
 
@@ -195,6 +196,43 @@ enum RemoteFixImportTests {
             }
             try expect((try? TempGitRepo.run(repo.local, ["cat-file", "-e", bad])) == nil, "el objeto corrupto entró al clone")
             try expectEqual(try TempGitRepo.run(repo.local, ["for-each-ref", "refs/prbar/"]), "")
+        },
+        TestCase("remote fixes: al pushear se revisan de nuevo el origin y el pushurl del clone del usuario") {
+            let (repo, ssh, _, worktree, start, importer) = try await remoteFix(strictOrigin: true)
+            defer { repo.remove(); ssh.remove() }
+            let d = draft(worktree, start: start)
+            let result = try await importer.importFixes(draft: d, localPath: repo.local.path, items: [], integrity: "x")
+            let evil = repo.base.appendingPathComponent("evil.git")
+            try TempGitRepo.run(repo.base, ["init", "-q", "--bare", evil.path])
+            try TempGitRepo.run(repo.local, ["config", "remote.origin.pushurl", evil.path])
+            let pushURL = try await expectThrows { try await importer.push(draft: d, result: result, token: nil) }
+            try expect(pushURL.localizedDescription.contains("origin"), pushURL.localizedDescription)
+            try TempGitRepo.run(repo.local, ["config", "--unset", "remote.origin.pushurl"])
+            try TempGitRepo.run(repo.local, ["config", "url.\(evil.path).pushInsteadOf", repo.origin.path])
+            _ = try await expectThrows { try await importer.push(draft: d, result: result, token: nil) }
+            try TempGitRepo.run(repo.local, ["config", "--unset", "url.\(evil.path).pushInsteadOf"])
+            try TempGitRepo.run(repo.local, ["remote", "set-url", "origin", evil.path])
+            _ = try await expectThrows { try await importer.push(draft: d, result: result, token: nil) }
+            try expectEqual(try TempGitRepo.run(evil, ["for-each-ref"]), "")
+            try TempGitRepo.run(repo.local, ["remote", "set-url", "origin", repo.origin.path])
+            try await importer.push(draft: d, result: result, token: nil)
+        },
+        TestCase("remote fixes: discard solo borra un clone temporal que está en la carpeta de PRBar") {
+            let (repo, ssh, _, worktree, start, importer) = try await remoteFix()
+            defer { repo.remove(); ssh.remove() }
+            let result = try await importer.importFixes(draft: draft(worktree, start: start), localPath: nil, items: [], integrity: "x")
+            let objects = try expectNotNil(result.remoteObjects)
+            let precious = repo.base.appendingPathComponent("precious")
+            try FileManager.default.createDirectory(at: precious, withIntermediateDirectories: true)
+            for path in [precious.path, repo.base.appendingPathComponent("push").path, repo.base.appendingPathComponent("push/../precious").path,
+                         repo.local.path] {
+                var forged = result
+                forged.remoteObjects = RemoteObjects(repoPath: path, temporary: true, ref: objects.ref, treeOid: objects.treeOid)
+                await importer.discard(forged)
+                try expect(FileManager.default.fileExists(atPath: path), "borró \(path)")
+            }
+            await importer.discard(result)
+            try expect(!FileManager.default.fileExists(atPath: objects.repoPath))
         },
         TestCase("remote fixes: si el host cambió el commit después de mostrarlo, no se pushea nada") {
             let (repo, ssh, _, worktree, start, importer) = try await remoteFix()
