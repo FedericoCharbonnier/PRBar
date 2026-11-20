@@ -273,14 +273,7 @@ struct InstructionsChatPanel: View {
                     .textFieldStyle(.plain)
                     .font(.callout)
                     .disabled(!canType)
-                    .onKeyPress(.return, phases: .down) { press in
-                        if press.modifiers.contains(.shift) {
-                            text += "\n"
-                            return .handled
-                        }
-                        send()
-                        return .handled
-                    }
+                    .onKeyPress(.return, phases: .down) { press in ChatInputKeys.handleReturn(press, send: send) }
                 if chat.isRunning {
                     Button("Stop") { chat.stop() }.controlSize(.small)
                 } else {

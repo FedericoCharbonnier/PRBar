@@ -155,14 +155,7 @@ struct ChatPanel: View {
                 .font(.callout)
                 .focused($inputFocused)
                 .disabled(!canType)
-                .onKeyPress(.return, phases: .down) { press in
-                    if press.modifiers.contains(.shift) {
-                        text += "\n"
-                        return .handled
-                    }
-                    send()
-                    return .handled
-                }
+                .onKeyPress(.return, phases: .down) { press in ChatInputKeys.handleReturn(press, send: send) }
             if chat.isRunning {
                 Button("Stop") { chat.stop() }
                     .controlSize(.small)
@@ -393,5 +386,27 @@ struct RuleProposalCard: View {
         }
         .padding(10)
         .background(RoundedRectangle(cornerRadius: 8).fill(Theme.tint(Theme.accent).opacity(0.5)))
+    }
+}
+
+/// Return in a chat's message field: ↩ sends, ⇧↩/⌥↩ insert a line break where the cursor is, and while an input
+/// method is composing (Japanese, Chinese, Korean…) Return is left to it, to confirm the text (`ChatReturnKey`).
+enum ChatInputKeys {
+    @MainActor
+    static func handleReturn(_ press: KeyPress, send: () -> Void) -> KeyPress.Result {
+        // The field editor of the focused text field.
+        let editor = NSApp.keyWindow?.firstResponder as? NSTextView
+        switch ChatReturnKey.action(shift: press.modifiers.contains(.shift), option: press.modifiers.contains(.option),
+                                    hasMarkedText: editor?.hasMarkedText() ?? false) {
+        case .passThrough:
+            return .ignored
+        case .newline:
+            guard let editor else { return .ignored }
+            editor.insertNewlineIgnoringFieldEditor(nil)
+            return .handled
+        case .send:
+            send()
+            return .handled
+        }
     }
 }
