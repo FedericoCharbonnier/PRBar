@@ -123,6 +123,64 @@ enum CLIParsingTests {
                 info.replies = 1
                 try expectEqual(RespondQuestion.replyOnly(info), "Post 1 reply to acme/web#2 as @me? Nothing is pushed.")
             },
+            TestCase("cli parse: config, account, notify y tools") {
+                try expectEqual(try parsed(["config", "show"]), .configShow)
+                try expectEqual(try parsed(["config", "set", "refresh-interval", "5"]), .setRefreshInterval(minutes: 5))
+                try expectEqual(try parsed(["config", "set", "launch-at-login", "on"]), .setLaunchAtLogin(enabled: true))
+                try expect(rejects(["config", "set", "launch-at-login", "maybe"]))
+                try expect(rejects(["config", "set", "refresh-interval", "x"]))
+                try expectEqual(try parsed(["config", "set", "confirm-merge", "off"]), .setConfirmMerge(enabled: false))
+                try expectEqual(try parsed(["notify", "set", "ready-to-merge", "on"]), .notifySet(kind: .readyToMerge, enabled: true))
+                try expectEqual(try parsed(["account", "list"]), .accountList)
+                try expectEqual(try parsed(["account", "enable", "me"]), .accountSetEnabled(login: "me", enabled: true))
+                try expectEqual(try parsed(["account", "disable", "me"]), .accountSetEnabled(login: "me", enabled: false))
+                try expectEqual(try parsed(["account", "reload"]), .accountReload)
+                try expectEqual(try parsed(["notify", "list"]), .notifyList)
+                try expectEqual(try parsed(["notify", "set", "my-feedback", "off"]), .notifySet(kind: .myFeedback, enabled: false))
+                try expectEqual(try parsed(["notify", "enable"]), .notifySetEnabled(enabled: true))
+                try expectEqual(try parsed(["notify", "disable"]), .notifySetEnabled(enabled: false))
+                try expectEqual(try parsed(["tools", "list"]), .toolsList)
+                try expectEqual(try parsed(["tools", "reset", "gh"]), .toolsSet(tool: .gh, path: nil))
+                try expect(try PRBarCommand.parseAsRoot(["notify", "system-settings"]) is any LocalCommand)
+            },
+            TestCase("cli parse: repo y follow") {
+                try expectEqual(try parsed(["repo", "list", "--account", "me"]), .repoList(account: "me"))
+                try expectEqual(try parsed(["repo", "available", "--reload"]), .repoAvailable(account: nil, reload: true))
+                try expectEqual(try parsed(["repo", "add", "acme/api"]), .repoAdd(repo: "acme/api", account: nil))
+                try expectEqual(try parsed(["repo", "remove", "acme/api"]), .repoRemove(repo: "acme/api", account: nil))
+                try expectEqual(try parsed(["repo", "branches", "acme/api", "--reload"]), .repoBranches(repo: "acme/api", account: nil, reload: true))
+                try expectEqual(try parsed(["repo", "set", "acme/api", "--path", "none", "--worktrees", "default", "--test-command", "",
+                                            "--add-branch", "main", "--add-branch", "dev", "--remove-branch", "old", "--channel", "#eng"]),
+                                .repoSet(repo: "acme/api", account: nil, changes: RepoChanges(
+                                    localPath: .clear, worktreeDir: .clear, testCommand: .clear,
+                                    addBranches: ["main", "dev"], removeBranches: ["old"], channel: .set(value: "#eng"))))
+                try expectEqual(try parsed(["repo", "set", "acme/api", "--branches", "main,develop", "--channel", "none"]),
+                                .repoSet(repo: "acme/api", account: nil, changes: RepoChanges(baseBranches: ["main", "develop"], channel: .clear)))
+                guard case .repoSet(_, _, let changes) = try parsed(["repo", "set", "acme/api", "--path", "~/code/api"]),
+                      case .set(let path)? = changes.localPath else { throw TestFailure(description: "sin --path") }
+                try expect(path.hasPrefix("/") && path.hasSuffix("/code/api"), path)
+                try expect(rejects(["repo", "set", "acme/api"]))
+                try expectEqual(try parsed(["repo", "set", "acme/api", "--merge-method", "rebase"]),
+                                .repoSet(repo: "acme/api", account: nil, changes: RepoChanges(mergeMethod: .set(value: "rebase"))))
+                try expectEqual(try parsed(["repo", "set", "acme/api", "--merge-method", "default"]),
+                                .repoSet(repo: "acme/api", account: nil, changes: RepoChanges(mergeMethod: .clear)))
+                try expect(rejects(["repo", "set", "acme/api", "--merge-method", "fast-forward"]))
+                try expect(try PRBarCommand.parseAsRoot(["repo", "open", "acme/api"]) is any LocalCommand)
+                try expectEqual(try parsed(["follow", "list"]), .followList(repo: nil, account: nil))
+                try expectEqual(try parsed(["follow", "add", "acme/api", "ana", "@bob"]), .followAdd(repo: "acme/api", users: ["ana", "@bob"], account: nil))
+                try expectEqual(try parsed(["follow", "remove", "acme/api", "ana"]), .followRemove(repo: "acme/api", users: ["ana"], account: nil))
+                try expectEqual(try parsed(["follow", "suggestions", "acme/api"]), .followSuggestions(repo: "acme/api", account: nil))
+            },
+            TestCase("cli parse: claude") {
+                try expectEqual(try parsed(["claude", "show"]), .claudeShow)
+                try expectEqual(try parsed(["claude", "reset"]), .claudeReset)
+                try expectEqual(try parsed(["claude", "skills"]), .claudeSkills)
+                try expectEqual(try parsed(["claude", "set", "--review-skill", "a:b", "--filter", "off", "--model", "default"]),
+                                .claudeSet(changes: ClaudeChanges(reviewSkill: "a:b", filterEnabled: false, model: .clear)))
+                try expectEqual(try parsed(["claude", "set", "--model", "sonnet", "--respond-skill", "x"]),
+                                .claudeSet(changes: ClaudeChanges(respondSkill: "x", model: .set(value: "sonnet"))))
+                try expect(rejects(["claude", "set"]))
+            },
         ]
     }
 }
