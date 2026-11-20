@@ -70,47 +70,6 @@ public struct ProcessSampler: Sendable {
     }
 }
 
-public struct ProcessUsage: Codable, Equatable, Sendable, Identifiable {
-    public var pid: Int32
-    public var name: String
-    public var activity: ProcessActivity?
-    public var cpuPercent: Double
-    public var memoryBytes: UInt64
-    public var startedAt: Date?
-    public var isApp: Bool
-
-    public init(pid: Int32, name: String, activity: ProcessActivity?, cpuPercent: Double, memoryBytes: UInt64,
-                startedAt: Date?, isApp: Bool) {
-        self.pid = pid
-        self.name = name
-        self.activity = activity
-        self.cpuPercent = cpuPercent
-        self.memoryBytes = memoryBytes
-        self.startedAt = startedAt
-        self.isApp = isApp
-    }
-
-    public var id: Int32 { pid }
-    /// Los trabajos remotos (Plan 14) se muestran "on <host>" y sin CPU/RAM locales.
-    public var remoteHost: String? { activity?.host }
-    public var label: String { isApp ? "PRBar" : "\(activity?.title ?? "PRBar") · \(name)" }
-}
-
-public struct ResourceUsage: Codable, Equatable, Sendable {
-    /// % de un núcleo (como Activity Monitor; puede pasar 100).
-    public var cpuPercent: Double
-    public var memoryBytes: UInt64
-    public var processes: [ProcessUsage]
-    public var sampledAt: Date
-
-    public init(cpuPercent: Double, memoryBytes: UInt64, processes: [ProcessUsage], sampledAt: Date) {
-        self.cpuPercent = cpuPercent
-        self.memoryBytes = memoryBytes
-        self.processes = processes
-        self.sampledAt = sampledAt
-    }
-}
-
 public enum ResourceMeter {
     /// `previous == nil`: CPU 0 (no hay con qué comparar). Los procesos de un trabajo remoto no suman.
     public static func usage(previous: ProcessSample?, current: ProcessSample,

@@ -17,18 +17,6 @@ public enum PRListFilter: String, Codable, CaseIterable, Sendable {
     }
 }
 
-/// Los filtros de `prbar prs` (`listPRs`): `--list` por categoría, `--tab` por pestaña del popover y `--account`.
-/// `--list other --tab mine` es Waiting for Review; `--list other --tab to-review`, el Other de To Review.
-public enum PRListing {
-    public static func filter(_ items: [ClassifiedPR], list: PRListFilter?, tab: PopoverTab?,
-                              account: String?) -> [ClassifiedPR] {
-        items
-            .filter { item in list.map { item.category == $0.category } ?? true }
-            .filter { item in tab.map { PopoverTabs.tab(of: item) == $0 } ?? true }
-            .filter { item in account.map { item.account.caseInsensitiveCompare($0) == .orderedSame } ?? true }
-    }
-}
-
 public enum HistoryKind: String, Codable, CaseIterable, Sendable {
     case review, respond, merge
 }
@@ -62,28 +50,11 @@ public enum NotificationSettingName: String, Codable, CaseIterable, Sendable {
     case approvedOrCI = "approved-or-ci"
     case readyToMerge = "ready-to-merge"
 
-    public var keyPath: WritableKeyPath<NotificationSettings, Bool> {
-        switch self {
-        case .newToReview: \.newToReview
-        case .reviewedUpdated: \.reviewedPRUpdated
-        case .myFeedback: \.myPRFeedback
-        case .reviewFinished: \.reviewFinished
-        case .approvedOrCI: \.myPRApprovedOrCIFailed
-        case .readyToMerge: \.readyToMerge
-        }
-    }
 }
 
 public enum ToolName: String, Codable, CaseIterable, Sendable {
     case gh, git, claude
 
-    public var keyPath: WritableKeyPath<ToolPaths, String?> {
-        switch self {
-        case .gh: \.gh
-        case .git: \.git
-        case .claude: \.claude
-        }
-    }
 }
 
 /// `prbar slack set <toggle>`: los interruptores de la pestaña Slack.
@@ -94,42 +65,16 @@ public enum SlackToggleName: String, Codable, CaseIterable, Sendable {
     case rounds
     case reactApprove = "react-approve"
 
-    public var toggle: SlackToggle {
-        switch self {
-        case .announce: .announceNewPRs
-        case .updated: .postUpdated
-        case .merged: .postMerged
-        case .reactStart: .reactOnReviewStart
-        case .reactComment: .reactOnFirstComment
-        case .rounds: .postRoundMessages
-        case .reactApprove: .reactOnApprove
-        }
-    }
 }
 
 public enum SlackEmojiKind: String, Codable, CaseIterable, Sendable {
     case eyes, comment, approved
 
-    public var keyPath: WritableKeyPath<SlackSettings, String> {
-        switch self {
-        case .eyes: \.eyesEmoji
-        case .comment: \.commentEmoji
-        case .approved: \.approvedEmoji
-        }
-    }
 }
 
 public enum SlackTemplateName: String, Codable, CaseIterable, Sendable {
     case newPR = "new-pr", update, round, merged
 
-    public var kind: SlackTemplateKind {
-        switch self {
-        case .newPR: .newPR
-        case .update: .update
-        case .round: .round
-        case .merged: .merged
-        }
-    }
 }
 
 /// Cambiar un valor opcional: ponerle uno o sacarlo (`--path none`, `--model default`).
@@ -226,15 +171,6 @@ public struct RespondSelectionChange: Codable, Equatable, Sendable {
 
     public var isEmpty: Bool { self == RespondSelectionChange() }
 
-    public func apply(to selection: inout RespondSelection) {
-        if let implement { selection.implement = implement }
-        if let reply { selection.reply = reply }
-        if let replyText {
-            selection.replyText = replyText
-            if reply != false { selection.reply = true }
-        }
-        if let fixPlan { selection.fixPlan = fixPlan }
-    }
 }
 
 // MARK: - Instrucciones, opciones y prompts (spec E.7)

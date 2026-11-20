@@ -145,27 +145,6 @@ public struct ChatMessage: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
-/// An array decoded element by element: the elements that don't decode are skipped, so one bad (or newer) entry
-/// doesn't lose the others.
-struct LossyArray<Element: Decodable>: Decodable {
-    let elements: [Element]
-
-    private struct Skip: Decodable { init(from decoder: Decoder) throws {} }
-
-    init(from decoder: Decoder) throws {
-        var container = try decoder.unkeyedContainer()
-        var elements: [Element] = []
-        while !container.isAtEnd {
-            if let element = try? container.decode(Element.self) {
-                elements.append(element)
-            } else {
-                _ = try container.decode(Skip.self)
-            }
-        }
-        self.elements = elements
-    }
-}
-
 public enum ChatChange: Codable, Equatable, Sendable {
     case findingEdited(id: String)
     case findingAdded(id: String)

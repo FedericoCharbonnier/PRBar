@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "PRBar",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v14), .iOS("26.0")],
     products: [
         .executable(name: "PRBar", targets: ["PRBar"]),
         // Se instala como `prbar` (Contents/Helpers/prbar): un producto `prbar` chocaría con `PRBar` en .build/
@@ -15,7 +15,9 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-argument-parser.git", exact: "1.6.2"),
     ],
     targets: [
-        .target(name: "PRBarCore"),
+        // Los tipos `Codable` del protocolo de comandos: solo Foundation, compilan también para iOS.
+        .target(name: "PRBarWire"),
+        .target(name: "PRBarCore", dependencies: ["PRBarWire"]),
         .executableTarget(name: "PRBar", dependencies: ["PRBarCore"]),
         .target(name: "PRBarCLIKit", dependencies: [
             "PRBarCore",

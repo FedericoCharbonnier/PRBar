@@ -74,10 +74,6 @@ public enum CIState: String, Codable, Sendable {
     case success, failure, pending, none
 }
 
-public enum ReviewDecision: String, Codable, Sendable {
-    case approved, changesRequested, reviewRequired, none
-}
-
 public struct PullRequest: Hashable, Codable, Sendable, Identifiable {
     public let repo: RepoRef
     public let number: Int
@@ -165,27 +161,6 @@ public struct PullRequest: Hashable, Codable, Sendable, Identifiable {
         requestedReviewers = try c.decode([String].self, forKey: .requestedReviewers)
         merge = (try? c.decodeIfPresent(PRMergeState.self, forKey: .merge)) ?? .unknown
     }
-}
-
-public enum PRCategory: String, Codable, Sendable, CaseIterable, Comparable, Identifiable {
-    case toReview, updatedSinceMyReview, myFeedback, readyToMerge, other
-
-    public var id: String { rawValue }
-    public var countsForBadge: Bool { self != .other }
-
-    public var title: String {
-        switch self {
-        case .toReview: "To Review"
-        case .updatedSinceMyReview: "Updated Since My Review"
-        case .myFeedback: "My PRs with Feedback"
-        case .readyToMerge: "Ready to Merge"
-        case .other: "Other"
-        }
-    }
-
-    private var order: Int { Self.allCases.firstIndex(of: self)! }
-
-    public static func < (lhs: PRCategory, rhs: PRCategory) -> Bool { lhs.order < rhs.order }
 }
 
 public struct ClassifiedPR: Hashable, Codable, Sendable, Identifiable {

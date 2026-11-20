@@ -162,14 +162,6 @@ public struct ToolPaths: Hashable, Codable, Sendable {
     }
 }
 
-/// Cómo PRBar habla con Slack (spec §17.5). En los dos casos los mensajes y las reacciones salen como el usuario.
-public enum SlackProvider: String, Codable, CaseIterable, Sendable {
-    /// API Web de Slack directa, con el User OAuth Token (`xoxp-…`) del Llavero.
-    case userToken
-    /// El conector de Slack de la cuenta de Claude del usuario, vía `claude -p` (sin token en PRBar).
-    case claudeConnector
-}
-
 public struct SlackSettings: Hashable, Codable, Sendable {
     public static let defaultNewPRTemplate = "{link}"
     public static let defaultUpdateTemplate = "Updated {link}"

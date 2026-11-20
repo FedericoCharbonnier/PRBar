@@ -3,74 +3,6 @@ import Foundation
 // Resultados de los comandos (`result` de la respuesta y `data` de `--json`, ver docs/cli.md). Las claves son
 // estables: agregar campos opcionales está bien; renombrar o quitar sube `JSONOutput.schemaVersion`.
 
-// MARK: - Fases
-
-extension ReviewPhase {
-    public var cliName: String {
-        switch self {
-        case .queued: "queued"
-        case .preparing: "preparing"
-        case .reviewing: "reviewing"
-        case .filtering: "filtering"
-        case .ready: "ready"
-        case .failed: "failed"
-        case .published: "published"
-        }
-    }
-
-    public var cliDetail: String? {
-        switch self {
-        case .reviewing(let agents): agents == 1 ? "1 agent" : "\(agents) agents"
-        case .failed(let message, _): message
-        case .published(let url): url.absoluteString
-        default: nil
-        }
-    }
-}
-
-extension RespondPhase {
-    public var cliName: String {
-        switch self {
-        case .queued: "queued"
-        case .preparing: "preparing"
-        case .analyzing: "analyzing"
-        case .ready: "ready"
-        case .implementing: "implementing"
-        case .readyToPush: "readyToPush"
-        case .pushing: "pushing"
-        case .done: "done"
-        case .failed: "failed"
-        }
-    }
-
-    public var cliDetail: String? {
-        switch self {
-        case .analyzing(let agents) where agents > 0: agents == 1 ? "1 agent" : "\(agents) agents"
-        case .implementing(let done, let total): "\(done)/\(total)"
-        case .failed(let message, _): message
-        default: nil
-        }
-    }
-}
-
-extension MergePhase {
-    public var cliName: String {
-        switch self {
-        case .merging: "merging"
-        case .merged: "merged"
-        case .failed: "failed"
-        }
-    }
-}
-
-extension FeedbackItem {
-    /// `path:line`, `path` o "General comment" (como `RespondItemHeader`).
-    public var cliLocation: String {
-        guard let path else { return "General comment" }
-        return line.map { "\(path):\($0)" } ?? path
-    }
-}
-
 // MARK: - Estado y PRs
 
 public struct ToolInfo: Codable, Equatable, Sendable {
@@ -175,29 +107,31 @@ public struct PRInfo: Codable, Equatable, Sendable {
     public var tab: PopoverTab?
     public var section: PopoverSection?
 
-    public init(item: ClassifiedPR, review: ReviewPhase?, respond: RespondPhase?, merge: MergePhase? = nil) {
-        let pr = item.pr
-        id = item.id
-        repo = pr.repo.fullName
-        number = pr.number
-        title = pr.title
-        url = pr.url
-        author = pr.author
-        account = item.account
-        category = item.category.rawValue
-        baseRef = pr.baseRef
-        headRef = pr.headRef
-        isDraft = pr.isDraft
-        ci = pr.ciState.rawValue
-        additions = pr.additions
-        deletions = pr.deletions
-        updatedAt = pr.updatedAt
-        self.review = review?.cliName
-        self.respond = respond?.cliName
-        self.merge = merge?.cliName
-        mergeError = merge?.message
-        tab = PopoverTabs.tab(of: item)
-        section = PopoverTabs.section(of: item)
+    public init(id: String, repo: String, number: Int, title: String, url: URL, author: String, account: String,
+                category: String, baseRef: String, headRef: String, isDraft: Bool, ci: String, additions: Int,
+                deletions: Int, updatedAt: Date, review: String? = nil, respond: String? = nil, merge: String? = nil,
+                mergeError: String? = nil, tab: PopoverTab? = nil, section: PopoverSection? = nil) {
+        self.id = id
+        self.repo = repo
+        self.number = number
+        self.title = title
+        self.url = url
+        self.author = author
+        self.account = account
+        self.category = category
+        self.baseRef = baseRef
+        self.headRef = headRef
+        self.isDraft = isDraft
+        self.ci = ci
+        self.additions = additions
+        self.deletions = deletions
+        self.updatedAt = updatedAt
+        self.review = review
+        self.respond = respond
+        self.merge = merge
+        self.mergeError = mergeError
+        self.tab = tab
+        self.section = section
     }
 }
 
@@ -241,14 +175,6 @@ public struct FindingInfo: Codable, Equatable, Sendable {
         self.edited = edited
         self.hiddenBy = hiddenBy
     }
-
-    /// `item` como lo da `ReviewEdits.items(of:)` (con el título editado).
-    public init(number: Int, item: ReviewItem, edits: ReviewEdits) {
-        self.init(number: number, id: item.id, severity: item.finding.severity, location: item.finding.location,
-                  title: item.finding.title, body: edits.body(of: item), keptByFilter: item.keep,
-                  filterReason: item.reason, included: edits.selected.contains(item.id), edited: edits.isEdited(item),
-                  hiddenBy: item.hiddenBy)
-    }
 }
 
 public struct ReviewInfo: Codable, Equatable, Sendable {
@@ -267,29 +193,21 @@ public struct ReviewInfo: Codable, Equatable, Sendable {
     public var reviewURL: URL?
     public var logPath: String?
 
-    public init(prID: String, phase: ReviewPhase?, edits: ReviewEdits? = nil, outdated: Bool = false) {
-        pr = prID
-        self.phase = phase?.cliName ?? "none"
-        detail = phase?.cliDetail
+    public init(pr: String, phase: String, detail: String? = nil, title: String? = nil, summary: String? = nil,
+                language: String? = nil, account: String? = nil, outdated: Bool, findings: [FindingInfo],
+                generalComment: String? = nil, reviewURL: URL? = nil, logPath: String? = nil) {
+        self.pr = pr
+        self.phase = phase
+        self.detail = detail
+        self.title = title
+        self.summary = summary
+        self.language = language
+        self.account = account
         self.outdated = outdated
-        findings = []
-        switch phase {
-        case .failed(_, let logURL)?:
-            logPath = logURL?.path
-        case .published(let url)?:
-            reviewURL = url
-        case .ready(let draft)?:
-            let edits = edits ?? ReviewEdits.initial(for: draft)
-            title = draft.title
-            summary = draft.summary
-            language = draft.language.displayName
-            account = draft.account
-            // #N = posición en `draft.items + edits.added` (plan 6), la misma de la ventana y del chat.
-            findings = edits.items(of: draft).enumerated().map { FindingInfo(number: $0.offset + 1, item: $0.element, edits: edits) }
-            generalComment = edits.generalComment.isEmpty ? nil : edits.generalComment
-        default:
-            break
-        }
+        self.findings = findings
+        self.generalComment = generalComment
+        self.reviewURL = reviewURL
+        self.logPath = logPath
     }
 }
 
@@ -330,21 +248,23 @@ public struct RespondItemInfo: Codable, Equatable, Sendable {
     public var replyText: String
     public var postedURL: URL?
 
-    public init(number: Int, item: RespondItem, selection: RespondSelection, posted: URL?) {
+    public init(number: Int, id: String, reviewer: String, location: String, outdated: Bool, thread: [String],
+                commentURL: URL? = nil, assessment: String, suggested: String, implement: Bool, fixPlan: String,
+                reply: Bool, replyText: String, postedURL: URL? = nil) {
         self.number = number
-        id = item.id
-        reviewer = item.feedback.reviewer
-        location = item.feedback.cliLocation
-        outdated = item.feedback.isOutdated
-        thread = item.feedback.comments.map { "\($0.author): \($0.body)" }
-        commentURL = item.feedback.comments.last?.url
-        assessment = item.assessment
-        suggested = item.action.rawValue
-        implement = selection.implement
-        fixPlan = selection.fixPlan
-        reply = selection.reply
-        replyText = selection.replyText
-        postedURL = posted
+        self.id = id
+        self.reviewer = reviewer
+        self.location = location
+        self.outdated = outdated
+        self.thread = thread
+        self.commentURL = commentURL
+        self.assessment = assessment
+        self.suggested = suggested
+        self.implement = implement
+        self.fixPlan = fixPlan
+        self.reply = reply
+        self.replyText = replyText
+        self.postedURL = postedURL
     }
 }
 
@@ -401,45 +321,34 @@ public struct RespondInfo: Codable, Equatable, Sendable {
     /// Los tests de antes del push fallaron: no se pusheó ("Push Anyway" = `prbar respond push --anyway`).
     public var pushBlockedByTests: Bool
 
-    public init(prID: String, phase: RespondPhase?, record: RespondRecord?, selections: [String: RespondSelection],
-                runningTests: Bool, testCommand: String?, logPath: String? = nil, pushBlockedByTests: Bool = false) {
-        pr = prID
-        self.pushBlockedByTests = pushBlockedByTests
-        self.phase = phase?.cliName ?? "none"
-        detail = phase?.cliDetail
+    public init(pr: String, phase: String, detail: String? = nil, runningTests: Bool, title: String? = nil,
+                account: String? = nil, headRef: String? = nil, worktree: String? = nil, language: String? = nil,
+                items: [RespondItemInfo], fixes: Int, replies: Int, commits: [CommitDTO], diffStat: String? = nil,
+                sensitiveChanges: [String], tests: TestInfo? = nil, pushed: Bool, pendingReplies: Int,
+                testCommand: String? = nil, errorMessage: String? = nil, logPath: String? = nil,
+                pushBlockedByTests: Bool) {
+        self.pr = pr
+        self.phase = phase
+        self.detail = detail
         self.runningTests = runningTests
+        self.title = title
+        self.account = account
+        self.headRef = headRef
+        self.worktree = worktree
+        self.language = language
+        self.items = items
+        self.fixes = fixes
+        self.replies = replies
+        self.commits = commits
+        self.diffStat = diffStat
+        self.sensitiveChanges = sensitiveChanges
+        self.tests = tests
+        self.pushed = pushed
+        self.pendingReplies = pendingReplies
         self.testCommand = testCommand
+        self.errorMessage = errorMessage
         self.logPath = logPath
-        items = []
-        fixes = 0
-        replies = 0
-        commits = []
-        sensitiveChanges = []
-        pushed = false
-        pendingReplies = 0
-        guard let record else { return }
-        let draft = record.draft
-        title = draft.title
-        account = draft.account
-        headRef = draft.headRef
-        worktree = draft.worktree.path
-        language = draft.language.displayName
-        items = draft.items.enumerated().map { index, item in
-            RespondItemInfo(number: index + 1, item: item,
-                            selection: selections[item.id] ?? RespondSelection.defaults(for: item),
-                            posted: record.posted[item.id]?.url)
-        }
-        fixes = RespondCounts.fixes(draft, selections)
-        replies = RespondCounts.plannedReplies(draft, selections)
-        if let result = record.result {
-            commits = result.items.map { CommitDTO(item: $0.id, status: $0.status.rawValue, sha: $0.commit, summary: $0.summary) }
-            diffStat = result.diffStat
-            sensitiveChanges = result.sensitiveChanges
-            tests = result.tests.map { TestInfo(command: $0.command, passed: $0.passed, outputTail: $0.outputTail) }
-        }
-        pushed = record.pushed
-        pendingReplies = RespondCounts.pendingReplies(record)
-        errorMessage = record.errorMessage
+        self.pushBlockedByTests = pushBlockedByTests
     }
 }
 
@@ -484,34 +393,6 @@ public struct HistoryEntryInfo: Codable, Equatable, Sendable {
         self.status = status
         self.startedAt = startedAt
         self.finishedAt = finishedAt
-    }
-
-    public init(review record: ReviewRecord) {
-        self.init(id: record.id, kind: .review, pr: record.draft.prID, repo: record.draft.repo.fullName,
-                  number: record.draft.number, title: record.draft.title, status: record.status.rawValue,
-                  startedAt: record.startedAt, finishedAt: record.finishedAt)
-    }
-
-    public init(respond record: RespondRecord) {
-        let status = if record.errorMessage != nil {
-            "failed"
-        } else if record.pushed || !record.posted.isEmpty {
-            "done"
-        } else if record.result != nil {
-            "readyToPush"
-        } else {
-            "ready"
-        }
-        self.init(id: record.id, kind: .respond, pr: record.draft.prID, repo: record.draft.repo.fullName,
-                  number: record.draft.number, title: record.draft.title, status: status,
-                  startedAt: record.startedAt, finishedAt: record.finishedAt)
-    }
-
-    /// Un merge desde PRBar (spec G.4): `merged`, `failed` u `open` (no se mergeó).
-    public init(merge record: MergeRecord) {
-        self.init(id: record.id, kind: .merge, pr: record.prID, repo: record.repo.fullName, number: record.number,
-                  title: record.title, status: record.status.rawValue, startedAt: record.startedAt,
-                  finishedAt: record.finishedAt)
     }
 
     /// Búsqueda de la ventana de Historial: título, repo o número ("482" o "#482"). `query` ya en minúsculas.
@@ -581,47 +462,6 @@ public struct HistoryDetail: Codable, Equatable, Sendable {
         self.mergeMethod = mergeMethod
         self.headOid = headOid
     }
-
-    public init(review record: ReviewRecord, logPath: String?, canReopen: Bool) {
-        let edits = record.draft.edits ?? ReviewEdits.initial(for: record.draft)
-        let findings = edits.items(of: record.draft).enumerated().map { index, item -> FindingInfo in
-            let finding = item.finding
-            let published = record.published[item.id]
-            return FindingInfo(number: index + 1, id: item.id, severity: finding.severity, location: finding.location,
-                               title: finding.title, body: published ?? edits.body(of: item), keptByFilter: item.keep,
-                               filterReason: item.reason, included: published != nil, edited: edits.isEdited(item),
-                               hiddenBy: item.hiddenBy)
-        }
-        self.init(entry: HistoryEntryInfo(review: record), prURL: record.draft.url, summary: record.draft.summary,
-                  errorMessage: record.errorMessage, findings: findings, generalComment: record.generalComment,
-                  action: record.status == .published ? record.action.rawValue : nil, reviewURL: record.reviewURL,
-                  logPath: logPath, canReopen: canReopen,
-                  chat: record.draft.chat.flatMap { session in
-                      session.messages.isEmpty ? nil
-                          : ChatInfo(pr: record.draft.prID, session: session) { edits.number(of: $0, in: record.draft) }
-                  })
-    }
-
-    public init(merge record: MergeRecord, logPath: String?) {
-        self.init(entry: HistoryEntryInfo(merge: record), prURL: record.url, errorMessage: record.errorMessage, logPath: logPath,
-                  chat: record.chat.flatMap { session in
-                      session.messages.isEmpty ? nil : ChatInfo(pr: record.prID, session: session) { _ in nil }
-                  },
-                  mergeMethod: record.method, headOid: record.headOid)
-    }
-
-    public init(respond record: RespondRecord, logPath: String?, canOpen: Bool) {
-        let replies = record.draft.items.compactMap { item in
-            record.posted[item.id].map { PostedReplyInfo(item: item.id, location: item.feedback.cliLocation, url: $0.url) }
-        }
-        let draft = record.draft
-        self.init(entry: HistoryEntryInfo(respond: record), prURL: draft.url, errorMessage: record.errorMessage,
-                  replies: replies, pushed: record.pushed, logPath: logPath, canOpen: canOpen,
-                  chat: record.chat.flatMap { session in
-                      session.messages.isEmpty ? nil
-                          : ChatInfo(pr: draft.prID, session: session) { id in draft.items.firstIndex { $0.id == id }.map { $0 + 1 } }
-                  })
-    }
 }
 
 // MARK: - Configuración
@@ -657,18 +497,20 @@ public struct RepoInfo: Codable, Equatable, Sendable {
     /// `local`, el nombre de un destino SSH, o `nil` = "Default" (spec J.1).
     public var runOn: String?
 
-    public init(config: RepoConfig, account: String) {
-        id = config.id
+    public init(id: String, account: String, localPath: String? = nil, worktreeDir: String? = nil,
+                testCommand: String? = nil, baseBranches: [String], watchedUsers: [String], slackChannel: String? = nil,
+                ignorePaths: [String], mergeMethod: MergeMethod? = nil, runOn: String? = nil) {
+        self.id = id
         self.account = account
-        localPath = config.localPath
-        worktreeDir = config.worktreeDir
-        testCommand = config.testCommand
-        baseBranches = config.baseBranches
-        watchedUsers = config.watchedUsers
-        slackChannel = config.slackChannelName ?? config.slackChannelID
-        ignorePaths = config.ignorePaths
-        mergeMethod = config.mergeMethod
-        runOn = config.runOn?.cliValue
+        self.localPath = localPath
+        self.worktreeDir = worktreeDir
+        self.testCommand = testCommand
+        self.baseBranches = baseBranches
+        self.watchedUsers = watchedUsers
+        self.slackChannel = slackChannel
+        self.ignorePaths = ignorePaths
+        self.mergeMethod = mergeMethod
+        self.runOn = runOn
     }
 }
 
@@ -683,11 +525,12 @@ public struct RunnerInfo: Codable, Equatable, Sendable {
     /// La última verificación (`nil` = todavía no se verificó en esta sesión).
     public var lastCheck: RunnerHostInfo?
 
-    public init(destination: RunnerDestination, isDefault: Bool, lastCheck: RunnerHostInfo?) {
-        name = destination.name
-        host = destination.endpoint.display
-        dir = destination.remoteDir
-        fallback = destination.fallbackToLocal
+    public init(name: String, host: String, dir: String, fallback: Bool, isDefault: Bool,
+                lastCheck: RunnerHostInfo? = nil) {
+        self.name = name
+        self.host = host
+        self.dir = dir
+        self.fallback = fallback
         self.isDefault = isDefault
         self.lastCheck = lastCheck
     }
@@ -739,9 +582,9 @@ public struct NotificationsInfo: Codable, Equatable, Sendable {
     /// Las notificaciones de PRBar están apagadas en Ajustes del Sistema.
     public var deniedInMacOS: Bool
 
-    public init(settings: NotificationSettings, deniedInMacOS: Bool) {
-        enabled = settings.enabled
-        kinds = Dictionary(uniqueKeysWithValues: NotificationSettingName.allCases.map { ($0.rawValue, settings[keyPath: $0.keyPath]) })
+    public init(enabled: Bool, kinds: [String: Bool], deniedInMacOS: Bool) {
+        self.enabled = enabled
+        self.kinds = kinds
         self.deniedInMacOS = deniedInMacOS
     }
 }
@@ -761,19 +604,6 @@ public struct SkillInfo: Codable, Equatable, Sendable {
         self.available = available
         self.reason = reason
     }
-
-    public init(entry: ClaudeSkillEntry) {
-        let source = switch entry.source {
-        case .plugin(let name, _): "plugin:\(name)"
-        case .user: "user"
-        }
-        let reason: String? = switch entry.availability {
-        case .available: nil
-        case .checking: "Checking whether it loads in isolated runs…"
-        case .unavailable(let reason): reason
-        }
-        self.init(id: entry.id, source: source, description: entry.description, available: entry.isAvailable, reason: reason)
-    }
 }
 
 // MARK: - Slack
@@ -791,15 +621,16 @@ public struct SlackInfo: Codable, Equatable, Sendable {
     public var searchDays: Int
     public var issues: [String]
 
-    public init(settings: SlackSettings, connected: Bool, hasToken: Bool, needsUserToken: Bool, issues: [String]) {
-        enabled = settings.enabled
-        provider = settings.provider
+    public init(enabled: Bool, provider: SlackProvider, connected: Bool, hasToken: Bool, needsUserToken: Bool,
+                toggles: [String: Bool], emojis: [String: String], searchDays: Int, issues: [String]) {
+        self.enabled = enabled
+        self.provider = provider
         self.connected = connected
         self.hasToken = hasToken
         self.needsUserToken = needsUserToken
-        toggles = Dictionary(uniqueKeysWithValues: SlackToggleName.allCases.map { ($0.rawValue, settings[keyPath: $0.toggle.keyPath]) })
-        emojis = Dictionary(uniqueKeysWithValues: SlackEmojiKind.allCases.map { ($0.rawValue, settings[keyPath: $0.keyPath]) })
-        searchDays = settings.effectiveSearchDays
+        self.toggles = toggles
+        self.emojis = emojis
+        self.searchDays = searchDays
         self.issues = issues
     }
 }
@@ -822,14 +653,10 @@ public struct SelfTestStepInfo: Codable, Equatable, Sendable {
     public var status: String
     public var detail: String
 
-    public init(step: SlackSelfTestStep) {
-        title = step.title
-        status = switch step.status {
-        case .ok: "ok"
-        case .failed: "failed"
-        case .skipped: "skipped"
-        }
-        detail = step.detail
+    public init(title: String, status: String, detail: String) {
+        self.title = title
+        self.status = status
+        self.detail = detail
     }
 }
 
@@ -840,12 +667,12 @@ public struct TemplateInfo: Codable, Equatable, Sendable {
     public var defaultText: String
     public var variables: [String]
 
-    public init(name: SlackTemplateName, settings: SlackSettings) {
-        self.name = name.rawValue
-        text = settings[keyPath: name.kind.keyPath]
-        isDefault = name.kind.isDefault(text)
-        defaultText = name.kind.defaultTemplate
-        variables = name.kind.variables.map(\.token)
+    public init(name: String, text: String, isDefault: Bool, defaultText: String, variables: [String]) {
+        self.name = name
+        self.text = text
+        self.isDefault = isDefault
+        self.defaultText = defaultText
+        self.variables = variables
     }
 }
 
@@ -855,11 +682,11 @@ public struct ChannelInfo: Codable, Equatable, Sendable {
     public var isPrivate: Bool
     public var isMember: Bool
 
-    public init(channel: SlackChannel) {
-        id = channel.id
-        name = channel.name
-        isPrivate = channel.isPrivate
-        isMember = channel.isMember
+    public init(id: String, name: String, isPrivate: Bool, isMember: Bool) {
+        self.id = id
+        self.name = name
+        self.isPrivate = isPrivate
+        self.isMember = isMember
     }
 }
 
@@ -876,10 +703,6 @@ public struct MergeInfo: Codable, Equatable, Sendable {
         self.method = method
         self.mergedAt = mergedAt
         self.url = url
-    }
-
-    public init(completion: MergeCompletion) {
-        self.init(pr: completion.item.id, method: completion.method, mergedAt: completion.mergedAt, url: completion.item.pr.url)
     }
 }
 
@@ -908,20 +731,21 @@ public struct MergePreviewInfo: Codable, Equatable, Sendable {
     /// ese caso la vista previa de un PR que no se puede mergear es un error.
     public var problem: String?
 
-    public init(item: ClassifiedPR, method: MergeMethod, options: MergeOptions, deletesBranch: Bool, phase: MergePhase?,
-                detail: MergeDetail? = nil, detailError: String? = nil, problem: String? = nil) {
-        let pr = item.pr
-        self.pr = item.id
-        title = pr.title
-        url = pr.url
-        baseRef = pr.baseRef
-        headRef = pr.headRef
-        headOid = pr.headOid
-        commitCount = pr.merge.commitCount
+    public init(pr: String, title: String, url: URL, baseRef: String, headRef: String, headOid: String,
+                commitCount: Int? = nil, method: MergeMethod, note: String? = nil, deletesBranch: Bool,
+                previousError: String? = nil, detail: MergeDetail? = nil, detailError: String? = nil,
+                problem: String? = nil) {
+        self.pr = pr
+        self.title = title
+        self.url = url
+        self.baseRef = baseRef
+        self.headRef = headRef
+        self.headOid = headOid
+        self.commitCount = commitCount
         self.method = method
-        note = options.availability.note
+        self.note = note
         self.deletesBranch = deletesBranch
-        previousError = phase?.message
+        self.previousError = previousError
         self.detail = detail
         self.detailError = detailError
         self.problem = problem
@@ -950,11 +774,6 @@ public struct RuleProposalInfo: Codable, Equatable, Sendable {
         self.appliesTo = appliesTo
         self.text = text
         self.status = status
-    }
-
-    public init(number: Int?, proposal: RuleProposal) {
-        self.init(number: number, id: proposal.id, scope: RuleInfo.scopeName(proposal.scope),
-                  appliesTo: proposal.appliesTo.sorted(), text: proposal.text, status: proposal.status.rawValue)
     }
 }
 
@@ -1010,34 +829,6 @@ public struct ChatInfo: Codable, Equatable, Sendable {
     }
 }
 
-extension ChatInfo {
-    /// La conversación como la muestra el panel del chat: `number` da el `#N` de un hallazgo o comentario (para
-    /// "edited #2"); las tarjetas "Save as rule" pendientes se numeran desde 1 en orden.
-    public init(pr: String, kind: String, messages: [ChatMessage], undoableMessageID: UUID?, canUndo: Bool, readOnly: Bool,
-                running: Bool, lockReason: String?, streamed: Bool = false, number: (String) -> Int?) {
-        var pending = 0
-        let infos = messages.map { message -> ChatMessageInfo in
-            let proposals = message.proposals.map { proposal -> RuleProposalInfo in
-                guard proposal.status == .pending else { return RuleProposalInfo(number: nil, proposal: proposal) }
-                pending += 1
-                return RuleProposalInfo(number: pending, proposal: proposal)
-            }
-            return ChatMessageInfo(id: message.id, role: message.role.rawValue, text: message.text, createdAt: message.createdAt,
-                                   changes: message.changes.isEmpty ? nil : ChatActions.summary(message.changes, number: number),
-                                   undone: message.undone, notes: message.notes,
-                                   undoable: canUndo && message.id == undoableMessageID, proposals: proposals)
-        }
-        self.init(pr: pr, kind: kind, readOnly: readOnly, running: running, lockReason: lockReason, messages: infos,
-                  streamed: streamed)
-    }
-
-    /// Una conversación guardada (historial): solo lectura.
-    public init(pr: String, session: ChatSession, number: (String) -> Int?) {
-        self.init(pr: pr, kind: session.kind.rawValue, messages: session.messages, undoableMessageID: nil, canUndo: false,
-                  readOnly: true, running: false, lockReason: nil, number: number)
-    }
-}
-
 // MARK: - Actualizaciones
 
 public struct UpdateInfo: Codable, Equatable, Sendable {
@@ -1059,11 +850,6 @@ public struct UpdateInfo: Codable, Equatable, Sendable {
         self.skipped = skipped
     }
 
-    public init(installed: String, release: ReleaseInfo, skipped: Bool = false) {
-        self.init(installed: installed, latest: release.version.description, title: release.title, notes: release.notes,
-                  url: release.url, skipped: skipped)
-    }
-
     public var isAvailable: Bool { latest != nil }
 }
 
@@ -1080,7 +866,8 @@ public struct RuleInfo: Codable, Equatable, Sendable {
     public var enabled: Bool
     public var updatedAt: Date
 
-    public init(id: String, scope: String, appliesTo: [RuleStage], text: String, source: String, enabled: Bool, updatedAt: Date) {
+    public init(id: String, scope: String, appliesTo: [RuleStage], text: String, source: String, enabled: Bool,
+                updatedAt: Date) {
         self.id = id
         self.scope = scope
         self.appliesTo = appliesTo
@@ -1088,11 +875,6 @@ public struct RuleInfo: Codable, Equatable, Sendable {
         self.source = source
         self.enabled = enabled
         self.updatedAt = updatedAt
-    }
-
-    public init(rule: Rule) {
-        self.init(id: rule.id.uuidString, scope: Self.scopeName(rule.scope), appliesTo: rule.appliesTo.sorted(),
-                  text: rule.text, source: rule.source.rawValue, enabled: rule.enabled, updatedAt: rule.updatedAt)
     }
 
     public static func scopeName(_ scope: RuleScope) -> String {
@@ -1117,11 +899,6 @@ public struct RuleSuggestionInfo: Codable, Equatable, Sendable {
         self.category = category
         self.reason = reason
         self.proposedText = proposedText
-    }
-
-    public init(suggestion: RuleSuggestion) {
-        self.init(id: suggestion.id, scope: RuleInfo.scopeName(suggestion.scope), category: suggestion.category.rawValue,
-                  reason: suggestion.message, proposedText: suggestion.text)
     }
 }
 
