@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// Lo que se lee de un proceso.
@@ -127,5 +128,53 @@ public enum ResourceMeter {
             steps += 1
         }
         return nil
+    }
+}
+
+/// `proc_listchildpids`, `proc_pid_rusage` y `proc_pidinfo` (sin `ps`). Los tiempos de `rusage_info` vienen en
+/// unidades de `mach_absolute_time` (en Apple Silicon no son nanosegundos): se convierten con `mach_timebase_info`.
+public struct LiveProcessInfoProvider: ProcessInfoProviding {
+    public init() {}
+
+    private static let timebase: mach_timebase_info_data_t = {
+        var info = mach_timebase_info_data_t()
+        mach_timebase_info(&info)
+        return info
+    }()
+
+    static func nanoseconds(_ ticks: UInt64) -> UInt64 {
+        let base = timebase
+        guard base.denom != 0 else { return ticks }
+        return ticks / UInt64(base.denom) * UInt64(base.numer) + ticks % UInt64(base.denom) * UInt64(base.numer) / UInt64(base.denom)
+    }
+
+    public func children(of pid: Int32) -> [Int32] {
+        var capacity = 256
+        while capacity <= 65_536 {
+            var buffer = [Int32](repeating: 0, count: capacity)
+            let count = buffer.withUnsafeMutableBytes { proc_listchildpids(pid, $0.baseAddress, Int32($0.count)) }
+            if count < 0 { return [] }
+            if Int(count) < capacity { return buffer.prefix(Int(count)).filter { $0 > 0 } }
+            capacity *= 2
+        }
+        return []
+    }
+
+    public func stat(of pid: Int32) -> ProcessStat? {
+        var usage = rusage_info_v2()
+        let status = withUnsafeMutablePointer(to: &usage) { pointer in
+            pointer.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) { proc_pid_rusage(pid, RUSAGE_INFO_V2, $0) }
+        }
+        guard status == 0 else { return nil }
+        var name = [CChar](repeating: 0, count: 1024)
+        let length = proc_name(pid, &name, UInt32(name.count))
+        var bsd = proc_bsdinfo()
+        let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+        let started: Date? = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &bsd, size) == size
+            ? Date(timeIntervalSince1970: TimeInterval(bsd.pbi_start_tvsec) + TimeInterval(bsd.pbi_start_tvusec) / 1_000_000)
+            : nil
+        return ProcessStat(pid: pid, name: length > 0 ? String(cString: name) : "?",
+                           cpuNanos: Self.nanoseconds(usage.ri_user_time &+ usage.ri_system_time),
+                           memoryBytes: usage.ri_phys_footprint, startedAt: started)
     }
 }

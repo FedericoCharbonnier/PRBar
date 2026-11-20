@@ -71,5 +71,22 @@ enum ProcessSamplingTests {
             try expectEqual(remote?.remoteHost, "devbox")
             try expectEqual(remote?.cpuPercent, 0)
         },
+        TestCase("sampling: libproc ve a un hijo de verdad con su nombre, CPU y memoria") {
+            let child = Process()
+            child.executableURL = URL(fileURLWithPath: "/bin/sleep")
+            child.arguments = ["5"]
+            try child.run()
+            defer { child.terminate() }
+            let provider = LiveProcessInfoProvider()
+            let children = provider.children(of: getpid())
+            try expect(children.contains(child.processIdentifier), "hijos: \(children)")
+            let stat = provider.stat(of: child.processIdentifier)
+            try expectEqual(stat?.name, "sleep")
+            try expect((stat?.memoryBytes ?? 0) > 0)
+            try expect(stat?.startedAt != nil)
+            let me = provider.stat(of: getpid())
+            try expect((me?.cpuNanos ?? 0) > 0)
+            try expectEqual(provider.stat(of: 999_999), nil)
+        },
     ]
 }
