@@ -191,7 +191,11 @@ final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActi
     func chatStop(pr: String) throws -> ChatInfo { try record("chatStop \(pr)"); return chatInfo(pr) }
 
     // MARK: UpdateCommandActions
-    func updateCheck() async throws -> UpdateInfo { try record("updateCheck"); return UpdateInfo(installed: "1.0.0") }
+    /// Lo que encuentra `updateCheck` (`nil` = al día).
+    var updateLatest: String?
+    func updateCheck() async throws -> UpdateInfo {
+        try record("updateCheck"); return UpdateInfo(installed: "1.0.0", latest: updateLatest)
+    }
     func updateInstall(cancelJobs: Bool, events: @escaping CommandEventSink) async throws -> UpdateInfo {
         try record("updateInstall \(cancelJobs)"); return UpdateInfo(installed: "1.0.0")
     }

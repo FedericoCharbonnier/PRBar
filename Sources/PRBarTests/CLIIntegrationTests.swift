@@ -59,7 +59,25 @@ enum CLIIntegrationTests {
         TestCase("integración: errores de la app → exit codes") { try await errors() },
         TestCase("integración: sin app → exit 3") { try await noApp() },
         TestCase("integración: merge sin --yes y sin terminal → exit 4; --dismiss no pregunta") { try await mergeNeedsYes() },
+        TestCase("integración: update --check sale con 10 si hay versión nueva, también con --json") { try await updateCheckExit() },
     ]
+
+    @MainActor
+    private static func updateCheckExit() async throws {
+        let harness = try Harness()
+        defer { harness.server.stop() }
+        let upToDate = try await runCLI(["update", "--check", "--json"], socket: harness.url)
+        try expectEqual(upToDate.code, 0)
+        harness.fake.updateLatest = "2.0.0"
+        let text = try await runCLI(["update", "--check"], socket: harness.url)
+        try expectEqual(text.code, CLIExit.updateAvailable)
+        try expect(text.out.contains("2.0.0 is available"), text.out)
+        let json = try await runCLI(["update", "--check", "--json"], socket: harness.url)
+        try expectEqual(json.code, CLIExit.updateAvailable)
+        let decoded = try JSONDecoder().decode([String: JSONValue].self, from: Data(json.out.utf8))
+        guard case .object(let data)? = decoded["data"] else { throw TestFailure(description: json.out) }
+        try expectEqual(data["latest"], .string("2.0.0"))
+    }
 
     @MainActor
     private static func jsonStatus() async throws {

@@ -34,6 +34,9 @@ public protocol RemoteCommand: ParsableCommand {
     /// Lo que cancela el job si el usuario aprieta Ctrl-C mientras espera (`--wait`).
     var cancelCommand: AppCommand? { get }
     func render(_ result: JSONValue, _ output: Output) throws
+    /// Un exit code distinto de 0 que depende del resultado (`update --check`: 10 si hay versión nueva). Vale igual
+    /// con `--json`.
+    func exitCode(for result: JSONValue) throws -> Int32
 }
 
 extension RemoteCommand {
@@ -42,6 +45,7 @@ extension RemoteCommand {
     public var confirmationPolicy: ConfirmationPolicy { .always }
     public var cancelCommand: AppCommand? { nil }
     public func render(_ result: JSONValue, _ output: Output) throws { output.line("Done.") }
+    public func exitCode(for result: JSONValue) throws -> Int32 { CLIExit.ok }
 
     public mutating func run() throws {
         try CLIRunner.run(self)
@@ -109,6 +113,8 @@ public enum CLIRunner {
             } else {
                 try command.render(result, output)
             }
+            let code = try command.exitCode(for: result)
+            if code != CLIExit.ok { throw ExitCode(code) }
         } catch let failure as CommandFailure {
             output.error(failure.message)
             throw ExitCode(CLIExit.code(for: failure))

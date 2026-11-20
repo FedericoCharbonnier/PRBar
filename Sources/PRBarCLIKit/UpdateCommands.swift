@@ -49,12 +49,18 @@ struct UpdateCommand: RemoteCommand {
             if let latest = info.latest {
                 output.line("PRBar \(latest) is available (installed: \(info.installed))\(info.skipped ? " — skipped" : "").")
                 if let notes = info.notes, !notes.isEmpty { output.line(notes) }
-                throw ExitCode(CLIExit.updateAvailable)
+                return
             }
             return output.line("PRBar is up to date (\(info.installed)).")
         }
         if skip { return output.line("Skipped \(info.latest ?? "it"). PRBar will offer the next one.") }
         output.line("Installed \(info.latest ?? "the update"). PRBar is restarting…")
+    }
+
+    func exitCode(for result: JSONValue) throws -> Int32 {
+        guard check else { return CLIExit.ok }
+        let info: UpdateInfo = try result.decode()
+        return info.isAvailable ? CLIExit.updateAvailable : CLIExit.ok
     }
 
     mutating func run() throws {
