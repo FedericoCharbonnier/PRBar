@@ -31,9 +31,9 @@ public struct RemoteFixImport: Sendable {
     // MARK: Git local
 
     @discardableResult
-    func local(_ repository: String, _ arguments: [String], environment extra: [String: String] = [:],
+    func local(_ repository: String, _ arguments: [String], config: [String] = [], environment extra: [String: String] = [:],
                hardened: Bool = true, timeout: TimeInterval = WorktreeManager.slowTimeout) async throws -> String {
-        let args = ["-C", repository] + (hardened ? GitHardening.arguments : []) + arguments
+        let args = ["-C", repository] + (hardened ? GitHardening.arguments : []) + config + arguments
         let result = try await localRunner.run(localGit, args, environment: gitEnvironment.merging(extra) { _, new in new },
                                                currentDirectory: nil, timeout: timeout)
         guard result.status == 0 else {
@@ -43,12 +43,52 @@ public struct RemoteFixImport: Sendable {
         return result.stdout
     }
 
-    /// El token de la cuenta para un clone temporal: por variables de entorno de git, nunca en los argumentos.
-    static func tokenEnvironment(_ token: String?) -> [String: String] {
-        guard let token, !token.isEmpty else { return [:] }
-        let basic = Data("x-access-token:\(token)".utf8).base64EncodedString()
-        return ["GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
-                "GIT_CONFIG_VALUE_0": "AUTHORIZATION: basic \(basic)"]
+    /// El token de la cuenta para el clone temporal (decisión 4): ni en los argumentos ni en el entorno (`ps` los
+    /// muestra). Va en un archivo de `credential-store` 0600, en una carpeta 0700 propia, que se borra al terminar;
+    /// `credential.helper=` vacío descarta los helpers del usuario.
+    public struct CredentialFile: Sendable {
+        public let path: String
+
+        public init(token: String, in base: URL) throws {
+            try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            let directory = base.appendingPathComponent(".credentials-\(UUID().uuidString.lowercased())").path
+            guard mkdir(directory, 0o700) == 0, chmod(directory, 0o700) == 0 else { throw CocoaError(.fileWriteUnknown) }
+            let file = directory + "/credentials"
+            let fd = open(file, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
+            guard fd >= 0 else {
+                rmdir(directory)
+                throw CocoaError(.fileWriteUnknown)
+            }
+            defer { close(fd) }
+            let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~")
+            let encoded = token.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
+            let line = Array("https://x-access-token:\(encoded)@github.com\n".utf8)
+            guard !encoded.isEmpty, write(fd, line, line.count) == line.count else {
+                unlink(file)
+                rmdir(directory)
+                throw CocoaError(.fileWriteUnknown)
+            }
+            path = file
+        }
+
+        /// Antes del subcomando de git. La ruta va con comillas: git corre el helper con el shell.
+        public var arguments: [String] {
+            ["-c", "credential.helper=", "-c", "credential.helper=store --file=" + ((try? ShellQuote.posix(path)) ?? "/dev/null")]
+        }
+
+        public func remove() {
+            unlink(path)
+            rmdir((path as NSString).deletingLastPathComponent)
+        }
+    }
+
+    /// Corre `body` con los argumentos de `CredentialFile` si hay token (y solo en el clone temporal); lo borra después.
+    @discardableResult
+    func withCredentials<T>(_ token: String?, temporary: Bool, _ body: ([String]) async throws -> T) async throws -> T {
+        guard temporary, let token, !token.isEmpty else { return try await body([]) }
+        let file = try CredentialFile(token: token, in: tempRoot)
+        defer { file.remove() }
+        return try await body(file.arguments)
     }
 
     // MARK: Import
@@ -68,9 +108,10 @@ public struct RemoteFixImport: Sendable {
         do {
             if (try? await local(repository, ["cat-file", "-e", "\(draft.startHeadOid)^{commit}"])) == nil {
                 // `--depth=1` solo en el clone temporal: en el del usuario lo volvería shallow.
-                try await local(repository, ["fetch", "--no-write-fetch-head", "--no-tags"] + (temporary ? ["--depth=1"] : [])
-                                    + ["origin", draft.startHeadOid],
-                                environment: temporary ? Self.tokenEnvironment(token) : [:])
+                try await withCredentials(token, temporary: temporary) { credentials in
+                    try await local(repository, ["fetch", "--no-write-fetch-head", "--no-tags"] + (temporary ? ["--depth=1"] : [])
+                                        + ["origin", draft.startHeadOid], config: credentials)
+                }
             }
             guard remoteHead != draft.startHeadOid else {
                 try await local(repository, ["update-ref", Self.ref(draft), remoteHead])
@@ -157,10 +198,12 @@ public struct RemoteFixImport: Sendable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard remoteHead == reviewed else { throw mismatch("the server’s worktree is now at \(remoteHead.prefix(12)).") }
 
-        let args = ["-C", repository] + RespondPublisher.pushHardening + ["push", "origin", "\(reviewed):refs/heads/\(draft.headRef)"]
-        let pushed = try await localRunner.run(localGit, args,
-                                               environment: gitEnvironment.merging(objects.temporary ? Self.tokenEnvironment(token) : [:]) { _, new in new },
-                                               currentDirectory: nil, timeout: RespondPublisher.pushTimeout)
+        let pushed = try await withCredentials(token, temporary: objects.temporary) { credentials in
+            let args = ["-C", repository] + RespondPublisher.pushHardening + credentials
+                + ["push", "origin", "\(reviewed):refs/heads/\(draft.headRef)"]
+            return try await localRunner.run(localGit, args, environment: gitEnvironment, currentDirectory: nil,
+                                             timeout: RespondPublisher.pushTimeout)
+        }
         guard pushed.status == 0 else {
             let stderr = [pushed.stderr, pushed.stdout].joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
             throw PRBarError.respond(RespondPublisher.pushFailureMessage(stderr: Redactor.redact(stderr, secrets: [token].compactMap { $0 })))

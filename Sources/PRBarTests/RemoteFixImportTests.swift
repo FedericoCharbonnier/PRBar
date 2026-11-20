@@ -4,7 +4,43 @@ import PRBarCore
 private let localGitEnvironment = ["GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"]
 
 /// Un worktree de Respond en el host con un commit de "fix", y el import listo para usar.
-private func remoteFix(beforeRemote: (TempGitRepo) throws -> Void = { _ in }) async throws
+/// Runner local real que anota argumentos y entorno de cada proceso.
+private final class RecordingLocalRunner: FileIOProcessRunning, ProcessRunning, @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [(arguments: [String], environment: [String: String])] = []
+    var calls: [(arguments: [String], environment: [String: String])] { lock.withLock { recorded } }
+    /// Los archivos de credenciales que existían mientras corría cada `git` (para ver que se borran después).
+    var credentialFiles: [String] = []
+
+    func run(_ executable: String, _ arguments: [String], environment: [String: String]?, currentDirectory: URL?,
+             timeout: TimeInterval?) async throws -> ProcessResult {
+        record(arguments, environment)
+        return try await SystemProcessRunner().run(executable, arguments, environment: environment, currentDirectory: currentDirectory, timeout: timeout)
+    }
+
+    func runWithFiles(_ executable: String, _ arguments: [String], environment: [String: String]?, currentDirectory: URL?,
+                      timeout: TimeInterval?, standardInput: URL?, standardOutput: URL?,
+                      onStdoutLine: (@Sendable (String) -> Void)?) async throws -> ProcessResult {
+        record(arguments, environment)
+        return try await SystemProcessRunner().runWithFiles(executable, arguments, environment: environment, currentDirectory: currentDirectory,
+                                                            timeout: timeout, standardInput: standardInput, standardOutput: standardOutput,
+                                                            onStdoutLine: onStdoutLine)
+    }
+
+    private func record(_ arguments: [String], _ environment: [String: String]?) {
+        lock.withLock {
+            recorded.append((arguments, environment ?? [:]))
+            for argument in arguments where argument.hasPrefix("credential.helper=store --file=") {
+                var path = String(argument.dropFirst("credential.helper=store --file=".count))
+                if path.hasPrefix("'") && path.hasSuffix("'") && path.count >= 2 { path = String(path.dropFirst().dropLast()) }
+                if FileManager.default.fileExists(atPath: path) { credentialFiles.append(path) }
+            }
+        }
+    }
+}
+
+private func remoteFix(localRunner: FileIOProcessRunning & ProcessRunning = SystemProcessRunner(),
+                       beforeRemote: (TempGitRepo) throws -> Void = { _ in }) async throws
     -> (TempGitRepo, FakeSSH, RemoteWorkspaces, ResolvedWorktree, String, RemoteFixImport) {
     let repo = try TempGitRepo.make()
     try beforeRemote(repo)
@@ -16,7 +52,7 @@ private func remoteFix(beforeRemote: (TempGitRepo) throws -> Void = { _ in }) as
     let wt = URL(fileURLWithPath: worktree.path)
     try Data("fixed\n".utf8).write(to: wt.appendingPathComponent("feature.txt"))
     try TempGitRepo.run(wt, ["commit", "-q", "-am", "Fix the thing"])
-    let importer = RemoteFixImport(spaces: spaces, localGit: TempGitRepo.git, localRunner: SystemProcessRunner(),
+    let importer = RemoteFixImport(spaces: spaces, localGit: TempGitRepo.git, localRunner: localRunner,
                                    gitEnvironment: localGitEnvironment, tempRoot: repo.base.appendingPathComponent("push"),
                                    originURL: { _ in repo.origin.path }, originMatches: { _, _ in true })
     return (repo, ssh, spaces, worktree, start, importer)
@@ -80,6 +116,57 @@ enum RemoteFixImportTests {
             try expectEqual(pushed, result.headOid)
             await importer.discard(result)
             try expect(!FileManager.default.fileExists(atPath: objects.repoPath))
+        },
+        TestCase("remote fixes: el token del clone temporal va en un archivo de credenciales 0600 y nunca en argv ni en el entorno") {
+            let recorder = RecordingLocalRunner()
+            let (repo, ssh, _, worktree, start, importer) = try await remoteFix(localRunner: recorder) { repo in
+                try TempGitRepo.run(repo.origin, ["checkout", "-q", "feature"])
+                try Data("more\n".utf8).write(to: repo.origin.appendingPathComponent("more.txt"))
+                try TempGitRepo.run(repo.origin, ["add", "-A"])
+                try TempGitRepo.run(repo.origin, ["commit", "-q", "-m", "more"])
+                try TempGitRepo.run(repo.origin, ["checkout", "-q", "main"])
+            }
+            defer { repo.remove(); ssh.remove() }
+            let token = "ghp_SuperSecretToken123"
+            let d = draft(worktree, start: start)
+            let result = try await importer.importFixes(draft: d, localPath: nil, items: [], integrity: "x", token: token)
+            try await importer.push(draft: d, result: result, token: token)
+            await importer.discard(result)
+            let basic = Data("x-access-token:\(token)".utf8).base64EncodedString()
+            for call in recorder.calls {
+                for text in call.arguments + Array(call.environment.values) {
+                    try expect(!text.contains(token) && !text.contains(basic), "el token salió en \(call.arguments)")
+                }
+                try expect(!call.environment.keys.contains { $0.hasPrefix("GIT_CONFIG_") && $0 != "GIT_CONFIG_GLOBAL" && $0 != "GIT_CONFIG_NOSYSTEM" },
+                           "\(call.environment.keys)")
+            }
+            // El fetch y el push usaron el archivo (reseteando los helpers del usuario), y el archivo ya no existe.
+            let withHelper = recorder.calls.filter { $0.arguments.contains("credential.helper=") }
+            try expect(withHelper.contains { $0.arguments.contains("fetch") } && withHelper.contains { $0.arguments.contains("push") },
+                       "\(recorder.calls.map(\.arguments))")
+            try expect(!recorder.credentialFiles.isEmpty)
+            for file in recorder.credentialFiles { try expect(!FileManager.default.fileExists(atPath: file), file) }
+        },
+        TestCase("remote fixes: el archivo de credenciales es 0600 en una carpeta 0700 y git lo lee") {
+            let base = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: base) }
+            let file = try RemoteFixImport.CredentialFile(token: "ghp_abc/+=%", in: base)
+            defer { file.remove() }
+            let fileMode = try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int
+            let dirMode = try FileManager.default.attributesOfItem(atPath: (file.path as NSString).deletingLastPathComponent)[.posixPermissions] as? Int
+            try expectEqual(fileMode, 0o600)
+            try expectEqual(dirMode, 0o700)
+            let input = base.appendingPathComponent("in.txt")
+            try Data("protocol=https\nhost=github.com\npath=o/r.git\n\n".utf8).write(to: input)
+            let filled = try await SystemProcessRunner().runWithFiles(TempGitRepo.git, file.arguments + ["credential", "fill"],
+                                                                     environment: ["GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1",
+                                                                                   "GIT_TERMINAL_PROMPT": "0"],
+                                                                     currentDirectory: base, timeout: 30, standardInput: input,
+                                                                     standardOutput: nil, onStdoutLine: nil)
+            try expect(filled.stdout.contains("username=x-access-token") && filled.stdout.contains("password=ghp_abc/+=%"), filled.stdout + filled.stderr)
+            let path = file.path
+            file.remove()
+            try expect(!FileManager.default.fileExists(atPath: path) && !FileManager.default.fileExists(atPath: (path as NSString).deletingLastPathComponent))
         },
         TestCase("remote fixes: si el host cambió el commit después de mostrarlo, no se pushea nada") {
             let (repo, ssh, _, worktree, start, importer) = try await remoteFix()
