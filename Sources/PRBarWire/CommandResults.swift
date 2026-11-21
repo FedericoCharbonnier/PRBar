@@ -1040,12 +1040,11 @@ public struct RemoteStatusInfo: Codable, Equatable, Sendable {
     /// La aserción que impide dormir está tomada ahora (en corriente).
     public var keepingAwake: Bool
     public var mailbox: Bool
-    public var appInstallURL: URL?
     /// Los primeros 4 caracteres de la cuenta en el relay.
     public var accountPrefix: String?
 
     public init(enabled: Bool, relayHost: String?, state: String, detail: String? = nil, devices: Int, devicesOnline: Int,
-                keepAwake: Bool, keepingAwake: Bool, mailbox: Bool, appInstallURL: URL?, accountPrefix: String?) {
+                keepAwake: Bool, keepingAwake: Bool, mailbox: Bool, accountPrefix: String?) {
         self.enabled = enabled
         self.relayHost = relayHost
         self.state = state
@@ -1055,7 +1054,6 @@ public struct RemoteStatusInfo: Codable, Equatable, Sendable {
         self.keepAwake = keepAwake
         self.keepingAwake = keepingAwake
         self.mailbox = mailbox
-        self.appInstallURL = appInstallURL
         self.accountPrefix = accountPrefix
     }
 }
@@ -1069,7 +1067,7 @@ public struct RemoteDeviceInfo: Codable, Equatable, Sendable {
     public var lastSeen: Date?
     public var online: Bool
     public var requirePresence: Bool
-    /// `false` si APNs dijo que el token ya no sirve.
+    /// `false` si el relay dijo que la suscripción de Web Push ya no sirve.
     public var notifications: Bool
 
     public init(id: String, name: String, model: String, pairedAt: Date, lastSeen: Date?, online: Bool,
@@ -1088,7 +1086,7 @@ public struct RemoteDeviceInfo: Codable, Equatable, Sendable {
 /// Una ranura de emparejamiento (`prbar remote pair`): el QR y, cuando un teléfono se une, su código.
 public struct RemotePairingInfo: Codable, Equatable, Sendable {
     public var pairing: String
-    /// `prbar://pair?…` (secreto: vence a los 5 min y sirve una sola vez).
+    /// `https://<relay>/#pair?…` (secreto: vence a los 5 min y sirve una sola vez).
     public var qr: String
     public var expiresAt: Date
     /// "123 456" cuando un teléfono se unió.

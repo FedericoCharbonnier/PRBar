@@ -112,7 +112,7 @@ enum RelayIntegrationTests {
             try expectEqual(gated.error?.code, .unauthorized)
             let signed = try await client.run(merge, presence: presence)
             try expectEqual(signed.ok, true)
-            // Push: sin token de APNs el relay contesta 410 (sin APNs configurado, 503): llega y vuelve.
+            // Push: sin suscripción de Web Push el relay contesta 410 (sin VAPID, 503): llega y vuelve.
             let payload = PushPayload(createdAt: Date(), kind: "k", title: "t", body: "b", threadId: "x",
                                       deepLink: "prbar://")
             let pushStatus = try await host.push(payload, to: paired.deviceId)

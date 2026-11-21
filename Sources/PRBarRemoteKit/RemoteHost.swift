@@ -580,13 +580,12 @@ public actor RemoteHost {
         return true
     }
 
-    /// Manda un push cifrado; devuelve el status HTTP de APNs que informa el relay.
+    /// Manda un push cifrado; devuelve el status que informa el relay (200 entregado, 410 sin suscripción).
     public func push(_ payload: PushPayload, to deviceId: String) async throws -> Int {
         guard let device = devices[deviceId], link != nil else { throw RelayClosed(code: nil, reason: "Not connected") }
         let push = try Curve25519.KeyAgreement.PublicKey(rawRepresentation: device.push)
-        let field = try payload.sealedForAPNs(from: config.keys.seal, to: push,
-                                              info: SealedInfo.push(account: config.accountId, device: deviceId))
-        guard let envelope = Data(base64Encoded: field) else { throw SealedError.malformed }
+        let envelope = try payload.sealedForPush(from: config.keys.seal, to: push,
+                                                 info: SealedInfo.push(account: config.accountId, device: deviceId))
         let ids = try PushIdentifiers(macSeal: config.keys.seal, devicePush: push)
         let id = UUID().uuidString.lowercased()
         let pr = payload.pr ?? payload.threadId

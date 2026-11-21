@@ -286,7 +286,7 @@ public final class FixtureActions: PRBarActions {
     // MARK: RemoteActions (the phone never reaches these: RemotePolicy denies them)
     public func remoteStatus() -> RemoteStatusInfo {
         RemoteStatusInfo(enabled: true, relayHost: nil, state: "connected", devices: 0, devicesOnline: 0, keepAwake: false,
-                         keepingAwake: false, mailbox: true, appInstallURL: nil, accountPrefix: nil)
+                         keepingAwake: false, mailbox: true, accountPrefix: nil)
     }
     public func remoteEnable(relay: String, enrollToken: String) async throws -> RemoteStatusInfo { throw missing("remote") }
     public func remoteDisable() async throws -> RemoteStatusInfo { throw missing("remote") }
@@ -301,7 +301,6 @@ public final class FixtureActions: PRBarActions {
         record("remoteSetPresenceRequirement \(enabled)"); throw missing("remote")
     }
     public func remoteSetMailbox(enabled: Bool) async throws -> RemoteStatusInfo { throw missing("remote") }
-    public func remoteSetAppLink(url: String?) throws -> RemoteStatusInfo { throw missing("remote") }
 }
 
 /// `AppConfig.remote` in memory.

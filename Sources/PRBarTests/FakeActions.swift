@@ -359,14 +359,14 @@ final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActi
 extension FakeActions: RemoteActions {
     private var remoteInfo: RemoteStatusInfo {
         RemoteStatusInfo(enabled: true, relayHost: "relay.example.com", state: "connected", devices: 1, devicesOnline: 1,
-                         keepAwake: false, keepingAwake: false, mailbox: true, appInstallURL: nil, accountPrefix: "abcd")
+                         keepAwake: false, keepingAwake: false, mailbox: true, accountPrefix: "abcd")
     }
     private var remoteDevice: RemoteDeviceInfo {
         RemoteDeviceInfo(id: "dev1abcdefgh", name: "Federico’s iPhone", model: "iPhone 17 Pro", pairedAt: t0, lastSeen: nil,
                          online: true, requirePresence: true, notifications: true)
     }
     private var pairingInfo: RemotePairingInfo {
-        RemotePairingInfo(pairing: "p1", qr: "prbar://pair?v=1", expiresAt: t0.addingTimeInterval(300))
+        RemotePairingInfo(pairing: "p1", qr: "https://prbar.example.com/#pair?v=1", expiresAt: t0.addingTimeInterval(300))
     }
 
     func remoteStatus() -> RemoteStatusInfo { calls.append("remoteStatus"); return remoteInfo }
@@ -401,5 +401,4 @@ extension FakeActions: RemoteActions {
         return info
     }
     func remoteSetMailbox(enabled: Bool) async throws -> RemoteStatusInfo { try record("remoteSetMailbox \(enabled)"); return remoteInfo }
-    func remoteSetAppLink(url: String?) throws -> RemoteStatusInfo { try record("remoteSetAppLink \(url ?? "-")"); return remoteInfo }
 }

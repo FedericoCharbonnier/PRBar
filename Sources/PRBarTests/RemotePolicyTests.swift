@@ -52,8 +52,7 @@ enum RemotePolicyTests {
                                         .remoteDisable, .remotePairStart, .remotePairWait(pairing: "p"),
                                         .remotePairConfirm(pairing: "p", confirmed: true), .remoteDevices,
                                         .remoteRevoke(device: "d", confirmed: true), .remoteSetKeepAwake(enabled: true),
-                                        .remoteReset(confirmed: true), .remoteSetMailbox(enabled: false),
-                                        .remoteSetAppLink(url: nil)]
+                                        .remoteReset(confirmed: true), .remoteSetMailbox(enabled: false)]
             for command in remote { try expectEqual(RemotePolicy.decide(command), .denied) }
             try expectEqual(RemotePolicy.decide(.remoteSetPresenceRequirement(device: "d", enabled: true)), .allowed)
             try expectEqual(RemotePolicy.decide(.remoteSetPresenceRequirement(device: "d", enabled: false)), .gated)

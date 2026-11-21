@@ -103,7 +103,7 @@ public struct RemoteKeyStore: Sendable {
 public struct StoredDevice: Codable, Equatable, Sendable {
     public var device: PairedDevice
     public var lastSeen: Date?
-    /// APNs dijo que el token ya no sirve (410): "Notifications off" en Settings.
+    /// El relay dijo que no hay suscripción de Web Push (410): "Notifications off" en Settings.
     public var notificationsOff: Bool
 
     public init(device: PairedDevice, lastSeen: Date? = nil, notificationsOff: Bool = false) {

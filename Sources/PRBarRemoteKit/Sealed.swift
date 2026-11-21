@@ -99,23 +99,25 @@ public struct PushPayload: Codable, Equatable, Sendable {
         self.badge = badge
     }
 
-    /// Tope del campo `e` del payload de APNs (base64): deja lugar al resto bajo los 4 KiB de Apple.
-    public static let maxEnvelopeBase64 = 3_072
+    /// Tope del texto plano del sobre ya rellenado (W.6): Web Push admite ~4 KB cifrados y el relay los arma con
+    /// `{"v":1,"e":<sobre en base64url>,…}`.
+    public static let maxPlaintext = 2_048
 
-    /// El sobre en base64 estándar para el campo `e`. Si no entra, corta `body` (y si hace falta `title`) con "…".
-    public func sealedForAPNs(from sender: Curve25519.KeyAgreement.PrivateKey,
-                              to recipient: Curve25519.KeyAgreement.PublicKey, info: Data) throws -> String {
+    /// El sobre (`enc ‖ ciphertext`) que va en `b` del marco `push`. Si no entra, corta `body` (y si hace falta
+    /// `title`) con "…".
+    public func sealedForPush(from sender: Curve25519.KeyAgreement.PrivateKey,
+                              to recipient: Curve25519.KeyAgreement.PublicKey, info: Data) throws -> Data {
         let fitting = try fitted()
-        let envelope = try SealedEnvelope.seal(try CommandProtocol.encoder.encode(fitting), from: sender, to: recipient,
-                                               info: info)
-        let text = envelope.base64EncodedString()
-        guard text.count <= Self.maxEnvelopeBase64 else { throw SealedError.tooLarge }
-        return text
+        return try SealedEnvelope.seal(try CommandProtocol.encoder.encode(fitting), from: sender, to: recipient,
+                                       info: info)
     }
 
-    public static func open(apnsField text: String, by recipient: Curve25519.KeyAgreement.PrivateKey,
+    /// Abre el campo `e` del payload de Web Push (base64url sin relleno, como lo arma el relay).
+    public static func open(pushField text: String, by recipient: Curve25519.KeyAgreement.PrivateKey,
                             from sender: Curve25519.KeyAgreement.PublicKey, info: Data) throws -> PushPayload {
-        guard text.count <= maxEnvelopeBase64, let envelope = Data(base64Encoded: text) else { throw SealedError.malformed }
+        let maxEnvelope = SealedEnvelope.encLength + maxPlaintext + SealedEnvelope.tagLength
+        guard text.count <= (maxEnvelope * 4 + 2) / 3, let envelope = try? Base64URL.decode(text),
+              envelope.count <= maxEnvelope else { throw SealedError.malformed }
         let plaintext = try SealedEnvelope.open(envelope, by: recipient, from: sender, info: info)
         do {
             return try CommandProtocol.decoder.decode(PushPayload.self, from: plaintext)
@@ -126,8 +128,7 @@ public struct PushPayload: Codable, Equatable, Sendable {
 
     private func fits() throws -> Bool {
         let count = try CommandProtocol.encoder.encode(self).count
-        let base64 = (SealedEnvelope.envelopeLength(plaintextCount: count) + 2) / 3 * 4
-        return base64 <= Self.maxEnvelopeBase64
+        return Padding.pad(Data(count: count), to: SealedEnvelope.paddingBlock).count <= Self.maxPlaintext
     }
 
     /// Una copia que entra: corta `body` y después `title` lo justo (búsqueda binaria sobre los caracteres).
@@ -204,8 +205,8 @@ public struct MailboxBlob: Codable, Equatable, Sendable {
     }
 }
 
-/// `apns-collapse-id` y `thread-id` opacos (spec P.9): estables para el mismo par de claves, sin sentido para el relay
-/// ni para Apple. `pushIdKey` = HKDF del secreto X25519 estático entre `macSealKey` y `devicePushKey`.
+/// `collapse` (el `Topic` de Web Push) y `thread` opacos (spec P.9): estables para el mismo par de claves, sin sentido
+/// para el relay ni para el servicio de push. `pushIdKey` = HKDF del secreto X25519 estático entre `macSealKey` y `devicePushKey`.
 public struct PushIdentifiers: Sendable {
     private let key: SymmetricKey
 

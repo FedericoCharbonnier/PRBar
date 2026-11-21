@@ -130,7 +130,6 @@ let dispatchSamples: [(command: AppCommand, call: String)] = [
     (.remoteReset(confirmed: true), "remoteReset"),
     (.remoteSetPresenceRequirement(device: "dev1", enabled: false), "remoteSetPresenceRequirement"),
     (.remoteSetMailbox(enabled: false), "remoteSetMailbox"),
-    (.remoteSetAppLink(url: "https://testflight.apple.com/join/AbCd1234"), "remoteSetAppLink"),
 ]
 
 enum CommandDispatcherTests {

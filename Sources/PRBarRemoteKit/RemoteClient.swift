@@ -49,7 +49,7 @@ public enum RemoteClientStatus: Equatable, Sendable {
 }
 
 /// La máquina de estado del teléfono (spec P y R.3): emparejar, conectar (Noise KK), mandar comandos con sus eventos,
-/// suscribirse a tópicos, leer el buzón y registrar el token de APNs.
+/// suscribirse a tópicos, leer el buzón y registrar la suscripción de Web Push.
 public actor RemoteClient {
     public struct Configuration: Sendable {
         public var appVersion: String
@@ -712,9 +712,10 @@ public actor RemoteClient {
         mailboxRevs = revisions
     }
 
-    public func registerPushToken(_ token: String, env: String) throws {
+    /// Registra (o actualiza) la suscripción de Web Push de este teléfono en el relay (marco `webpush`, W.6).
+    public func registerWebPush(endpoint: String, p256dh: Data, auth: Data) throws {
         guard let link else { throw RemoteError.notPaired }
-        try link.send(.apns(token: token, env: env))
+        try link.send(.webpush(endpoint: endpoint, p256dh: p256dh, auth: auth))
     }
 
     /// "Unpair this iPhone": la Mac lo da de baja como un Revoke. Las claves locales las borra la app.

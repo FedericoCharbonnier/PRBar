@@ -182,8 +182,6 @@ public enum AppCommand: Codable, Equatable, Sendable {
     case remoteSetPresenceRequirement(device: String, enabled: Bool)
     /// Dejar el último estado cifrado en el buzón del relay (spec V.3).
     case remoteSetMailbox(enabled: Bool)
-    /// El link de instalación de la app del iPhone ("Get PRBar for iPhone"); nil lo borra.
-    case remoteSetAppLink(url: String?)
 
     /// Lo que cambia algo en GitHub o Slack con una sola llamada: si la CLI se va a mitad (Ctrl-C), la llamada sigue
     /// hasta el final (cortarla dejaría el merge, el review o el token en un estado desconocido). Lo demás se cancela
@@ -218,7 +216,6 @@ public enum AppCommand: Codable, Equatable, Sendable {
         case ciList, ciFix, usage
         case remoteStatus, remoteEnable, remoteDisable, remotePairStart, remotePairWait, remotePairConfirm, remoteDevices
         case remoteRevoke, remoteSetKeepAwake, remoteReset, remoteSetPresenceRequirement, remoteSetMailbox
-        case remoteSetAppLink
     }
 
     public var name: Name {
@@ -349,7 +346,6 @@ public enum AppCommand: Codable, Equatable, Sendable {
         case .remoteReset: .remoteReset
         case .remoteSetPresenceRequirement: .remoteSetPresenceRequirement
         case .remoteSetMailbox: .remoteSetMailbox
-        case .remoteSetAppLink: .remoteSetAppLink
         }
     }
 }

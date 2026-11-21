@@ -6,8 +6,6 @@ public struct RemoteSettings: Codable, Hashable, Sendable {
     /// El relay del usuario (spec P.10). Configurable: `prbar remote enable --relay H` o la hoja de Settings.
     public static let defaultRelayHost = "prbar.fcharbonnier.duckdns.org"
     public static let defaultRelayURL = "https://\(defaultRelayHost)"
-    /// Los únicos hosts aceptados para el link de instalación de la app del iPhone.
-    public static let installHosts: Set<String> = ["testflight.apple.com", "apps.apple.com"]
 
     public var enabled: Bool
     /// `host` o `host:puerto`, sin esquema (spec P.14).
@@ -17,23 +15,20 @@ public struct RemoteSettings: Codable, Hashable, Sendable {
     public var keepAwakeWhileCharging: Bool
     /// Dejar el último `home` cifrado en el buzón del relay (7 días, spec V.3). Encendido por defecto.
     public var mailboxEnabled: Bool
-    /// TestFlight público o App Store ("Get PRBar for iPhone"); nil = todavía no hay.
-    public var appInstallURL: URL?
 
     public init(enabled: Bool = false, relayHost: String? = nil, accountId: String? = nil,
-                keepAwakeWhileCharging: Bool = false, mailboxEnabled: Bool = true, appInstallURL: URL? = nil) {
+                keepAwakeWhileCharging: Bool = false, mailboxEnabled: Bool = true) {
         self.enabled = enabled
         self.relayHost = relayHost
         self.accountId = accountId
         self.keepAwakeWhileCharging = keepAwakeWhileCharging
         self.mailboxEnabled = mailboxEnabled
-        self.appInstallURL = appInstallURL
     }
 
     public static let `default` = RemoteSettings()
 
     enum CodingKeys: String, CodingKey {
-        case enabled, relayHost, accountId, keepAwakeWhileCharging, mailboxEnabled, appInstallURL
+        case enabled, relayHost, accountId, keepAwakeWhileCharging, mailboxEnabled
     }
 
     /// Tolerante como el resto de la config: un valor roto o editado a mano vale lo de por defecto.
@@ -44,7 +39,6 @@ public struct RemoteSettings: Codable, Hashable, Sendable {
         accountId = ((try? c.decodeIfPresent(String.self, forKey: .accountId)) ?? nil).flatMap { Self.isValidAccountId($0) ? $0 : nil }
         keepAwakeWhileCharging = (try? c.decodeIfPresent(Bool.self, forKey: .keepAwakeWhileCharging)) ?? false
         mailboxEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .mailboxEnabled)) ?? true
-        appInstallURL = ((try? c.decodeIfPresent(String.self, forKey: .appInstallURL)) ?? nil).flatMap { try? Self.installURL($0) }
         if relayHost == nil || accountId == nil { enabled = false }
     }
 
@@ -55,7 +49,6 @@ public struct RemoteSettings: Codable, Hashable, Sendable {
         try c.encodeIfPresent(accountId, forKey: .accountId)
         try c.encode(keepAwakeWhileCharging, forKey: .keepAwakeWhileCharging)
         try c.encode(mailboxEnabled, forKey: .mailboxEnabled)
-        try c.encodeIfPresent(appInstallURL?.absoluteString, forKey: .appInstallURL)
     }
 
     /// Base32 minúscula (spec P.2), con margen.
@@ -86,16 +79,9 @@ public struct RemoteSettings: Codable, Hashable, Sendable {
         return text
     }
 
-    /// El link de instalación de la app del iPhone: `https`, sin usuario ni puerto, en `installHosts`.
-    public static func installURL(_ text: String) throws -> URL {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let components = URLComponents(string: trimmed), components.scheme?.lowercased() == "https",
-              let host = components.host?.lowercased(), installHosts.contains(host),
-              components.user == nil, components.password == nil, components.port == nil,
-              let url = components.url, trimmed.count <= 512 else {
-            throw CommandFailure(.invalidUsage,
-                                 "Use an https link to testflight.apple.com or apps.apple.com.")
-        }
-        return url
+    /// La web app del teléfono (spec web W.4.1): la sirve el relay en `https://<host>/`. El QR "Open PRBar on your
+    /// phone" de Settings › iPhone.
+    public static func webAppURL(relayHost: String) -> URL? {
+        URL(string: "https://\(relayHost)/")
     }
 }

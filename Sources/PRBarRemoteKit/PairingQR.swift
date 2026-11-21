@@ -5,7 +5,8 @@ public enum PairingQRError: Error, Equatable, Sendable {
     case invalid(String)
 }
 
-/// `prbar://pair?v=1&r=<host>&a=<accountId>&p=<pairingId>&k=<ps>&m=<macStatic>&n=<nombre>` (spec P.11).
+/// `https://<host>/#pair?v=1&r=<host>&a=<accountId>&p=<pairingId>&k=<ps>&m=<macStatic>&n=<nombre>` (spec web W.4.4,
+/// mismos campos que P.11). El fragmento `#` nunca llega al servidor: lo lee la web app instalada.
 public struct PairingQR: Equatable, Sendable {
     public var relayHost: String
     public var accountId: String
@@ -41,18 +42,23 @@ public struct PairingQR: Equatable, Sendable {
             ("v", "1"), ("r", relayHost), ("a", accountId), ("p", pairingId), ("k", Base64URL.encode(secret)),
             ("m", Base64URL.encode(macStatic)), ("n", macName),
         ]
-        return "prbar://pair?" + items.map { "\($0.0)=\(Self.encode($0.1))" }.joined(separator: "&")
+        return Self.prefix(host: relayHost) + items.map { "\($0.0)=\(Self.encode($0.1))" }.joined(separator: "&")
     }
 
     /// `host` o `host:puerto` (un entrypoint dedicado de Traefik, spec V.2). `allowInsecure` además acepta una IP
     /// literal (el relay local de los tests de integración).
-    public init(url text: String, allowInsecure: Bool = false) throws {
+    static func prefix(host: String) -> String { "https://\(host)/#pair?" }
+
+    /// El texto escaneado o pegado ("Paste code"); se ignoran espacios y saltos alrededor.
+    public init(url input: String, allowInsecure: Bool = false) throws {
         func fail(_ why: String) -> PairingQRError { .invalid(why) }
+        let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard text.count <= Self.maxLength else { throw fail("too long") }
-        let prefix = "prbar://pair?"
-        guard text.hasPrefix(prefix) else { throw fail("not a pairing link") }
+        let marker = "/#pair?"
+        guard text.hasPrefix("https://"), let range = text.range(of: marker) else { throw fail("not a pairing link") }
+        let linkHost = String(text[text.index(text.startIndex, offsetBy: 8)..<range.lowerBound])
         var values: [String: String] = [:]
-        for pair in text.dropFirst(prefix.count).split(separator: "&", omittingEmptySubsequences: false) {
+        for pair in text[range.upperBound...].split(separator: "&", omittingEmptySubsequences: false) {
             let parts = pair.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
             guard parts.count == 2, let key = parts[0].removingPercentEncoding,
                   let value = parts[1].removingPercentEncoding else { throw fail("bad parameter") }
@@ -61,13 +67,15 @@ public struct PairingQR: Equatable, Sendable {
         }
         guard values["v"] == "1" else { throw fail("unsupported version") }
         guard let host = values["r"], Self.isValidHost(host, allowIP: allowInsecure) else { throw fail("bad relay") }
+        // La página que abre el link es la del relay del QR: un link a otro sitio con `r` de este no vale.
+        guard linkHost == host else { throw fail("relay doesn't match the link") }
         guard let account = values["a"], Self.isBase32(account, length: 26) else { throw fail("bad account") }
         guard let pairing = values["p"], Self.isBase32(pairing, length: 16) else { throw fail("bad pairing id") }
         guard let k = values["k"], let secret = try? Base64URL.decode(k), secret.count == 32 else { throw fail("bad secret") }
         guard let m = values["m"], let mac = try? Base64URL.decode(m), mac.count == 32 else { throw fail("bad mac key") }
         let raw = values["n"] ?? ""
         guard raw.count <= Self.maxNameLength else { throw fail("bad name") }
-        // Anyone can send a `prbar://pair` link: the name shown on the confirmation screen is one plain line, without
+        // Anyone can send a pairing link: the name shown on the confirmation screen is one plain line, without
         // bidi or invisible characters that could make it read as another Mac (review L5).
         let name = RemoteText.displayName(raw, limit: Self.maxNameLength)
         self.init(relayHost: host, accountId: account, pairingId: pairing, secret: secret, macStatic: mac,

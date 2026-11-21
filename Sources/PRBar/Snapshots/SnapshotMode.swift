@@ -416,8 +416,7 @@ private final class SnapshotSession {
 
     /// Los otros estados de Settings › iPhone y las dos caras de "Pair iPhone…" (spec Q.2).
     private func iphoneSettings(_ model: AppModel) async throws {
-        for (state, name) in [(SnapshotFixtures.IPhoneState.off, "settings-iphone-off"),
-                              (.offWithLink, "settings-iphone-off-link")] {
+        for (state, name) in [(SnapshotFixtures.IPhoneState.off, "settings-iphone-off")] {
             try SnapshotFixtures.applyIPhone(model, state)
             for appearance in options.appearances {
                 let tab = SettingsWindow.Tab.iphone

@@ -15,7 +15,7 @@ enum PairingQRTests {
         TestCase("pairing qr: ida y vuelta con nombre raro") {
             let qr = sample()
             let text = qr.url
-            try expect(text.hasPrefix("prbar://pair?v=1&"))
+            try expect(text.hasPrefix("https://prbar.example.org/#pair?v=1&r=prbar.example.org&"), text)
             try expect(!text.contains(" ") && !text.contains("🚀"))
             try expectEqual(try PairingQR(url: text), qr)
             try expectEqual(try PairingQR(url: sample(name: "a=b&c=d+e%20").url).macName, "a=b&c=d+e%20")
@@ -28,9 +28,13 @@ enum PairingQRTests {
         TestCase("pairing qr: rechaza lo que no es un QR de PRBar") {
             let good = sample().url
             try rejects(good.replacingOccurrences(of: "v=1", with: "v=2"))
-            try rejects(good.replacingOccurrences(of: "prbar://pair?", with: "https://pair?"))
-            try rejects(good.replacingOccurrences(of: "prbar://pair?", with: "prbar://other?"))
-            try rejects(good.replacingOccurrences(of: "prbar://pair?", with: "prbar://pair/x?"))
+            let prefix = "https://prbar.example.org/#pair?"
+            try rejects(good.replacingOccurrences(of: prefix, with: "prbar://pair?"))                // el esquema viejo
+            try rejects(good.replacingOccurrences(of: prefix, with: "http://prbar.example.org/#pair?"))
+            try rejects(good.replacingOccurrences(of: prefix, with: "https://evil.example.org/#pair?"))  // otro host que r
+            try rejects(good.replacingOccurrences(of: prefix, with: "https://prbar.example.org/#other?"))
+            try rejects(good.replacingOccurrences(of: prefix, with: "https://prbar.example.org/x#pair?"))
+            try rejects(good.replacingOccurrences(of: prefix, with: "https://prbar.example.org#pair?"))
             try rejects(good + "&v=1")                                                   // repetido
             try rejects(good.replacingOccurrences(of: Base64URL.encode(Data(repeating: 7, count: 32)),
                                                   with: Base64URL.encode(Data(repeating: 7, count: 31))))
@@ -53,6 +57,16 @@ enum PairingQRTests {
             }
             let local = sample(host: "127.0.0.1:18080").url
             try expectEqual(try PairingQR(url: local, allowInsecure: true).relayHost, "127.0.0.1:18080")
+        },
+        TestCase("pairing qr: el link https con #pair, con puerto y la forma exacta") {
+            let qr = sample(name: "Mac", host: "prbar.example.org:8443")
+            let expected = "https://prbar.example.org:8443/#pair?v=1&r=prbar.example.org%3A8443"
+                + "&a=abcdefghijklmnopqrstuvwxyz&p=abcdefghij234567&k=\(Base64URL.encode(Data(repeating: 7, count: 32)))"
+                + "&m=\(Base64URL.encode(Data(repeating: 9, count: 32)))&n=Mac"
+            try expectEqual(qr.url, expected)
+            try expectEqual(try PairingQR(url: expected), qr)
+            // Pegado con espacios o saltos alrededor (Paste code).
+            try expectEqual(try PairingQR(url: "  \(expected)\n"), qr)
         },
         TestCase("pairing qr: ids al azar en base32 minúscula") {
             let account = RemoteIDs.newAccountId(), pairing = RemoteIDs.newPairingId()

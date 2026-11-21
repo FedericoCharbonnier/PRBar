@@ -138,7 +138,7 @@ enum RemoteEndToEndTests {
             let h = try await RemoteHarness.make()
             let client = h.client()
             let qr = try await h.openPairing()
-            try expect(qr.url.hasPrefix("prbar://pair?"))
+            try expect(qr.url.hasPrefix("https://relay.test/#pair?v=1&"), qr.url)
             async let join = h.nextJoin()
             let sas = try await client.startPairing(qr: qr, presence: h.presence.credential)
             let joined = try await join
@@ -448,6 +448,21 @@ enum RemoteEndToEndTests {
             let tooBig = await h.host.putMailbox(slot: "home", data: Data(count: 200 * 1024))
             try expect(!tooBig)
         },
+        TestCase("remote: el teléfono registra su suscripción de Web Push en el relay") {
+            let h = try await RemoteHarness.make()
+            let client = try await h.pairedClient()
+            try await client.connect()
+            let paired = await client.paired!
+            let p256dh = Data([4]) + Data(repeating: 7, count: 64)
+            try await client.registerWebPush(endpoint: "https://web.push.apple.com/QGuQ", p256dh: p256dh,
+                                             auth: Data(repeating: 1, count: 16))
+            let relay = h.relay, account = h.account
+            try await eventually(3, "suscripción") { await relay.subscription(account, paired.deviceId) != nil }
+            let stored = await relay.subscription(account, paired.deviceId)
+            try expectEqual(stored?.endpoint, "https://web.push.apple.com/QGuQ")
+            try expectEqual(stored?.p256dh, p256dh)
+            try expectEqual(stored?.auth, Data(repeating: 1, count: 16))
+        },
         TestCase("remote: push con colapso e hilo opacos que el teléfono abre") {
             let h = try await RemoteHarness.make()
             let client = try await h.pairedClient()
@@ -466,7 +481,7 @@ enum RemoteEndToEndTests {
             let ids = try PushIdentifiers(devicePush: keys.push,
                                           macSeal: try Curve25519.KeyAgreement.PublicKey(rawRepresentation: paired.macSeal))
             try expectEqual(collapse, ids.collapse(kind: "approved", pr: "acme/web#12"))
-            let opened = try PushPayload.open(apnsField: b.base64EncodedString(), by: keys.push,
+            let opened = try PushPayload.open(pushField: Base64URL.encode(b), by: keys.push,
                                               from: try Curve25519.KeyAgreement.PublicKey(rawRepresentation: paired.macSeal),
                                               info: SealedInfo.push(account: paired.accountId, device: paired.deviceId))
             try expectEqual(opened, payload)

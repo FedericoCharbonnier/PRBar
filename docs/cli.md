@@ -101,7 +101,6 @@ shows the help of `review start`, the group’s default subcommand).
 | `prbar remote devices [--json]`, `prbar remote devices --require-face-id <iphone> on\|off` | Paired iPhones / whether merge, push, approve and tests need Face ID on one |
 | `prbar remote revoke <iphone> [--yes]` | Remove an iPhone (id, id prefix or name) |
 | `prbar remote keep-awake on\|off`, `prbar remote mailbox on\|off` | Keep this Mac awake while charging / leave the last encrypted state on the relay (7 days) |
-| `prbar remote app-link set <url>\|clear` | The TestFlight or App Store link Settings › iPhone shows as a QR (https, `testflight.apple.com` or `apps.apple.com`) |
 | `prbar remote reset [--yes]` | New keys and relay account; every iPhone has to be paired again |
 
 ## Where Claude runs

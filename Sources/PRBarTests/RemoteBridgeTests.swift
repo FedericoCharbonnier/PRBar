@@ -143,7 +143,7 @@ enum RemoteBridgeTests {
             try await mailbox()
         },
         TestCase("remote push: misma notificación cifrada; 410 marca notificaciones apagadas") { try await push() },
-        TestCase("remote service: revocar, reset y app link") { try await revokeResetAppLink() },
+        TestCase("remote service: revocar y reset") { try await revokeAndReset() },
         TestCase("remote keep awake: en corriente toma una aserción, en batería o al deshabilitar la suelta") { try await keepAwake() },
     ]
 
@@ -536,7 +536,7 @@ enum RemoteBridgeTests {
         h.service.push([notification], badge: 3)
         try await eventually(3, "push") { await !h.relay.pushes.isEmpty }
         guard case .push(_, _, _, _, let b)? = await h.relay.pushes.first else { throw TestFailure(description: "sin push") }
-        let opened = try PushPayload.open(apnsField: b.base64EncodedString(), by: keys.push,
+        let opened = try PushPayload.open(pushField: Base64URL.encode(b), by: keys.push,
                                           from: try Curve25519.KeyAgreement.PublicKey(rawRepresentation: paired.macSeal),
                                           info: SealedInfo.push(account: paired.accountId, device: paired.deviceId))
         try expectEqual(opened.title, "New Feedback")
@@ -551,7 +551,7 @@ enum RemoteBridgeTests {
     }
 
     @MainActor
-    static func revokeResetAppLink() async throws {
+    static func revokeAndReset() async throws {
         let h = try await ServiceHarness.make()
         let client = try await h.pair()
         let id = await client.paired!.deviceId
@@ -563,15 +563,6 @@ enum RemoteBridgeTests {
         try expectEqual(revoked.id, id)
         try expect(h.service.devices.isEmpty)
         try await eventually(3, "revocado") { await client.status == .revoked }
-        // App link.
-        _ = try h.service.setAppLink("https://testflight.apple.com/join/AbCd1234")
-        try expectEqual(h.service.status().appInstallURL?.absoluteString, "https://testflight.apple.com/join/AbCd1234")
-        do {
-            _ = try h.service.setAppLink("https://evil.example.com/join")
-            throw TestFailure(description: "aceptó otro host")
-        } catch let failure as CommandFailure { try expectEqual(failure.code, .invalidUsage) }
-        _ = try h.service.setAppLink(nil)
-        try expectEqual(h.service.status().appInstallURL, nil)
         // Reset: claves y cuenta nuevas, sin dispositivos.
         let before = h.secrets.peek("mac-relay")
         _ = try await h.pair()

@@ -207,7 +207,6 @@ public protocol RemoteActions: AnyObject {
     func remoteReset() async throws -> RemoteStatusInfo
     func remoteSetPresenceRequirement(device: String, enabled: Bool) async throws -> RemoteDeviceInfo
     func remoteSetMailbox(enabled: Bool) async throws -> RemoteStatusInfo
-    func remoteSetAppLink(url: String?) throws -> RemoteStatusInfo
 }
 
 /// Lo que la app tiene que saber hacer para abrir el socket.

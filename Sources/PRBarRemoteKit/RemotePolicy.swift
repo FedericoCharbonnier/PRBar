@@ -56,7 +56,7 @@ public enum RemotePolicy {
              .runnerSet, .runnerRemove, .runnerTest, .runnerDefault,
              // El acceso remoto se maneja desde la Mac (salvo Face ID del propio teléfono, arriba).
              .remoteStatus, .remoteEnable, .remoteDisable, .remotePairStart, .remotePairWait, .remotePairConfirm,
-             .remoteDevices, .remoteRevoke, .remoteSetKeepAwake, .remoteReset, .remoteSetMailbox, .remoteSetAppLink:
+             .remoteDevices, .remoteRevoke, .remoteSetKeepAwake, .remoteReset, .remoteSetMailbox:
             return .denied
         }
     }

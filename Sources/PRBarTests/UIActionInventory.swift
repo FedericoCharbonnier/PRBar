@@ -323,8 +323,6 @@ enum UIActionInventory {
         .init("Settings/SlackTab.swift", "TextField", "Emoji", 1, .cli(["slack emoji"])),
         .init("Settings/SlackTab.swift", "Stepper", "-", 1, .cli(["slack search-days"])),
         // Settings › iPhone (spec Q.2)
-        .init("Settings/IPhoneTab.swift", "Button", "Copy Link", 1, .cli(["remote app-link set"])),   // the link `remote status` prints
-        .init("Settings/IPhoneTab.swift", "Button", "Open Link", 1, .viewOnly("opens the install link in the browser; `prbar remote status` prints it")),
         .init("Settings/IPhoneTab.swift", "Toggle", "-", 3, .cli(["remote enable", "remote disable", "remote keep-awake", "remote mailbox"])),   // Allow…, Keep awake, mailbox
         .init("Settings/IPhoneTab.swift", "Button", "Pair iPhone…", 1, .cli(["remote pair"])),
         .init("Settings/IPhoneTab.swift", "Component:PairIPhoneSheet", "-", 1, .cli(["remote pair"])),

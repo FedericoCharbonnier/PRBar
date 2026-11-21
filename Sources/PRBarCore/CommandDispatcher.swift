@@ -346,8 +346,6 @@ public enum CommandDispatcher {
             return try encode(try await actions.remoteSetPresenceRequirement(device: device, enabled: enabled))
         case .remoteSetMailbox(let enabled):
             return try encode(try await actions.remoteSetMailbox(enabled: enabled))
-        case .remoteSetAppLink(let url):
-            return try encode(try actions.remoteSetAppLink(url: url))
         }
     }
 }

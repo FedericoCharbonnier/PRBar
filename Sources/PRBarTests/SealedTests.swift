@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import PRBarRemoteKit
+import PRBarWire
 
 enum SealedTests {
     typealias Priv = Curve25519.KeyAgreement.PrivateKey
@@ -46,39 +47,56 @@ enum SealedTests {
                 try expectEqual(try recipient.open(try hex(e.ct), authenticating: try hex(e.aad)), try hex(e.pt))
             }
         },
-        TestCase("sealed: push ida y vuelta; otro remitente, otro info o un byte cambiado fallan") {
+        TestCase("sealed: push ida y vuelta (base64url); otro remitente, otro info o un byte cambiado fallan") {
             let mac = Priv(), device = Priv(), other = Priv()
             let info = SealedInfo.push(account: "acct", device: "dev1")
-            let field = try payload().sealedForAPNs(from: mac, to: device.publicKey, info: info)
-            try expectEqual(try PushPayload.open(apnsField: field, by: device, from: mac.publicKey, info: info), payload())
-            try expect((try? PushPayload.open(apnsField: field, by: device, from: other.publicKey, info: info)) == nil)
-            try expect((try? PushPayload.open(apnsField: field, by: device, from: mac.publicKey,
+            let envelope = try payload().sealedForPush(from: mac, to: device.publicKey, info: info)
+            let field = Base64URL.encode(envelope)
+            try expectEqual(try PushPayload.open(pushField: field, by: device, from: mac.publicKey, info: info), payload())
+            try expect((try? PushPayload.open(pushField: field, by: device, from: other.publicKey, info: info)) == nil)
+            try expect((try? PushPayload.open(pushField: field, by: device, from: mac.publicKey,
                                                info: SealedInfo.push(account: "acct", device: "dev2"))) == nil)
-            var raw = Data(base64Encoded: field)!
+            var raw = envelope
             raw[raw.startIndex + 40] ^= 1
-            try expect((try? PushPayload.open(apnsField: raw.base64EncodedString(), by: device, from: mac.publicKey,
+            try expect((try? PushPayload.open(pushField: Base64URL.encode(raw), by: device, from: mac.publicKey,
                                                info: info)) == nil)
+            // base64 estándar con relleno no es el formato del relay.
+            if envelope.base64EncodedString() != field {
+                try expect((try? PushPayload.open(pushField: envelope.base64EncodedString(), by: device,
+                                                   from: mac.publicKey, info: info)) == nil)
+            }
             // Un sobre de otro remitente que dice ser de la Mac no abre.
-            let forged = try payload().sealedForAPNs(from: other, to: device.publicKey, info: info)
-            try expect((try? PushPayload.open(apnsField: forged, by: device, from: mac.publicKey, info: info)) == nil)
+            let forged = try payload().sealedForPush(from: other, to: device.publicKey, info: info)
+            try expect((try? PushPayload.open(pushField: Base64URL.encode(forged), by: device, from: mac.publicKey,
+                                               info: info)) == nil)
         },
-        TestCase("sealed: push largo se corta con … y entra en 3072 de base64; relleno a 256") {
+        TestCase("sealed: push largo se corta con … y el texto plano rellenado no pasa de 2048; relleno a 256") {
             let mac = Priv(), device = Priv()
             let info = SealedInfo.push(account: "a", device: "d")
             let long = payload(body: String(repeating: "ñandú ", count: 2_000))
-            let field = try long.sealedForAPNs(from: mac, to: device.publicKey, info: info)
-            try expect(field.count <= 3_072)
-            let opened = try PushPayload.open(apnsField: field, by: device, from: mac.publicKey, info: info)
+            let envelope = try long.sealedForPush(from: mac, to: device.publicKey, info: info)
+            try expect(envelope.count <= 32 + 2_048 + 16, "\(envelope.count)")
+            try expectEqual(PushPayload.maxPlaintext, 2_048)
+            let opened = try PushPayload.open(pushField: Base64URL.encode(envelope), by: device, from: mac.publicKey,
+                                              info: info)
             try expect(opened.body.hasSuffix("…") && opened.body.count > 100 && long.body.hasPrefix(opened.body.dropLast()))
             try expectEqual(opened.title, long.title)
+            // Lo justo: con un carácter más no entraría.
+            var longer = opened
+            longer.body = String(long.body.prefix(opened.body.count)) + "…"
+            try expect(Padding.pad(try CommandProtocol.encoder.encode(longer), to: 256).count > 2_048)
             // Título enorme también se corta.
             let huge = payload(body: "x", title: String(repeating: "t", count: 5_000))
-            let opened2 = try PushPayload.open(apnsField: try huge.sealedForAPNs(from: mac, to: device.publicKey, info: info),
-                                               by: device, from: mac.publicKey, info: info)
+            let hugeEnvelope = try huge.sealedForPush(from: mac, to: device.publicKey, info: info)
+            let opened2 = try PushPayload.open(pushField: Base64URL.encode(hugeEnvelope), by: device, from: mac.publicKey,
+                                               info: info)
             try expect(opened2.title.hasSuffix("…") && opened2.body.isEmpty)
             // El largo del sobre es 32 + múltiplo de 256 + 16.
-            let short = Data(base64Encoded: try payload().sealedForAPNs(from: mac, to: device.publicKey, info: info))!
+            let short = try payload().sealedForPush(from: mac, to: device.publicKey, info: info)
             try expectEqual((short.count - 48) % 256, 0)
+            // Un campo más largo que el tope ni se intenta abrir.
+            let tooLong = Base64URL.encode(Data(count: 32 + 2_048 + 16 + 256))
+            try expect((try? PushPayload.open(pushField: tooLong, by: device, from: mac.publicKey, info: info)) == nil)
         },
         TestCase("sealed: relleno ida y vuelta y rechazos") {
             for n in [0, 1, 251, 252, 253, 1000] {

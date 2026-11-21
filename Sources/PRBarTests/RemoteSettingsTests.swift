@@ -11,13 +11,11 @@ enum RemoteSettingsTests {
             try expectEqual(config.remote, RemoteSettings.default)
             try expect(!config.remote.enabled && config.remote.relayHost == nil && config.remote.accountId == nil)
             try expect(!config.remote.keepAwakeWhileCharging && config.remote.mailboxEnabled)
-            try expectEqual(config.remote.appInstallURL, nil)
         },
         TestCase("remote settings: ida y vuelta, y valores rotos no rompen la config") {
             var config = AppConfig()
             config.remote = RemoteSettings(enabled: true, relayHost: "relay.example.com:8443", accountId: "abc",
-                                           keepAwakeWhileCharging: true, mailboxEnabled: false,
-                                           appInstallURL: URL(string: "https://testflight.apple.com/join/AbCd1234"))
+                                           keepAwakeWhileCharging: true, mailboxEnabled: false)
             let data = try JSONEncoder().encode(config)
             let back = try JSONDecoder().decode(AppConfig.self, from: data)
             try expectEqual(back.remote, config.remote)
@@ -25,7 +23,12 @@ enum RemoteSettingsTests {
             let tolerant = try JSONDecoder().decode(AppConfig.self, from: Data(broken.utf8))
             try expectEqual(tolerant.remote.enabled, false)
             try expectEqual(tolerant.remote.relayHost, nil)
-            try expectEqual(tolerant.remote.appInstallURL, nil)
+            // Un `appInstallURL` viejo (el link de TestFlight) se ignora y no vuelve a escribirse.
+            let old = #"{"remote": {"enabled": false, "appInstallURL": "https://testflight.apple.com/join/AbCd1234"}}"#
+            let reencoded = String(decoding: try JSONEncoder().encode(try JSONDecoder().decode(AppConfig.self,
+                                                                                               from: Data(old.utf8))),
+                                   as: UTF8.self)
+            try expect(!reencoded.contains("appInstallURL"), reencoded)
         },
         TestCase("remote settings: host del relay (host, host:puerto, https://host) y rechazos") {
             try expectEqual(RemoteSettings.normalizedRelayHost("prbar.example.com"), "prbar.example.com")
@@ -39,20 +42,11 @@ enum RemoteSettingsTests {
             }
             try expectEqual(RemoteSettings.normalizedRelayHost("127.0.0.1:9000", allowIPForTests: true), "127.0.0.1:9000")
         },
-        TestCase("remote settings: el link de instalación es https de TestFlight o del App Store") {
-            let ok = try RemoteSettings.installURL("https://testflight.apple.com/join/AbCd1234")
-            try expectEqual(ok.absoluteString, "https://testflight.apple.com/join/AbCd1234")
-            _ = try RemoteSettings.installURL("https://apps.apple.com/app/prbar/id123456")
-            for bad in ["http://testflight.apple.com/join/x", "https://testflight.apple.com.evil.com/join/x",
-                        "https://evil.com/testflight.apple.com", "https://user@apps.apple.com/app/x",
-                        "https://apps.apple.com:444/app/x", "testflight.apple.com/join/x", "javascript:alert(1)", ""] {
-                do {
-                    _ = try RemoteSettings.installURL(bad)
-                    throw TestFailure(description: "aceptó \(bad)")
-                } catch let failure as CommandFailure {
-                    try expectEqual(failure.code, .invalidUsage)
-                }
-            }
+        TestCase("remote settings: la web app vive en https://<host del relay>/") {
+            try expectEqual(RemoteSettings.webAppURL(relayHost: "prbar.example.com")?.absoluteString,
+                            "https://prbar.example.com/")
+            try expectEqual(RemoteSettings.webAppURL(relayHost: "prbar.example.com:8443")?.absoluteString,
+                            "https://prbar.example.com:8443/")
         },
         TestCase("remote keys: se crean una vez, en el llavero (nunca en config.json), y reset las borra") {
             let secrets = FakeSecrets()
