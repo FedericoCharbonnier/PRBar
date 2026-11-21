@@ -95,6 +95,10 @@ Swift ↔ Go integration (from the repo root):
 (cd relay && go build -o /tmp/prbar-relay ./cmd/prbar-relay) && PRBAR_RELAY_BIN=/tmp/prbar-relay swift run PRBarTests "relay integration"
 ```
 
+The web app end to end against this relay (test mode, a fake push service and a simulated Mac; Chromium and WebKit):
+`Scripts/web-e2e.sh` from the repo root. It embeds the web build in a temporary copy of `relay/`, so the placeholder
+here is never touched.
+
 ## Deploying
 
 Gated: it needs the user's explicit OK at each step that touches the server. `deploy/deploy.sh` checks that
