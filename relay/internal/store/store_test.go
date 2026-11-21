@@ -62,21 +62,29 @@ func TestDevicesTokensAndRemoval(t *testing.T) {
 	if err := s.AddDevice("a1", "z", []byte("key")); !errors.Is(err, ErrTooManyDevices) {
 		t.Fatalf("device limit: %v", err)
 	}
-	if err := s.SetAPNs("a1", "a", "token", "sandbox"); err != nil {
+	sub := WebPush{Endpoint: "https://web.push.apple.com/abc", P256dh: []byte{4, 1}, Auth: []byte{2}}
+	if err := s.SetWebPush("a1", "a", sub); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.PutMailbox("a1", "a", "home", []byte("blob")); err != nil {
 		t.Fatal(err)
 	}
 	device, ok, _ := s.Device("a1", "a")
-	if !ok || device.APNsToken != "token" || device.APNsEnv != "sandbox" {
+	if !ok || device.WebPush == nil || device.WebPush.Endpoint != sub.Endpoint || string(device.WebPush.Auth) != "\x02" {
 		t.Fatalf("device: %+v", device)
 	}
-	if err := s.ClearAPNs("a1", "a"); err != nil {
+	// Solo se borra si sigue siendo la misma suscripción (el teléfono pudo registrar otra mientras tanto).
+	if err := s.ClearWebPush("a1", "a", "https://web.push.apple.com/other"); err != nil {
 		t.Fatal(err)
 	}
-	if device, _, _ = s.Device("a1", "a"); device.APNsToken != "" {
-		t.Fatal("token not cleared")
+	if device, _, _ = s.Device("a1", "a"); device.WebPush == nil {
+		t.Fatal("cleared another subscription")
+	}
+	if err := s.ClearWebPush("a1", "a", sub.Endpoint); err != nil {
+		t.Fatal(err)
+	}
+	if device, _, _ = s.Device("a1", "a"); device.WebPush != nil {
+		t.Fatal("subscription not cleared")
 	}
 	if err := s.RemoveDevice("a1", "a"); err != nil {
 		t.Fatal(err)

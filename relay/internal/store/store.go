@@ -1,10 +1,11 @@
 // Package store guarda lo poco que el relay necesita recordar (spec P.10), en bbolt:
 //
 //	accounts: accountId → {macRelayKey, createdAt}
-//	devices:  accountId/deviceId → {relayKey, apnsToken?, apnsEnv?, lastSeen}
+//	devices:  accountId/deviceId → {relayKey, webPush?, lastSeen}
 //	mailbox:  accountId/deviceId/slot → {blob, at} (TTL 7 días)
 //
-// Nada de esto es secreto: claves públicas, tokens de APNs y blobs cifrados de punta a punta.
+// Nada de esto es secreto salvo los endpoints de Web Push (con ellos cualquiera podría mandar pushes que el teléfono
+// no puede descifrar): claves públicas, suscripciones de push y blobs cifrados de punta a punta.
 package store
 
 import (
@@ -45,12 +46,18 @@ type Account struct {
 	CreatedAt   time.Time `json:"createdAt"`
 }
 
-// Device es un teléfono dado de alta por su Mac.
+// Device es un teléfono dado de alta por su Mac. Los campos de APNs de versiones anteriores se ignoran al leer.
 type Device struct {
-	RelayKey  []byte    `json:"relayKey"`
-	APNsToken string    `json:"apnsToken,omitempty"`
-	APNsEnv   string    `json:"apnsEnv,omitempty"`
-	LastSeen  time.Time `json:"lastSeen"`
+	RelayKey []byte    `json:"relayKey"`
+	WebPush  *WebPush  `json:"webPush,omitempty"`
+	LastSeen time.Time `json:"lastSeen"`
+}
+
+// WebPush es la suscripción de push del navegador del teléfono (spec W.6), ya validada por el hub.
+type WebPush struct {
+	Endpoint string `json:"endpoint"`
+	P256dh   []byte `json:"p256dh"`
+	Auth     []byte `json:"auth"`
 }
 
 // DeviceEntry es una fila de la lista de dispositivos.
@@ -221,7 +228,7 @@ func (s *Store) Devices(acct string) ([]DeviceEntry, error) {
 	return out, err
 }
 
-// RemoveDevice da de baja un dispositivo: borra su token y su buzón.
+// RemoveDevice da de baja un dispositivo: borra su suscripción y su buzón.
 func (s *Store) RemoveDevice(acct, dev string) error {
 	return s.db.Update(func(tx *bolt.Tx) error {
 		if err := tx.Bucket(bucketDevices).Delete(deviceKey(acct, dev)); err != nil {
@@ -260,19 +267,17 @@ func (s *Store) updateDevice(acct, dev string, change func(*Device)) error {
 	})
 }
 
-// SetAPNs guarda el token de APNs de un dispositivo.
-func (s *Store) SetAPNs(acct, dev, token, env string) error {
-	return s.updateDevice(acct, dev, func(d *Device) {
-		d.APNsToken = token
-		d.APNsEnv = env
-	})
+// SetWebPush guarda (reemplaza) la suscripción de push de un dispositivo.
+func (s *Store) SetWebPush(acct, dev string, sub WebPush) error {
+	return s.updateDevice(acct, dev, func(d *Device) { d.WebPush = &sub })
 }
 
-// ClearAPNs borra el token (APNs respondió 410 o BadDeviceToken).
-func (s *Store) ClearAPNs(acct, dev string) error {
+// ClearWebPush borra la suscripción (el servicio de push respondió 404 o 410), solo si sigue siendo la de endpoint.
+func (s *Store) ClearWebPush(acct, dev, endpoint string) error {
 	return s.updateDevice(acct, dev, func(d *Device) {
-		d.APNsToken = ""
-		d.APNsEnv = ""
+		if d.WebPush != nil && d.WebPush.Endpoint == endpoint {
+			d.WebPush = nil
+		}
 	})
 }
 

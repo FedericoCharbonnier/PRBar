@@ -3,7 +3,9 @@ package hub
 import (
 	"bytes"
 	"context"
+	"crypto/ecdh"
 	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -20,9 +22,9 @@ import (
 
 	"github.com/coder/websocket"
 
-	"prbar-relay/internal/apns"
 	"prbar-relay/internal/auth"
 	"prbar-relay/internal/store"
+	"prbar-relay/internal/webpush"
 )
 
 const testHost = "relay.test"
@@ -62,24 +64,38 @@ func (b *syncBuffer) String() string {
 	return b.buf.String()
 }
 
+type sentPush struct {
+	sub      webpush.Subscription
+	collapse string
+	payload  []byte
+}
+
 type fakePusher struct {
 	mu     sync.Mutex
-	sent   []apns.Notification
-	tokens []string
+	sent   []sentPush
 	status int
 	reason string
 }
 
-func (p *fakePusher) Send(_ context.Context, token, _ string, n apns.Notification) (apns.Result, error) {
+func (p *fakePusher) PublicKey() []byte { return append([]byte{4}, bytes.Repeat([]byte{7}, 64)...) }
+
+func (p *fakePusher) Send(_ context.Context, sub webpush.Subscription, collapse string, payload []byte) (webpush.Result, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.sent = append(p.sent, n)
-	p.tokens = append(p.tokens, token)
+	p.sent = append(p.sent, sentPush{sub: sub, collapse: collapse, payload: payload})
 	status := p.status
 	if status == 0 {
-		status = http.StatusOK
+		status = http.StatusCreated
 	}
-	return apns.Result{Status: status, Reason: p.reason}, nil
+	return webpush.Result{Status: status, Reason: p.reason}, nil
+}
+
+// subscription arma un marco `webpush` válido (como lo manda el navegador).
+func subscription(endpoint string) Frame {
+	priv, _ := ecdh.P256().GenerateKey(rand.Reader)
+	auth := make([]byte, 16)
+	_, _ = rand.Read(auth)
+	return Frame{T: "webpush", Endpoint: endpoint, P256dh: encodeB64(priv.PublicKey().Bytes()), Auth: encodeB64(auth)}
 }
 
 func (p *fakePusher) count() int {
@@ -568,10 +584,10 @@ func TestReplacementAndRemoval(t *testing.T) {
 	if code := first.closedWith(); code != CloseReplaced {
 		t.Fatalf("replaced: %d", code)
 	}
-	second.write(Frame{T: "apns", Token: strings.Repeat("ab", 32), Env: "sandbox"})
-	e.eventually("token stored", func() bool {
+	second.write(subscription("https://web.push.apple.com/SECRETO-endpoint"))
+	e.eventually("subscription stored", func() bool {
 		d, _, _ := e.store.Device(acct, d1)
-		return d.APNsToken != ""
+		return d.WebPush != nil
 	})
 	mac.write(Frame{T: "device.remove", Device: d1})
 	if code := second.closedWith(); code != CloseDeviceRemoved {
@@ -583,8 +599,8 @@ func TestReplacementAndRemoval(t *testing.T) {
 	if _, _, err := e.connect(acct, d1, signer(k1, testHost, acct, d1)); websocket.CloseStatus(err) != CloseUnauthorized {
 		t.Fatalf("removed device authenticated: %v", err)
 	}
-	if strings.Contains(e.logs.String(), strings.Repeat("ab", 32)) {
-		t.Fatal("APNs token in the logs")
+	if strings.Contains(e.logs.String(), "SECRETO") {
+		t.Fatal("push endpoint in the logs")
 	}
 }
 
@@ -656,19 +672,29 @@ func TestMailboxAndPushes(t *testing.T) {
 	if err := json.Unmarshal(f.Items, &items); err != nil || len(items) != 1 || items[0].B != "BAUG" || items[0].Slot != "home" {
 		t.Fatalf("mbox: %s", f.Items)
 	}
-	// Push sin token: 410 sin llamar a APNs.
+	// Push sin suscripción: 410 sin llamar al servicio de push.
 	push := Frame{T: "push", ID: "p0", To: d1, Collapse: strings.Repeat("a", 64), Thread: strings.Repeat("b", 32),
 		B: "SECRETO-abc"}
 	mac.write(push)
 	if r := mac.expect("pushResult"); r.ID != "p0" || r.Status != http.StatusGone {
-		t.Fatalf("no token: %+v", r)
+		t.Fatalf("no subscription: %+v", r)
 	}
-	token := strings.Repeat("cd", 32)
-	phone.write(Frame{T: "apns", Token: token, Env: "production"})
-	e.eventually("token", func() bool {
+	endpoint := "https://web.push.apple.com/SECRETO-endpoint"
+	sub := subscription(endpoint)
+	phone.write(sub)
+	e.eventually("subscription", func() bool {
 		d, _, _ := e.store.Device(acct, d1)
-		return d.APNsToken == token
+		return d.WebPush != nil && d.WebPush.Endpoint == endpoint && encodeB64(d.WebPush.P256dh) == sub.P256dh &&
+			encodeB64(d.WebPush.Auth) == sub.Auth
 	})
+	// Un sobre que no entra en un registro de Web Push: 413 sin llamar al servicio.
+	big := push
+	big.ID, big.B = "big", encodeB64(make([]byte, 3000))
+	mac.write(big)
+	if r := mac.expect("pushResult"); r.Status != http.StatusRequestEntityTooLarge || e.pusher.count() != 0 {
+		t.Fatalf("too large: %+v", r)
+	}
+	// El 201 del servicio llega a la Mac como 200 (el contrato de siempre: 200 = entregado).
 	for i := 1; i <= 60; i++ {
 		push.ID = fmt.Sprintf("p%d", i)
 		mac.write(push)
@@ -687,25 +713,105 @@ func TestMailboxAndPushes(t *testing.T) {
 	e.pusher.mu.Lock()
 	first := e.pusher.sent[0]
 	e.pusher.mu.Unlock()
-	if first.Collapse != strings.Repeat("a", 64) || first.Thread != strings.Repeat("b", 32) {
+	envelope, _ := decodeB64(push.B)
+	wantPayload, _ := webpush.Payload(push.Collapse, push.Thread, envelope)
+	if first.collapse != push.Collapse || string(first.payload) != string(wantPayload) || first.sub.Endpoint != endpoint {
 		t.Fatalf("notification: %+v", first)
 	}
-	// 410 de APNs borra el token.
+	// Otro error del servicio llega tal cual y no borra la suscripción.
 	e.clock.advance(2 * time.Minute)
 	e.pusher.mu.Lock()
-	e.pusher.status, e.pusher.reason = http.StatusGone, "Unregistered"
+	e.pusher.status, e.pusher.reason = http.StatusTooManyRequests, "TooManyRequests"
 	e.pusher.mu.Unlock()
 	push.ID = "p62"
 	mac.write(push)
-	if r := mac.expect("pushResult"); r.Status != http.StatusGone || r.Reason != "Unregistered" {
+	if r := mac.expect("pushResult"); r.Status != http.StatusTooManyRequests || r.Reason != "TooManyRequests" {
+		t.Fatalf("429: %+v", r)
+	}
+	// 404 o 410 del servicio borran la suscripción y la Mac recibe 410.
+	e.pusher.mu.Lock()
+	e.pusher.status, e.pusher.reason = http.StatusNotFound, ""
+	e.pusher.mu.Unlock()
+	push.ID = "p63"
+	mac.write(push)
+	if r := mac.expect("pushResult"); r.Status != http.StatusGone || r.Reason != "Unsubscribed" {
 		t.Fatalf("gone: %+v", r)
 	}
-	if d, _, _ := e.store.Device(acct, d1); d.APNsToken != "" {
-		t.Fatal("token not cleared after 410")
+	if d, _, _ := e.store.Device(acct, d1); d.WebPush != nil {
+		t.Fatal("subscription not cleared after 404")
 	}
 	logs := e.logs.String()
-	if strings.Contains(logs, "SECRETO") || strings.Contains(logs, token) || strings.Contains(logs, "BAUG") {
+	if strings.Contains(logs, "SECRETO") || strings.Contains(logs, sub.Auth) || strings.Contains(logs, "BAUG") {
 		t.Fatalf("content in the logs:\n%s", logs)
+	}
+}
+
+func TestWebPushSubscriptionAllowlist(t *testing.T) {
+	e := newEnv(t, nil)
+	acct, key := e.enroll()
+	mac := e.mac(acct, key)
+	d1, k1 := e.addDevice(mac, acct)
+	phone, _ := e.device(acct, d1, k1)
+	mac.expect("presence")
+	bad := []Frame{
+		subscription("https://evil.example.org/push"),
+		subscription("http://web.push.apple.com/push"),
+		subscription("http://127.0.0.1:9/push/x"), // sin modo test
+		{T: "webpush", Endpoint: "https://web.push.apple.com/x", P256dh: "AQID", Auth: "AQID"},
+	}
+	for _, f := range bad {
+		phone.write(f)
+		if r := phone.expect("error"); r.Reason != "bad subscription" {
+			t.Fatalf("%+v: %+v", f, r)
+		}
+	}
+	if d, _, _ := e.store.Device(acct, d1); d.WebPush != nil {
+		t.Fatal("stored a bad subscription")
+	}
+	// La Mac no registra suscripciones.
+	mac.write(subscription("https://web.push.apple.com/x"))
+	if r := mac.expect("error"); r.Reason != "forbidden" {
+		t.Fatalf("mac: %+v", r)
+	}
+}
+
+func TestWebPushTestEndpoint(t *testing.T) {
+	e := newEnv(t, func(o *Options) { o.WebPushTestEndpoint = "http://127.0.0.1:9/push/" })
+	acct, key := e.enroll()
+	mac := e.mac(acct, key)
+	d1, k1 := e.addDevice(mac, acct)
+	phone, _ := e.device(acct, d1, k1)
+	mac.expect("presence")
+	phone.write(subscription("http://127.0.0.1:9/push/abc"))
+	e.eventually("test subscription", func() bool {
+		d, _, _ := e.store.Device(acct, d1)
+		return d.WebPush != nil
+	})
+}
+
+func TestVAPIDEndpoint(t *testing.T) {
+	e := newEnv(t, nil)
+	resp, err := http.Get(e.server.URL + "/v1/vapid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body struct {
+		PublicKey string `json:"publicKey"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || body.PublicKey != encodeB64(e.pusher.PublicKey()) ||
+		!strings.HasPrefix(resp.Header.Get("content-type"), "application/json") {
+		t.Fatalf("vapid: %d %+v", resp.StatusCode, body)
+	}
+	off := newEnv(t, func(o *Options) { o.Pusher = nil })
+	resp, err = http.Get(off.server.URL + "/v1/vapid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("vapid without push: %d", resp.StatusCode)
 	}
 }
 
@@ -752,5 +858,77 @@ func TestClientIPTrustsOnlyTheProxyHop(t *testing.T) {
 	req.RemoteAddr = "198.51.100.7:1234"
 	if ip := h.clientIP(req); ip != "198.51.100.7" {
 		t.Fatalf("direct: %s", ip)
+	}
+}
+
+// dialOrigin abre el WebSocket con un header Origin (vacío: sin header) y devuelve el status HTTP del upgrade.
+func (e *env) dialOrigin(origin string) int {
+	e.t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	header := http.Header{}
+	if origin != "" {
+		header.Set("Origin", origin)
+	}
+	url := "ws" + strings.TrimPrefix(e.server.URL, "http") + "/v1/ws"
+	ws, resp, err := websocket.Dial(ctx, url, &websocket.DialOptions{Subprotocols: []string{Subprotocol},
+		HTTPHeader: header})
+	if err != nil {
+		if resp != nil {
+			return resp.StatusCode
+		}
+		e.t.Fatalf("dial %q: %v", origin, err)
+	}
+	ws.CloseNow()
+	return http.StatusSwitchingProtocols
+}
+
+func TestWebSocketOrigin(t *testing.T) {
+	e := newEnv(t, nil)
+	// La Mac no manda Origin; la web app manda el del relay.
+	for _, origin := range []string{"", "https://" + testHost} {
+		if status := e.dialOrigin(origin); status != http.StatusSwitchingProtocols {
+			t.Errorf("origin %q: %d", origin, status)
+		}
+	}
+	for _, origin := range []string{"https://evil.example.org", "http://" + testHost, "https://" + testHost + ":8443",
+		"https://" + testHost + "/", "null", "http://127.0.0.1:5173", "http://localhost:5173"} {
+		if status := e.dialOrigin(origin); status != http.StatusForbidden {
+			t.Errorf("origin %q: %d", origin, status)
+		}
+	}
+	// Modo test: también http://127.0.0.1:* y http://localhost:*.
+	local := newEnv(t, func(o *Options) { o.AllowLocalOrigins = true })
+	for _, origin := range []string{"http://127.0.0.1:5173", "http://localhost:4173", "http://127.0.0.1"} {
+		if status := local.dialOrigin(origin); status != http.StatusSwitchingProtocols {
+			t.Errorf("test mode origin %q: %d", origin, status)
+		}
+	}
+	for _, origin := range []string{"http://127.0.0.2:5173", "https://evil.example.org", "http://localhost.evil.org:80",
+		"http://127.0.0.1:5173/x", "http://user@127.0.0.1:5173"} {
+		if status := local.dialOrigin(origin); status != http.StatusForbidden {
+			t.Errorf("test mode origin %q: %d", origin, status)
+		}
+	}
+}
+
+func TestServesWebAppAndAPI(t *testing.T) {
+	web := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("WEB")) })
+	e := newEnv(t, func(o *Options) { o.Web = web })
+	for path, want := range map[string]string{"/": "WEB", "/sw.js": "WEB", "/healthz": "ok"} {
+		resp, err := http.Get(e.server.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out bytes.Buffer
+		_, _ = out.ReadFrom(resp.Body)
+		resp.Body.Close()
+		if out.String() != want {
+			t.Errorf("%s: %q", path, out.String())
+		}
+	}
+	// La API sigue en su lugar.
+	if _, _, err := e.open(); err != nil {
+		t.Fatalf("ws with the web app mounted: %v", err)
 	}
 }

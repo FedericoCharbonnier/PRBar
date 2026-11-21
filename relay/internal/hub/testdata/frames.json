@@ -14,7 +14,7 @@
  "{\"b\":\"AQID-vv8\",\"slot\":\"home\",\"t\":\"mbox.put\",\"to\":\"dev1\"}",
  "{\"t\":\"mbox.get\"}",
  "{\"items\":[{\"at\":1800000000,\"b\":\"AQID-vv8\",\"slot\":\"home\"}],\"t\":\"mbox\"}",
- "{\"env\":\"sandbox\",\"t\":\"apns\",\"token\":\"abcd\"}",
+ "{\"auth\":\"AQID-vv8\",\"endpoint\":\"https://web.push.apple.com/QGuQ\",\"p256dh\":\"BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc\",\"t\":\"webpush\"}",
  "{\"authKey\":\"BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc\",\"expires\":1800000300,\"pairing\":\"pid\",\"t\":\"pair.open\"}",
  "{\"pairing\":\"pid\",\"t\":\"pair.close\"}",
  "{\"device\":\"dev1\",\"relayKey\":\"BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc\",\"t\":\"device.add\"}",

@@ -1,4 +1,5 @@
-// prbar-relay: el relay de PRBar entre la Mac y el iPhone (spec P). Ve solo texto cifrado e ids de ruteo.
+// prbar-relay: el relay de PRBar entre la Mac y el teléfono (spec P y W). Ve solo texto cifrado e ids de ruteo, y
+// sirve la web app del teléfono.
 package main
 
 import (
@@ -12,11 +13,12 @@ import (
 	"syscall"
 	"time"
 
-	"prbar-relay/internal/apns"
 	"prbar-relay/internal/config"
 	"prbar-relay/internal/hub"
 	"prbar-relay/internal/logx"
 	"prbar-relay/internal/store"
+	"prbar-relay/internal/web"
+	"prbar-relay/internal/webpush"
 )
 
 func main() {
@@ -38,26 +40,29 @@ func run(log *slog.Logger) error {
 	}
 	defer db.Close()
 
+	// Sin VAPID el relay arranca igual, con los pushes apagados (GET /v1/vapid da 404).
 	var pusher hub.Pusher
-	if cfg.APNsConfigured() {
-		keyPEM, err := os.ReadFile(cfg.APNsKeyFile)
+	if cfg.PushConfigured() {
+		sender, err := webpush.New(webpush.Options{PrivateKey: cfg.VAPIDPrivateKey, Subject: cfg.VAPIDSubject,
+			TestEndpointPrefix: cfg.WebPushTestEndpoint})
 		if err != nil {
-			log.Warn("push disabled", "reason", "can't read the APNs key")
+			log.Warn("push disabled", "reason", err.Error())
 		} else {
-			client, err := apns.New(apns.Options{KeyID: cfg.APNsKeyID, TeamID: cfg.APNsTeamID, Topic: cfg.APNsTopic,
-				KeyPEM: keyPEM, Endpoint: cfg.APNsEndpointOverride})
-			if err != nil {
-				log.Warn("push disabled", "reason", err.Error())
-			} else {
-				pusher = client
-			}
+			pusher = sender
 		}
 	} else {
-		log.Warn("push disabled", "reason", "APNS_KEY_ID, APNS_TEAM_ID or APNS_TOPIC missing")
+		log.Warn("push disabled", "reason", "VAPID_PRIVATE_KEY missing")
+	}
+
+	// La web app del teléfono, embebida (spec W.7).
+	app, err := web.New(cfg.PublicHost)
+	if err != nil {
+		return err
 	}
 
 	h := hub.New(hub.Options{PublicHost: cfg.PublicHost, EnrollToken: cfg.EnrollToken, Store: db, Log: log,
-		Pusher: pusher, TrustedProxies: cfg.TrustedProxies})
+		Pusher: pusher, TrustedProxies: cfg.TrustedProxies, Web: app, WebPushTestEndpoint: cfg.WebPushTestEndpoint,
+		AllowLocalOrigins: cfg.TestMode})
 	server := &http.Server{
 		Addr:              cfg.Listen,
 		Handler:           h.Handler(),

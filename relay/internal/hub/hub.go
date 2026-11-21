@@ -1,6 +1,6 @@
 // Package hub es el relay en sí (spec P.4): inscripción, conexiones WebSocket autenticadas, ruteo de marcos
-// cifrados, presencia, buzón, ranuras de emparejamiento, pushes y límites. Nunca descifra nada y nunca loguea `b`,
-// `e`, tokens ni payloads.
+// cifrados, presencia, buzón, ranuras de emparejamiento, pushes (Web Push, spec W.6) y límites. Nunca descifra nada
+// y nunca loguea `b`, `e`, endpoints de push ni payloads.
 package hub
 
 import (
@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -22,11 +23,11 @@ import (
 
 	"github.com/coder/websocket"
 
-	"prbar-relay/internal/apns"
 	"prbar-relay/internal/auth"
 	"prbar-relay/internal/logx"
 	"prbar-relay/internal/ratelimit"
 	"prbar-relay/internal/store"
+	"prbar-relay/internal/webpush"
 )
 
 // Códigos de cierre (spec P.4).
@@ -42,9 +43,10 @@ const (
 // Subprotocol es el subprotocolo de WebSocket.
 const Subprotocol = "prbar-relay.v1"
 
-// Pusher manda un push a APNs (apns.Client en producción, uno falso en los tests).
+// Pusher manda un push al servicio de push del navegador (webpush.Sender en producción, uno falso en los tests).
 type Pusher interface {
-	Send(ctx context.Context, deviceToken, env string, n apns.Notification) (apns.Result, error)
+	PublicKey() []byte
+	Send(ctx context.Context, sub webpush.Subscription, collapse string, payload []byte) (webpush.Result, error)
 }
 
 // Options son los límites y dependencias del hub (los valores por defecto son los del spec P.10).
@@ -56,6 +58,11 @@ type Options struct {
 	Pusher         Pusher
 	Now            func() time.Time
 	TrustedProxies []netip.Prefix
+	// Web sirve la web app (GET de todo lo que no es de la API). nil: solo la API.
+	Web http.Handler
+	// Solo RELAY_TEST_MODE: un prefijo de endpoint de push extra (http incluido) y Origin locales en el WebSocket.
+	WebPushTestEndpoint string
+	AllowLocalOrigins   bool
 
 	MaxFrame         int
 	FrameRate        float64
@@ -162,7 +169,8 @@ func New(o Options) *Hub {
 	}
 }
 
-// Handler devuelve las rutas: GET /healthz, POST /v1/accounts, GET /v1/ws.
+// Handler devuelve las rutas: GET /healthz, POST /v1/accounts, GET /v1/vapid, GET /v1/ws y, si hay Web, la web app
+// en el resto de los GET.
 func (h *Hub) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -170,8 +178,23 @@ func (h *Hub) Handler() http.Handler {
 		_, _ = io.WriteString(w, "ok")
 	})
 	mux.HandleFunc("POST /v1/accounts", h.handleEnroll)
+	mux.HandleFunc("GET /v1/vapid", h.handleVAPID)
 	mux.HandleFunc("GET /v1/ws", h.handleWebSocket)
+	if h.o.Web != nil {
+		mux.Handle("GET /", h.o.Web)
+	}
 	return mux
+}
+
+// handleVAPID devuelve la pública VAPID (la applicationServerKey del navegador). 404 con los pushes apagados.
+func (h *Hub) handleVAPID(w http.ResponseWriter, _ *http.Request) {
+	if h.o.Pusher == nil {
+		http.Error(w, "push disabled", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("content-type", "application/json")
+	w.Header().Set("cache-control", "no-cache")
+	_, _ = w.Write(mustJSON(map[string]string{"publicKey": encodeB64(h.o.Pusher.PublicKey())}))
 }
 
 // clientIP: la IP de la conexión, o el último salto de X-Forwarded-For si la conexión viene de un proxy de
@@ -262,8 +285,38 @@ func (h *Hub) handleEnroll(w http.ResponseWriter, r *http.Request) {
 
 // MARK: WebSocket
 
+// originAllowed (spec W.7): sin Origin (la Mac, wsprobe) pasa; con Origin tiene que ser exactamente la web app del
+// relay, así una página de otro sitio no puede abrir un WebSocket desde el navegador del teléfono. En modo test
+// también http://127.0.0.1:* y http://localhost:* (los e2e).
+func (h *Hub) originAllowed(r *http.Request) bool {
+	values := r.Header.Values("Origin")
+	if len(values) == 0 {
+		return true
+	}
+	if len(values) > 1 {
+		return false
+	}
+	origin := values[0]
+	if origin == "https://"+h.o.PublicHost {
+		return true
+	}
+	if !h.o.AllowLocalOrigins {
+		return false
+	}
+	u, err := url.Parse(origin)
+	if err != nil || u.Scheme != "http" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
+		return false
+	}
+	return u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost"
+}
+
 func (h *Hub) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	ip := h.clientIP(r)
+	if !h.originAllowed(r) {
+		h.o.Log.Warn("origin refused", "ip", ip)
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	if h.authFail.Blocked(ip) || !h.upgrades.Allow(ip) {
 		h.o.Log.Warn("limit", "kind", "upgrade", "ip", ip)
 		http.Error(w, "too many requests", http.StatusTooManyRequests)
@@ -284,7 +337,10 @@ func (h *Hub) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		h.mu.Unlock()
 	}()
 
-	ws, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{Subprotocol}})
+	// El Origin ya se validó arriba (originAllowed); la verificación de la biblioteca (Origin == Host) se apaga
+	// porque detrás de Traefik y en modo test no coinciden siempre.
+	ws, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{Subprotocol},
+		InsecureSkipVerify: true})
 	if err != nil {
 		return
 	}
@@ -550,19 +606,38 @@ func (h *Hub) fromDevice(c *Conn, f Frame) {
 			out = append(out, MailboxItem{Slot: item.Slot, B: encodeB64(item.Blob), At: item.At.Unix()})
 		}
 		c.enqueue(Frame{T: "mbox", Items: mustJSON(out)})
-	case "apns":
-		if !isHex(f.Token, len(f.Token)) || len(f.Token) < 32 || len(f.Token) > 200 ||
-			(f.Env != "sandbox" && f.Env != "production") {
-			c.enqueue(Frame{T: "error", Reason: "bad token"})
-			return
-		}
-		if err := h.o.Store.SetAPNs(c.acct, c.id, f.Token, f.Env); err == nil {
-			h.o.Log.Info("apns token", "acct", logx.Prefix(c.acct), "device", logx.Prefix(c.id),
-				"token", logx.TokenTag(f.Token), "env", f.Env)
-		}
+	case "webpush":
+		h.webPushSubscribe(c, f)
 	default:
 		c.enqueue(Frame{T: "error", Reason: "forbidden"})
 	}
+}
+
+// webPushSubscribe guarda la suscripción del navegador si el endpoint está en la allowlist (spec W.6): así el relay
+// nunca hace pedidos a un lugar que elija un teléfono.
+func (h *Hub) webPushSubscribe(c *Conn, f Frame) {
+	p256dh, err1 := decodeB64(strings.TrimRight(f.P256dh, "="))
+	authSecret, err2 := decodeB64(strings.TrimRight(f.Auth, "="))
+	if err1 != nil || err2 != nil ||
+		webpush.ValidateSubscription(f.Endpoint, p256dh, authSecret, h.o.WebPushTestEndpoint) != nil {
+		c.enqueue(Frame{T: "error", Reason: "bad subscription"})
+		return
+	}
+	sub := store.WebPush{Endpoint: f.Endpoint, P256dh: p256dh, Auth: authSecret}
+	if err := h.o.Store.SetWebPush(c.acct, c.id, sub); err != nil {
+		c.enqueue(Frame{T: "error", Reason: "internal"})
+		return
+	}
+	h.o.Log.Info("push subscription", "acct", logx.Prefix(c.acct), "device", logx.Prefix(c.id),
+		"service", pushService(f.Endpoint), "endpoint", logx.TokenTag(f.Endpoint))
+}
+
+// pushService es el host del endpoint (para los logs; el resto del URL es una credencial).
+func pushService(endpoint string) string {
+	if u, err := url.Parse(endpoint); err == nil {
+		return u.Hostname()
+	}
+	return ""
 }
 
 func (h *Hub) fromMac(c *Conn, f Frame) {
@@ -719,39 +794,53 @@ func (h *Hub) macPush(c *Conn, f Frame) {
 		reply(http.StatusBadRequest, "BadFrame")
 		return
 	}
+	payload, err := webpush.Payload(f.Collapse, f.Thread, envelope)
+	if err != nil {
+		reply(http.StatusRequestEntityTooLarge, "PayloadTooLarge")
+		return
+	}
 	if h.o.Pusher == nil {
 		reply(http.StatusServiceUnavailable, "PushDisabled")
 		return
 	}
 	device, ok, err := h.o.Store.Device(c.acct, f.To)
-	if err != nil || !ok || device.APNsToken == "" {
-		reply(http.StatusGone, "NoToken")
+	if err != nil || !ok || device.WebPush == nil {
+		reply(http.StatusGone, "NoSubscription")
 		return
 	}
-	// Solo cuentan los pushes que irían a Apple: 60 por minuto por cuenta.
+	// Solo cuentan los pushes que irían al servicio de push: 60 por minuto por cuenta.
 	if !h.pushes.Allow(c.acct) {
 		h.o.Log.Warn("limit", "kind", "push", "acct", logx.Prefix(c.acct))
 		reply(http.StatusTooManyRequests, "RelayRateLimit")
 		return
 	}
+	sub := webpush.Subscription{Endpoint: device.WebPush.Endpoint, P256dh: device.WebPush.P256dh,
+		Auth: device.WebPush.Auth}
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), h.o.PushTimeout)
 		defer cancel()
 		started := h.o.Now()
-		result, err := h.o.Pusher.Send(ctx, device.APNsToken, device.APNsEnv,
-			apns.Notification{Collapse: f.Collapse, Thread: f.Thread, Envelope: envelope})
+		result, err := h.o.Pusher.Send(ctx, sub, f.Collapse, payload)
 		if err != nil {
 			h.o.Log.Warn("push failed", "acct", logx.Prefix(c.acct), "device", logx.Prefix(f.To), "err", err.Error())
-			reply(http.StatusBadGateway, "APNsUnreachable")
+			reply(http.StatusBadGateway, "PushServiceUnreachable")
 			return
 		}
 		h.pushed.Add(1)
 		h.o.Log.Info("push", "acct", logx.Prefix(c.acct), "device", logx.Prefix(f.To), "status", result.Status,
-			"reason", result.Reason, "ms", h.o.Now().Sub(started).Milliseconds(), "token", logx.TokenTag(device.APNsToken))
-		if apns.TokenGone(result) {
-			_ = h.o.Store.ClearAPNs(c.acct, f.To)
+			"reason", result.Reason, "ms", h.o.Now().Sub(started).Milliseconds(), "service", pushService(sub.Endpoint),
+			"endpoint", logx.TokenTag(sub.Endpoint))
+		switch {
+		case webpush.Gone(result):
+			// La suscripción ya no existe: se borra y la Mac recibe 410 (lo marca "Notifications off").
+			_ = h.o.Store.ClearWebPush(c.acct, f.To, sub.Endpoint)
+			reply(http.StatusGone, "Unsubscribed")
+		case result.Status >= 200 && result.Status < 300:
+			// 201 Created del servicio: para la Mac, 200 = entregado (el contrato de pushResult de siempre).
+			reply(http.StatusOK, "")
+		default:
+			reply(result.Status, result.Reason)
 		}
-		reply(result.Status, result.Reason)
 	}()
 }
 
