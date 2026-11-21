@@ -139,8 +139,8 @@ export class FakeRelay {
     return this.sockets.at(-1)!;
   }
 
+  /** Un marco que el cliente mandó antes de cerrar igual llega (como un WebSocket real, que vacía su cola). */
   receive(socket: FakeSocket, message: RelayMessage): void {
-    if (socket.closed) return;
     if (!socket.role) {
       if (message.t !== "auth") return socket.drop(4401, "expected auth");
       const role = this.#authorize(message);
