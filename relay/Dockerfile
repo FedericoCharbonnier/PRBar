@@ -2,15 +2,15 @@
 # (deploy.sh). Los archivos que no entran al contexto están en Dockerfile.dockerignore, al lado de este archivo.
 
 # 1. La web app del teléfono (spec W.2): web/dist.
-FROM node:24 AS web
+FROM node:24.21.0 AS web
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
-RUN npm ci
+RUN npm ci --ignore-scripts
 COPY web/ ./
 RUN npm run build
 
 # 2. Binario estático para linux/arm64 (el VPS) con la web embebida (internal/web/dist).
-FROM golang:1.27 AS build
+FROM golang:1.27.4 AS build
 WORKDIR /src
 COPY relay/go.mod relay/go.sum ./
 RUN go mod download && go mod verify

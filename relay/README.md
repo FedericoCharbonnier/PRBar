@@ -77,9 +77,9 @@ connection (a client that doesn't read is cut with 4429), 10 WebSocket upgrades 
 ## The embedded web app
 
 `internal/web/dist` is embedded with `//go:embed`. The repo only has a placeholder `index.html` there so `go build`
-works without node; the Dockerfile builds `web/` (`npm ci && npm run build` in a `node:24` stage) and copies
-`web/dist` in before `go build`. For local runs, copy `web/dist/*` into `internal/web/dist/` (and restore the
-placeholder afterwards: `git checkout relay/internal/web/dist`).
+works without node; the Dockerfile builds `web/` (`npm ci --ignore-scripts && npm run build` in a `node:24.21.0`
+stage) and copies `web/dist` in before `go build`. For local runs, copy `web/dist/*` into `internal/web/dist/` (and
+restore the placeholder afterwards: `git checkout relay/internal/web/dist`).
 
 How the phone protects itself from a stale or tampered copy: `/sw.js` is never cached (`no-cache`, and browsers
 always check the service worker script with the server), so it is the trust anchor. The build writes into it the
@@ -114,7 +114,7 @@ cd relay
 go vet ./... && test -z "$(gofmt -l .)" && go test ./...
 ```
 
-Without Go installed: `docker run --rm -v "$PWD":/src -w /src golang:1.27 go test ./...`.
+Without Go installed: `docker run --rm -v "$PWD":/src -w /src golang:1.27.4 go test ./...`.
 
 Swift ↔ Go integration (from the repo root):
 
