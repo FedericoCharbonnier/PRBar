@@ -860,3 +860,75 @@ func TestClientIPTrustsOnlyTheProxyHop(t *testing.T) {
 		t.Fatalf("direct: %s", ip)
 	}
 }
+
+// dialOrigin abre el WebSocket con un header Origin (vacío: sin header) y devuelve el status HTTP del upgrade.
+func (e *env) dialOrigin(origin string) int {
+	e.t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	header := http.Header{}
+	if origin != "" {
+		header.Set("Origin", origin)
+	}
+	url := "ws" + strings.TrimPrefix(e.server.URL, "http") + "/v1/ws"
+	ws, resp, err := websocket.Dial(ctx, url, &websocket.DialOptions{Subprotocols: []string{Subprotocol},
+		HTTPHeader: header})
+	if err != nil {
+		if resp != nil {
+			return resp.StatusCode
+		}
+		e.t.Fatalf("dial %q: %v", origin, err)
+	}
+	ws.CloseNow()
+	return http.StatusSwitchingProtocols
+}
+
+func TestWebSocketOrigin(t *testing.T) {
+	e := newEnv(t, nil)
+	// La Mac no manda Origin; la web app manda el del relay.
+	for _, origin := range []string{"", "https://" + testHost} {
+		if status := e.dialOrigin(origin); status != http.StatusSwitchingProtocols {
+			t.Errorf("origin %q: %d", origin, status)
+		}
+	}
+	for _, origin := range []string{"https://evil.example.org", "http://" + testHost, "https://" + testHost + ":8443",
+		"https://" + testHost + "/", "null", "http://127.0.0.1:5173", "http://localhost:5173"} {
+		if status := e.dialOrigin(origin); status != http.StatusForbidden {
+			t.Errorf("origin %q: %d", origin, status)
+		}
+	}
+	// Modo test: también http://127.0.0.1:* y http://localhost:*.
+	local := newEnv(t, func(o *Options) { o.AllowLocalOrigins = true })
+	for _, origin := range []string{"http://127.0.0.1:5173", "http://localhost:4173", "http://127.0.0.1"} {
+		if status := local.dialOrigin(origin); status != http.StatusSwitchingProtocols {
+			t.Errorf("test mode origin %q: %d", origin, status)
+		}
+	}
+	for _, origin := range []string{"http://127.0.0.2:5173", "https://evil.example.org", "http://localhost.evil.org:80",
+		"http://127.0.0.1:5173/x", "http://user@127.0.0.1:5173"} {
+		if status := local.dialOrigin(origin); status != http.StatusForbidden {
+			t.Errorf("test mode origin %q: %d", origin, status)
+		}
+	}
+}
+
+func TestServesWebAppAndAPI(t *testing.T) {
+	web := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("WEB")) })
+	e := newEnv(t, func(o *Options) { o.Web = web })
+	for path, want := range map[string]string{"/": "WEB", "/sw.js": "WEB", "/healthz": "ok"} {
+		resp, err := http.Get(e.server.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out bytes.Buffer
+		_, _ = out.ReadFrom(resp.Body)
+		resp.Body.Close()
+		if out.String() != want {
+			t.Errorf("%s: %q", path, out.String())
+		}
+	}
+	// La API sigue en su lugar.
+	if _, _, err := e.open(); err != nil {
+		t.Fatalf("ws with the web app mounted: %v", err)
+	}
+}

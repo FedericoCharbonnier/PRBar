@@ -285,8 +285,38 @@ func (h *Hub) handleEnroll(w http.ResponseWriter, r *http.Request) {
 
 // MARK: WebSocket
 
+// originAllowed (spec W.7): sin Origin (la Mac, wsprobe) pasa; con Origin tiene que ser exactamente la web app del
+// relay, así una página de otro sitio no puede abrir un WebSocket desde el navegador del teléfono. En modo test
+// también http://127.0.0.1:* y http://localhost:* (los e2e).
+func (h *Hub) originAllowed(r *http.Request) bool {
+	values := r.Header.Values("Origin")
+	if len(values) == 0 {
+		return true
+	}
+	if len(values) > 1 {
+		return false
+	}
+	origin := values[0]
+	if origin == "https://"+h.o.PublicHost {
+		return true
+	}
+	if !h.o.AllowLocalOrigins {
+		return false
+	}
+	u, err := url.Parse(origin)
+	if err != nil || u.Scheme != "http" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
+		return false
+	}
+	return u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost"
+}
+
 func (h *Hub) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	ip := h.clientIP(r)
+	if !h.originAllowed(r) {
+		h.o.Log.Warn("origin refused", "ip", ip)
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	if h.authFail.Blocked(ip) || !h.upgrades.Allow(ip) {
 		h.o.Log.Warn("limit", "kind", "upgrade", "ip", ip)
 		http.Error(w, "too many requests", http.StatusTooManyRequests)
@@ -307,7 +337,10 @@ func (h *Hub) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		h.mu.Unlock()
 	}()
 
-	ws, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{Subprotocol}})
+	// El Origin ya se validó arriba (originAllowed); la verificación de la biblioteca (Origin == Host) se apaga
+	// porque detrás de Traefik y en modo test no coinciden siempre.
+	ws, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{Subprotocol},
+		InsecureSkipVerify: true})
 	if err != nil {
 		return
 	}

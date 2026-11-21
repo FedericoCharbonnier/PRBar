@@ -1,0 +1,10 @@
+# Ignore propio de relay/Dockerfile (BuildKit). El contexto es la raíz del repo: rutas relativas a ella.
+**/.git
+**/.DS_Store
+**/node_modules
+**/*.db
+web/dist
+relay/deploy
+relay/prbar-relay
+relay/wsprobe-state.json
+relay/internal/web/dist

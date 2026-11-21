@@ -1,4 +1,5 @@
-// prbar-relay: el relay de PRBar entre la Mac y el iPhone (spec P). Ve solo texto cifrado e ids de ruteo.
+// prbar-relay: el relay de PRBar entre la Mac y el teléfono (spec P y W). Ve solo texto cifrado e ids de ruteo, y
+// sirve la web app del teléfono.
 package main
 
 import (
@@ -16,6 +17,7 @@ import (
 	"prbar-relay/internal/hub"
 	"prbar-relay/internal/logx"
 	"prbar-relay/internal/store"
+	"prbar-relay/internal/web"
 	"prbar-relay/internal/webpush"
 )
 
@@ -52,8 +54,15 @@ func run(log *slog.Logger) error {
 		log.Warn("push disabled", "reason", "VAPID_PRIVATE_KEY missing")
 	}
 
+	// La web app del teléfono, embebida (spec W.7).
+	app, err := web.New(cfg.PublicHost)
+	if err != nil {
+		return err
+	}
+
 	h := hub.New(hub.Options{PublicHost: cfg.PublicHost, EnrollToken: cfg.EnrollToken, Store: db, Log: log,
-		Pusher: pusher, TrustedProxies: cfg.TrustedProxies, WebPushTestEndpoint: cfg.WebPushTestEndpoint})
+		Pusher: pusher, TrustedProxies: cfg.TrustedProxies, Web: app, WebPushTestEndpoint: cfg.WebPushTestEndpoint,
+		AllowLocalOrigins: cfg.TestMode})
 	server := &http.Server{
 		Addr:              cfg.Listen,
 		Handler:           h.Handler(),
