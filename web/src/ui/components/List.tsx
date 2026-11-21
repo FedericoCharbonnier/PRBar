@@ -1,4 +1,7 @@
 import type { ComponentChildren } from "preact";
+import { useLayoutEffect, useRef } from "preact/hooks";
+import { animate, ghost, reducedMotion } from "../motion/animate";
+import { EASE_SPRING } from "../motion/math";
 import { Icon, type IconName } from "./Icon";
 import { Toggle } from "./Toggle";
 import "./components.css";
@@ -31,7 +34,7 @@ export function SectionHeader({ title, count, collapsed, dimmed, onToggle }: {
         onClick={onToggle}
       >
         {content}
-        <Icon name={collapsed ? "chevron.right" : "chevron.down"} size={collapsed ? 16 : 17} class="section-header__chevron" />
+        <Icon name="chevron.down" size={17} class={collapsed ? "section-header__chevron section-header__chevron--collapsed" : "section-header__chevron"} />
       </button>
     </h2>
   );
@@ -41,11 +44,53 @@ export function Section({ title, count, collapsed, dimmed, onToggle, children }:
   title: string; count?: number | undefined; collapsed?: boolean | undefined; dimmed?: boolean | undefined;
   onToggle?: (() => void) | undefined; children: ComponentChildren;
 }) {
+  const ref = useRef<HTMLElement>(null);
+  // Plegar/desplegar anima como UITableView: las secciones de abajo se deslizan a su lugar nuevo (FLIP, solo
+  // `transform`) y las filas aparecen o se desvanecen.
+  const before = useRef<Map<HTMLElement, number> | null>(null);
+  const toggle = onToggle && (() => {
+    const el = ref.current;
+    const positions = new Map<HTMLElement, number>();
+    for (let sib = el?.nextElementSibling as HTMLElement | null; sib; sib = sib.nextElementSibling as HTMLElement | null) {
+      positions.set(sib, sib.getBoundingClientRect().top);
+    }
+    before.current = positions;
+    onToggle();
+  });
+  useLayoutEffect(() => {
+    const positions = before.current;
+    before.current = null;
+    if (!positions || reducedMotion()) return;
+    for (const [sib, top] of positions) {
+      const delta = top - sib.getBoundingClientRect().top;
+      if (Math.abs(delta) < 1) continue;
+      void animate(sib, [{ transform: `translate3d(0, ${delta}px, 0)` }, { transform: "translate3d(0, 0, 0)" }], { duration: 380, easing: EASE_SPRING });
+    }
+  }, [collapsed]);
   return (
-    <section class="section">
-      <SectionHeader title={title} count={count} collapsed={collapsed} dimmed={dimmed} onToggle={onToggle} />
-      {!collapsed && <Card>{children}</Card>}
+    <section ref={ref} class="section">
+      <SectionHeader title={title} count={count} collapsed={collapsed} dimmed={dimmed} onToggle={toggle} />
+      {!collapsed && <SectionBody animated={before}>{children}</SectionBody>}
     </section>
+  );
+}
+
+function SectionBody({ animated, children }: { animated: { current: unknown }; children: ComponentChildren }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    // Solo cuando se despliega con un toque (no al montar la pantalla).
+    if (animated.current && !reducedMotion()) {
+      void animate(el, [{ opacity: 0, transform: "translate3d(0, -8px, 0)" }, { opacity: 1, transform: "none" }], { duration: 300, easing: "ease-out" });
+    }
+    return () => {
+      if (animated.current && !reducedMotion()) ghost(el, () => [{ opacity: 1 }, { opacity: 0 }], { duration: 180, easing: "ease-out" });
+    };
+  }, []);
+  return (
+    <div ref={ref} class="card">
+      {children}
+    </div>
   );
 }
 

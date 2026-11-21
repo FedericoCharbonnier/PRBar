@@ -86,6 +86,7 @@
 }
 
 .badge {
+  animation: badge-pop 0.45s cubic-bezier(0.2, 1.4, 0.4, 1) backwards;
   position: absolute;
   top: -5px;
   right: -9px;
@@ -528,6 +529,91 @@
   white-space: nowrap;
 }
 
+/* Barra de arriba de las pestañas (TopBar) y título en línea de la barra de navegación: invisibles hasta que la app
+   (nav.css) los muestra al desplazar. */
+.topbar {
+  position: relative;
+}
+
+.topbar.topbar--overlay {
+  height: 0;
+}
+
+.topbar__title,
+.navbar__inline {
+  position: absolute;
+  top: 0;
+  right: 64px;
+  left: 64px;
+  height: 44px;
+  overflow: hidden;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 44px;
+  text-align: center;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate3d(0, 6px, 0);
+  transition: opacity 0.2s ease, transform 0.25s ease;
+}
+
+.navbar__inline {
+  right: 112px;
+  left: 112px;
+}
+
+.mac-pill {
+  transform-origin: 22px 50%;
+  transition: opacity 0.2s ease, transform 0.25s ease;
+}
+
+.mac-pill-mini {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--glass-border);
+  border-radius: 50%;
+  background: var(--glass);
+  box-shadow: var(--glass-shadow);
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.8);
+  transition: opacity 0.2s ease, transform 0.25s ease;
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+}
+
+.mac-pill-mini .status-dot {
+  position: absolute;
+  right: 6px;
+  bottom: 7px;
+  box-shadow: 0 0 0 1.5px var(--bg2);
+}
+
+/* Back con el título de la pantalla anterior. */
+.glass-btn--back {
+  width: auto;
+  max-width: 150px;
+  gap: 3px;
+  padding: 0 14px 0 9px;
+  border-radius: 22px;
+  font-size: 17px;
+  font-weight: 400;
+}
+
+.glass-btn__text {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .tabbar {
   position: fixed;
   left: 0;
@@ -634,6 +720,11 @@
 .section-header__chevron {
   margin-left: auto;
   color: var(--fg3);
+  transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.section-header__chevron--collapsed {
+  transform: rotate(-90deg);
 }
 
 .section-header--dim .section-header__btn,
@@ -923,7 +1014,7 @@
   border-radius: 16px;
   background: var(--fill2);
   cursor: pointer;
-  transition: background 0.2s;
+  transition: background-color 0.25s ease;
   -webkit-appearance: none;
   appearance: none;
 }
@@ -938,7 +1029,15 @@
   border-radius: 50%;
   background: #fff;
   box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15), 0 1px 1px rgba(0, 0, 0, 0.16);
-  transition: transform 0.2s;
+  /* Como UISwitch: la perilla se desliza con un leve rebote. */
+  transition: transform 0.32s cubic-bezier(0.3, 1.35, 0.5, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toggle::after {
+    transition-duration: 0.15s;
+    transition-timing-function: ease;
+  }
 }
 
 .toggle:checked {
@@ -954,6 +1053,7 @@
 }
 
 .segmented {
+  position: relative;
   display: flex;
   height: 32px;
   padding: 2px;
@@ -962,6 +1062,8 @@
 }
 
 .segmented__item {
+  position: relative;
+  z-index: 1;
   flex: 1;
   border: 0;
   border-radius: 7px;
@@ -972,15 +1074,26 @@
   cursor: pointer;
 }
 
-.segmented__item--on {
+/* El indicador de la opción elegida: una pieza aparte que se desliza (UISegmentedControl). */
+.segmented__thumb {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  border-radius: 7px;
   background: var(--bg2);
   box-shadow: 0 3px 8px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
+  transition: transform 0.35s cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 @media (prefers-color-scheme: dark) {
-  .segmented__item--on {
+  .segmented__thumb {
     background: #636366;
   }
+}
+
+.segmented__item.pressed {
+  opacity: 0.55;
 }
 
 /* ---------- Hoja, menú y HUD ---------- */
@@ -1007,8 +1120,26 @@
   background: transparent;
 }
 
+#overlay-root {
+  position: relative;
+  z-index: 40;
+}
+
+/* Mide env(safe-area-inset-top) desde JS (motion/card.ts). */
+.safe-probe {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: var(--safe-top);
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .sheet {
   position: relative;
+  /* El arrastre de la hoja es nuestro; los campos y el código desplazan como siempre. */
+  touch-action: none;
   display: flex;
   flex-direction: column;
   max-height: 100%;
@@ -1018,8 +1149,9 @@
   color: var(--fg);
 }
 
+/* Debajo de la barra de estado queda la pantalla de atrás como tarjeta (10 pt) y otros 10 pt de ella a la vista. */
 .sheet--large {
-  height: calc(100% - var(--safe-top) - 12px);
+  height: calc(100% - var(--safe-top) - 22px);
 }
 
 .sheet--medium {
@@ -1049,6 +1181,12 @@
   z-index: 45;
 }
 
+.sheet textarea,
+.sheet input,
+.sheet .code-block {
+  touch-action: auto;
+}
+
 .menu {
   position: absolute;
   min-width: 250px;
@@ -1061,11 +1199,13 @@
 }
 
 .menu--bottom-start {
+  transform-origin: 24px 100%;
   bottom: calc(var(--safe-bottom) + 96px);
   left: calc(var(--safe-left) + 16px);
 }
 
 .menu--top-end {
+  transform-origin: calc(100% - 22px) 0;
   top: calc(var(--safe-top) + 60px);
   right: calc(var(--safe-right) + 16px);
 }
@@ -1116,7 +1256,13 @@
   background: rgba(0, 0, 0, 0.08);
 }
 
+.hud-layer {
+  animation: fade-in 0.2s ease-out backwards;
+}
+
+/* El HUD de Face ID aparece con un pequeño crecimiento, como el del sistema. */
 .hud {
+  animation: hud-in 0.38s cubic-bezier(0.2, 1.2, 0.4, 1) backwards;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1562,6 +1708,127 @@
 }
 
 /* Con la barra de pestañas flotante, el contenido no queda tapado al final. */
-body:has(.tabbar) .screen {
+.screen:has(+ .tabbar) {
   padding-bottom: calc(var(--safe-bottom) + 96px);
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes hud-in {
+  from {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud-layer,
+  .hud {
+    animation: none;
+  }
+}
+
+/* ---------- Respuesta al toque (clase `pressed`, motion/press.ts) ---------- */
+
+/* Filas: relleno gris como UITableViewCell; al soltar se desvanece. */
+.pr-row__hit,
+.list-row--btn,
+.file-row,
+.changes-row,
+.menu__item,
+.section-header__btn {
+  transition: background-color 0.35s ease;
+}
+
+.pr-row__hit.pressed,
+.list-row--btn.pressed,
+.file-row.pressed,
+.changes-row.pressed,
+.menu__item.pressed {
+  background-color: var(--fill2);
+  transition: none;
+}
+
+.section-header__btn.pressed {
+  opacity: 0.55;
+  transition: none;
+}
+
+/* Botones: se atenúan (y los de vidrio se achican un poco) mientras el dedo está encima. */
+.btn,
+.capsule,
+.glass-btn,
+.mac-pill,
+.decision,
+.finding__edit,
+.composer__send,
+.banner__action,
+.file-chip,
+.checkbox,
+.tabbar__tab,
+.scan__paste,
+.app-alerts__item {
+  transition: opacity 0.25s ease, transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.btn.pressed,
+.capsule.pressed,
+.finding__edit.pressed,
+.banner__action.pressed,
+.file-chip.pressed,
+.checkbox.pressed,
+.tabbar__tab.pressed,
+.scan__paste.pressed {
+  opacity: 0.55;
+  transition: none;
+}
+
+.btn--lg.pressed,
+.btn--xl.pressed,
+.glass-btn.pressed,
+.mac-pill.pressed,
+.decision.pressed,
+.composer__send.pressed,
+.app-alerts__item.pressed {
+  transform: scale(0.96);
+  transition: transform 0.12s ease-out, opacity 0.12s;
+}
+
+.glass-btn.pressed {
+  transform: scale(0.9);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn--lg.pressed,
+  .btn--xl.pressed,
+  .glass-btn.pressed,
+  .mac-pill.pressed,
+  .decision.pressed,
+  .composer__send.pressed,
+  .app-alerts__item.pressed {
+    transform: none;
+    opacity: 0.6;
+  }
+}
+
+@keyframes badge-pop {
+  from {
+    transform: scale(0.3);
+  }
+}
+
+/* La cápsula de acción cambia de estado (Review → Reviewing…) con un fundido. */
+.capsule {
+  animation: fade-in 0.3s ease-out backwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .badge,
+  .capsule {
+    animation: none;
+  }
 }

@@ -177,6 +177,32 @@ const paths = {
       <path d="M3 13.5h5a4 4 0 0 0 8 0h5" />
     </g>
   ),
+  "tray.fill": () => (
+    <g {...S} stroke-width={1.9}>
+      <path d="M3 13.5 5.6 5.4A2 2 0 0 1 7.5 4h9a2 2 0 0 1 1.9 1.4L21 13.5V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
+      <path {...F} d="M3 13.5h5a4 4 0 0 0 8 0h5V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
+    </g>
+  ),
+  "gauge.fill": () => (
+    <path
+      {...F}
+      fill-rule="evenodd"
+      stroke="currentColor"
+      stroke-width={1.9}
+      stroke-linejoin="round"
+      d="M4.2 18.5a9.5 9.5 0 1 1 15.6 0Z M12.8 14 16.3 8.5 14.7 7.5 11.2 13Z"
+    />
+  ),
+  "gearshape.fill": () => (
+    <path
+      {...F}
+      fill-rule="evenodd"
+      stroke="currentColor"
+      stroke-width={1.8}
+      stroke-linejoin="round"
+      d="M10.3 2.8h3.4l.5 2.6 1.7.9 2.4-1.1 2.4 2.4-1.1 2.4.9 1.7 2.6.5v3.4l-2.6.5-.9 1.7 1.1 2.4-2.4 2.4-2.4-1.1-1.7.9-.5 2.6h-3.4l-.5-2.6-1.7-.9-2.4 1.1-2.4-2.4 1.1-2.4-.9-1.7-2.6-.5v-3.4l2.6-.5.9-1.7-1.1-2.4 2.4-2.4 2.4 1.1 1.7-.9Z M12 8.8a3.2 3.2 0 1 0 0 6.4 3.2 3.2 0 1 0 0-6.4Z"
+    />
+  ),
   gauge: () => (
     <g {...S} stroke-width={1.9}>
       <path d="M4.2 18.5a9.5 9.5 0 1 1 15.6 0Z" />

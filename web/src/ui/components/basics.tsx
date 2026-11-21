@@ -39,7 +39,8 @@ export function StatusDot({ online, size = 7 }: { online: boolean; size?: number
 /** Insignia roja con número (pestaña To Review). */
 export function Badge({ count }: { count: number }) {
   if (count <= 0) return null;
-  return <span class="badge">{count > 99 ? "99+" : count}</span>;
+  // `key`: cada número nuevo vuelve a montar la insignia y repite la animación de aparición (CSS).
+  return <span key={count} class="badge">{count > 99 ? "99+" : count}</span>;
 }
 
 export function Spinner({ size = 16, class: cls }: { size?: number; class?: string }) {

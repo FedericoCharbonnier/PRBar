@@ -2,6 +2,7 @@ import { render } from "preact";
 import { isStandalone, platformOf, type InstallPromptEvent } from "./app/install";
 import { Shell } from "./app/shell";
 import { App, InstallGate } from "./ui/app";
+import { installPressFeedback } from "./ui/motion/press";
 import "./ui/tokens.css";
 import "./ui/base.css";
 
@@ -45,6 +46,7 @@ async function start(): Promise<void> {
     matchMedia: (query) => matchMedia(query), navigator: navigator as Navigator & { standalone?: boolean }, location, mode: MODE,
   });
   if (await serviceWorker()) return;
+  installPressFeedback();
   if (!standalone) {
     render(<InstallGate platform={platformOf(navigator.userAgent, navigator.maxTouchPoints)} prompt={() => installPrompt} />, root);
     return;

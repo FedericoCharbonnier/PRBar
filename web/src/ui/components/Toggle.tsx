@@ -28,8 +28,16 @@ export interface Segment<T extends string> {
 export function SegmentedControl<T extends string>({ segments, selected, label, disabled, onChange }: {
   segments: Segment<T>[]; selected: T; label: string; disabled?: boolean | undefined; onChange: (id: T) => void;
 }) {
+  const index = segments.findIndex((s) => s.id === selected);
   return (
     <div class="segmented" role="radiogroup" aria-label={label}>
+      {index >= 0 && (
+        <span
+          class="segmented__thumb"
+          aria-hidden="true"
+          style={{ width: `calc((100% - 4px) / ${segments.length})`, transform: `translateX(${index * 100}%)` }}
+        />
+      )}
       {segments.map((s) => (
         <button
           key={s.id}

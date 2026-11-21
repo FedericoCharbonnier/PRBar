@@ -1,3 +1,4 @@
+import { bounce } from "../motion/animate";
 import { Icon, type IconName } from "./Icon";
 import { Badge } from "./basics";
 import type { TabId } from "../screens/types";
@@ -5,11 +6,12 @@ import "./components.css";
 
 // Barra de pestañas flotante de vidrio (estilo iOS 26). La seleccionada va en accentfg sobre una cápsula `fill`.
 
-const TABS: { id: TabId; label: string; icon: IconName }[] = [
-  { id: "review", label: "To Review", icon: "tray" },
-  { id: "mine", label: "My PRs", icon: "prbar" },
-  { id: "activity", label: "Activity", icon: "gauge" },
-  { id: "settings", label: "Settings", icon: "gearshape" },
+// `on`: el símbolo relleno de la pestaña elegida (como en UITabBar).
+const TABS: { id: TabId; label: string; icon: IconName; on: IconName }[] = [
+  { id: "review", label: "To Review", icon: "tray", on: "tray.fill" },
+  { id: "mine", label: "My PRs", icon: "prbar", on: "prbar" },
+  { id: "activity", label: "Activity", icon: "gauge", on: "gauge.fill" },
+  { id: "settings", label: "Settings", icon: "gearshape", on: "gearshape.fill" },
 ];
 
 export interface TabBarProps {
@@ -30,10 +32,14 @@ export function TabBar({ selected, reviewBadge = 0, onSelect }: TabBarProps) {
             role="tab"
             aria-selected={t.id === selected}
             class={t.id === selected ? "tabbar__tab tabbar__tab--on" : "tabbar__tab"}
-            onClick={() => onSelect(t.id)}
+            onClick={(e) => {
+              // Un rebote corto del ícono al tocarlo.
+              void bounce((e.currentTarget as HTMLElement).querySelector(".tabbar__icon"));
+              onSelect(t.id);
+            }}
           >
             <span class="tabbar__icon">
-              <Icon name={t.icon} size={24} />
+              <Icon name={t.id === selected ? t.on : t.icon} size={24} />
               {t.id === "review" && <Badge count={reviewBadge} />}
             </span>
             <span class="tabbar__label">{t.label}</span>

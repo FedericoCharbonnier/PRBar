@@ -9,7 +9,8 @@
   height: 44px;
 }
 
-.screen > .large-title:first-child {
+.screen > .large-title:first-child,
+.screen > .topbar--overlay:first-child + .large-title {
   padding-top: 0;
 }
 
@@ -1404,6 +1405,8 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+  /* La hoja se dibuja fuera de la pantalla de escaneo (#overlay-root): lo que heredaba de `.scan` va acá. */
+  text-align: center;
 }
 
 .paste__head {
@@ -1475,4 +1478,73 @@
 /* Botón para arrancar a Claude ("Review with Claude") cuando todavía no hay nada que mostrar. */
 .start-btn {
   margin-top: 6px;
+}
+
+/* ---------- Aparición de las pantallas de resultado (review:posted, merge:merged, pair:paired) ---------- */
+
+/* El círculo crece con un rebote y el ícono entra un instante después; el resto sube y aparece escalonado. */
+.result__circle {
+  animation: result-pop 0.6s cubic-bezier(0.2, 1.3, 0.4, 1) 0.05s backwards;
+}
+
+.result__circle .icon {
+  animation: result-icon 0.45s cubic-bezier(0.2, 1.3, 0.4, 1) 0.22s backwards;
+}
+
+.result__title,
+.result__text,
+.result__chip,
+.result__card,
+.result__footer {
+  animation: result-rise 0.5s cubic-bezier(0.32, 0.72, 0, 1) backwards;
+}
+
+.result__title {
+  animation-delay: 0.16s;
+}
+
+.result__text {
+  animation-delay: 0.22s;
+}
+
+.result__chip,
+.result__card {
+  animation-delay: 0.28s;
+}
+
+.result__footer {
+  animation-delay: 0.34s;
+}
+
+@keyframes result-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+}
+
+@keyframes result-icon {
+  from {
+    opacity: 0;
+    transform: scale(0.3) rotate(-25deg);
+  }
+}
+
+@keyframes result-rise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .result__circle,
+  .result__circle .icon,
+  .result__title,
+  .result__text,
+  .result__chip,
+  .result__card,
+  .result__footer {
+    animation: none;
+  }
 }

@@ -80,6 +80,7 @@ export function ActionCapsule({ action, disabled, onClick }: {
   const cls = disabled ? "capsule capsule--disabled" : `capsule ${ACTION_CLASS[action.kind]}`;
   return (
     <button
+      key={action.kind}
       type="button"
       class={cls}
       disabled={disabled}
