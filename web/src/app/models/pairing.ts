@@ -14,6 +14,7 @@ export const INVALID_QR_MESSAGE = "This isn't a PRBar pairing code. Scan the QR 
 export const EXPIRED_MESSAGE = "The pairing code expired. Show a new one on your Mac and scan it again.";
 export const CANCELLED_MESSAGE = "Pairing was cancelled. Start again from PRBar on your Mac.";
 export const MISMATCH_MESSAGE = "Pairing was cancelled because the codes didn't match.";
+export const OTHER_SERVER_MESSAGE = "This code is for a different PRBar server.";
 export const LOST_PAIRING_MESSAGE = "This device lost its pairing. Pair it again from your Mac.";
 export const NO_PASSKEY_NOTICE = "Face ID couldn't be set up on this device. You can pair, but merge, push, approve and tests won't work until you pair again.";
 export const CAMERA_DENIED_MESSAGE = "PRBar can't use the camera. Allow it in Settings, or paste the code.";
@@ -59,6 +60,11 @@ export interface PairingDeps {
   onDone(): void;
   /** Solo fuera de producción: relay local por `ws://` (las pruebas e2e). */
   allowInsecureRelay: boolean;
+  /** El host de la página con el puerto (`location.host`). Con `requireSameHost`, un código de otro relay se rechaza:
+   *  la passkey, el service worker y los datos de esta app son de este host, y el emparejamiento tiene que serlo. */
+  pageHost: string;
+  /** En producción, siempre; fuera de producción se permite otro host (relays de prueba). */
+  requireSameHost: boolean;
 }
 
 export interface PairingModel {
@@ -120,13 +126,17 @@ export function createPairingModel(deps: PairingDeps): PairingModel {
     }
   };
 
-  const parse = (text: string): PairingQR | null => {
+  /** El código parseado, o el mensaje para mostrar (código inválido o de otro relay). */
+  const parse = (text: string): PairingQR | string => {
+    let qr: PairingQR;
     try {
-      return parsePairingURL(text, { allowInsecure: deps.allowInsecureRelay });
+      qr = parsePairingURL(text, { allowInsecure: deps.allowInsecureRelay });
     } catch (error) {
       if (!(error instanceof PairingQRError)) console.warn("pairing link", error);
-      return null;
+      return INVALID_QR_MESSAGE;
     }
+    if (deps.requireSameHost && qr.relayHost !== deps.pageHost) return OTHER_SERVER_MESSAGE;
+    return qr;
   };
 
   const toConfirm = (qr: PairingQR) => {
@@ -160,8 +170,8 @@ export function createPairingModel(deps: PairingDeps): PairingModel {
     scanned(text) {
       if (step.value.kind !== "scanning") return;
       const qr = parse(text);
-      if (!qr) {
-        scanError.value = INVALID_QR_MESSAGE;
+      if (typeof qr === "string") {
+        scanError.value = qr;
         return;
       }
       toConfirm(qr);
@@ -176,8 +186,8 @@ export function createPairingModel(deps: PairingDeps): PairingModel {
       const current = step.value;
       if (current.kind !== "scanning" || !current.paste) return;
       const qr = parse(current.paste.value);
-      if (!qr) {
-        step.value = { kind: "scanning", paste: { value: current.paste.value, error: INVALID_QR_MESSAGE } };
+      if (typeof qr === "string") {
+        step.value = { kind: "scanning", paste: { value: current.paste.value, error: qr } };
         return;
       }
       toConfirm(qr);
@@ -188,8 +198,8 @@ export function createPairingModel(deps: PairingDeps): PairingModel {
     openLink(link) {
       if (step.value.kind === "sas" || busy.value) return;
       const qr = parse(link);
-      if (!qr) {
-        notice.value = INVALID_QR_MESSAGE;
+      if (typeof qr === "string") {
+        notice.value = qr;
         step.value = { kind: "welcome" };
         return;
       }

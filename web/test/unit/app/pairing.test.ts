@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   CANCELLED_MESSAGE, createPairingModel, EXPIRED_MESSAGE, INVALID_QR_MESSAGE, MISMATCH_MESSAGE, NO_PASSKEY_NOTICE,
-  type PairingDeps, type PairingSessionLike,
+  OTHER_SERVER_MESSAGE, type PairingDeps, type PairingSessionLike,
 } from "../../../src/app/models/pairing";
 import { PresenceCancelled } from "../../../src/presence/webauthn";
 import { pairingURL } from "../../../src/protocol/pairingQR";
@@ -27,7 +27,8 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-function setup(options: { passkey?: "ok" | "cancel"; start?: () => Promise<PairingSessionLike>; current?: string | null } = {}) {
+function setup(options: { passkey?: "ok" | "cancel"; start?: () => Promise<PairingSessionLike>; current?: string | null;
+                          pageHost?: string; requireSameHost?: boolean } = {}) {
   const calls = { passkeys: 0, starts: [] as PairingOptions[], saved: [] as [PairingOutcome, string][], paired: 0, done: 0,
                   subscribed: 0, cancelled: 0 };
   const finish = deferred<PairingOutcome>();
@@ -65,6 +66,8 @@ function setup(options: { passkey?: "ok" | "cancel"; start?: () => Promise<Pairi
     onPaired: () => void calls.paired++,
     onDone: () => void calls.done++,
     allowInsecureRelay: false,
+    pageHost: options.pageHost ?? "relay.example.com",
+    requireSameHost: options.requireSameHost ?? true,
   };
   const outcome: PairingOutcome = {
     mac: { accountId: qr.accountId, deviceId: "dev", relayHost: qr.relayHost, macName: "Studio", macStatic: qr.macStatic,
@@ -102,6 +105,36 @@ describe("pairing", () => {
     expect(model.step.value).toMatchObject({ notifications: "granted" });
     model.done();
     expect(calls.done).toBe(1);
+  });
+
+  it("un código de otro relay se rechaza (escaneado, pegado o abierto como link), salvo fuera de producción", async () => {
+    const other = setup({ pageHost: "prbar.example.org" });
+    await other.model.pair();
+    other.model.scanned(LINK);
+    expect(other.model.scanError.value).toBe(OTHER_SERVER_MESSAGE);
+    expect(other.model.step.value).toEqual({ kind: "scanning", paste: null });
+    other.model.openPaste();
+    other.model.setPaste(LINK);
+    other.model.submitPaste();
+    expect(other.model.step.value).toEqual({ kind: "scanning", paste: { value: LINK, error: OTHER_SERVER_MESSAGE } });
+    other.model.openLink(LINK);
+    expect(other.model.notice.value).toBe(OTHER_SERVER_MESSAGE);
+    expect(other.model.step.value).toEqual({ kind: "welcome" });
+    expect(other.calls.starts).toHaveLength(0);
+
+    // El puerto cuenta (`location.host`).
+    const port = setup({ pageHost: "relay.example.com:8443" });
+    port.model.openLink(LINK);
+    expect(port.model.notice.value).toBe(OTHER_SERVER_MESSAGE);
+
+    // Un código inválido sigue siendo inválido, no "de otro servidor".
+    const invalid = setup({ pageHost: "prbar.example.org" });
+    invalid.model.openLink("garbage");
+    expect(invalid.model.notice.value).toBe(INVALID_QR_MESSAGE);
+
+    const dev = setup({ pageHost: "localhost:5173", requireSameHost: false });
+    dev.model.openLink(LINK);
+    expect(dev.model.step.value).toMatchObject({ kind: "confirm" });
   });
 
   it("sin passkey: el emparejamiento sigue con presence null y el aviso", async () => {

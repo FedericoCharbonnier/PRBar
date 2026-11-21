@@ -83,6 +83,8 @@ export class Shell {
         this.router.replace(HOME);
       },
       allowInsecureRelay: env.mode !== "production",
+      pageHost: w.location.host,
+      requireSameHost: env.mode === "production",
     });
   }
 
