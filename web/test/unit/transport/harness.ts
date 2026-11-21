@@ -1,6 +1,9 @@
 import type { Bytes } from "../../../src/crypto/bytes";
 import { constantTimeEqual, randomBytes } from "../../../src/crypto/bytes";
+import { x25519PublicKey } from "../../../src/crypto/curves";
+import { NoiseHandshake, type NoiseTransport } from "../../../src/crypto/noise";
 import { pairingProof, verifyRelayAuth } from "../../../src/crypto/relayAuth";
+import { chunkFrame, decodeFrame, encodeFrame, FrameAssembler, type RemoteFrame } from "../../../src/protocol/appFrames";
 import {
   decodeRelayMessage, encodeRelayMessage, type RelayMailboxItem, type RelayMessage,
 } from "../../../src/protocol/relayFrames";
@@ -213,5 +216,48 @@ export class FakeVisibility {
   set(visible: boolean): void {
     this.#visible = visible;
     for (const listener of this.#listeners) listener(visible);
+  }
+}
+
+// --- La Mac del otro lado de una sesión KK o de un emparejamiento IKpsk2 ---
+
+/** El lado Mac de Noise (respondedor): lee el primer mensaje, contesta y después cifra y descifra marcos de aplicación
+ *  como `RemoteHost`. */
+export class MacPeer {
+  readonly handshake: NoiseHandshake;
+  transport: NoiseTransport | null = null;
+  readonly assembler = new FrameAssembler();
+  /** Lo que mandó el teléfono, ya decodificado. */
+  readonly received: RemoteFrame[] = [];
+
+  constructor(options: { pattern: "kk" | "ikpsk2"; prologue: Bytes; macStatic: Bytes; deviceStatic?: Bytes;
+                         psk?: Bytes; fixedEphemeral?: Bytes }) {
+    this.handshake = new NoiseHandshake({
+      pattern: options.pattern, initiator: false, prologue: options.prologue, localStatic: options.macStatic,
+      remoteStatic: options.pattern === "kk" ? x25519PublicKey(options.deviceStatic!) : null, psk: options.psk ?? null,
+      fixedEphemeral: options.fixedEphemeral ?? null,
+    });
+  }
+
+  /** Lee el primer mensaje del teléfono y arma la respuesta (con `payload`). */
+  answer(first: Uint8Array, payload: Uint8Array = new Uint8Array(0)): { payload: Bytes; reply: Bytes } {
+    const received = this.handshake.readMessage(first);
+    const reply = this.handshake.writeMessage(payload);
+    this.transport = this.handshake.split();
+    return { payload: received, reply };
+  }
+
+  /** Descifra un trozo del teléfono; devuelve el marco si se completó. */
+  open(b: Uint8Array): RemoteFrame | null {
+    const data = this.assembler.add(this.transport!.receive.decrypt(b));
+    if (!data) return null;
+    const frame = decodeFrame(data);
+    this.received.push(frame);
+    return frame;
+  }
+
+  /** Cifra un marco de la Mac (un `b` por trozo). */
+  seal(frame: RemoteFrame): Bytes[] {
+    return chunkFrame(encodeFrame(frame)).map((chunk) => this.transport!.send.encrypt(chunk));
   }
 }
