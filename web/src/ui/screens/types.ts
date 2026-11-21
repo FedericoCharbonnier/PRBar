@@ -142,6 +142,8 @@ export interface PairConfirmProps {
   relayHost: string;
   /** Mac con la que ya está emparejado (se reemplaza). */
   replacing?: string | undefined;
+  /** Uniéndose a la ranura de la Mac (el botón con spinner). */
+  busy?: boolean | undefined;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -173,6 +175,14 @@ export interface PRHeaderVM {
 }
 
 export type Severity = "high" | "medium" | "low";
+
+/** Botón para arrancar a Claude cuando todavía no hay nada ("Review with Claude", "Respond with Claude"). */
+export interface StartVM {
+  label: string;
+  onClick: () => void;
+  busy?: boolean | undefined;
+  disabled?: boolean | undefined;
+}
 
 // ---------- Review ----------
 
@@ -207,6 +217,8 @@ export interface ReviewProps {
   faceIdPending?: boolean | undefined;
   posting?: boolean | undefined;
   disabled?: boolean | undefined;
+  /** Sin review todavía: el botón "Review with Claude" en lugar del resumen y los hallazgos. */
+  start?: StartVM | undefined;
   onBack: () => void;
   onChat: () => void;
   onMore: () => void;
@@ -312,6 +324,17 @@ export interface RespondBaseProps {
   running: boolean;
   disabled?: boolean | undefined;
   faceIdPending?: boolean | undefined;
+  /** Sin respuesta todavía: "Respond with Claude" / "Fix CI with Claude" en lugar del progreso y la lista. */
+  start?: StartVM | undefined;
+  /** Texto del primario si no es el de la pantalla ("Implement", "Reply", "Push Anyway"). */
+  primaryLabel?: string | undefined;
+  /** El primario pide Face ID (ícono `faceid`); por defecto sí. */
+  primaryFaceId?: boolean | undefined;
+  primaryDisabled?: boolean | undefined;
+  /** Sin Stop ni Undo (antes de implementar). */
+  secondaryHidden?: boolean | undefined;
+  /** "Tests" (corre los tests en la Mac, con Face ID) cuando los arreglos están listos. */
+  onRunTests?: (() => void) | undefined;
   onBack: () => void;
   onChat: () => void;
   onStop: () => void;

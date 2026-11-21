@@ -66,35 +66,43 @@ export function Review(props: ReviewProps) {
         </p>
         <Branches head={pr.head} base={pr.base} />
       </DetailHeader>
-      <section class="summary-card">
-        <h2>
-          <Icon name="sparkles" size={21} />
-          <span>Claude's summary</span>
-          <span class="summary-card__meta">{summary.meta}</span>
-        </h2>
-        <p>{summary.text}</p>
-      </section>
-      <BlockTitle title="Findings" trailing={`${included} of ${findings.length} included`} />
-      {findings.map((f, i) => (
-        <article key={f.id} class={f.included ? "finding" : "finding finding--off"}>
-          <div class="finding__head">
-            <SeverityPill severity={f.severity} />
-            <span class="finding__loc">{f.location}</span>
-            <Toggle
-              on={f.included}
-              disabled={disabled}
-              label={`Include finding ${i + 1}, ${f.severity}`}
-              onChange={(on) => props.onToggleFinding(f.id, on)}
-            />
-          </div>
-          <h3>{f.title}</h3>
-          <p>{f.text}</p>
-          <button type="button" class="finding__edit" disabled={disabled} onClick={() => props.onEditFinding(f.id)}>
-            <Icon name="pencil" size={18} />
-            Edit comment
-          </button>
-        </article>
-      ))}
+      {props.start ? (
+        <Button size="lg" block icon="sparkles" class="start-btn" busy={props.start.busy} disabled={props.start.disabled} onClick={props.start.onClick}>
+          {props.start.label}
+        </Button>
+      ) : (
+        <>
+        <section class="summary-card">
+          <h2>
+            <Icon name="sparkles" size={21} />
+            <span>Claude's summary</span>
+            <span class="summary-card__meta">{summary.meta}</span>
+          </h2>
+          <p>{summary.text}</p>
+        </section>
+        <BlockTitle title="Findings" trailing={`${included} of ${findings.length} included`} />
+        {findings.map((f, i) => (
+          <article key={f.id} class={f.included ? "finding" : "finding finding--off"}>
+            <div class="finding__head">
+              <SeverityPill severity={f.severity} />
+              <span class="finding__loc">{f.location}</span>
+              <Toggle
+                on={f.included}
+                disabled={disabled}
+                label={`Include finding ${i + 1}, ${f.severity}`}
+                onChange={(on) => props.onToggleFinding(f.id, on)}
+              />
+            </div>
+            <h3>{f.title}</h3>
+            <p>{f.text}</p>
+            <button type="button" class="finding__edit" disabled={disabled} onClick={() => props.onEditFinding(f.id)}>
+              <Icon name="pencil" size={18} />
+              Edit comment
+            </button>
+          </article>
+        ))}
+        </>
+      )}
       <BottomBar>
         <button
           type="button"
