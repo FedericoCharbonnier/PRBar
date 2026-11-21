@@ -141,7 +141,10 @@ public final class RemoteAccessService: ObservableObject {
     private var connectTask: Task<Void, Never>?
     private var mailboxTask: Task<Void, Never>?
     private var pairingTimer: Task<Void, Never>?
-    private var pairWaiters: [CheckedContinuation<RemotePairingInfo, Error>] = []
+    private var pairWaiters: [UUID: CheckedContinuation<RemotePairingInfo, Error>] = [:]
+    /// `retryNow` (al despertar y al volver la red) no se pisa consigo mismo (revisión L6).
+    private var retrying = false
+    private var cleanupTask: Task<Void, Never>?
     private var feed: RemoteStateFeed?
     private var mailbox: RemoteMailboxWriter?
 
@@ -159,6 +162,7 @@ public final class RemoteAccessService: ObservableObject {
     public func start() {
         devices = env.devices.devices
         updateKeepAwake()
+        cleanUpRetiredAccounts()
         guard settings.enabled else { return }
         startHost()
     }
@@ -181,13 +185,17 @@ public final class RemoteAccessService: ObservableObject {
         host = nil
         online = []
         await current?.disconnect()
-        state = .disabled
+        // Mientras se cortaba, otro camino pudo arrancar un host nuevo: su estado no se pisa (L6).
+        if host == nil { state = .disabled }
         updateKeepAwake()
     }
 
-    /// Volvió la red o la Mac despertó: si no está conectado, reintenta ya (sin esperar el backoff).
+    /// Volvió la red o la Mac despertó: si no está conectado, reintenta ya (sin esperar el backoff). Una sola vez a la
+    /// vez: el aviso de despertar y el de la red llegan juntos (L6).
     public func retryNow() async {
-        guard settings.enabled else { return }
+        guard settings.enabled, !retrying else { return }
+        retrying = true
+        defer { retrying = false }
         if let host, await host.isConnected { return }
         await stop()
         startHost()
@@ -261,6 +269,22 @@ public final class RemoteAccessService: ObservableObject {
     private func connected() async {
         state = .connected
         await feed?.recompute()
+        await reconcileRelay()
+    }
+
+    /// Al conectar, el relay tiene que saber lo mismo que la Mac (revisión M5): un Revoke, un emparejamiento que no
+    /// terminó o un buzón apagado mientras no había conexión se mandan ahora. Los dispositivos que el relay tiene y la
+    /// Mac no se dan de baja (con eso el relay borra su buzón); con el buzón apagado se pisa el slot de cada iPhone.
+    private func reconcileRelay() async {
+        guard let host else { return }
+        if !settings.mailboxEnabled { await mailbox?.clear() }
+        guard let listed = try? await host.relayDevices(), self.host === host else { return }
+        let known = Set(await host.pairedDevices.map(\.deviceId))
+        let pending = await host.pendingPairingDevice
+        for entry in listed where !known.contains(entry.id) && entry.id != pending {
+            await host.removeFromRelay(entry.id)
+            AppLog.write("iPhone \(entry.id.prefix(4)): removed from the relay")
+        }
     }
 
     private func connectFailed(_ error: Error, retryIn delay: Duration) {
@@ -277,6 +301,7 @@ public final class RemoteAccessService: ObservableObject {
             case .connected:
                 state = .connected
                 await feed?.recompute()
+                await reconcileRelay()
             case .disconnected: if host == nil || !settings.enabled { state = .disabled }
             case .offline(let retryIn):
                 state = .offline(retryAt: env.clock().addingTimeInterval(TimeInterval(retryIn)), reason: "Connection lost")
@@ -289,8 +314,8 @@ public final class RemoteAccessService: ObservableObject {
             info.model = model
             pairing = info
             let waiters = pairWaiters
-            pairWaiters = []
-            waiters.forEach { $0.resume(returning: info) }
+            pairWaiters = [:]
+            waiters.values.forEach { $0.resume(returning: info) }
         case .pairingEnded(let reason):
             if reason != "paired" {
                 failPairWaiters(CommandFailure(.cancelled, Self.pairingEndedMessage(reason)))
@@ -515,8 +540,10 @@ public final class RemoteAccessService: ObservableObject {
             let keys = try env.keys.loadOrCreate()
             let account = try await env.enroller.enroll(host: host, token: token,
                                                         macRelayKey: keys.relay.publicKey.rawRepresentation)
+            // Lo mismo que acepta `RemoteSettings` al leer la config (si no, el próximo arranque apagaría el acceso en
+            // silencio; L4).
             guard RemoteSettings.normalizedRelayHost(host, allowIPForTests: env.allowInsecureForTests) != nil,
-                  !account.isEmpty, account.count <= 64 else {
+                  RemoteSettings.isValidAccountId(account) else {
                 throw CommandFailure(.failed, "The relay answered something PRBar doesn’t understand.")
             }
             if current.accountId != nil, current.relayHost != host || current.accountId != account {
@@ -578,21 +605,23 @@ public final class RemoteAccessService: ObservableObject {
         }
         if current.code != nil { return current }
         events(.progress(message: "Waiting for your iPhone…"))
+        let id = UUID()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                pairWaiters.append(continuation)
+                pairWaiters[id] = continuation
             }
         } onCancel: {
+            // Solo esta espera (la hoja de Settings puede estar esperando la misma ranura; L3).
             Task { @MainActor [weak self] in
-                self?.failPairWaiters(CancellationError())
+                self?.pairWaiters.removeValue(forKey: id)?.resume(throwing: CancellationError())
             }
         }
     }
 
     private func failPairWaiters(_ error: Error) {
         let waiters = pairWaiters
-        pairWaiters = []
-        waiters.forEach { $0.resume(throwing: error) }
+        pairWaiters = [:]
+        waiters.values.forEach { $0.resume(throwing: error) }
     }
 
     public func pairConfirm(pairing id: String, accepted: Bool) async throws -> RemotePairResult {
@@ -601,7 +630,9 @@ public final class RemoteAccessService: ObservableObject {
             return RemotePairResult(device: nil)
         }
         guard accepted else {
-            if current.code != nil { _ = try? await host.confirmPairing(false) } else { await host.cancelPairing() }
+            // También durante la espera del acuse de "Codes Match": la ranura se cierra en el host, el alta en el relay
+            // se deshace y un acuse que llegue después ya no encuentra nada (L3).
+            await host.cancelPairing()
             pairing = nil
             pairingTimer?.cancel()
             return RemotePairResult(device: nil)
@@ -617,6 +648,8 @@ public final class RemoteAccessService: ObservableObject {
 
     public func deviceList() -> [RemoteDeviceInfo] { devices.map(deviceInfo) }
 
+    /// Sin conexión (o con el acceso apagado) el `device.remove` sale al reconectar (`reconcileRelay`, M5); la Mac igual
+    /// deja de aceptar su estática ya.
     public func revoke(_ query: String) async throws -> RemoteDeviceInfo {
         let stored = try resolveDevice(query)
         let id = stored.device.deviceId
@@ -638,11 +671,17 @@ public final class RemoteAccessService: ObservableObject {
 
     /// "Reset iPhone Access…" (spec P.12): da de baja a todos, borra las claves y la cuenta. Para volver a usarlo hay
     /// que habilitarlo con el token y emparejar de nuevo.
+    /// La cuenta vieja del relay no se puede borrar (el relay no tiene esa operación): antes de olvidar sus claves se
+    /// guarda su clave de relay como "retirada" y `cleanUpRetiredAccounts` da de baja todos sus iPhones en el relay (y
+    /// sus buzones) en cuanto puede, con o sin conexión ahora (revisión M5). Después la olvida.
     public func reset() async throws -> RemoteStatusInfo {
         if let host {
             for device in devices { await host.revoke(device.device.deviceId) }
         }
         await stop()
+        if let account = settings.accountId, let relay = settings.relayHost, let keys = env.keys.loadExisting() {
+            try env.keys.retire(.init(relayHost: relay, accountId: account, relayKey: keys.relay))
+        }
         try env.devices.removeAll()
         devices = []
         try env.keys.reset()
@@ -651,7 +690,56 @@ public final class RemoteAccessService: ObservableObject {
             $0.accountId = nil
         }
         AppLog.write("iPhone access: reset")
+        cleanUpRetiredAccounts()
         return status()
+    }
+
+    /// Da de baja en el relay los iPhones de las cuentas retiradas y las olvida. Si no llega al relay, queda para el
+    /// próximo arranque o la próxima vez que se habilite.
+    public func cleanUpRetiredAccounts() {
+        guard cleanupTask == nil, !env.keys.retiredAccounts().isEmpty else { return }
+        let env = env
+        cleanupTask = Task { [weak self] in
+            for retired in env.keys.retiredAccounts() {
+                if await Self.cleanUp(retired, env: env) {
+                    try? env.keys.forgetRetired(retired)
+                    AppLog.write("iPhone access: the old relay account \(retired.accountId.prefix(4)) has no iPhones left")
+                }
+            }
+            self?.cleanupTask = nil
+        }
+    }
+
+    /// Para los tests: espera la limpieza en curso.
+    public func waitForCleanup() async {
+        await cleanupTask?.value
+    }
+
+    /// Entra como la Mac de la cuenta retirada, da de baja cada dispositivo que el relay tiene y vuelve a pedir la lista
+    /// para confirmar que quedó vacía (el relay procesa en orden).
+    nonisolated static func cleanUp(_ retired: RemoteKeyStore.RetiredAccount, env: RemoteServiceEnvironment) async -> Bool {
+        guard let key = retired.signingKey else { return true }
+        let link = env.linkFactory(retired.relayHost)(.signed(account: retired.accountId, client: "mac", key: key))
+        defer { Task { await link.close() } }
+        do {
+            _ = try await link.connect()
+            @Sendable func list() async throws -> [RelayDeviceEntry] {
+                try link.send(.devices(items: nil))
+                for try await message in link.incoming {
+                    if case .devices(let items?) = message { return items }
+                }
+                throw RelayClosed(code: nil, reason: "Closed")
+            }
+            let listed = try await withThrowingTimeout(.seconds(15)) { try await list() }
+            for entry in listed { try link.send(.deviceRemove(device: entry.id)) }
+            let after = try await withThrowingTimeout(.seconds(15)) { try await list() }
+            return after.isEmpty
+        } catch let closed as RelayClosed where closed.code == RelayCloseCode.unauthorized.rawValue {
+            // El relay ya no conoce la cuenta: no queda nada que limpiar.
+            return true
+        } catch {
+            return false
+        }
     }
 
     public func setPresenceRequirement(_ query: String, enabled: Bool) async throws -> RemoteDeviceInfo {
@@ -681,5 +769,19 @@ public final class RemoteAccessService: ObservableObject {
         let url = try text.map { try RemoteSettings.installURL($0) }
         try store.updateRemoteSettings { $0.appInstallURL = url }
         return status()
+    }
+}
+
+/// `body`, o falla si tarda más que `limit` (y lo cancela).
+func withThrowingTimeout<T: Sendable>(_ limit: Duration, _ body: @escaping @Sendable () async throws -> T) async throws -> T {
+    try await withThrowingTaskGroup(of: T.self) { group in
+        group.addTask { try await body() }
+        group.addTask {
+            try await Task.sleep(for: limit)
+            throw RelayClosed(code: nil, reason: "No answer from the relay")
+        }
+        defer { group.cancelAll() }
+        guard let value = try await group.next() else { throw CancellationError() }
+        return value
     }
 }

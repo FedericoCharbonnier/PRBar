@@ -59,7 +59,7 @@ public struct RemoteSettings: Codable, Hashable, Sendable {
     }
 
     /// Base32 minúscula (spec P.2), con margen.
-    static func isValidAccountId(_ text: String) -> Bool {
+    public static func isValidAccountId(_ text: String) -> Bool {
         (1...64).contains(text.count) && text.allSatisfy { ("a"..."z").contains($0) || ("2"..."7").contains($0) }
     }
 

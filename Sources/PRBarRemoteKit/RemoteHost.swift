@@ -138,6 +138,7 @@ public actor RemoteHost {
     /// Handshakes que todavía no probaron estar vivos: la sesión pasa a `sessions` cuando su primer marco descifra
     /// (un primer mensaje de KK repetido por el relay no tira la sesión viva, L2).
     private var pendingSessions: [String: Session] = [:]
+    private var deviceListWaiters: [CheckedContinuation<[RelayDeviceEntry], Error>] = []
     private var requestBuckets: [String: TokenBucket] = [:]
     private var handshakeBuckets: [String: TokenBucket] = [:]
 
@@ -222,6 +223,7 @@ public actor RemoteHost {
         online = []
         for (_, waiter) in pushWaiters { waiter.resume(throwing: RelayClosed(code: nil, reason: "Disconnected")) }
         pushWaiters = [:]
+        failDeviceListWaiters()
     }
 
     public func disconnect() async {
@@ -262,6 +264,10 @@ public actor RemoteHost {
                 pendingSessions[device] = nil
             }
             eventSink.yield(.deviceOnline(device, state == "online"))
+        case .devices(let items?):
+            let waiters = deviceListWaiters
+            deviceListWaiters = []
+            waiters.forEach { $0.resume(returning: items) }
         case .pushResult(let id, let status, _):
             pushWaiters.removeValue(forKey: id)?.resume(returning: status)
         case .pairClose(let pairingId):
@@ -585,6 +591,34 @@ public actor RemoteHost {
     }
 
     // MARK: - Dispositivos
+
+    /// Los dispositivos que el relay tiene para esta cuenta (para reconciliar con los de la Mac al conectar, M5).
+    public func relayDevices(timeout: Duration = .seconds(10)) async throws -> [RelayDeviceEntry] {
+        guard link != nil else { throw RelayClosed(code: nil, reason: "Not connected") }
+        return try await withCheckedThrowingContinuation { continuation in
+            deviceListWaiters.append(continuation)
+            send(.devices(items: nil))
+            Task {
+                try? await Task.sleep(for: timeout)
+                self.failDeviceListWaiters()
+            }
+        }
+    }
+
+    private func failDeviceListWaiters() {
+        let waiters = deviceListWaiters
+        deviceListWaiters = []
+        waiters.forEach { $0.resume(throwing: RelayClosed(code: nil, reason: "No answer from the relay")) }
+    }
+
+    /// Da de baja en el relay un dispositivo que la Mac ya no tiene (un Revoke o un Reset hechos sin conexión, M5).
+    public func removeFromRelay(_ deviceId: String) {
+        guard devices[deviceId] == nil else { return }
+        send(.deviceRemove(device: deviceId))
+    }
+
+    /// El dispositivo de un "Codes Match" que espera el acuse (ya dado de alta en el relay, todavía no en la Mac).
+    public var pendingPairingDevice: String? { pairing?.pendingDevice?.deviceId }
 
     /// Revoke (spec P.12): la Mac lo olvida (deja de aceptar su estática) y le pide al relay que lo dé de baja.
     public func revoke(_ deviceId: String) {

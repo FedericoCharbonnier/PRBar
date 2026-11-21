@@ -40,6 +40,57 @@ public struct RemoteKeyStore: Sendable {
         return keys
     }
 
+    /// Las claves guardadas, sin crear otras (nil si no hay).
+    public func loadExisting() -> MacKeys? {
+        guard let relay = try? secrets.read(Self.accounts.relay), !relay.isEmpty else { return nil }
+        return try? loadOrCreate()
+    }
+
+    // MARK: Cuentas retiradas (revisión M5)
+
+    /// Una cuenta del relay que "Reset iPhone Access…" dejó: hasta darle de baja sus iPhones en el relay (y con eso sus
+    /// buzones), la Mac guarda su clave de relay. El relay no tiene "borrar cuenta": la cuenta queda sin dispositivos y
+    /// sin clave que la use.
+    public struct RetiredAccount: Codable, Equatable, Sendable {
+        public var relayHost: String
+        public var accountId: String
+        /// `Curve25519.Signing` en crudo, base64.
+        public var relayKey: String
+
+        public init(relayHost: String, accountId: String, relayKey: Curve25519.Signing.PrivateKey) {
+            self.relayHost = relayHost
+            self.accountId = accountId
+            self.relayKey = relayKey.rawRepresentation.base64EncodedString()
+        }
+
+        public var signingKey: Curve25519.Signing.PrivateKey? {
+            Data(base64Encoded: relayKey).flatMap { try? Curve25519.Signing.PrivateKey(rawRepresentation: $0) }
+        }
+    }
+
+    static let retiredAccount = "mac-relay-retired"
+
+    public func retiredAccounts() -> [RetiredAccount] {
+        guard let text = try? secrets.read(Self.retiredAccount), let data = text.data(using: .utf8),
+              let list = try? JSONDecoder().decode([RetiredAccount].self, from: data) else { return [] }
+        return list
+    }
+
+    public func retire(_ account: RetiredAccount) throws {
+        var list = retiredAccounts().filter { $0.accountId != account.accountId || $0.relayHost != account.relayHost }
+        list.append(account)
+        try saveRetired(list)
+    }
+
+    public func forgetRetired(_ account: RetiredAccount) throws {
+        try saveRetired(retiredAccounts().filter { $0 != account })
+    }
+
+    private func saveRetired(_ list: [RetiredAccount]) throws {
+        let text = list.isEmpty ? nil : String(decoding: try JSONEncoder().encode(list), as: UTF8.self)
+        try secrets.write(text, for: Self.retiredAccount)
+    }
+
     /// "Reset iPhone Access…": borra las claves (la próxima `loadOrCreate` crea otras).
     public func reset() throws {
         try secrets.write(nil, for: Self.accounts.relay)

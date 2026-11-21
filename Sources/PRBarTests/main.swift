@@ -154,6 +154,7 @@ let allTests: [TestCase] = []
     + RemoteSettingsTests.cases
     + RemoteBridgeTests.cases
     + RemoteRedactorTests.cases
+    + RemoteReconcileTests.cases
     + RemoteFeedExtrasTests.cases
     + RemoteCLITests.cases
     + RemoteMacIntegrationTests.cases
