@@ -100,7 +100,7 @@ struct IPhoneTab: View {
         } header: {
             Text("Remote Control")
         } footer: {
-            Text("Everything between this Mac and your iPhones is end-to-end encrypted: the relay only sees encrypted data, ids and timing. Merge, push and approve need Face ID on the iPhone.")
+            Text("Everything between this Mac and your iPhones is end-to-end encrypted: the relay only sees encrypted data, ids and timing. Merge, push, approve and tests need Face ID on the iPhone.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -160,6 +160,13 @@ struct IPhoneTab: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                if device.presence == nil {
+                    // Se emparejó sin passkey: los comandos con Face ID quedan bloqueados hasta emparejar de nuevo.
+                    Label("Face ID not set up", systemImage: "faceid")
+                        .font(.caption)
+                        .foregroundStyle(Theme.orangeText)
+                        .help("This iPhone was paired without Face ID, so merge, push, approve and tests are blocked. Pair it again to set it up.")
+                }
                 if stored.notificationsOff {
                     Label("Notifications off — open PRBar on the iPhone to turn them back on", systemImage: "bell.slash")
                         .font(.caption)
@@ -172,7 +179,7 @@ struct IPhoneTab: View {
                 set: { enabled in run { _ = try await model.remoteSetPresenceRequirement(device: device.deviceId, enabled: enabled) } }
             ))
             .toggleStyle(.checkbox)
-            .help("Merge, push and approve need Face ID on this iPhone.")
+            .help("Merge, push, approve and tests need Face ID on this iPhone.")
             Button("Revoke…") { confirmRevoke(device) }
         }
     }
