@@ -278,6 +278,20 @@ describe("RelayClient", () => {
     expect(settled).toBe(true);
   });
 
+  it("un corte con la página en segundo plano no muestra unreachable: reconecta al volver", async () => {
+    const { relay, client, visibility, states } = setup();
+    client.start();
+    await flush();
+    visibility.set(false);
+    states.length = 0;
+    relay.last.drop(1006);
+    await flush();
+    expect(states.map((s) => s.kind)).toEqual(["idle"]);
+    visibility.set(true);
+    await flush();
+    expect(states.map((s) => s.kind)).toEqual(["idle", "connecting", "ready"]);
+  });
+
   it("stop cierra y no reintenta", async () => {
     const { relay, clock, client } = setup();
     client.start();

@@ -479,6 +479,13 @@ export class RelayClient {
       return this.#setState({ kind: "rejected", code: error.code });
     }
     if (error.code === RelayCloseCode.replaced) return this.#setState({ kind: "replaced" });
+    // Se cortó con la página en segundo plano (iOS mata el WebSocket al congelarla): sin reintentos ni "unreachable";
+    // al volver al primer plano se conecta de nuevo.
+    if (this.#visibility && !this.#visibility.visible()) {
+      if (this.#hiddenTimer !== null) this.#clock.clearTimeout(this.#hiddenTimer);
+      this.#hiddenTimer = null;
+      return this.#setState({ kind: "idle" });
+    }
     // Una conexión que murió en silencio (sin `pong`) o se cortó justo al volver: otra enseguida, sin mostrar
     // "no se puede conectar" por algo normal como desbloquear el teléfono.
     const woke = this.#wokeAt !== null && this.#clock.now() - this.#wokeAt < WAKE_WINDOW_MS;
