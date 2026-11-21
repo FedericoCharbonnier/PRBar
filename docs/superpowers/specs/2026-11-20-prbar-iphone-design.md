@@ -737,8 +737,9 @@ Lo que muestre el diseño, con esta regla: lo que es de la Mac va por `AppComman
 
 ### R.7 Decisiones de implementación (Plan 19)
 
-Estado: la app habla con la Mac por el relay (`LiveTransport`, `LivePairingService`); falta lo que requiere al usuario
-(Team ID, iPhone) y las notificaciones (Task 8).
+Estado: la app habla con la Mac por el relay (`LiveTransport`, `LivePairingService`) y recibe pushes cifrados (Task 8);
+falta lo que requiere al usuario (Team ID, clave de APNs, la plataforma iOS de Xcode y el iPhone), que hace
+`Scripts/iphone-setup.sh`, y el checklist en el iPhone (`docs/qa/plan-19-checklist.md`).
 
 - **Dónde vive el código.** La lógica y las vistas están en el paquete `ios/PRBarMobileKit` (targets
   `PRBarMobileCore`, `PRBarMobileUI`, `PRBarMobileSnapshots`), que compila para iOS 26 **y macOS 26**: los tests de los
@@ -825,8 +826,43 @@ Estado: la app habla con la Mac por el relay (`LiveTransport`, `LivePairingServi
   `actool` no compila el catálogo sin un runtime de simulador. `Scripts/ios-build-check.sh` compila en modo target (sin
   destino) para el simulador, el SDK del dispositivo sin firma y el bundle de tests, dejando afuera `Assets.xcassets`.
   Con la plataforma instalada valen los comandos del plan.
-- **Pendiente.** Task 8 (APNs, NSE, `aps-environment`, categoría `PR`): necesita Team ID y App IDs. Tasks 9, 14 y 18
-  (checklists en el iPhone real). Ícono de la app (el catálogo tiene el slot vacío).
+- **Push (Task 8).** La NSE `PRBarMobileNotifications` (enlaza solo `PRBarMobileCore`, producto nuevo del paquete)
+  hace lo de P.9; la lógica está en el kit para que `swift test` la cubra en la Mac (`PushOpener`,
+  `PushNotificationProcessor`, `PushCategory`, `PushTests`; en vez del `xcodebuild test` de S). Detalles:
+  - Rechaza (y deja el genérico) un sobre que no abre, sin emparejamiento en el llavero compartido, `v` ≠ 1,
+    `createdAt` de más de 24 h **o de más de 10 min en el futuro** (la tolerancia del buzón), o un `id` ya visto. El
+    `id` se anota recién cuando todo lo demás pasó (un push rechazado no gasta su id). Ids: últimos 200 en
+    `Push/seen.json` del App Group, protegidos hasta el primer desbloqueo como las claves. El campo `e` nunca queda
+    en `userInfo`.
+  - Título (una línea, 200), cuerpo y `threadId` pasan otra vez por `RemoteText` aunque la Mac ya los limpió; un
+    `deepLink` que no es destino de notificación (`prbar://pair`) se descarta. `DeepLink` suma `prbar://home` y
+    `prbar://activity` (los que ya mandaba la Mac, Q.4).
+  - Categorías: el relay manda siempre `PR` (no sabe más); la NSE la cambia según la pantalla del link: `PR.review`
+    (Review, Chat with Claude), `PR.respond` (Respond, Chat with Claude), `PR.merge` (Merge); sin pantalla queda `PR`
+    sin acciones. Todas `.foreground`: Merge abre la hoja con Face ID. Sin `deepLink` (push genérico) se abre Home.
+  - El token de APNs va **al relay** (marco `apns`, P.4), no a la Mac: lo manda `RemoteConnection` en cada conexión
+    (también con la Mac dormida, el enlace al relay está) y apenas iOS lo da (`RemoteTransport.registerPush`). La app
+    pide el token después del permiso (al emparejar) y en cada arranque si el permiso está dado.
+  - `aps-environment` y el `env` que la app le dice al relay salen del mismo ajuste por configuración
+    (`PRBAR_APS_ENVIRONMENT`/`PRBAR_PUSH_ENVIRONMENT`): Debug → development/`sandbox`, Release → production.
+  - El delegado de notificaciones no muestra banner si la app está activa en ese PR (`PhoneApp.visiblePR`); el badge
+    del ícono sigue el `badgeCount` del `home` (la NSE lo pone desde cada push).
+  - Firma: todo cuelga de `DEVELOPMENT_TEAM` en `ios/Config/Local.xcconfig` (fuera de git); sin él compila para el
+    simulador y sin firma para el dispositivo (`Scripts/ios-build-check.sh`, ahora con la extensión).
+- **`RemoteClient.connect()` cancelable.** Cada llamador espera el intento compartido contra su propia cancelación: uno
+  cancelado vuelve enseguida con `CancellationError` (antes, al vencer el handshake); el intento sigue para los demás.
+- **Lo que hace el usuario: `Scripts/iphone-setup.sh`.** Un solo script, idempotente, que pregunta antes de cada paso
+  hacia afuera: `--team-id` (escribe `Local.xcconfig`), `--apns-key`/`--apns-key-id` (valida una P-256 PKCS#8 sin
+  mostrarla, la copia a `/root/stack/env/prbar-relay.p8` con dueño 65532 y modo 400, edita solo `APNS_KEY_ID`,
+  `APNS_TEAM_ID` y `APNS_TOPIC` del `.env` con copia `.bak`, recrea el contenedor y verifica `/healthz` y que el log
+  ya no diga "push disabled"), `--install-mac` (`Scripts/bundle.sh --install` y `prbar remote enable
+  --enroll-token-stdin` con el token por ssh directo a stdin), `--ios-platform` (mira el disco libre antes de
+  `xcodebuild -downloadPlatform iOS`) e `--install-iphone` (XcodeGen, build firmada para el iPhone conectado,
+  `devicectl`). El servidor sale de `PRBAR_RELAY_SERVER` (nunca en el repo). Tests sin red:
+  `Scripts/iphone-setup-tests.sh`.
+- **Pendiente.** Correr el checklist en el iPhone real (`docs/qa/plan-19-checklist.md`, Tasks 9, 14 y 18). Ícono de la
+  app (el catálogo tiene el slot vacío). El costo de un trabajo en curso sigue en "—" hasta que termina (Claude lo
+  informa al final).
 
 ---
 
@@ -865,6 +901,8 @@ Estado: la app habla con la Mac por el relay (`LiveTransport`, `LivePairingServi
 6. **OK explícito** para desplegar en el VPS (task con compuerta en el Plan 17) y para el cambio de Traefik si hiciera
    falta (ver preguntas).
 
+Los pasos 1, 2, 4 (plataforma iOS) y 5 los guía `Scripts/iphone-setup.sh` (R.7); sin argumentos dice qué falta.
+
 ---
 
 ## U. Decisiones (resumen)
@@ -878,7 +916,9 @@ Estado: la app habla con la Mac por el relay (`LiveTransport`, `LivePairingServi
    push) desde el teléfono pide siempre Face ID, verificado en la Mac y vuelto a mirar en Core (`CommandOrigin`, P.16).
 7. Sin cola de comandos offline; con buzón de estado cifrado (último `home`) y caché local.
 8. Relay en Go/distroless con bbolt, inscripción por token, auth Ed25519 por desafío, logs sin contenido.
-9. iOS 26 mínimo; XcodeGen; bundle ids `com.federico.prbar.ios[.notifications]`.
+9. iOS 26 mínimo; XcodeGen; bundle ids `com.federico.prbar.ios[.notifications]`. Pushes: la NSE descifra con las
+   claves del llavero compartido y, si no puede, queda "PRBar — New activity on your Mac"; el token de APNs va al
+   relay; `Scripts/iphone-setup.sh` hace los pasos del usuario (Team ID, `.p8` al VPS, Mac, plataforma, iPhone).
 10. `CommandProtocol.version` 7 y `minimumRemoteVersion` para tolerar una app de iPhone un poco más vieja.
 
 ## V. Preguntas abiertas (respondidas por el usuario, 2026-11-20)

@@ -292,16 +292,18 @@ struct SecureEnclavePresence: PresenceSigner {
 **Files:** `App/AppDelegate.swift`, `Remote/PushRegistration.swift`, `PRBarMobileNotifications/NotificationService.swift`;
 `NotificationServiceTests.swift`
 
-- [ ] **Tests:**
+- [x] **Tests:**
   - `NotificationService.process(content:)` con un sobre generado en el test por `SealedEnvelope.seal` (claves de
     prueba): título, cuerpo, `threadIdentifier`, `badge`, `userInfo["deepLink"]` del payload descifrado.
   - Sobre roto, clave ajena, `createdAt` de hace 25 h, o `id` repetido → queda el contenido genérico ("PRBar" / "New
     activity on your Mac") y no se muestra nada cifrado.
-- [ ] **Implementar:** `UIApplication.registerForRemoteNotifications()` tras el permiso; token → `apns` al relay con
+- [x] **Implementar:** `UIApplication.registerForRemoteNotifications()` tras el permiso; token → `apns` al relay con
   `env: sandbox` en Debug y `production` en Release. NSE: lee `DeviceKeys.push` y `PairedMac` del llavero compartido,
   ids vistos en el contenedor del App Group (últimos 200), `serviceExtensionTimeWillExpire` entrega el genérico.
   Categoría `PR` con las acciones de `lock notifications` del diseño, todas `.foreground`; el delegado abre el
   `deepLink` (`DeepLink.swift`) y no muestra banner si ya está en ese PR. **Commit** `"Decrypt push notifications in a service extension"`.
+  Hecho (spec R.7 "Push"): la lógica en `PRBarMobileCore/Push` (`PushTests` con `swift test`); el token va al relay en
+  cada conexión. Lo que falta del usuario lo hace `Scripts/iphone-setup.sh`.
 
 ### Task 9: Fase 1 en el iPhone real
 

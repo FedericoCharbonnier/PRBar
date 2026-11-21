@@ -9,15 +9,25 @@ so no port is opened on the Mac, and everything between the Mac and the iPhone i
 
 ## 1. Install the iPhone app
 
-Until there's a public TestFlight, build it with Xcode:
+Until there's a public TestFlight, build it with Xcode. `Scripts/iphone-setup.sh` runs every step for you, asks before
+each one that touches something outside the repo, and can be run again at any time (without arguments it only shows
+what's done and what's left):
 
-1. Install Xcode 26 (or newer) and add your Apple Developer account (Xcode › Settings › Accounts).
-2. Generate the project: `Scripts/ios-generate.sh` (XcodeGen; `ios/project.yml` is the source of truth).
-3. Put your team in `ios/Config/Local.xcconfig` (not in git): `DEVELOPMENT_TEAM = ABCDE12345`.
-4. Connect the iPhone with a cable once, turn on Developer Mode (Settings › Privacy & Security), open
-   `ios/PRBarMobile.xcodeproj`, choose the iPhone and press Run.
+1. Install Xcode 26 (or newer) and add your Apple Developer account (Xcode › Settings › Accounts). `brew install xcodegen`.
+2. Your Team ID (developer.apple.com › Membership) for signing:
+   `Scripts/iphone-setup.sh --team-id <TEAM_ID>` (writes `ios/Config/Local.xcconfig`, which isn't in git).
+3. Xcode's iOS platform (about 10 GB; the script checks the free disk first): `Scripts/iphone-setup.sh --ios-platform`.
+4. Push notifications: create an APNs key (Certificates, Identifiers & Profiles › Keys › Apple Push Notifications
+   service) and hand it to your relay's server:
+   `PRBAR_RELAY_SERVER=root@your-server Scripts/iphone-setup.sh --apns-key ~/Downloads/AuthKey_<KEY_ID>.p8 --apns-key-id <KEY_ID>`.
+   It checks the file is an APNs key (without printing it), copies it to the server, sets `APNS_KEY_ID`,
+   `APNS_TEAM_ID` and `APNS_TOPIC` in the relay's settings, restarts the relay and checks push is on. Then delete the
+   `.p8` from Downloads: it only needs to live on the server.
+5. Connect the iPhone with a cable once, turn on Developer Mode (Settings › Privacy & Security), then
+   `Scripts/iphone-setup.sh --install-iphone` builds the app signed for it and installs it.
 
-(The iOS project arrives with plan 19; until then this section describes how it will be installed.)
+`PRBAR_RELAY_SERVER` is the ssh destination of the server that runs the relay; it's only read from the environment.
+Without the script: `Scripts/ios-generate.sh`, open `ios/PRBarMobile.xcodeproj`, choose the iPhone and press Run.
 
 When a TestFlight or App Store link exists, save it on the Mac and Settings › iPhone shows it as a QR code under
 **Get PRBar for iPhone** (scan it with the iPhone's Camera):
@@ -37,6 +47,10 @@ Settings › iPhone › **Allow iPhone remote control**, or:
 ```
 prbar remote enable --relay prbar.fcharbonnier.duckdns.org
 ```
+
+or let the setup script do it with the token read straight from the relay's server (it's never shown or saved):
+`PRBAR_RELAY_SERVER=root@your-server Scripts/iphone-setup.sh --install-mac` (it first offers to build and install this
+checkout's PRBar, replacing the installed one).
 
 The first time, PRBar asks for the relay's **enrollment token** (`RELAY_ENROLL_TOKEN` in the relay's `.env`). It's
 used once to create this Mac's account on the relay and is never stored. Turning access off and on again
@@ -66,6 +80,16 @@ never runs anything: the repo's test command (and a push, which runs your git ho
 proof from that iPhone, checked by the Mac. A change of this setting on the Mac reaches a connected iPhone right away.
 If the Mac confirms the code before you tap **Codes Match** on the iPhone, the iPhone waits for your tap before it
 stores the pairing.
+
+## Notifications
+
+After pairing, the iPhone asks to send you notifications. They're the Mac's own (same rules, same switches: the
+iPhone's Settings change the Mac's), sent through the relay to Apple **encrypted for this iPhone**: the relay and Apple
+only see "PRBar — New activity on your Mac". A small extension on the iPhone decrypts the real title and text before
+they show, and drops anything older than a day or already shown (a relay sending an old push again). If it can't
+decrypt one (the iPhone was revoked, or it was restarted and never unlocked since), you see the generic text.
+Tapping opens the PR on the right screen; long-press for Review, Respond, Merge or Chat. Nothing runs from a
+notification: Merge opens the merge sheet, with its Face ID step. The app icon's badge is the Mac's.
 
 ## 4. Revoke or reset
 
