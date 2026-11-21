@@ -312,18 +312,14 @@ final class AppModel: ObservableObject {
         notifications?.onSelectPR = { [weak self] prID in self?.selectTab(forNotificationPR: prID) }
         notifications?.onOpenActivity = { [weak self] in self?.openActivityWindow() }
         notifications?.onOpenMerge = { [weak self] prID in self?.openMergeFromNotification(prID: prID) }
-        // Al salir se cancela todo: el runner manda SIGTERM al grupo de procesos de cada Claude (y sus `git`/`gh`).
-        // Los worktrees que queden los borra la limpieza de huérfanos del próximo arranque.
+        // Al salir se cancela todo (`cancelEverythingForQuit`; `AppDelegate` además espera a que terminen los procesos
+        // y mata los que no). Los worktrees que queden los borra la limpieza de huérfanos del próximo arranque, salvo
+        // los que tienen trabajo sin pushear.
         terminationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.stopCommandServer()
-                self?.stopRemoteAccess()
-                self?.reviews.cancelAll()
-                self?.respond.cancelAll()
-                // A turn that was running stays `pending` in its record and reopens as "Interrupted" (spec B.9).
-                self?.chatScheduler.cancelAll()
+                self?.cancelEverythingForQuit()
                 // The usage ledger writes in the background: whatever is pending reaches the disk before quitting.
                 self?.usageLedger.flush()
             }
@@ -331,6 +327,19 @@ final class AppModel: ObservableObject {
         // En segundo plano y sin esperar a nadie: cada host que responde limpia lo que quedó de antes (J.7.16).
         startRemoteOrphanCleanup()
         Task { await bootstrap() }
+    }
+
+    /// Al salir: corta el socket y el acceso remoto y cancela reviews, Responder, chats y el chat de instrucciones (el
+    /// runner manda SIGTERM al grupo de procesos de cada uno). Se puede llamar más de una vez.
+    func cancelEverythingForQuit() {
+        stopCommandServer()
+        stopRemoteAccess()
+        reviews.cancelAll()
+        respond.cancelAll()
+        // A turn that was running stays `pending` in its record and reopens as "Interrupted" (spec B.9).
+        chatScheduler.cancelAll()
+        for chat in runningChats { chat.stop() }
+        instructionsChat.stop()
     }
 
     /// Modo de capturas: herramientas y cuentas como si ya se hubieran encontrado, sin correr `gh` ni buscar nada.

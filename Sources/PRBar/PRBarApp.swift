@@ -43,7 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let unpushed = model.respond.unpushedWork.count
         guard QuitConfirmation.shouldAsk(activeJobs: activeJobs, unpushed: unpushed,
                                          programmatic: QuitRequest.skipsConfirmation || systemQuit)
-        else { return .terminateNow }
+        else { return terminateAfterStoppingProcesses(model) }
         // The panel is at menu level and would cover the alert. From it the app isn't active: the alert needs it, on
         // the Space the user is on.
         statusItem?.close()
@@ -52,7 +52,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                       message: QuitConfirmation.message(activeJobs: activeJobs, unpushed: unpushed),
                                       action: "Quit")
         alert.window.collectionBehavior.insert([.moveToActiveSpace, .fullScreenAuxiliary])
-        return ConfirmAlert.confirmed(alert.runModal()) ? .terminateNow : .terminateCancel
+        return ConfirmAlert.confirmed(alert.runModal()) ? terminateAfterStoppingProcesses(model) : .terminateCancel
+    }
+
+    private var stoppingProcesses = false
+
+    /// Cancela todo y espera (unos segundos como mucho) a que terminen los procesos que lanzó PRBar; los que no
+    /// terminan con SIGTERM reciben SIGKILL (`ProcessShutdown`). Recién después sale.
+    private func terminateAfterStoppingProcesses(_ model: AppModel) -> NSApplication.TerminateReply {
+        guard !stoppingProcesses else { return .terminateCancel }
+        stoppingProcesses = true
+        model.cancelEverythingForQuit()
+        Task { @MainActor in
+            await ProcessShutdown.terminateAll()
+            NSApp.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
 }
 

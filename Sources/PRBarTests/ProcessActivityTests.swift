@@ -29,6 +29,21 @@ enum ProcessActivityTests {
             let after = registry.all()
             try expect(after.isEmpty, "quedó anotado: \(after)")
         },
+        TestCase("activity: al salir, SIGTERM a todo lo que sigue vivo y SIGKILL a lo que lo ignora (M4)") {
+            let registry = ProcessRegistry()
+            // Sin el SIGKILL propio del runner: solo el de `ProcessShutdown`.
+            let runner = SystemProcessRunner(killGracePeriod: 60, registry: registry)
+            let polite = Task { try await runner.run("/bin/sleep", ["30"], timeout: nil) }
+            let stubborn = Task { try await runner.run("/bin/sh", ["-c", "trap '' TERM; /bin/sleep 30"], timeout: nil) }
+            for _ in 0..<80 where registry.all().count < 2 { try await Task.sleep(for: .milliseconds(25)) }
+            try expectEqual(registry.all().count, 2)
+            let started = Date()
+            await ProcessShutdown.terminateAll(registry: registry, grace: 1)
+            try expect(registry.all().isEmpty, "quedaron vivos: \(registry.all())")
+            try expect(Date().timeIntervalSince(started) < 5)
+            _ = try? await polite.value
+            _ = try? await stubborn.value
+        },
         TestCase("activity: sacar un proceso que terminó no borra al que reusó su pid") {
             let registry = ProcessRegistry()
             let old = RegisteredProcess(pid: 7, executable: "git", activity: .review("acme/api#1"), startedAt: t0)
