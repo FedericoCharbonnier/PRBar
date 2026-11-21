@@ -4,15 +4,8 @@ build/
 *.xcodeproj
 .swiftpm/
 .claude/
-# iPhone app (plan 19): generated project, signing and local build products
-ios/Config/Local.xcconfig
-ios/build/
-ios/.build-xcode/
-ios/snapshots/
-
 # Relay: secretos y datos locales (nunca al repo)
 relay/deploy/prbar-relay.env
-relay/deploy/*.p8
 relay/**/*.db
 relay/prbar-relay
 

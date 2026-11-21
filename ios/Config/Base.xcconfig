@@ -1,7 +1,0 @@
-// Shared build settings for PRBar on iPhone (versioned). Signing lives in Local.xcconfig, which is not versioned:
-// copy Local.xcconfig.example to Local.xcconfig and put your Team ID in it. Simulator builds need no team.
-MARKETING_VERSION = 0.1.0
-CURRENT_PROJECT_VERSION = 1
-DEVELOPMENT_TEAM =
-
-#include? "Local.xcconfig"

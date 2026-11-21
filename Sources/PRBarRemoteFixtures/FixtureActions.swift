@@ -2,8 +2,8 @@ import Foundation
 import PRBarCore
 import PRBarRemoteMac
 
-/// An `AppModel` stand-in with fixture PRs, for driving `RemoteAccessService` without GitHub or Claude: the iPhone's
-/// end-to-end test (ios/PRBarMobileKit) pairs with it through the real relay. It keeps a little state (which findings
+/// An `AppModel` stand-in with fixture PRs, for driving `RemoteAccessService` without GitHub or Claude: the web app's
+/// end-to-end test (web/test/e2e) pairs with it through the real relay. It keeps a little state (which findings
 /// are included, what was approved and merged, the chat), records every call, and tells the service when something
 /// changed (`onChange`) or when a chat streams text (`onChatText`, the Mac's `chatDelta`). Fictional data only.
 @MainActor

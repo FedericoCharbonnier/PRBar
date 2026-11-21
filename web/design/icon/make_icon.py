@@ -1,3 +1,4 @@
+# Generó el ícono 1024 original (claro, oscuro y tintado) de la app nativa de iOS, ya borrada; las rutas son las de ios/Icon/.
 """Ícono de PRBar para iPhone a partir del glifo del ícono de Mac: claro, oscuro y tintado (1024×1024, sin máscara).
 
 Uso: python3 ios/Icon/make_icon.py  (necesita numpy y Pillow). Escribe en ios/Icon/out/; copiar los tres PNG a
