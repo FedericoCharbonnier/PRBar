@@ -25,9 +25,21 @@ for (const theme of ["light", "dark"] as const) {
     for (const { id, file } of ids) {
       await page.goto(`/stories.html#/${id}`);
       await page.evaluate(() => document.fonts.ready);
-      await page.waitForSelector("#app > *");
+      // Las hojas se dibujan en #overlay-root (fuera de #app).
+      await page.waitForSelector("#app > *, #overlay-root > *");
       // Congela animaciones (spinners) para que las capturas sean estables.
       await page.addStyleTag({ content: "*,*::before,*::after{animation-play-state:paused!important;animation-delay:-0.3s!important;transition:none!important;caret-color:transparent!important}" });
+      // Y las de la Web Animations API (la entrada de hojas y menús) quedan en su cuadro final.
+      await page.evaluate(() => {
+        for (const a of document.getAnimations()) {
+          if (typeof CSSAnimation !== "undefined" && a instanceof CSSAnimation) continue;
+          try {
+            a.finish();
+          } catch {
+            // Infinita: no aplica.
+          }
+        }
+      });
       await page.screenshot({ path: `${OUT}/${file}-${theme}.png`, fullPage: id === "review-full" });
     }
   });
