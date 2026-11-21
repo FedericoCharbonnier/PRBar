@@ -7,6 +7,7 @@ import {
   addSample, clamp, EASE_SPRING, gestureAxis, rubberBand, settleDuration, SHEET_MS, sheetOffset, shouldDismissSheet, velocityOf,
   type Sample,
 } from "../motion/math";
+import { usePage } from "../nav/context";
 import { Icon, type IconName } from "./Icon";
 import "./components.css";
 
@@ -32,8 +33,32 @@ export function Sheet(props: {
   label?: string | undefined;
   onDismiss?: (() => void) | undefined;
 }) {
-  if (props.open === false) return null;
+  // Una hoja de una pantalla que quedó tapada (p. ej. una notificación abrió otro PR con la hoja abierta) no se queda
+  // encima de la nueva: se cierra y vuelve a aparecer al volver (el borrador vive en el modelo).
+  const page = usePage();
+  if (props.open === false || (page && !page.visible)) return null;
   return createPortal(<SheetLayer {...props} />, overlayRoot());
+}
+
+/** Con una hoja abierta, lo de atrás queda inerte (VoiceOver no entra ahí) y el foco va a la hoja; al cerrarla vuelve
+ *  a donde estaba. Varias hojas a la vez cuentan una sola vez. */
+let modalCount = 0;
+let inerted: Element[] = [];
+
+function enterModal(sheet: HTMLElement | null): () => void {
+  const previous = document.activeElement as HTMLElement | null;
+  if (modalCount++ === 0) {
+    inerted = [...document.querySelectorAll("#app > :not(.app-alerts)")];
+    for (const el of inerted) el.setAttribute("inert", "");
+  }
+  sheet?.focus({ preventScroll: true });
+  return () => {
+    if (--modalCount === 0) {
+      for (const el of inerted) el.removeAttribute("inert");
+      inerted = [];
+    }
+    if (previous?.isConnected && !previous.closest("[inert]")) previous.focus({ preventScroll: true });
+  };
 }
 
 /** Una hoja como UISheetPresentationController: sube desde abajo sobre un fondo oscurecido, se arrastra hacia abajo
@@ -41,7 +66,7 @@ export function Sheet(props: {
 function SheetLayer({ children, grabber = true, detent = "large", label, onDismiss }: Parameters<typeof Sheet>[0]) {
   const layer = useRef<HTMLDivElement>(null);
   const sheet = useRef<HTMLDivElement>(null);
-  const live = useRef({ onDismiss, dragged: false });
+  const live = useRef({ onDismiss, dragged: false, progress: 1 });
   live.current.onDismiss = onDismiss;
   const card = detent === "large";
 
@@ -56,9 +81,12 @@ function SheetLayer({ children, grabber = true, detent = "large", label, onDismi
       void animate(scrim, [{ opacity: 0 }, { opacity: 1 }], { duration: SHEET_MS, easing: "ease-out" });
     }
     if (card) presentCard();
+    const leaveModal = enterModal(el);
     const root = layer.current;
     return () => {
-      if (card) dismissCard();
+      leaveModal();
+      // Cerrada arrastrando: la pantalla de atrás sigue desde donde la dejó el arrastre (sin saltar a presentada).
+      if (card) dismissCard(live.current.dragged ? live.current.progress : 1);
       if (live.current.dragged) return;
       ghost(root, (copy) => {
         if (reduce) return [{ opacity: 1 }, { opacity: 0 }];
@@ -132,6 +160,7 @@ function SheetLayer({ children, grabber = true, detent = "large", label, onDismi
         void animate(el, [{ transform: `translate3d(0, ${offset}px, 0)` }, { transform: `translate3d(0, ${d.height + 40}px, 0)` }], { duration, easing: "cubic-bezier(0.2, 0.8, 0.3, 1)", hold: true });
         void animate(scrim, [{ opacity: progress }, { opacity: 0 }], { duration, hold: true });
         if (card) trackCard(progress);
+        live.current.progress = progress;
         setTimeout(dismiss, duration * 0.6);
         return;
       }
@@ -154,7 +183,7 @@ function SheetLayer({ children, grabber = true, detent = "large", label, onDismi
   return (
     <div ref={layer} class={`sheet-layer sheet-layer--${detent}`}>
       {detent !== "full" && <button type="button" class="sheet-scrim" aria-label="Dismiss" onClick={onDismiss} />}
-      <div ref={sheet} class={`sheet sheet--${detent}`} role="dialog" aria-modal="true" aria-label={label}>
+      <div ref={sheet} class={`sheet sheet--${detent}`} role="dialog" aria-modal="true" aria-label={label} tabIndex={-1}>
         {grabber && <span class="sheet__grabber" aria-hidden="true" />}
         {children}
       </div>

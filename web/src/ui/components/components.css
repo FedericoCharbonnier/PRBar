@@ -1154,6 +1154,10 @@
 }
 
 /* Debajo de la barra de estado queda la pantalla de atrás como tarjeta (10 pt) y otros 10 pt de ella a la vista. */
+.sheet:focus {
+  outline: none;
+}
+
 .sheet--large {
   height: calc(100% - var(--safe-top) - 22px);
 }
