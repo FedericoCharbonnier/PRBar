@@ -15,3 +15,8 @@ relay/deploy/prbar-relay.env
 relay/deploy/*.p8
 relay/**/*.db
 relay/prbar-relay
+
+# Web app (plan 20)
+web/node_modules/
+web/dist/
+web/test/e2e/.results/

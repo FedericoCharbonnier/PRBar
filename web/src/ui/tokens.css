@@ -1,0 +1,101 @@
+/* Tokens de web/design/DESIGN.md (sección "Tokens"), claro y oscuro. Los nombres siguen los del diseño. */
+
+:root {
+  color-scheme: light dark;
+
+  --bg: #f2f2f7;
+  --bg2: #ffffff;
+  --bg3: #e9e9eb;
+  --sheet: #f2f2f7;
+  --fg: #000000;
+  --fg2: #5e5e63;
+  --fg3: #8a8a8e;
+  --sep: rgba(60, 60, 67, 0.18);
+  --fill: rgba(118, 118, 128, 0.12);
+  --fill2: rgba(118, 118, 128, 0.22);
+  --accent: #2d4eff;
+  --accentfg: #2d4eff;
+  --accentbg: rgba(45, 78, 255, 0.1);
+  --green: #12793a;
+  --greenbg: #e1f3e6;
+  --orange: #a65300;
+  --orangebg: #fcebd8;
+  --red: #c42b1f;
+  --redbg: #fbe5e3;
+  --violet: #6b2fb3;
+  --violetbg: #efe6fb;
+  --blue: #1f5fbf;
+  --bluebg: #e3edfb;
+  --codebg: #f5f6f8;
+  --addbg: rgba(40, 170, 80, 0.13);
+  --delbg: rgba(230, 60, 50, 0.11);
+  --hud: rgba(246, 246, 248, 0.88);
+  /* Liquid Glass no existe en la web: material translúcido con desenfoque. */
+  --glass: rgba(255, 255, 255, 0.62);
+  --glass-stroke: rgba(255, 255, 255, 0.7);
+  --glass-shadow: 0 6px 24px rgba(0, 0, 0, 0.1);
+  --connected: #30c559;
+  --badge: #e5372b;
+  --apptile: #2d4eff;
+  --white: #ffffff;
+
+  /* Tipografía: SF Pro del sistema; SF Mono para código. */
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+
+  /* Radios (DESIGN.md: tarjetas 22–24, código 12–18, sheet 38). */
+  --r-card: 24px;
+  --r-card-sm: 22px;
+  --r-tile: 20px;
+  --r-code: 12px;
+  --r-code-lg: 18px;
+  --r-sheet: 38px;
+  --r-chip: 6px;
+
+  /* Medidas. */
+  --touch: 44px;
+  --hairline: 0.5px;
+  --row-inset: 62px;
+
+  /* Áreas seguras (viewport-fit=cover). */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #000000;
+    --bg2: #1c1c1e;
+    --bg3: #2c2c2e;
+    --sheet: #1c1c1e;
+    --fg: #ffffff;
+    --fg2: #aeaeb2;
+    --fg3: #7c7c80;
+    --sep: rgba(84, 84, 88, 0.55);
+    --fill: rgba(118, 118, 128, 0.24);
+    --fill2: rgba(118, 118, 128, 0.36);
+    --accent: #3b5bff;
+    --accentfg: #8fa3ff;
+    --accentbg: rgba(80, 110, 255, 0.22);
+    --green: #30d158;
+    --greenbg: rgba(48, 209, 88, 0.18);
+    --orange: #ff9f0a;
+    --orangebg: rgba(255, 159, 10, 0.18);
+    --red: #ff6961;
+    --redbg: rgba(255, 69, 58, 0.2);
+    --violet: #d2b3ff;
+    --violetbg: rgba(150, 90, 230, 0.28);
+    --blue: #7fb0ff;
+    --bluebg: rgba(80, 140, 255, 0.2);
+    --codebg: #121214;
+    --addbg: rgba(48, 209, 88, 0.16);
+    --delbg: rgba(255, 69, 58, 0.16);
+    --hud: rgba(38, 38, 42, 0.9);
+    --glass: rgba(44, 44, 48, 0.62);
+    --glass-stroke: rgba(255, 255, 255, 0.12);
+    --glass-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+  }
+}
