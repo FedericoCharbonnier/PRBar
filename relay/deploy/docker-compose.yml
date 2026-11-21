@@ -1,5 +1,7 @@
 # /root/stack/prbar-relay/docker-compose.yml en el VPS (lo copia deploy.sh). Sin `ports:`: entra solo por Traefik.
 # La imagen la construye deploy.sh con contexto en la raíz del repo (relay/ y web/): docker build -f src/relay/Dockerfile src.
+# Es la instalación del autor (Traefik compartido en la red `coolify`): en otro server cambiar el host de las dos
+# reglas `Host(...)`, la red, el certresolver y el middleware de redirección (relay/README.md, Deploying).
 services:
   prbar-relay:
     image: prbar-relay:vps
@@ -12,6 +14,21 @@ services:
     cap_drop: [ALL]
     volumes:
       - prbar-relay-data:/data
+    # Docker no reinicia solo un contenedor "unhealthy", pero el estado se ve en `docker ps` y Traefik deja de
+    # mandarle tráfico. Traefik tampoco le manda nada hasta el primer chequeo bueno: de ahí el intervalo corto (después
+    # de un deploy el relay tarda como mucho ~10 s en recibir tráfico).
+    healthcheck:
+      test: ["CMD", "/prbar-relay", "-healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    # Logs acotados (30 MB como mucho): los teléfonos reconectan a cada rato.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     networks: [coolify]
     labels:
       traefik.enable: "true"
