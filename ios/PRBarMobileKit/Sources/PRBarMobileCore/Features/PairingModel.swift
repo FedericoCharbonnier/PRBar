@@ -143,10 +143,20 @@ public final class PairingModel {
 
     public func codesMatch() {
         guard case .confirmCode(let code, let mac) = step else { return }
+        if let held {
+            // The Mac confirmed first: nothing was stored until this tap (review L5).
+            self.held = nil
+            Task { await commit(held.mac, keys: held.keys) }
+            return
+        }
         step = .waitingForMac(code: code, macName: mac)
     }
 
+    /// The Mac's confirmation, held until the user taps "Codes Match" here.
+    @ObservationIgnored private var held: (mac: PairedMac, keys: StoredDeviceKeys)?
+
     public func codesDontMatch() async {
+        held = nil
         mismatch = true
         session?.cancel()
         await service.cancel()
@@ -189,12 +199,15 @@ public final class PairingModel {
                     self.code = code
                     step = .confirmCode(code: code, macName: qr.macName)
                 case .paired(let mac):
-                    try keychain.save(keys: keys)
-                    try keychain.save(mac: mac)
-                    step = .paired(macName: mac.macName)
                     session = nil
-                    _ = await notifications.request()
-                    onPaired(mac)
+                    if case .confirmCode = step {
+                        // The Mac confirmed before the user compared the codes here: keep the result in memory and
+                        // store it only on "Codes Match" (review L5: a malicious pairing link can't replace a pairing
+                        // without a tap on this screen).
+                        held = (mac, keys)
+                        return
+                    }
+                    await commit(mac, keys: keys)
                     return
                 }
             }
@@ -209,6 +222,20 @@ public final class PairingModel {
         } catch {
             finish(with: error.localizedDescription)
         }
+    }
+
+    /// Stores the pairing (only after the Mac's confirmation and the user's "Codes Match").
+    private func commit(_ mac: PairedMac, keys: StoredDeviceKeys) async {
+        do {
+            try keychain.save(keys: keys)
+            try keychain.save(mac: mac)
+        } catch {
+            finish(with: error.localizedDescription)
+            return
+        }
+        step = .paired(macName: mac.macName)
+        _ = await notifications.request()
+        onPaired(mac)
     }
 
     /// Keys are only written once the Mac confirms, so a failed attempt has nothing to clean up — and must not touch

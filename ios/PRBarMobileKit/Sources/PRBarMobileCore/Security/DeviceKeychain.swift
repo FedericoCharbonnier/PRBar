@@ -148,12 +148,21 @@ public struct SystemKeychain: KeychainBackend {
         }
     }
 
+    /// Replaces in place (`SecItemUpdate`) and adds only when there is nothing yet: a failed write (e.g. while the
+    /// device is locked) leaves the old pairing as it was instead of deleting it first (review L6).
     public func set(_ data: Data, account: String, attributes: [String: KeychainValue]) throws {
-        try delete(account: account)
-        var query = base(account).merging(plain(attributes)) { $1 }
-        query[kSecValueData as String] = data
-        let status = SecItemAdd(query as CFDictionary, nil)
+        var changes = plain(attributes)
+        changes[kSecValueData as String] = data
+        let status = Self.write(
+            update: { SecItemUpdate(base(account) as CFDictionary, changes as CFDictionary) },
+            add: { SecItemAdd(base(account).merging(changes) { $1 } as CFDictionary, nil) })
         guard status == errSecSuccess else { throw KeychainError.status(status) }
+    }
+
+    /// Update first; add only if the item doesn't exist. Never deletes.
+    static func write(update: () -> OSStatus, add: () -> OSStatus) -> OSStatus {
+        let updated = update()
+        return updated == errSecItemNotFound ? add() : updated
     }
 
     public func get(account: String) throws -> Data? {

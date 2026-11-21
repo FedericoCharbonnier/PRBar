@@ -105,6 +105,22 @@ import PRBarWire
 }
 
 @Suite struct KeychainTests {
+    /// Review L6: an existing item is updated in place; a failed update never falls back to delete + add.
+    @Test func systemKeychainUpdatesBeforeAdding() {
+        var calls: [String] = []
+        #expect(SystemKeychain.write(update: { calls.append("update"); return errSecSuccess },
+                                     add: { calls.append("add"); return errSecSuccess }) == errSecSuccess)
+        #expect(calls == ["update"])
+        calls = []
+        #expect(SystemKeychain.write(update: { calls.append("update"); return errSecItemNotFound },
+                                     add: { calls.append("add"); return errSecSuccess }) == errSecSuccess)
+        #expect(calls == ["update", "add"])
+        calls = []
+        #expect(SystemKeychain.write(update: { calls.append("update"); return errSecInteractionNotAllowed },
+                                     add: { calls.append("add"); return errSecSuccess }) == errSecInteractionNotAllowed)
+        #expect(calls == ["update"])
+    }
+
     @Test func storesReadsAndWipes() throws {
         let backend = InMemoryKeychain()
         let keychain = DeviceKeychain(backend: backend, accessGroup: "TEAMID.com.federico.prbar.ios.shared")

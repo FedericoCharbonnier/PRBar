@@ -65,6 +65,37 @@ import PRBarRemoteKit
         #expect(h.service.presenceKey?.count == 65)
     }
 
+    /// Review L5: the Mac's confirmation before the user compared the codes is held in memory; nothing is stored (and
+    /// no existing pairing is replaced) until "Codes Match" here.
+    @Test func aMacConfirmationBeforeCodesMatchIsStoredOnlyOnTheTap() async throws {
+        let h = harness([.success(.joining), .success(.code("123 456")), .success(.paired(Self.mac))])
+        h.model.startScanning()
+        h.model.scanned(Self.qr.url)
+        h.model.confirmPairing()
+        await h.model.settle()
+        #expect(h.model.step == .confirmCode(code: "123 456", macName: Sample.macName))
+        #expect(try h.keychain.loadMac() == nil)
+        #expect(h.paired() == nil)
+        h.model.codesMatch()
+        for _ in 0..<500 where h.paired() == nil { await Task.yield() }
+        #expect(h.model.step == .paired(macName: Sample.macName))
+        #expect(try h.keychain.loadMac() == Self.mac)
+        #expect(h.paired() == Self.mac)
+    }
+
+    @Test func codesDontMatchAfterTheMacConfirmedStoresNothing() async throws {
+        let h = harness([.success(.joining), .success(.code("123 456")), .success(.paired(Self.mac))])
+        h.model.startScanning()
+        h.model.scanned(Self.qr.url)
+        h.model.confirmPairing()
+        await h.model.settle()
+        await h.model.codesDontMatch()
+        #expect(h.model.message == PairingModel.mismatchMessage)
+        #expect(try h.keychain.loadMac() == nil)
+        #expect(try h.keychain.loadKeys() == nil)
+        #expect(h.paired() == nil)
+    }
+
     @Test func anInvalidQRStaysOnTheScanner() {
         let h = harness([])
         h.model.startScanning()
