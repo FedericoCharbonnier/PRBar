@@ -287,9 +287,12 @@ enum RespondQueueTests {
             try await h.events.wait(for: reached(1, "readyToPush"))
             try expectEqual(h.queue.phases[prID(1)], .readyToPush(draft, fixResult))
             try expectEqual(try h.saved(1).result, fixResult)
+            // "Ready to push": salir o actualizar avisa (H1).
+            try expectEqual(h.queue.unpushedWork, [prID(1)])
 
             h.queue.publish(prID: prID(1))
             try await h.events.wait(for: reached(1, "done"))
+            try expectEqual(h.queue.unpushedWork, [])
             guard case .done(let record)? = h.queue.phases[prID(1)] else { throw TestFailure(description: "esperaba .done") }
             try expect(record.pushed)
             try expectEqual(Set(record.posted.keys), ["thread:A", "thread:B"])
@@ -368,6 +371,7 @@ enum RespondQueueTests {
             try expect(!saved.pushed)
             try expectEqual(saved.posted, [:])
             try expectEqual(saved.errorMessage, RespondPublisher.rejectedMessage)
+            try expectEqual(h.queue.unpushedWork, [prID(1)])
 
             h.pipeline.pushError = nil
             h.queue.publish(prID: prID(1))
@@ -440,6 +444,10 @@ enum RespondQueueTests {
             try expectEqual(try h.saved(1).errorMessage, message)
             try expectEqual(h.pipeline.pushes, [])
             try expectEqual(h.pipeline.api.posts, [])
+            // Los commits que quedaron cuentan como trabajo sin pushear hasta descartarlo.
+            try expectEqual(h.queue.unpushedWork, [prID(1)])
+            h.queue.dismiss(prID: prID(1))
+            try expectEqual(h.queue.unpushedWork, [])
         },
         TestCase("respond queue: cancelar implementing sin commits vuelve a ready") { @MainActor in
             let h = try Harness()

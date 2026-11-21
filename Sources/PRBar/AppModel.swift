@@ -160,7 +160,8 @@ final class AppModel: ObservableObject {
         configStore: configStore, transport: updateTransport, runner: runner, notifications: notifications,
         gitPath: { [weak self] in self?.tools.git },
         activeJobs: { [weak self] in self?.activeJobCount ?? 0 },
-        cancelJobs: { [weak self] in self?.cancelJobsForUpdate() }
+        cancelJobs: { [weak self] in self?.cancelJobsForUpdate() },
+        unpushedFixes: { [weak self] in self?.respond.unpushedWork.count ?? 0 }
     )
     /// Publicaciones en GitHub (review) y Slack en curso: una actualización las espera (spec D.3). Las de Responder
     /// ya cuentan por su fase (`pushing`).

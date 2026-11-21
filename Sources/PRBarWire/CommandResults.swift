@@ -888,15 +888,18 @@ public struct UpdateInfo: Codable, Equatable, Sendable {
     public var notes: String?
     public var url: URL?
     public var skipped: Bool
+    /// PRs with Respond fixes that aren't pushed (the update restarts PRBar and forgets them); nil = none.
+    public var unpushedFixes: Int?
 
     public init(installed: String, latest: String? = nil, title: String? = nil, notes: String? = nil, url: URL? = nil,
-                skipped: Bool = false) {
+                skipped: Bool = false, unpushedFixes: Int? = nil) {
         self.installed = installed
         self.latest = latest
         self.title = title
         self.notes = notes
         self.url = url
         self.skipped = skipped
+        self.unpushedFixes = unpushedFixes
     }
 
     public var isAvailable: Bool { latest != nil }

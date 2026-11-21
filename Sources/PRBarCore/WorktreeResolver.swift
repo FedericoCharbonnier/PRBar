@@ -135,23 +135,62 @@ public struct WorktreeResolver: Sendable {
     }
 
     /// Al arrancar: saca los worktrees de Responder que quedaron en `worktreeDir` (separados y con nombre de
-    /// Responder; nunca los del usuario) y borra las refs `refs/prbar/respond-*`. Nunca corre `worktree prune`.
+    /// Responder; nunca los del usuario) y borra las refs `refs/prbar/respond-*` que ya no usa ningún worktree.
+    /// Nunca corre `worktree prune`.
+    /// Igual que Clean Up (`DiskCleanupExecutor.unpushedWork`): un worktree con cambios sin commitear o con commits
+    /// que no están en ninguna rama, remoto ni tag (p. ej. "Ready to push" o una implementación cancelada) **no se
+    /// borra**, ni su ref; queda en el log. Si git no puede comprobarlo, tampoco se borra.
     public func cleanupOrphans(localPath: String, worktreeDir: String?) async {
         let base = worktreeDir ?? Self.defaultWorktreeDir(localPath: localPath)
         if let realBase = Self.realPath(base), let list = await gitLogged(localPath, ["worktree", "list", "--porcelain"]) {
-            for block in list.components(separatedBy: "\n\n") {
-                let lines = block.split(separator: "\n").map(String.init)
-                guard lines.contains("detached"), let line = lines.first(where: { $0.hasPrefix("worktree ") }) else { continue }
-                let path = String(line.dropFirst("worktree ".count))
+            for path in Self.detachedWorktreePaths(fromPorcelain: list) {
                 let parent = Self.realPath((path as NSString).deletingLastPathComponent) ?? (path as NSString).deletingLastPathComponent
                 guard parent == realBase, Self.isRespondWorktreeName((path as NSString).lastPathComponent) else { continue }
+                if let reason = await unpushedWork(path) {
+                    AppLog.write("Respond: kept \(path) at launch: it \(reason)")
+                    continue
+                }
                 await gitLogged(localPath, ["worktree", "remove", "--force", path])
             }
         }
+        // Las refs de los worktrees de Responder que siguen en pie (los que se guardaron, o los de otra carpeta) quedan.
+        guard let list = await gitLogged(localPath, ["worktree", "list", "--porcelain"]) else { return }
+        let kept = Set(WorktreeManager.worktreePaths(fromPorcelain: list).compactMap { Self.respondRef(forWorktreePath: $0) })
         guard let refs = await gitLogged(localPath, ["for-each-ref", "--format=%(refname)", "refs/prbar/"]) else { return }
-        for ref in refs.split(whereSeparator: \.isNewline).map(String.init) where Self.isOwnRef(ref) {
+        for ref in refs.split(whereSeparator: \.isNewline).map(String.init) where Self.isOwnRef(ref) && !kept.contains(ref) {
             await gitLogged(localPath, ["update-ref", "-d", ref])
         }
+    }
+
+    /// Las rutas de los worktrees separados (`detached`) de `git worktree list --porcelain`.
+    static func detachedWorktreePaths(fromPorcelain output: String) -> [String] {
+        output.components(separatedBy: "\n\n").compactMap { block in
+            let lines = block.split(separator: "\n").map(String.init)
+            guard lines.contains("detached"), let line = lines.first(where: { $0.hasPrefix("worktree ") }) else { return nil }
+            return String(line.dropFirst("worktree ".count))
+        }
+    }
+
+    /// La ref de la corrida a la que pertenece un worktree de Responder (`<repo>-<N>-respond-<runID>` →
+    /// `refs/prbar/respond-<N>-<runID>`); nil si el nombre no es de Responder.
+    public static func respondRef(forWorktreePath path: String) -> String? {
+        let name = (path as NSString).lastPathComponent
+        guard isRespondWorktreeName(name) else { return nil }
+        let parts = name.split(separator: "-")
+        return respondRef(number: Int(parts[parts.count - 3]) ?? 0, runID: String(parts[parts.count - 1]))
+    }
+
+    /// `nil` si el worktree se puede borrar; si no, el motivo. Lo mismo que mira Clean Up: cambios sin commitear o
+    /// commits que no están en ninguna rama, remoto, tag ni `refs/prbar/*` (la ref del propio worktree es la base
+    /// del review; lo que Claude commiteó encima sigue contando).
+    func unpushedWork(_ path: String) async -> String? {
+        guard let status = await gitLogged(path, ["status", GitHardening.ignoreSubmodules, "--porcelain", "--untracked-files=all"]) else {
+            return "couldn't be checked with git"
+        }
+        if !status.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "has uncommitted changes" }
+        guard let count = await gitLogged(path, ["rev-list", "--count", "HEAD", "--not", "--branches", "--remotes", "--tags", "--glob=refs/prbar/*"]),
+              let commits = Int(count.trimmingCharacters(in: .whitespacesAndNewlines)) else { return "couldn't be checked with git" }
+        return commits == 0 ? nil : "has \(commits) unpushed commit\(commits == 1 ? "" : "s")"
     }
 
     static func isOwnRef(_ ref: String) -> Bool {

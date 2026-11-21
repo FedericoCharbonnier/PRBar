@@ -30,7 +30,9 @@ struct UpdateCommand: RemoteCommand {
             output.line(output.paint(info.title ?? "PRBar \(latest)", .bold))
             output.line(notes)
         }
-        return "Update PRBar from \(info.installed) to \(latest)? It restarts PRBar."
+        var question = "Update PRBar from \(info.installed) to \(latest)? It restarts PRBar."
+        if let unpushed = info.unpushedFixes, unpushed > 0 { question += " " + QuitConfirmation.unpushedMessage(unpushed) }
+        return question
     }
 
     func appCommand(confirmed: Bool) -> AppCommand {

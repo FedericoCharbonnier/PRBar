@@ -177,19 +177,27 @@ public struct WorktreeManager: Sendable {
     }
 
     /// Al arrancar: en cada `localPath`, saca los worktrees que `git worktree list --porcelain` muestra dentro
-    /// de `root` (y solo esos) y borra cada ref en `refs/prbar/`; después borra lo que haya quedado en `root`.
+    /// de `root` (y solo esos) y borra cada ref en `refs/prbar/` salvo las de los worktrees de Responder que siguen
+    /// en pie; después borra lo que haya quedado en `root`.
     public func cleanupOrphans(localPaths: [String]) async {
         for path in localPaths {
+            // Las refs de Responder de los worktrees que siguen en pie no se tocan: `WorktreeResolver.cleanupOrphans`
+            // guarda los que tienen trabajo sin pushear.
+            var keptRespondRefs: Set<String>?
             if let list = await gitLogged(path, ["worktree", "list", "--porcelain"]) {
-                let own = Self.worktreePaths(fromPorcelain: list)
+                let paths = Self.worktreePaths(fromPorcelain: list)
+                let own = paths
                     .map { URL(fileURLWithPath: $0) }
                     .filter { isDirectChildOfRoot($0) && Self.isWorkspaceName($0.lastPathComponent) }
                 await removeWorktrees(own, of: path)
+                keptRespondRefs = Set(paths.compactMap { WorktreeResolver.respondRef(forWorktreePath: $0) })
             }
             guard let output = await gitLogged(path, ["for-each-ref", "--format=%(refname)", Self.refPrefix]) else { continue }
             let refs = output.split(whereSeparator: \.isNewline)
                 .map { $0.trimmingCharacters(in: .whitespaces) }
                 .filter { Self.isOwnRef($0) }
+                // Sin la lista no se sabe qué worktree de Responder sigue en pie: ninguna de sus refs se borra.
+                .filter { ref in keptRespondRefs.map { !$0.contains(ref) } ?? !ref.hasPrefix(WorktreeResolver.refPrefix) }
             for ref in refs {
                 await gitLogged(path, ["update-ref", "-d", ref])
             }

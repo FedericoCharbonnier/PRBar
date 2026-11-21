@@ -14,7 +14,7 @@ import Foundation
 /// - Un push o una publicación en curso no se cancelan con `cancel` (no se pueden deshacer a medias): solo
 ///   `cancelAll`, al salir de la app.
 /// - El worktree de PRBar (y su ref) se borra al llegar a `done` y con `dismiss`; después de un fallo queda para
-///   que el usuario lo revise (lo borra `dismiss` o la limpieza del próximo arranque).
+///   que el usuario lo revise (lo borra `dismiss`, o la limpieza del próximo arranque si no tiene trabajo sin pushear).
 @MainActor
 public final class RespondQueue: ObservableObject {
     @Published public private(set) var phases: [String: RespondPhase] = [:]   // por prID
@@ -31,6 +31,9 @@ public final class RespondQueue: ObservableObject {
     /// Fix CI: PRs whose push PRBar stopped because the failing checks pass now (spec K.6.6), with the reason. The
     /// window offers "Push Anyway".
     @Published public private(set) var pushBlockedByCI: [String: String] = [:]
+    /// PRs whose implementation was canceled or failed leaving commits or changes in the worktree
+    /// (`RespondCancellation`), until `dismiss` or a new run.
+    @Published public private(set) var leftWork: Set<String> = []
     /// Set only while `onEvent` hears the `readyToPush` of a push the CI stopped (the checks pass now).
     private var reportingCIBlock: String?
     public func isReportingCIBlock(_ prID: String) -> Bool { reportingCIBlock == prID }
@@ -59,6 +62,18 @@ public final class RespondQueue: ObservableObject {
         self.history = history
         self.scheduler = JobScheduler(maxConcurrent: maxConcurrent)
         self.onEvent = onEvent
+    }
+
+    /// PRs with work that isn't pushed: fixes ready to push (or whose push failed) and implementations canceled or
+    /// failed with commits or changes left. Quitting or updating warns about them: the records live in memory only
+    /// (the worktree stays on disk, `WorktreeResolver.cleanupOrphans` keeps it).
+    public var unpushedWork: Set<String> {
+        var prIDs = leftWork
+        for (prID, record) in records where record.result != nil && !record.pushed {
+            if case .done? = phases[prID] { continue }
+            prIDs.insert(prID)
+        }
+        return prIDs
     }
 
     // MARK: - Acciones
@@ -110,6 +125,7 @@ public final class RespondQueue: ObservableObject {
         guard canStart(prID), openRunConflict(prID: prID, starting: mode) == nil else { return }
         modes[prID] = mode
         pushBlockedByCI[prID] = nil
+        leftWork.remove(prID)
         let request = RespondRequest(item: item, localPath: localPath, worktreeDir: worktreeDir, mode: mode)
         let draftID = UUID()
         let startedAt = Date()
@@ -348,6 +364,7 @@ public final class RespondQueue: ObservableObject {
         pushBlockedByCI[prID] = nil
         modes[prID] = nil
         phases[prID] = nil
+        leftWork.remove(prID)
         if let record = records[prID] { cleanupWorktree(record.draft) }
         records[prID] = nil
     }
@@ -434,6 +451,9 @@ public final class RespondQueue: ObservableObject {
     }
 
     private func fail(_ prID: String, _ error: Error) {
+        if let cancellation = error as? RespondCancellation, cancellation.dirty || (cancellation.unpushedCommits ?? 1) > 0 {
+            leftWork.insert(prID)
+        }
         let message = error.localizedDescription
         var logURL: URL?
         if var record = records[prID] {
@@ -446,6 +466,7 @@ public final class RespondQueue: ObservableObject {
     }
 
     private func reachReadyToPush(_ prID: String, draft: RespondDraft, result: RespondResult) {
+        leftWork.remove(prID)
         records[prID]?.result = result
         records[prID]?.errorMessage = nil
         if let record = records[prID] { save(record) }

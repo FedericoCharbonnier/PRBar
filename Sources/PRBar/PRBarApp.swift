@@ -39,15 +39,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let model else { return .terminateNow }
         let systemQuit = NSAppleEventManager.shared().currentAppleEvent?
             .attributeDescriptor(forKeyword: AEKeyword(kAEQuitReason)) != nil
-        let activeJobs = model.activeJobCount
-        guard QuitConfirmation.shouldAsk(activeJobs: activeJobs, programmatic: QuitRequest.skipsConfirmation || systemQuit)
+        let activeJobs = model.activeJobCount + (model.updates.isInstalling ? 1 : 0)
+        let unpushed = model.respond.unpushedWork.count
+        guard QuitConfirmation.shouldAsk(activeJobs: activeJobs, unpushed: unpushed,
+                                         programmatic: QuitRequest.skipsConfirmation || systemQuit)
         else { return .terminateNow }
         // The panel is at menu level and would cover the alert. From it the app isn't active: the alert needs it, on
         // the Space the user is on.
         statusItem?.close()
         NSApp.activate()
-        let alert = ConfirmAlert.make(title: QuitConfirmation.title(activeJobs: activeJobs),
-                                      message: QuitConfirmation.message, action: "Quit")
+        let alert = ConfirmAlert.make(title: QuitConfirmation.title(activeJobs: activeJobs, unpushed: unpushed),
+                                      message: QuitConfirmation.message(activeJobs: activeJobs, unpushed: unpushed),
+                                      action: "Quit")
         alert.window.collectionBehavior.insert([.moveToActiveSpace, .fullScreenAuxiliary])
         return ConfirmAlert.confirmed(alert.runModal()) ? .terminateNow : .terminateCancel
     }

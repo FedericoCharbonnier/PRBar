@@ -28,6 +28,8 @@ final class UpdateController: ObservableObject {
     private let notifications: NotificationDelivery?
     private let gitPath: () -> String?
     private let activeJobs: () -> Int
+    /// PRs with Respond fixes that aren't pushed: "Update" asks first (the restart forgets them).
+    let unpushedFixes: () -> Int
     private var scheduler: Task<Void, Never>?
     private var installTask: Task<Void, Never>?
     /// La instalación que pidió la CLI (`install`): "Cancel" (ventana o `prbar update --cancel`) también la cancela.
@@ -39,8 +41,10 @@ final class UpdateController: ObservableObject {
 
     init(
         configStore: ConfigStore, transport: any HTTPTransport, runner: SystemProcessRunner, notifications: NotificationDelivery?,
-        gitPath: @escaping () -> String?, activeJobs: @escaping () -> Int, cancelJobs: @escaping () -> Void
+        gitPath: @escaping () -> String?, activeJobs: @escaping () -> Int, cancelJobs: @escaping () -> Void,
+        unpushedFixes: @escaping () -> Int = { 0 }
     ) {
+        self.unpushedFixes = unpushedFixes
         self.configStore = configStore
         self.transport = transport
         self.runner = runner

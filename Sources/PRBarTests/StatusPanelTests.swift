@@ -106,5 +106,13 @@ enum StatusPanelTests {
             try expectEqual(QuitConfirmation.title(activeJobs: 1), "Quit PRBar while a job is running?")
             try expectEqual(QuitConfirmation.title(activeJobs: 3), "Quit PRBar while 3 jobs are running?")
         },
+        TestCase("quit: también pregunta con fixes de Responder sin pushear") {
+            try expect(QuitConfirmation.shouldAsk(activeJobs: 0, unpushed: 1, programmatic: false))
+            try expect(!QuitConfirmation.shouldAsk(activeJobs: 0, unpushed: 2, programmatic: true))
+            try expectEqual(QuitConfirmation.title(activeJobs: 0, unpushed: 2), "Quit PRBar while 2 PRs have fixes that aren’t pushed?")
+            try expectEqual(QuitConfirmation.title(activeJobs: 1, unpushed: 2), "Quit PRBar while a job is running?")
+            try expect(QuitConfirmation.message(activeJobs: 1, unpushed: 2).contains("2 PRs have fixes that aren’t pushed"))
+            try expect(!QuitConfirmation.message(activeJobs: 0, unpushed: 1).contains("cancels"))
+        },
     ]
 }

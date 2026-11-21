@@ -18,7 +18,10 @@ extension AppModel: UpdateCommandActions {
 
     /// "Check for Updates".
     func updateCheck() async throws -> UpdateInfo {
-        try updateInfo(await checkForUpdates())
+        var info = try updateInfo(await checkForUpdates())
+        let unpushed = respond.unpushedWork.count
+        info.unpushedFixes = unpushed > 0 ? unpushed : nil
+        return info
     }
 
     /// "Update" / "Update When Done" / "Cancel Jobs and Update". Si sale bien la app se reinicia (la CLI pierde la
