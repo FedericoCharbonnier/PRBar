@@ -40,8 +40,9 @@ type Frame struct {
 	Slot  string          `json:"slot,omitempty"`
 	Items json.RawMessage `json:"items,omitempty"`
 
-	Token string `json:"token,omitempty"`
-	Env   string `json:"env,omitempty"`
+	Endpoint string `json:"endpoint,omitempty"`
+	P256dh   string `json:"p256dh,omitempty"`
+	Auth     string `json:"auth,omitempty"`
 
 	AuthKey  string `json:"authKey,omitempty"`
 	Expires  int64  `json:"expires,omitempty"`

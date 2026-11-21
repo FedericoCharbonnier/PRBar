@@ -12,11 +12,11 @@ import (
 	"syscall"
 	"time"
 
-	"prbar-relay/internal/apns"
 	"prbar-relay/internal/config"
 	"prbar-relay/internal/hub"
 	"prbar-relay/internal/logx"
 	"prbar-relay/internal/store"
+	"prbar-relay/internal/webpush"
 )
 
 func main() {
@@ -38,26 +38,22 @@ func run(log *slog.Logger) error {
 	}
 	defer db.Close()
 
+	// Sin VAPID el relay arranca igual, con los pushes apagados (GET /v1/vapid da 404).
 	var pusher hub.Pusher
-	if cfg.APNsConfigured() {
-		keyPEM, err := os.ReadFile(cfg.APNsKeyFile)
+	if cfg.PushConfigured() {
+		sender, err := webpush.New(webpush.Options{PrivateKey: cfg.VAPIDPrivateKey, Subject: cfg.VAPIDSubject,
+			TestEndpointPrefix: cfg.WebPushTestEndpoint})
 		if err != nil {
-			log.Warn("push disabled", "reason", "can't read the APNs key")
+			log.Warn("push disabled", "reason", err.Error())
 		} else {
-			client, err := apns.New(apns.Options{KeyID: cfg.APNsKeyID, TeamID: cfg.APNsTeamID, Topic: cfg.APNsTopic,
-				KeyPEM: keyPEM, Endpoint: cfg.APNsEndpointOverride})
-			if err != nil {
-				log.Warn("push disabled", "reason", err.Error())
-			} else {
-				pusher = client
-			}
+			pusher = sender
 		}
 	} else {
-		log.Warn("push disabled", "reason", "APNS_KEY_ID, APNS_TEAM_ID or APNS_TOPIC missing")
+		log.Warn("push disabled", "reason", "VAPID_PRIVATE_KEY missing")
 	}
 
 	h := hub.New(hub.Options{PublicHost: cfg.PublicHost, EnrollToken: cfg.EnrollToken, Store: db, Log: log,
-		Pusher: pusher, TrustedProxies: cfg.TrustedProxies})
+		Pusher: pusher, TrustedProxies: cfg.TrustedProxies, WebPushTestEndpoint: cfg.WebPushTestEndpoint})
 	server := &http.Server{
 		Addr:              cfg.Listen,
 		Handler:           h.Handler(),
