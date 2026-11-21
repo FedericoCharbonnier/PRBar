@@ -105,12 +105,12 @@ public enum CommandDispatcher {
             return try encode(await actions.respondTest(pr: pr, wait: wait, events: events))
         case .respondDiff(let pr):
             return try encode(actions.respondDiff(pr: pr))
-        case .respondPush(let pr, let confirmed, let wait):
+        case .respondPush(let pr, let confirmed, let wait, let mode):
             try requireConfirmation(confirmed, "Pushing and posting replies")
-            return try encode(await actions.respondPush(pr: pr, wait: wait, events: events))
-        case .respondPushAnyway(let pr, let confirmed, let wait):
+            return try encode(await actions.respondPush(pr: pr, wait: wait, mode: mode, events: events))
+        case .respondPushAnyway(let pr, let confirmed, let wait, let mode):
             try requireConfirmation(confirmed, "Pushing despite failed tests")
-            return try encode(await actions.respondPushAnyway(pr: pr, wait: wait, events: events))
+            return try encode(await actions.respondPushAnyway(pr: pr, wait: wait, mode: mode, events: events))
         case .respondReplyOnly(let pr, let confirmed, let wait):
             try requireConfirmation(confirmed, "Posting replies")
             return try encode(await actions.respondReplyOnly(pr: pr, wait: wait, events: events))

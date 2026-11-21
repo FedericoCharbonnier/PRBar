@@ -27,6 +27,18 @@ extension RespondPushGate {
         return false
     }
 
+    /// `prbar ci push` sobre una corrida de Responder (o `prbar respond push` sobre un Fix CI): no se pushea, tampoco
+    /// con `--yes` (spec K.6.14). `expected == nil` (la web, una CLI vieja) no se chequea.
+    public static func modeCheck(expected: RespondMode?, actual: RespondMode, prID: String) -> CommandFailure? {
+        guard let expected, expected != actual else { return nil }
+        switch actual {
+        case .feedback:
+            return CommandFailure(.invalidState, "\(prID) isn’t a Fix CI: use `prbar respond push \(prID)`.")
+        case .ciFix:
+            return CommandFailure(.invalidState, "\(prID) is a Fix CI: use `prbar ci push \(prID)`.")
+        }
+    }
+
     /// Lo que impide "Push and Reply" / "Push Anyway" (`anyway`) desde `prbar respond push`: sin fixes, en una fase
     /// que no lo permite, con tests corriendo, ya todo publicado, tests que fallaron (sin `--anyway`), nada bloqueado
     /// por tests (con `--anyway`) o el chat contestando. `nil` = se puede.

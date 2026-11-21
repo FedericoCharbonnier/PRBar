@@ -236,7 +236,8 @@ struct RespondPush: RemoteCommand {
     }
 
     func appCommand(confirmed: Bool) -> AppCommand {
-        anyway ? .respondPushAnyway(pr: pr, confirmed: confirmed, wait: wait) : .respondPush(pr: pr, confirmed: confirmed, wait: wait)
+        anyway ? .respondPushAnyway(pr: pr, confirmed: confirmed, wait: wait, mode: .feedback)
+            : .respondPush(pr: pr, confirmed: confirmed, wait: wait, mode: .feedback)
     }
     func render(_ result: JSONValue, _ output: Output) throws { RespondRender.info(try result.decode(), output) }
 }

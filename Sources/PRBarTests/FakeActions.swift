@@ -125,11 +125,11 @@ final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActi
     func respondDiff(pr: String) throws -> RespondDiff {
         try record("respondDiff \(pr)"); return RespondDiff(pr: pr, diffStat: "", diff: nil, truncated: false, sensitiveChanges: [])
     }
-    func respondPush(pr: String, wait: Bool, events: CommandEventSink) async throws -> RespondInfo {
-        try record("respondPush \(pr) wait=\(wait)"); return respondInfo(pr)
+    func respondPush(pr: String, wait: Bool, mode: RespondMode?, events: CommandEventSink) async throws -> RespondInfo {
+        try record("respondPush \(pr) wait=\(wait)\(mode.map { " mode=\($0.rawValue)" } ?? "")"); return respondInfo(pr)
     }
-    func respondPushAnyway(pr: String, wait: Bool, events: CommandEventSink) async throws -> RespondInfo {
-        try record("respondPushAnyway \(pr) wait=\(wait)"); return respondInfo(pr)
+    func respondPushAnyway(pr: String, wait: Bool, mode: RespondMode?, events: CommandEventSink) async throws -> RespondInfo {
+        try record("respondPushAnyway \(pr) wait=\(wait)\(mode.map { " mode=\($0.rawValue)" } ?? "")"); return respondInfo(pr)
     }
     func respondReplyOnly(pr: String, wait: Bool, events: CommandEventSink) async throws -> RespondInfo {
         try record("respondReplyOnly \(pr) wait=\(wait)"); return respondInfo(pr)

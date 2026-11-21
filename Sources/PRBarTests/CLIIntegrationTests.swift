@@ -229,6 +229,14 @@ enum CLIIntegrationTests {
         try expectEqual(push.code, CLIExit.invalidState)
         try expect(push.err.contains("isn’t a Fix CI"), push.err)
         try expectEqual(harness.fake.calls, ["ciList", "ciFix api#12 wait=false", "usage 2026-10", "usage -", "respondShow api#12"])
+        // Con --yes no hay pregunta: el pedido lleva el modo y la app no pushea una corrida que no sea Fix CI.
+        _ = try await runCLI(["ci", "push", "api#12", "--yes"], socket: harness.url)
+        try expectEqual(harness.fake.calls.last, "respondPush api#12 wait=false mode=ciFix")
+        try expectEqual(RespondPushGate.modeCheck(expected: .ciFix, actual: .feedback, prID: "acme/api#12")?.message,
+                        "acme/api#12 isn’t a Fix CI: use `prbar respond push acme/api#12`.")
+        try expectEqual(RespondPushGate.modeCheck(expected: .feedback, actual: .ciFix, prID: "acme/api#12")?.code, .invalidState)
+        try expect(RespondPushGate.modeCheck(expected: .ciFix, actual: .ciFix, prID: "acme/api#12") == nil)
+        try expect(RespondPushGate.modeCheck(expected: nil, actual: .feedback, prID: "acme/api#12") == nil)
     }
 
     @MainActor

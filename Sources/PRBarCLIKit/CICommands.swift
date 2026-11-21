@@ -157,7 +157,9 @@ struct CIPush: RemoteCommand {
     }
 
     func appCommand(confirmed: Bool) -> AppCommand {
-        anyway ? .respondPushAnyway(pr: pr, confirmed: confirmed, wait: wait) : .respondPush(pr: pr, confirmed: confirmed, wait: wait)
+        // Con el modo: con --yes no hay `confirmation()`, y la app no pushea una corrida que no sea Fix CI (K.6.14).
+        anyway ? .respondPushAnyway(pr: pr, confirmed: confirmed, wait: wait, mode: .ciFix)
+            : .respondPush(pr: pr, confirmed: confirmed, wait: wait, mode: .ciFix)
     }
     func render(_ result: JSONValue, _ output: Output) throws { CIRender.info(try result.decode(), output) }
 }

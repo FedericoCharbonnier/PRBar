@@ -39,9 +39,11 @@ public enum AppCommand: Codable, Equatable, Sendable {
     case respondImplement(pr: String, wait: Bool)
     case respondTest(pr: String, wait: Bool)
     case respondDiff(pr: String)
-    case respondPush(pr: String, confirmed: Bool, wait: Bool)
+    /// `mode`: lo que el que pide cree que va a pushear (`prbar respond push` = feedback, `prbar ci push` = Fix CI); si
+    /// la corrida del PR es de la otra clase, la app no pushea. nil = cualquiera (la web, una CLI vieja).
+    case respondPush(pr: String, confirmed: Bool, wait: Bool, mode: RespondMode? = nil)
     /// "Push Anyway": los tests de antes del push fallaron y el usuario pushea igual (spec E.5).
-    case respondPushAnyway(pr: String, confirmed: Bool, wait: Bool)
+    case respondPushAnyway(pr: String, confirmed: Bool, wait: Bool, mode: RespondMode? = nil)
     case respondReplyOnly(pr: String, confirmed: Bool, wait: Bool)
     case respondCancel(pr: String)
     case respondDismiss(pr: String)

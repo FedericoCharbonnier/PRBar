@@ -593,20 +593,23 @@ extension AppModel: RespondActions {
                            sensitiveChanges: result.sensitiveChanges)
     }
 
-    func respondPush(pr: String, wait: Bool, events: CommandEventSink) async throws -> RespondInfo {
-        try await pushAndReply(pr: pr, anyway: false, wait: wait, events: events)
+    func respondPush(pr: String, wait: Bool, mode: RespondMode?, events: CommandEventSink) async throws -> RespondInfo {
+        try await pushAndReply(pr: pr, anyway: false, wait: wait, mode: mode, events: events)
     }
 
-    func respondPushAnyway(pr: String, wait: Bool, events: CommandEventSink) async throws -> RespondInfo {
-        try await pushAndReply(pr: pr, anyway: true, wait: wait, events: events)
+    func respondPushAnyway(pr: String, wait: Bool, mode: RespondMode?, events: CommandEventSink) async throws -> RespondInfo {
+        try await pushAndReply(pr: pr, anyway: true, wait: wait, mode: mode, events: events)
     }
 
     /// "Push and Reply" (o "Retry Pending Replies") y "Push Anyway". Con "Run tests before pushing" primero corren
     /// los tests (`pushRespond`); si fallan no se pushea y la respuesta lo dice.
-    private func pushAndReply(pr: String, anyway: Bool, wait: Bool, events: CommandEventSink) async throws -> RespondInfo {
+    private func pushAndReply(pr: String, anyway: Bool, wait: Bool, mode: RespondMode?,
+                              events: CommandEventSink) async throws -> RespondInfo {
         let id = try resolvePRID(pr)
         try throwIfMayNotRunRepoCode()
         let record = try respondRecord(id)
+        // `prbar ci push` nunca pushea una corrida de Responder (ni al revés), tampoco con --yes (spec K.6.14).
+        if let problem = RespondPushGate.modeCheck(expected: mode, actual: respond.mode(of: id), prID: id) { throw problem }
         let gate = respondPushGate(prID: id)
         if let problem = RespondPushGate.commandCheck(
             record, phase: respond.phases[id], runningTests: respond.runningTests.contains(id),

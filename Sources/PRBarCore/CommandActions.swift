@@ -45,9 +45,10 @@ public protocol RespondActions: AnyObject {
     func respondImplement(pr: String, wait: Bool, events: CommandEventSink) async throws -> RespondInfo
     func respondTest(pr: String, wait: Bool, events: CommandEventSink) async throws -> RespondInfo
     func respondDiff(pr: String) throws -> RespondDiff
-    func respondPush(pr: String, wait: Bool, events: CommandEventSink) async throws -> RespondInfo
+    /// `mode`: si no es nil y la corrida del PR es de la otra clase (feedback o Fix CI), falla sin pushear.
+    func respondPush(pr: String, wait: Bool, mode: RespondMode?, events: CommandEventSink) async throws -> RespondInfo
     /// "Push Anyway": solo si el último push quedó frenado porque fallaron los tests de antes del push.
-    func respondPushAnyway(pr: String, wait: Bool, events: CommandEventSink) async throws -> RespondInfo
+    func respondPushAnyway(pr: String, wait: Bool, mode: RespondMode?, events: CommandEventSink) async throws -> RespondInfo
     func respondReplyOnly(pr: String, wait: Bool, events: CommandEventSink) async throws -> RespondInfo
     func respondCancel(pr: String) throws
     func respondDismiss(pr: String) throws

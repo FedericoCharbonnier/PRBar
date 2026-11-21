@@ -177,14 +177,16 @@ public final class FixtureActions: PRBarActions {
         return RespondDiff(pr: pr, diffStat: "1 file changed, 2 insertions(+), 2 deletions(-)", diff: diff,
                            truncated: false, sensitiveChanges: [])
     }
-    public func respondPush(pr: String, wait: Bool, events: CommandEventSink) async throws -> RespondInfo {
+    public func respondPush(pr: String, wait: Bool, mode: RespondMode?, events: CommandEventSink) async throws -> RespondInfo {
         _ = try respond(pr)
         record("respondPush \(pr)")
         pushed.append(pr)
         changed()
         return try respond(pr)
     }
-    public func respondPushAnyway(pr: String, wait: Bool, events: CommandEventSink) async throws -> RespondInfo { try respond(pr) }
+    public func respondPushAnyway(pr: String, wait: Bool, mode: RespondMode?, events: CommandEventSink) async throws -> RespondInfo {
+        try respond(pr)
+    }
     public func respondReplyOnly(pr: String, wait: Bool, events: CommandEventSink) async throws -> RespondInfo { try respond(pr) }
     public func respondCancel(pr: String) throws { record("respondCancel \(pr)") }
     public func respondDismiss(pr: String) throws {}
