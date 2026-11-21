@@ -27,7 +27,7 @@ public final class FakeTransport: RemoteTransport, @unchecked Sendable {
     private var _disconnects = 0
     private var _unpaired = false
     private var nextReqId: UInt64 = 1
-    private var _mailbox: RemoteStateUpdate?
+    private var _mailbox: MailboxHome?
     private var linkOnConnect: LinkState?
     private let continuation: AsyncStream<TransportEvent>.Continuation
     public let events: AsyncStream<TransportEvent>
@@ -58,7 +58,7 @@ public final class FakeTransport: RemoteTransport, @unchecked Sendable {
         lock.withLock { scriptedEvents[name] = events }
     }
 
-    public func setMailbox(_ update: RemoteStateUpdate?) {
+    public func setMailbox(_ update: MailboxHome?) {
         lock.withLock { _mailbox = update }
     }
 
@@ -122,7 +122,7 @@ public final class FakeTransport: RemoteTransport, @unchecked Sendable {
         return try responder?(command) ?? .ok
     }
 
-    public func fetchMailbox() async throws -> RemoteStateUpdate? {
+    public func fetchMailbox() async throws -> MailboxHome? {
         lock.withLock { _mailbox }
     }
 

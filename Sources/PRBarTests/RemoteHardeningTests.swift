@@ -136,6 +136,79 @@ enum RemoteHardeningTests {
             try expectEqual(update.data, .int(42))
             try expectEqual(update.rev, 1)
         },
+        TestCase("remote client: la Mac se vuelve a registrar sin offline → el teléfono rehace la sesión (revisión M3)") {
+            let h = try await RemoteHarness.make()
+            let client = try await h.pairedClient()
+            try await client.connect()
+            let first = try await client.run(.status)
+            try expectEqual(first.ok, true)
+            let devices = await h.host.pairedDevices
+            await h.relay.setSilentMacOffline(true)
+            await h.host.disconnect()
+            let restarted = RemoteHost(
+                configuration: .init(accountId: h.account, relayHost: h.relay.host, macName: "Federico’s Mac",
+                                     appVersion: "1.2.0", keys: h.macKeys, backoff: { _ in .milliseconds(50) }),
+                devices: devices, linkFactory: h.factory, clock: h.clock.function, handler: { _, _ in .success(.ok) })
+            try await restarted.connect()
+            try await eventually(3, "sesión descartada") { await client.status == .disconnected }
+            let response = try await within(3) { try await client.run(.status) }
+            try expectEqual(response.ok, true)
+            let status = await client.status
+            try expectEqual(status, .online)
+        },
+        TestCase("remote client: un marco que no autentica deja el estado en disconnected y la próxima operación reconecta (M3)") {
+            let h = try await RemoteHarness.make()
+            let client = try await h.pairedClient()
+            try await client.connect()
+            let paired = await client.paired!
+            guard let sid = await client.sessionId else { throw TestFailure(description: "sin sesión") }
+            await h.relay.injectToDevice(h.account, paired.deviceId, .recv(from: "mac", sid: sid, b: Data(repeating: 1, count: 80)))
+            try await eventually(3, "disconnected") { await client.status == .disconnected }
+            let again = try await within(3) { try await client.run(.status) }
+            try expectEqual(again.ok, true)
+        },
+        TestCase("remote client: un bye de la Mac (desync) deja el estado en disconnected; se rehace (M3)") {
+            let h = try await RemoteHarness.make()
+            let client = try await h.pairedClient()
+            try await client.connect()
+            let first = try await client.run(.status)
+            try expectEqual(first.ok, true)
+            await h.relay.redeliverLastToMac(h.account)
+            try await eventually(3, "disconnected") { await client.status == .disconnected }
+            let again = try await within(3) { try await client.run(.status) }
+            try expectEqual(again.ok, true)
+        },
+        TestCase("remote client: un pedido sin respuesta descarta la sesión (M3)") {
+            let h = try await RemoteHarness.make(handler: { command, _ in
+                if command == .refresh { try? await Task.sleep(for: .seconds(3)) }
+                return .success(.ok)
+            })
+            let client = try await h.pairedClient(requestTimeout: .seconds(1))
+            try await client.connect()
+            do {
+                _ = try await client.run(.refresh)
+                throw TestFailure(description: "esperaba timeout")
+            } catch RemoteError.timeout {}
+            let status = await client.status
+            let sid = await client.sessionId
+            try expectEqual(status, .disconnected)
+            try expectEqual(sid, nil)
+            let again = try await within(3) { try await client.run(.status) }
+            try expectEqual(again.ok, true)
+        },
+        TestCase("remote client: Face ID prendido o apagado en la Mac a mitad de sesión llega al teléfono (revisión L2)") {
+            let h = try await RemoteHarness.make()
+            let client = try await h.pairedClient()
+            try await client.connect()
+            let updates = client.presencePolicyUpdates
+            let id = await client.paired!.deviceId
+            await h.host.setRequirePresence(id, false)
+            let off = try await within(3) { for await value in updates where value == false { return value }; throw TestFailure(description: "fin") }
+            try expectEqual(off, false)
+            await h.host.setRequirePresence(id, true)
+            let on = try await within(3) { for await value in updates where value { return value }; throw TestFailure(description: "fin") }
+            try expectEqual(on, true)
+        },
         TestCase("remote hardening: un primer mensaje de KK repetido no reemplaza la sesión viva (L2)") {
             let h = try await RemoteHarness.make()
             let client = try await h.pairedClient()

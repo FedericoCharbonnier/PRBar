@@ -109,6 +109,25 @@ enum SealedTests {
             try expect((try? MailboxBlob.open(sealed, by: device, from: mac.publicKey, account: "a", device: "d",
                                               slot: "other", minimumRev: 0)) == nil)
         },
+        TestCase("sealed: un blob del buzón de más de 7 días (o del futuro) no abre (revisión M2)") {
+            let mac = Priv(), device = Priv()
+            let created = Date(timeIntervalSince1970: 1_800_000_000)
+            let sealed = try MailboxBlob(slot: "home", rev: 7, createdAt: created, data: Data("{}".utf8))
+                .seal(from: mac, to: device.publicKey, account: "a", device: "d")
+            func open(at now: Date) throws -> MailboxBlob {
+                try MailboxBlob.open(sealed, by: device, from: mac.publicKey, account: "a", device: "d", slot: "home",
+                                     minimumRev: 0, now: now)
+            }
+            try expectEqual(try open(at: created.addingTimeInterval(6 * 24 * 3600)).rev, 7)
+            for now in [created.addingTimeInterval(7 * 24 * 3600 + 1), created.addingTimeInterval(-3600)] {
+                do {
+                    _ = try open(at: now)
+                    throw TestFailure(description: "abrió un blob vencido")
+                } catch let error as SealedError {
+                    try expectEqual(error, .stale)
+                }
+            }
+        },
         TestCase("sealed: identificadores de push opacos y estables") {
             let mac = Priv(), device = Priv(), device2 = Priv()
             let a = try PushIdentifiers(macSeal: mac, devicePush: device.publicKey)

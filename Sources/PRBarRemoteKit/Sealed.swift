@@ -14,6 +14,8 @@ public enum SealedError: Error, Equatable, Sendable {
     case rollback
     /// El blob dice ser de otra ranura que la del `info`.
     case wrongSlot
+    /// Un blob del buzón más viejo que `MailboxBlob.maxAge` (o del futuro): el relay lo guardaba de antes.
+    case stale
 }
 
 public enum SealedInfo {
@@ -174,10 +176,16 @@ public struct MailboxBlob: Codable, Equatable, Sendable {
                                 info: SealedInfo.mailbox(account: account, device: device, slot: slot))
     }
 
-    /// Abre y valida: misma ranura que el `info` y `rev` ≥ `minimumRev` (el último visto).
+    /// Lo que el relay guarda un blob (spec P.9): uno más viejo no puede ser legítimo.
+    public static let maxAge: TimeInterval = 7 * 24 * 3600
+    /// Tolerancia de reloj entre la Mac y el teléfono para un `createdAt` en el futuro.
+    public static let maxClockSkew: TimeInterval = 10 * 60
+
+    /// Abre y valida: misma ranura que el `info`, `rev` ≥ `minimumRev` (el último visto) y, con `now`, que no tenga más
+    /// de `maxAge` (revisión M2).
     public static func open(_ envelope: Data, by recipient: Curve25519.KeyAgreement.PrivateKey,
                             from sender: Curve25519.KeyAgreement.PublicKey, account: String, device: String, slot: String,
-                            minimumRev: Int) throws -> MailboxBlob {
+                            minimumRev: Int, now: Date? = nil) throws -> MailboxBlob {
         let plaintext = try SealedEnvelope.open(envelope, by: recipient, from: sender,
                                                 info: SealedInfo.mailbox(account: account, device: device, slot: slot))
         let blob: MailboxBlob
@@ -188,6 +196,10 @@ public struct MailboxBlob: Codable, Equatable, Sendable {
         }
         guard blob.slot == slot else { throw SealedError.wrongSlot }
         guard blob.rev >= minimumRev else { throw SealedError.rollback }
+        if let now {
+            let age = now.timeIntervalSince(blob.createdAt)
+            guard age <= maxAge, age >= -maxClockSkew else { throw SealedError.stale }
+        }
         return blob
     }
 }

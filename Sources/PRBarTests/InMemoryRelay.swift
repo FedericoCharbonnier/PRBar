@@ -34,6 +34,7 @@ actor InMemoryRelay {
     private var lastToMac: [String: RelayMessage] = [:]
     /// Relay comprometido: no obedece `device.remove`.
     var ignoreDeviceRemoval = false
+    var silentMacOffline = false
     var pushStatus = 200
     /// Relay comprometido: deja pasar solo los primeros N mensajes del teléfono que empareja (p. ej. sin el acuse).
     var pairForwardLimit: Int?
@@ -62,6 +63,15 @@ actor InMemoryRelay {
     func setPairForwardLimit(_ value: Int?) {
         pairForwardLimit = value
         pairForwarded = 0
+    }
+
+    /// Como el hub de Go cuando la Mac se vuelve a registrar con la conexión vieja todavía abierta: los teléfonos no
+    /// reciben `offline`, solo el `online` de la conexión nueva.
+    func setSilentMacOffline(_ value: Bool) { silentMacOffline = value }
+
+    /// Relay malicioso: le entrega a un teléfono un mensaje inventado.
+    func injectToDevice(_ acct: String, _ device: String, _ message: RelayMessage) {
+        accounts[acct]?.deviceLinks[device]?.deliver(message)
     }
 
     /// Relay malicioso: le entrega a la Mac un mensaje inventado.
@@ -171,6 +181,7 @@ actor InMemoryRelay {
             guard accounts[acct]?.mac === link else { return }
             accounts[acct]?.mac = nil
             accounts[acct]?.macSince = now
+            if silentMacOffline { return }
             for device in accounts[acct]?.deviceLinks.values.map({ $0 }) ?? [] {
                 device.deliver(.presence(mac: "offline", since: now, device: nil, state: nil))
             }

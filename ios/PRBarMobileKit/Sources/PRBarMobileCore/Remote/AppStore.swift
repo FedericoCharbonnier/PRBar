@@ -17,11 +17,12 @@ public final class AppStore {
     /// Cached/offline data is shown greyed out and actions are off.
     public var isStale: Bool { link != .online }
 
-    /// Revisions seen in this session, per topic: a lower or equal `rev` is ignored. A new session starts over (the
-    /// Mac may have restarted), except for `home`, whose last revision also gates the mailbox (spec Q.1: the relay
-    /// cannot roll the state back).
+    /// Live `state` revisions seen in this session, per topic: a lower or equal `rev` is ignored. A new session starts
+    /// over (the Mac may have restarted and counts from 1 again).
     @ObservationIgnored private var sessionRevs: [String: Int] = [:]
-    @ObservationIgnored public private(set) var homeRev: Int = -1
+    /// The last mailbox revision accepted (the Mac's clock in ms), kept in the cache across launches. Separate from
+    /// the live revisions (review M2): mixing them let any mailbox blob win after a live session.
+    @ObservationIgnored public private(set) var mailboxRev: Int = 0
     @ObservationIgnored private let cache: Cache?
     @ObservationIgnored private let now: @Sendable () -> Date
 
@@ -30,9 +31,9 @@ public final class AppStore {
         self.now = now
         if let entry = cache?.loadHome() {
             home = entry.value
-            homeRev = entry.rev
             lastUpdated = entry.savedAt
         }
+        mailboxRev = cache?.loadMailboxRevisions()[Topic.home] ?? 0
     }
 
     /// Seeds the store (previews, demo mode).
@@ -59,7 +60,7 @@ public final class AppStore {
             switch update.topic {
             case Topic.home:
                 let value = try update.data.decode(RemoteHome.self)
-                setHome(value, rev: update.rev)
+                setHome(value, rev: update.rev, at: now())
             case Topic.activity:
                 activity = try update.data.decode(RemoteActivity.self)
             case let topic where topic.hasPrefix("pr:"):
@@ -77,12 +78,19 @@ public final class AppStore {
         return true
     }
 
-    /// The mailbox's `home`, used only when it is newer than what the phone already has.
+    /// The mailbox's `home`, used only when it is newer than anything the phone has shown (review M2): a mailbox
+    /// revision above the last one accepted, written after the `home` on screen (live or cached), and at most 7 days
+    /// old. "Last updated" then shows when the Mac wrote it, not when it arrived.
     @discardableResult
-    public func applyMailbox(_ update: RemoteStateUpdate) -> Bool {
-        guard update.topic == Topic.home, update.rev > homeRev,
-              let value = try? update.data.decode(RemoteHome.self) else { return false }
-        setHome(value, rev: update.rev)
+    public func applyMailbox(_ mailbox: MailboxHome) -> Bool {
+        guard mailbox.rev > mailboxRev, now().timeIntervalSince(mailbox.createdAt) <= MailboxBlob.maxAge,
+              lastUpdated.map({ mailbox.createdAt > $0 }) ?? true,
+              let value = try? mailbox.data.decode(RemoteHome.self) else { return false }
+        mailboxRev = mailbox.rev
+        var revisions = cache?.loadMailboxRevisions() ?? [:]
+        revisions[Topic.home] = mailbox.rev
+        cache?.saveMailboxRevisions(revisions)
+        setHome(value, rev: mailbox.rev, at: mailbox.createdAt)
         return true
     }
 
@@ -100,14 +108,13 @@ public final class AppStore {
         activity = nil
         lastUpdated = nil
         sessionRevs = [:]
-        homeRev = -1
+        mailboxRev = 0
         try? cache?.wipe()
     }
 
-    private func setHome(_ value: RemoteHome, rev: Int) {
+    private func setHome(_ value: RemoteHome, rev: Int, at date: Date) {
         home = value
-        homeRev = rev
-        lastUpdated = now()
-        try? cache?.saveHome(value, rev: rev, at: lastUpdated!)
+        lastUpdated = date
+        try? cache?.saveHome(value, rev: rev, at: date)
     }
 }

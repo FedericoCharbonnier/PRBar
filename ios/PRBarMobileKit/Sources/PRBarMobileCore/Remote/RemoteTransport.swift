@@ -28,6 +28,27 @@ public enum TransportEvent: Equatable, Sendable {
     case presencePolicy(requirePresence: Bool)
 }
 
+/// The mailbox's `home` (spec P.9), opened: its mailbox revision (separate from the live `state` revisions, which count
+/// per Mac session) and when the Mac wrote it (what "Last updated" shows; review M2).
+public struct MailboxHome: Equatable, Sendable {
+    public var rev: Int
+    public var createdAt: Date
+    public var data: JSONValue
+
+    public init(rev: Int, createdAt: Date, data: JSONValue) {
+        self.rev = rev
+        self.createdAt = createdAt
+        self.data = data
+    }
+}
+
+/// Where the last mailbox revisions seen are kept across launches (the cache), so a relay can't replay an older blob
+/// after the app restarts (review M2).
+public protocol MailboxRevisionStore: Sendable {
+    func loadMailboxRevisions() -> [String: Int]
+    func saveMailboxRevisions(_ revisions: [String: Int])
+}
+
 /// How the phone talks to its Mac (spec R.3). `LiveTransport` (on `RemoteClient`, plan 17) implements it over the
 /// relay; `FakeTransport` implements it for tests, previews and the demo mode.
 ///
@@ -41,8 +62,8 @@ public protocol RemoteTransport: AnyObject, Sendable {
     func subscribe(_ topics: [String]) async
     func send(_ command: AppCommand, presence: (any PresenceSigner)?,
               events: (@Sendable (CommandEvent) -> Void)?) async throws -> JSONValue
-    /// The latest mailbox `home` blob, already opened (HPKE), when the Mac is offline.
-    func fetchMailbox() async throws -> RemoteStateUpdate?
+    /// The latest mailbox `home` blob, already opened (HPKE) and at most 7 days old, when the Mac is offline.
+    func fetchMailbox() async throws -> MailboxHome?
     /// "Unpair this iPhone" (`unpair` frame).
     func unpair() async
     var events: AsyncStream<TransportEvent> { get }

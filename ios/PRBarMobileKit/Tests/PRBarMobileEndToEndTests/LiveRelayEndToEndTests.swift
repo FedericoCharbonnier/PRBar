@@ -98,6 +98,53 @@ struct LiveRelayEndToEndTests {
         #expect(phone.store.home == nil)
     }
 
+    /// Review M3: the Mac registers again while its old relay connection is still open (a network change). The Go hub
+    /// tells the phones only `presence online` (no `offline`), and the new connection has no sessions: the phone must
+    /// drop its dead session, reconnect and resubscribe instead of staying "online" with requests that time out.
+    @Test func aMacThatReconnectsWithoutGoingOfflineGetsANewSession() async throws {
+        let mac = try await MacSide.start()
+        defer { mac.stop() }
+        let phone = Phone(relayHost: mac.relay.host)
+        try await phone.pair(with: mac)
+        try await eventually("online") { phone.connection.state == .online }
+        let account = try #require(mac.service.settings.accountId)
+        let devices = mac.service.devices.map(\.device)
+        // A second connection as the same Mac replaces the first at the relay; the first stops reconnecting.
+        let replacement = RemoteHost(
+            configuration: .init(accountId: account, relayHost: mac.relay.host, macName: "Integration Mac",
+                                 appVersion: "1.9.0", keys: try RemoteKeyStore(secrets: mac.secrets).loadOrCreate(),
+                                 backoff: { _ in .milliseconds(200) }),
+            devices: devices,
+            linkFactory: WebSocketRelayLink.factory(host: mac.relay.host, allowInsecureTransportForTests: true),
+            handler: { command, _ in
+                command == .refresh ? .success(.ok) : .failure(CommandFailure(.notFound, "replacement"))
+            })
+        try await replacement.connect()
+        await mac.service.stop()
+        defer { Task { await replacement.disconnect() } }
+        // The phone notices (presence online while connected), reconnects and talks to the replacement.
+        try await eventually("reconnected to the replacement") {
+            guard phone.connection.state == .online else { return false }
+            return (try? await phone.transport.send(.refresh)) == .ok
+        }
+    }
+
+    /// Review L2: Face ID turned on or off on the Mac mid-session reaches the phone without reconnecting.
+    @Test func faceIDChangedOnTheMacReachesThePhoneMidSession() async throws {
+        let mac = try await MacSide.start()
+        defer { mac.stop() }
+        let phone = Phone(relayHost: mac.relay.host)
+        try await phone.pair(with: mac)
+        try await eventually("online") { phone.connection.state == .online }
+        #expect(phone.connection.requirePresence)
+        let deviceId = try #require(phone.keychain.loadSession()?.mac.deviceId)
+        _ = try await mac.service.setPresenceRequirement(deviceId, enabled: false)
+        try await eventually("Face ID off") { !phone.connection.requirePresence }
+        _ = try await mac.service.setPresenceRequirement(deviceId, enabled: true)
+        try await eventually("Face ID on") { phone.connection.requirePresence }
+        #expect(phone.connection.state == .online)
+    }
+
     @Test func aRelayCloseCodeIsAConnectionProblemAndKeepsTheKeys() async throws {
         let mac = try await MacSide.start()
         defer { mac.stop() }
@@ -127,20 +174,25 @@ final class MacSide {
     let service: RemoteAccessService
     let actions: FixtureActions
     let links: LinkTap
+    /// The Mac's keychain (to open a second relay connection as this same Mac).
+    let secrets: MemorySecretStore
 
-    init(relay: RelayProcess, service: RemoteAccessService, actions: FixtureActions, links: LinkTap) {
+    init(relay: RelayProcess, service: RemoteAccessService, actions: FixtureActions, links: LinkTap,
+         secrets: MemorySecretStore) {
         self.relay = relay
         self.service = service
         self.actions = actions
         self.links = links
+        self.secrets = secrets
     }
 
     static func start() async throws -> MacSide {
         let relay = try RelayProcess(binary: ProcessInfo.processInfo.environment["PRBAR_RELAY_BIN"]!)
         try await relay.waitUntilHealthy()
         let links = LinkTap()
+        let secrets = MemorySecretStore()
         let env = RemoteServiceEnvironment(
-            keys: RemoteKeyStore(secrets: MemorySecretStore()),
+            keys: RemoteKeyStore(secrets: secrets),
             devices: RemoteDeviceStore(directory: FileManager.default.temporaryDirectory
                 .appendingPathComponent("prbar-e2e-\(UUID().uuidString)")),
             enroller: URLSessionRelayEnroller(allowInsecureForTests: true),
@@ -159,7 +211,7 @@ final class MacSide {
         actions.onChatText = { [weak service] pr, text in service?.chatDelta(pr: pr, text: text) }
         _ = try await service.enable(relay: relay.host, enrollToken: relay.token)
         try await eventually("Mac connected") { service.state == .connected }
-        return MacSide(relay: relay, service: service, actions: actions, links: links)
+        return MacSide(relay: relay, service: service, actions: actions, links: links, secrets: secrets)
     }
 
     func stop() {

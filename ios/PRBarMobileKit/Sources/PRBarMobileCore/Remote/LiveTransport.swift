@@ -19,12 +19,17 @@ public final class LiveTransport: RemoteTransport, Sendable {
 
     /// `session`: what the keychain holds now. `makeClient`: a `RemoteClient` for that pairing (the app uses
     /// `LiveTransport.clientFactory`). `retryDelay`: the wait before reconnect attempt `n` (1-based).
+    /// `mailboxRevisions`: where the last mailbox revisions are kept across launches (the cache).
     public init(session: @escaping Session, makeClient: @escaping ClientFactory,
-                retryDelay: @escaping @Sendable (Int) -> Duration = LiveTransport.standardRetryDelay) {
+                retryDelay: @escaping @Sendable (Int) -> Duration = LiveTransport.standardRetryDelay,
+                mailboxRevisions: (any MailboxRevisionStore)? = nil) {
         let (stream, continuation) = AsyncStream.makeStream(of: TransportEvent.self, bufferingPolicy: .bufferingNewest(256))
         events = stream
+        self.mailboxRevisions = mailboxRevisions
         core = Core(session: session, makeClient: makeClient, retryDelay: retryDelay, emit: { continuation.yield($0) })
     }
+
+    private let mailboxRevisions: (any MailboxRevisionStore)?
 
     /// 1, 2, 4, 8, 16, then every 30 s.
     public static let standardRetryDelay: @Sendable (Int) -> Duration = { attempt in
@@ -59,13 +64,23 @@ public final class LiveTransport: RemoteTransport, Sendable {
         return final.result ?? .ok
     }
 
-    public func fetchMailbox() async throws -> RemoteStateUpdate? {
+    public func fetchMailbox() async throws -> MailboxHome? {
         guard let client = await core.client() else { return nil }
-        guard let blob = try await client.fetchMailbox().filter({ $0.slot == Topic.home }).max(by: { $0.rev < $1.rev }),
-              !blob.data.isEmpty else { return nil }
+        // The client only keeps revisions in memory: start from what was seen before this launch (review M2), so a
+        // relay can't hand back an older blob it kept.
+        if let mailboxRevisions {
+            let saved = mailboxRevisions.loadMailboxRevisions()
+            let current = await client.mailboxRevisions
+            await client.restoreMailboxRevisions(current.merging(saved) { max($0, $1) })
+        }
+        let blobs = try await client.fetchMailbox()
+        mailboxRevisions?.saveMailboxRevisions(await client.mailboxRevisions)
+        guard let blob = blobs.filter({ $0.slot == Topic.home }).max(by: { $0.rev < $1.rev }), !blob.data.isEmpty else {
+            return nil
+        }
         // An empty slot is the Mac saying "nothing" (mailbox turned off, spec Q.4).
         let value = try CommandProtocol.decoder.decode(JSONValue.self, from: blob.data)
-        return RemoteStateUpdate(topic: Topic.home, rev: blob.rev, data: value)
+        return MailboxHome(rev: blob.rev, createdAt: blob.createdAt, data: value)
     }
 
     public func unpair() async { await core.unpair() }
@@ -126,6 +141,8 @@ public final class LiveTransport: RemoteTransport, Sendable {
                 Task { [weak self] in
                     for await status in client.statusUpdates { await self?.statusChanged(status, of: client) }
                 },
+                // The Mac can turn Face ID on or off for this iPhone mid-session (review L2).
+                Task { for await required in client.presencePolicyUpdates { emit(.presencePolicy(requirePresence: required)) } },
             ]
         }
 
@@ -191,8 +208,14 @@ public final class LiveTransport: RemoteTransport, Sendable {
             case .unpaired:
                 break
             case .disconnected:
-                // The Mac came back (`presence` online) while the app wants the link: reconnect now.
-                if wanted, case .macOffline = previous { await attempt() }
+                // The Mac came back (`presence` online), or the session died under a live relay link (a frame that
+                // didn't authenticate, the Mac's `bye`, a rotation, a request that timed out, the Mac reconnecting
+                // to the relay: review M3) while the app wants the link: reconnect (and resubscribe) now.
+                guard wanted else { break }
+                switch previous {
+                case .macOffline?, .online?: await attempt()
+                default: scheduleRetry()
+                }
             case .connecting:
                 emit(.link(.connecting))
             case .online:

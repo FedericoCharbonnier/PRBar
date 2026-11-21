@@ -66,16 +66,53 @@ import PRBarWire
         #expect(store.home?.prs[0].title == "new session")
     }
 
+    func mailbox(_ rev: Int, title: String, written: Date) throws -> MailboxHome {
+        var home = Sample.home
+        home.prs[0].title = title
+        return MailboxHome(rev: rev, createdAt: written, data: try JSONValue(encoding: home))
+    }
+
     @Test func mailboxOnlyWhenNewerThanTheCache() throws {
         let cache = Cache(directory: tempDirectory())
         defer { try? cache.wipe() }
-        try cache.saveHome(Sample.home, rev: 10, at: Sample.now)
+        try cache.saveHome(Sample.home, rev: 10, at: Sample.now.addingTimeInterval(-600))
         let store = AppStore(cache: cache, now: { Sample.now })
         #expect(store.home == Sample.home)
-        #expect(!store.applyMailbox(try update(9, title: "older")))
-        #expect(store.applyMailbox(try update(11, title: "newer")))
+        // Written before the cached home: older, even with a higher revision.
+        #expect(!store.applyMailbox(try mailbox(1_800_000_000_000, title: "older", written: Sample.now.addingTimeInterval(-900))))
+        #expect(store.applyMailbox(try mailbox(1_800_000_000_100, title: "newer", written: Sample.now.addingTimeInterval(-60))))
         #expect(store.home?.prs[0].title == "newer")
-        #expect(cache.loadHome()?.rev == 11)
+        // "Last updated" is when the Mac wrote it, not now.
+        #expect(store.lastUpdated == Sample.now.addingTimeInterval(-60))
+        #expect(cache.loadHome()?.savedAt == Sample.now.addingTimeInterval(-60))
+        #expect(cache.loadMailboxRevisions()[Topic.home] == 1_800_000_000_100)
+    }
+
+    /// Review M2: live revisions (1, 2, 3… per Mac session) and mailbox revisions (the Mac's clock) are separate; a
+    /// live home is never rolled back by an older mailbox blob, and a blob older than 7 days is never shown.
+    @Test func mailboxNeverRollsBackALiveHome() throws {
+        let store = AppStore(cache: nil, now: { Sample.now })
+        #expect(store.apply(try update(5, title: "live")))
+        #expect(!store.applyMailbox(try mailbox(1_800_000_000_000, title: "six days old", written: Sample.now.addingTimeInterval(-6 * 86_400))))
+        #expect(!store.applyMailbox(try mailbox(1_800_000_000_000, title: "from before", written: Sample.now.addingTimeInterval(-1))))
+        #expect(store.home?.prs[0].title == "live")
+        #expect(store.lastUpdated == Sample.now)
+        let fresh = AppStore(cache: nil, now: { Sample.now })
+        #expect(!fresh.applyMailbox(try mailbox(9, title: "eight days old", written: Sample.now.addingTimeInterval(-8 * 86_400))))
+        #expect(fresh.home == nil)
+    }
+
+    /// After a relaunch the last mailbox revision still holds: a relay can't replay the blob it kept.
+    @Test func mailboxRevisionSurvivesARelaunch() throws {
+        let cache = Cache(directory: tempDirectory())
+        defer { try? cache.wipe() }
+        let first = AppStore(cache: cache, now: { Sample.now })
+        #expect(first.applyMailbox(try mailbox(200, title: "new", written: Sample.now.addingTimeInterval(-30))))
+        try cache.saveHome(Sample.home, rev: 1, at: Sample.now.addingTimeInterval(-3_600)) // e.g. an older write
+        let relaunched = AppStore(cache: cache, now: { Sample.now })
+        #expect(relaunched.mailboxRev == 200)
+        #expect(!relaunched.applyMailbox(try mailbox(150, title: "replayed", written: Sample.now.addingTimeInterval(-20))))
+        #expect(!relaunched.applyMailbox(try mailbox(200, title: "same", written: Sample.now.addingTimeInterval(-20))))
     }
 
     @Test func staleUnlessOnline() {
@@ -122,12 +159,14 @@ import PRBarWire
 
     @Test func macOfflineLoadsTheMailbox() async throws {
         let env = await TestEnv(home: nil, details: [:])
-        env.transport.setMailbox(RemoteStateUpdate(topic: Topic.home, rev: 3, data: try JSONValue(encoding: Sample.home)))
+        let written = Sample.now.addingTimeInterval(-300)
+        env.transport.setMailbox(MailboxHome(rev: 3, createdAt: written, data: try JSONValue(encoding: Sample.home)))
         let since = Sample.now.addingTimeInterval(-600)
         await env.connection.handle(.link(.macOffline(since: since)))
         #expect(env.connection.state == .macOffline(since: since))
         #expect(env.store.isStale)
         #expect(env.store.home == Sample.home)
+        #expect(env.store.lastUpdated == written)
     }
 
     @Test func revokedWipesKeysAndCache() async throws {

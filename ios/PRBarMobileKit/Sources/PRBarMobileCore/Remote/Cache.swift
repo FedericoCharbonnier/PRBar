@@ -51,6 +51,8 @@ public struct Cache: Sendable {
         read(prDirectory.appendingPathComponent(Self.fileName(forPR: id)))
     }
 
+    var mailboxURL: URL { directory.appendingPathComponent("mailbox.json") }
+
     public func wipe() throws {
         if FileManager.default.fileExists(atPath: directory.path) {
             try FileManager.default.removeItem(at: directory)
@@ -82,5 +84,19 @@ public struct Cache: Sendable {
         for (url, _) in dated.sorted(by: { $0.1 < $1.1 }).prefix(files.count - maxPRs) {
             try FileManager.default.removeItem(at: url)
         }
+    }
+}
+
+/// The last mailbox revision per slot (`mailbox.json`, wiped with the rest of the cache).
+extension Cache: MailboxRevisionStore {
+    public func loadMailboxRevisions() -> [String: Int] {
+        guard let data = try? Data(contentsOf: mailboxURL),
+              let revisions = try? CommandProtocol.decoder.decode([String: Int].self, from: data) else { return [:] }
+        return revisions
+    }
+
+    public func saveMailboxRevisions(_ revisions: [String: Int]) {
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try? CommandProtocol.encoder.encode(revisions).write(to: mailboxURL, options: Self.writingOptions)
     }
 }

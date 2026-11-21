@@ -110,6 +110,10 @@ public actor RemoteClient {
     /// Cada cambio de `status` (la app del iPhone lo muestra y reconecta con esto).
     public nonisolated let statusUpdates: AsyncStream<RemoteClientStatus>
     private let statusSink: AsyncStream<RemoteClientStatus>.Continuation
+    /// Cada `presencePolicy` de la Mac, también a mitad de sesión (la Mac prendió o apagó Face ID para este teléfono,
+    /// revisión L2): `requirePresence`.
+    public nonisolated let presencePolicyUpdates: AsyncStream<Bool>
+    private let policySink: AsyncStream<Bool>.Continuation
 
     public init(configuration: Configuration, paired: PairedMac? = nil, keys: DeviceKeys? = nil,
                 linkFactory: @escaping RelayLinkFactory, clock: @escaping @Sendable () -> Date = { Date() }) {
@@ -122,7 +126,11 @@ public actor RemoteClient {
         (states, stateSink) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(64))
         (chatDeltas, chatSink) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(256))
         (statusUpdates, statusSink) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(16))
+        (presencePolicyUpdates, policySink) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(4))
     }
+
+    /// El `sid` de la sesión abierta (tests).
+    public var sessionId: String? { channel?.sid }
 
     // MARK: - Emparejamiento (spec P.11)
 
@@ -401,6 +409,17 @@ public actor RemoteClient {
         }
     }
 
+    /// La sesión murió pero la conexión con el relay sigue (un marco que no autentica, `bye` de la Mac, rotación, un
+    /// pedido sin respuesta, la Mac que reconectó): se falla lo que estaba en vuelo y el estado pasa a `.disconnected`,
+    /// así la app reconecta y vuelve a suscribirse en vez de quedar "online" con una sesión muerta (revisión M3).
+    private func dropSession(_ error: RemoteError = .sessionClosed) {
+        tearDown(error)
+        switch status {
+        case .online, .connecting: status = .disconnected
+        default: break
+        }
+    }
+
     /// Corta la sesión y falla lo que estaba en vuelo con `error`.
     private func tearDown(_ error: RemoteError) {
         channel = nil
@@ -441,11 +460,17 @@ public actor RemoteClient {
                 handleFrame(frame)
             } catch {
                 // Un marco que no autentica: la sesión no sirve más; la próxima operación hace otro handshake.
-                tearDown(.sessionClosed)
+                dropSession()
             }
         case .presence(let mac?, let since, _, _):
             if mac == "online" {
-                if case .macOffline = status { status = .disconnected }
+                if case .macOffline = status {
+                    status = .disconnected
+                } else if channel != nil || handshake != nil {
+                    // La Mac volvió a conectarse con el relay sin pasar por offline (cambió de red, una conexión
+                    // medio abierta): la Mac nueva no tiene nuestra sesión. Se rehace (M3).
+                    dropSession()
+                }
             } else {
                 status = .macOffline(since: since.map { Date(timeIntervalSince1970: TimeInterval($0)) })
                 tearDown(.macOffline(since: since.map { Date(timeIntervalSince1970: TimeInterval($0)) }))
@@ -481,9 +506,15 @@ public actor RemoteClient {
             stateSink.yield(update)
         case .presencePolicy(let requirePresence, let gated):
             presencePolicy = (requirePresence, gated)
+            policySink.yield(requirePresence)
         case .bye(let reason):
-            if reason == "revoked" { status = .revoked }
-            tearDown(reason == "revoked" ? .revoked : .sessionClosed)
+            if reason == "revoked" {
+                status = .revoked
+                tearDown(.revoked)
+            } else {
+                // `rotate`, `desync`, `protocol`…: otra sesión en la próxima operación (y la app reconecta).
+                dropSession()
+            }
         case .chatDelta(let pr, let text):
             chatSink.yield(RemoteChatDelta(pr: pr, text: text))
         case .req, .sub, .unpair, .unknown:
@@ -500,10 +531,10 @@ public actor RemoteClient {
             if current.needsRotation(now: clock()) {
                 // Handshake nuevo en la próxima operación (spec P.5).
                 sendFrameIgnoringRotation(.bye(reason: "rotate"))
-                tearDown(.sessionClosed)
+                dropSession()
             }
         } catch {
-            tearDown(.sessionClosed)
+            dropSession()
         }
     }
 
@@ -543,15 +574,20 @@ public actor RemoteClient {
         let sentAt = clock()
         sendFrame(.req(RemoteRequest(id: id, sentAt: sentAt, cmd: cmd, presence: proof,
                                      deadline: sentAt.addingTimeInterval(Double(timeout.components.seconds)))))
+        let sid = current.sid
         Task { [weak self] in
             try? await Task.sleep(for: timeout)
-            await self?.expire(id)
+            await self?.expire(id, sid: sid)
         }
         return stream
     }
 
-    private func expire(_ id: Int) {
-        pending.removeValue(forKey: id)?.continuation.finish(throwing: RemoteError.timeout)
+    /// Un pedido sin respuesta a tiempo: la sesión queda en duda (la Mac pudo perderla sin avisar), así que se descarta
+    /// y la próxima operación hace otro handshake (M3). Solo si sigue siendo la sesión que mandó el pedido.
+    private func expire(_ id: Int, sid: String) {
+        guard let request = pending.removeValue(forKey: id) else { return }
+        request.continuation.finish(throwing: RemoteError.timeout)
+        if channel?.sid == sid { dropSession() }
     }
 
     /// Manda un comando y espera solo el resultado final.
@@ -597,14 +633,15 @@ public actor RemoteClient {
         for item in items {
             guard let blob = try? MailboxBlob.open(item.b, by: keys.push, from: macSeal, account: paired.accountId,
                                                    device: paired.deviceId, slot: item.slot,
-                                                   minimumRev: mailboxRevs[item.slot, default: 0]) else { continue }
+                                                   minimumRev: mailboxRevs[item.slot, default: 0], now: clock()) else { continue }
             mailboxRevs[item.slot] = blob.rev
             blobs.append(blob)
         }
         return blobs
     }
 
-    /// El último `rev` visto por ranura del buzón (la app lo guarda para no aceptar un estado viejo al reabrir).
+    /// El último `rev` visto por ranura del buzón: la app lo guarda (`restoreMailboxRevisions` al armar el cliente) para
+    /// no aceptar un estado viejo después de reabrirse (revisión M2).
     public var mailboxRevisions: [String: Int] {
         get { mailboxRevs }
     }

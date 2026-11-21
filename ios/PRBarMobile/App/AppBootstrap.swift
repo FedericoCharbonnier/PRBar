@@ -27,7 +27,8 @@ enum AppBootstrap {
         let configuration = RemoteClient.Configuration(appVersion: shortVersion, deviceName: UIDevice.current.name,
                                                        model: deviceModel)
         let transport = LiveTransport(session: { keychain.loadSession() },
-                                      makeClient: LiveTransport.clientFactory(configuration: configuration))
+                                      makeClient: LiveTransport.clientFactory(configuration: configuration),
+                                      mailboxRevisions: cache)
         let connection = RemoteConnection(transport: transport, store: store, credentials: keychain,
                                           paired: paired != nil, macName: paired?.macName)
         let app = PhoneApp(connection: connection, authorizer: authorizer(keychain: keychain), keychain: keychain,
