@@ -125,14 +125,15 @@ func newEnv(t *testing.T, tweak func(*Options)) *env {
 	logs := &syncBuffer{}
 	pusher := &fakePusher{}
 	o := Options{
-		PublicHost:      testHost,
-		EnrollToken:     testToken,
-		Store:           s,
-		Log:             slog.New(slog.NewJSONHandler(logs, nil)),
-		Pusher:          pusher,
-		Now:             c.now,
-		UpgradesPerMin:  10_000,
-		FailuresToBlock: 1_000,
+		PublicHost:        testHost,
+		EnrollToken:       testToken,
+		Store:             s,
+		Log:               slog.New(slog.NewJSONHandler(logs, nil)),
+		Pusher:            pusher,
+		Now:               c.now,
+		UpgradesPerMin:    10_000,
+		FailuresToBlock:   1_000,
+		FailuresToBlockIP: 1_000,
 	}
 	if tweak != nil {
 		tweak(&o)
@@ -406,16 +407,71 @@ func TestAuth(t *testing.T) {
 func TestAuthLockout(t *testing.T) {
 	e := newEnv(t, func(o *Options) { o.FailuresToBlock = 5 })
 	acct, key := e.enroll()
+	mac := e.mac(acct, key)
+	d1, k1 := e.addDevice(mac, acct)
+	mac.ws.CloseNow()
 	_, otherKey, _ := ed25519.GenerateKey(nil)
 	for i := 0; i < 5; i++ {
 		_, _, _ = e.connect(acct, "mac", signer(otherKey, testHost, acct, "mac"))
 	}
-	if _, _, err := e.connect(acct, "mac", signer(key, testHost, acct, "mac")); err == nil ||
-		!strings.Contains(err.Error(), "429") {
+	// La credencial de la Mac queda bloqueada (4429), incluso con la firma buena…
+	if _, _, err := e.connect(acct, "mac", signer(key, testHost, acct, "mac")); websocket.CloseStatus(err) != CloseRateLimited {
 		t.Fatalf("not blocked: %v", err)
 	}
+	// …pero no el teléfono de la misma cuenta detrás de la misma IP.
+	e.device(acct, d1, k1)
 	e.clock.advance(16 * time.Minute)
 	e.mac(acct, key)
+}
+
+// Revisión M2: un QR vencido escaneado varias veces y un teléfono dado de baja que reintenta no dejan afuera a la Mac
+// que comparte la IP.
+func TestLockoutSparesTheMac(t *testing.T) {
+	e := newEnv(t, func(o *Options) {
+		o.FailuresToBlock = 5
+		o.FailuresToBlockIP = 20
+	})
+	acct, key := e.enroll()
+	mac := e.mac(acct, key)
+	d1, k1 := e.addDevice(mac, acct)
+	mac.write(Frame{T: "device.remove", Device: d1})
+	e.eventually("device removed", func() bool {
+		_, ok, _ := e.store.Device(acct, d1)
+		return !ok
+	})
+	mac.ws.CloseNow()
+	for i := 0; i < 8; i++ {
+		if _, _, err := pairAuth(e, acct, newID(10), bytes.Repeat([]byte{7}, 32)); websocket.CloseStatus(err) != CloseUnauthorized {
+			t.Fatalf("stale QR %d: %v", i, err)
+		}
+	}
+	for i := 0; i < 5; i++ {
+		if _, _, err := e.connect(acct, d1, signer(k1, testHost, acct, d1)); websocket.CloseStatus(err) != CloseUnauthorized {
+			t.Fatalf("revoked phone %d: %v", i, err)
+		}
+	}
+	if _, _, err := e.connect(acct, d1, signer(k1, testHost, acct, d1)); websocket.CloseStatus(err) != CloseRateLimited {
+		t.Fatalf("revoked phone not blocked: %v", err)
+	}
+	e.mac(acct, key)
+}
+
+// El tope grueso por IP: marcos malformados (sin credencial que bloquear) cortan los upgrades de esa IP.
+func TestLockoutPerIP(t *testing.T) {
+	e := newEnv(t, func(o *Options) { o.FailuresToBlockIP = 3 })
+	for i := 0; i < 3; i++ {
+		c, _, err := e.open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		c.write(Frame{T: "auth", Acct: "nope", Client: "mac"})
+		if code := c.closedWith(); code != CloseUnauthorized {
+			t.Fatalf("malformed %d: %d", i, code)
+		}
+	}
+	if _, _, err := e.open(); err == nil || !strings.Contains(err.Error(), "http 429") {
+		t.Fatalf("not blocked: %v", err)
+	}
 }
 
 func pairAuth(e *env, acct, pairing string, authKey []byte) (*client, Frame, error) {
@@ -931,4 +987,193 @@ func TestServesWebAppAndAPI(t *testing.T) {
 	if _, _, err := e.open(); err != nil {
 		t.Fatalf("ws with the web app mounted: %v", err)
 	}
+}
+
+// Revisión M1: la Mac borra su propia cuenta (Reset iPhone Access): cuenta, dispositivos y buzón, y libera el lugar.
+func TestAccountDelete(t *testing.T) {
+	e := newEnv(t, nil)
+	acct, key := e.enroll()
+	other, otherKey := e.enroll()
+	mac := e.mac(acct, key)
+	d1, k1 := e.addDevice(mac, acct)
+	phone, _ := e.device(acct, d1, k1)
+	mac.expect("presence")
+	mac.write(Frame{T: "mbox.put", To: d1, Slot: "home", B: "AQID"})
+	e.eventually("mailbox", func() bool {
+		items, _ := e.store.Mailbox(acct, d1)
+		return len(items) == 1
+	})
+	otherMac := e.mac(other, otherKey)
+
+	mac.write(Frame{T: "account.delete"})
+	mac.expect("account.deleted")
+	if code := mac.closedWith(); code != websocket.StatusNormalClosure {
+		t.Fatalf("mac: %d", code)
+	}
+	if code := phone.closedWith(); code != CloseDeviceRemoved {
+		t.Fatalf("phone: %d", code)
+	}
+	if _, ok, _ := e.store.Account(acct); ok {
+		t.Fatal("account still stored")
+	}
+	if _, ok, _ := e.store.Device(acct, d1); ok {
+		t.Fatal("device still stored")
+	}
+	if items, _ := e.store.Mailbox(acct, d1); len(items) != 0 {
+		t.Fatalf("mailbox left: %v", items)
+	}
+	if _, _, err := e.connect(acct, "mac", signer(key, testHost, acct, "mac")); websocket.CloseStatus(err) != CloseUnauthorized {
+		t.Fatalf("deleted account authenticated: %v", err)
+	}
+	// La otra cuenta sigue, y hay lugar para inscribir otras tres (tope 4).
+	otherMac.write(Frame{T: "ping"})
+	otherMac.expect("pong")
+	for i := 0; i < 3; i++ {
+		e.enroll()
+	}
+}
+
+// Las cuentas cuya Mac no se conecta hace más de AccountIdle se borran; una Mac conectada nunca.
+func TestSweepAccounts(t *testing.T) {
+	e := newEnv(t, func(o *Options) { o.AccountIdle = 30 * 24 * time.Hour })
+	online, onlineKey := e.enroll()
+	idle, idleKey := e.enroll()
+	mac := e.mac(online, onlineKey)
+	idleMac := e.mac(idle, idleKey)
+	d1, k1 := e.addDevice(idleMac, idle)
+	e.clock.advance(time.Second) // el toque del cierre se distingue del de la conexión
+	idleMac.ws.Close(websocket.StatusNormalClosure, "")
+	e.eventually("idle mac gone", func() bool {
+		account, _, _ := e.store.Account(idle)
+		return account.MacSeen.Equal(e.clock.now().UTC())
+	})
+	phone, _ := e.device(idle, d1, k1)
+
+	e.clock.advance(29 * 24 * time.Hour)
+	e.hub.SweepAccounts()
+	if _, ok, _ := e.store.Account(idle); !ok {
+		t.Fatal("swept too soon")
+	}
+	e.clock.advance(2 * 24 * time.Hour)
+	e.hub.SweepAccounts()
+	if _, ok, _ := e.store.Account(idle); ok {
+		t.Fatal("idle account kept")
+	}
+	if code := phone.closedWith(); code != CloseDeviceRemoved {
+		t.Fatalf("phone of the idle account: %d", code)
+	}
+	if _, ok, _ := e.store.Account(online); !ok {
+		t.Fatal("account with a connected Mac swept")
+	}
+	mac.write(Frame{T: "ping"})
+	mac.expect("pong")
+	// Al desconectarse la Mac cuenta desde ese momento.
+	e.clock.advance(time.Second) // el toque del cierre se distingue del de la conexión
+	mac.ws.Close(websocket.StatusNormalClosure, "")
+	e.eventually("mac gone", func() bool {
+		account, _, _ := e.store.Account(online)
+		return account.MacSeen.Equal(e.clock.now().UTC())
+	})
+	e.clock.advance(29 * 24 * time.Hour)
+	e.hub.SweepAccounts()
+	if _, ok, _ := e.store.Account(online); !ok {
+		t.Fatal("swept right after the Mac left")
+	}
+	e.clock.advance(2 * 24 * time.Hour)
+	e.hub.SweepAccounts()
+	if _, ok, _ := e.store.Account(online); ok {
+		t.Fatal("not swept 31 days after the Mac left")
+	}
+}
+
+func TestOnlyTheMacDeletesTheAccount(t *testing.T) {
+	e := newEnv(t, nil)
+	acct, key := e.enroll()
+	mac := e.mac(acct, key)
+	d1, k1 := e.addDevice(mac, acct)
+	phone, _ := e.device(acct, d1, k1)
+	phone.write(Frame{T: "account.delete"})
+	if f := phone.expect("error"); f.Reason != "forbidden" {
+		t.Fatalf("phone: %+v", f)
+	}
+	if _, ok, _ := e.store.Account(acct); !ok {
+		t.Fatal("a phone deleted the account")
+	}
+}
+
+func TestDeviceAddErrors(t *testing.T) {
+	e := newEnv(t, nil)
+	acct, key := e.enroll()
+	mac := e.mac(acct, key)
+	for i := 0; i < store.MaxDevicesPerAccount; i++ {
+		e.addDevice(mac, acct)
+	}
+	pub, _, _ := ed25519.GenerateKey(nil)
+	mac.write(Frame{T: "device.add", Device: newID(16), RelayKey: encodeB64(pub)})
+	if f := mac.expect("error"); f.Reason != "device limit" {
+		t.Fatalf("11th device: %+v", f)
+	}
+	if got := deviceReason(store.ErrNotFound); got != "unknown account" {
+		t.Fatalf("not found: %s", got)
+	}
+	if got := deviceReason(fmt.Errorf("disk")); got != "internal" {
+		t.Fatalf("other: %s", got)
+	}
+}
+
+// Revisión L3: al apagarse, el relay cierra todo con 1001 y no acepta conexiones nuevas.
+func TestCloseGoesAway(t *testing.T) {
+	e := newEnv(t, nil)
+	acct, key := e.enroll()
+	mac := e.mac(acct, key)
+	pending, _, err := e.open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.hub.Close()
+	if code := mac.closedWith(); code != websocket.StatusGoingAway {
+		t.Fatalf("mac: %d", code)
+	}
+	if code := pending.closedWith(); code != websocket.StatusGoingAway {
+		t.Fatalf("unauthenticated: %d", code)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if !e.hub.Wait(ctx) {
+		t.Fatal("connections still open")
+	}
+	if _, _, err := e.open(); err == nil || !strings.Contains(err.Error(), "http 503") {
+		t.Fatalf("accepted after Close: %v", err)
+	}
+}
+
+// Revisión L2: las conexiones aceptadas no dejan la IP en los logs (los rechazos sí).
+func TestSuccessfulConnectionsDontLogIPs(t *testing.T) {
+	e := newEnv(t, nil)
+	acct, key := e.enroll()
+	mac := e.mac(acct, key)
+	mac.write(Frame{T: "ping"})
+	mac.expect("pong")
+	for _, line := range strings.Split(e.logs.String(), "\n") {
+		if (strings.Contains(line, `"connection open"`) || strings.Contains(line, `"account created"`)) &&
+			strings.Contains(line, `"ip"`) {
+			t.Fatalf("ip logged: %s", line)
+		}
+	}
+}
+
+// Revisión L4: los timeouts del servidor HTTP (encabezados, keep-alive ocioso) no cortan un WebSocket largo.
+func TestServerTimeoutsSpareWebSockets(t *testing.T) {
+	e := newEnv(t, nil)
+	e.server.Close()
+	e.server = httptest.NewUnstartedServer(e.hub.Handler())
+	e.server.Config.ReadHeaderTimeout = 100 * time.Millisecond
+	e.server.Config.IdleTimeout = 100 * time.Millisecond
+	e.server.Start()
+	t.Cleanup(e.server.Close)
+	acct, key := e.enroll()
+	mac := e.mac(acct, key)
+	time.Sleep(400 * time.Millisecond)
+	mac.write(Frame{T: "ping"})
+	mac.expect("pong")
 }

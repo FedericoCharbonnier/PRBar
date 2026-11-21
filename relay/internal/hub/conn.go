@@ -144,15 +144,28 @@ func (c *Conn) serve(ctx context.Context) {
 		return
 	}
 	f, err := ParseFrame(data)
-	if err != nil || len(data) > h.o.MaxFrame {
-		h.authFail.Fail(c.ip)
+	credential, wellFormed := authCredential(f)
+	if err != nil || len(data) > h.o.MaxFrame || !wellFormed {
+		h.ipFail.Fail(c.ip)
 		h.o.Log.Warn("auth failed", "ip", c.ip, "reason", "malformed")
 		c.ws.Close(CloseUnauthorized, "unauthorized")
 		return
 	}
+	pairing := f.Client == "pair"
+	lockKey := c.ip + " " + credential
+	if !pairing && h.authFail.Blocked(lockKey) {
+		h.o.Log.Warn("limit", "kind", "auth failures", "ip", c.ip, "acct", logx.Prefix(f.Acct),
+			"client", logx.Prefix(f.Client))
+		c.ws.Close(CloseRateLimited, "too many attempts")
+		return
+	}
 	ready, err := h.authenticate(c, f, nonce)
 	if err != nil {
-		h.authFail.Fail(c.ip)
+		// Los emparejamientos fallidos no cuentan (QR vencido, ranura quemada…): la ranura tiene su propio límite.
+		if !pairing {
+			h.authFail.Fail(lockKey)
+			h.ipFail.Fail(c.ip)
+		}
 		h.o.Log.Warn("auth failed", "ip", c.ip, "reason", "credentials", "acct", logx.Prefix(f.Acct),
 			"client", logx.Prefix(f.Client))
 		c.ws.Close(CloseUnauthorized, "unauthorized")
@@ -164,14 +177,26 @@ func (c *Conn) serve(ctx context.Context) {
 		c.closeWith(websocket.StatusGoingAway, "write failed")
 		return
 	}
-	h.o.Log.Info("connection open", "role", c.role.String(), "acct", logx.Prefix(c.acct), "client", logx.Prefix(c.id),
-		"ip", c.ip)
+	// Sin la IP: solo se loguea en los rechazos y los límites (logs mínimos, spec P.10).
+	h.o.Log.Info("connection open", "role", c.role.String(), "acct", logx.Prefix(c.acct), "client", logx.Prefix(c.id))
 	go c.writer()
 	reason := c.readLoop(ctx)
 	c.closeWith(reason.code, reason.text)
 	h.o.Log.Info("connection closed", "role", c.role.String(), "acct", logx.Prefix(c.acct),
 		"client", logx.Prefix(c.id), "seconds", int(h.o.Now().Sub(started)/time.Second), "in", c.in.Load(), "out", c.out.Load(),
 		"code", int(reason.code))
+}
+
+// authCredential: la credencial que intenta entrar ("cuenta cliente"), o false si el `auth` está malformado (eso
+// cuenta solo para el tope por IP: sin ids válidos no hay credencial que bloquear).
+func authCredential(f Frame) (string, bool) {
+	if f.T != "auth" || !isBase32(f.Acct, accountIDLength) {
+		return "", false
+	}
+	if f.Client != "mac" && f.Client != "pair" && !isBase32(f.Client, deviceIDLength) {
+		return "", false
+	}
+	return f.Acct + " " + f.Client, true
 }
 
 // readFrame lee un mensaje sin guardar más de MaxFrame+1 bytes (quien llama corta con 4413 si pasa el tope).

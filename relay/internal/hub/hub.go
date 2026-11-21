@@ -64,23 +64,27 @@ type Options struct {
 	WebPushTestEndpoint string
 	AllowLocalOrigins   bool
 
-	MaxFrame         int
-	FrameRate        float64
-	FrameBurst       float64
-	ByteRate         float64
-	UpgradesPerMin   float64
-	MaxConns         int
-	SendQueue        int
-	AuthTimeout      time.Duration
-	PushesPerMin     float64
-	PairingLifetime  time.Duration
-	PairingAttempts  int
-	FailuresToBlock  int
-	FailureWindow    time.Duration
-	BlockFor         time.Duration
-	WriteTimeout     time.Duration
-	PushTimeout      time.Duration
-	MaxDevicesOnline int
+	MaxFrame        int
+	FrameRate       float64
+	FrameBurst      float64
+	ByteRate        float64
+	UpgradesPerMin  float64
+	MaxConns        int
+	SendQueue       int
+	AuthTimeout     time.Duration
+	PushesPerMin    float64
+	PairingLifetime time.Duration
+	PairingAttempts int
+	// FailuresToBlock: auths fallidos de una misma credencial (IP + cuenta + cliente) que la bloquean.
+	FailuresToBlock int
+	// FailuresToBlockIP: tope grueso por IP (todas las credenciales y los marcos malformados juntos).
+	FailuresToBlockIP int
+	FailureWindow     time.Duration
+	BlockFor          time.Duration
+	WriteTimeout      time.Duration
+	PushTimeout       time.Duration
+	// AccountIdle: SweepAccounts borra las cuentas cuya Mac no se conecta hace más que esto. 0: nunca.
+	AccountIdle time.Duration
 }
 
 func (o *Options) defaults() {
@@ -111,11 +115,11 @@ func (o *Options) defaults() {
 	setDur(&o.PairingLifetime, 5*time.Minute)
 	setInt(&o.PairingAttempts, 3)
 	setInt(&o.FailuresToBlock, 5)
+	setInt(&o.FailuresToBlockIP, 20)
 	setDur(&o.FailureWindow, 10*time.Minute)
 	setDur(&o.BlockFor, 15*time.Minute)
 	setDur(&o.WriteTimeout, 10*time.Second)
 	setDur(&o.PushTimeout, 15*time.Second)
-	setInt(&o.MaxDevicesOnline, store.MaxDevicesPerAccount)
 	if o.Now == nil {
 		o.Now = time.Now
 	}
@@ -145,10 +149,17 @@ type Hub struct {
 	mu       sync.Mutex
 	accounts map[string]*account
 	conns    int
+	// live: todas las conexiones aceptadas (también las que todavía no se autenticaron), para Close.
+	live    map[*Conn]struct{}
+	closing bool
 
 	upgrades *ratelimit.Keyed
 	pushes   *ratelimit.Keyed
+	// authFail cuenta por credencial (IP + cuenta + cliente): un teléfono dado de baja que reintenta solo se bloquea
+	// a sí mismo, no a la Mac detrás de la misma IP. ipFail es el tope grueso por IP. Los emparejamientos fallidos no
+	// cuentan: la ranura tiene su propio límite de 3 intentos.
 	authFail *ratelimit.Lockout
+	ipFail   *ratelimit.Lockout
 	enroll   *ratelimit.Lockout
 
 	frames   atomic.Int64
@@ -162,9 +173,11 @@ func New(o Options) *Hub {
 	return &Hub{
 		o:        o,
 		accounts: map[string]*account{},
+		live:     map[*Conn]struct{}{},
 		upgrades: ratelimit.NewKeyed(o.UpgradesPerMin/60, o.UpgradesPerMin, o.Now),
 		pushes:   ratelimit.NewKeyed(o.PushesPerMin/60, o.PushesPerMin, o.Now),
 		authFail: ratelimit.NewLockout(o.FailuresToBlock, o.FailureWindow, o.BlockFor, o.Now),
+		ipFail:   ratelimit.NewLockout(o.FailuresToBlockIP, o.FailureWindow, o.BlockFor, o.Now),
 		enroll:   ratelimit.NewLockout(o.FailuresToBlock, o.FailureWindow, o.BlockFor, o.Now),
 	}
 }
@@ -174,6 +187,13 @@ func New(o Options) *Hub {
 func (h *Hub) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+		// También la base: un bbolt trabado (disco lleno) tiene que verse como "unhealthy".
+		if h.o.Store != nil {
+			if err := h.o.Store.Ping(); err != nil {
+				http.Error(w, "store unavailable", http.StatusServiceUnavailable)
+				return
+			}
+		}
 		w.Header().Set("content-type", "text/plain")
 		_, _ = io.WriteString(w, "ok")
 	})
@@ -249,6 +269,8 @@ func (h *Hub) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "too many attempts", http.StatusTooManyRequests)
 		return
 	}
+	// Un cuerpo que llega gota a gota no retiene la conexión más de 10 s.
+	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(10 * time.Second))
 	var body struct {
 		EnrollToken string `json:"enrollToken"`
 		MacRelayKey string `json:"macRelayKey"`
@@ -278,7 +300,7 @@ func (h *Hub) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	h.o.Log.Info("account created", "acct", logx.Prefix(id), "ip", ip)
+	h.o.Log.Info("account created", "acct", logx.Prefix(id))
 	w.Header().Set("content-type", "application/json")
 	_, _ = w.Write(mustJSON(map[string]string{"accountId": id}))
 }
@@ -317,12 +339,17 @@ func (h *Hub) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	if h.authFail.Blocked(ip) || !h.upgrades.Allow(ip) {
+	if h.ipFail.Blocked(ip) || !h.upgrades.Allow(ip) {
 		h.o.Log.Warn("limit", "kind", "upgrade", "ip", ip)
 		http.Error(w, "too many requests", http.StatusTooManyRequests)
 		return
 	}
 	h.mu.Lock()
+	if h.closing {
+		h.mu.Unlock()
+		http.Error(w, "restarting", http.StatusServiceUnavailable)
+		return
+	}
 	if h.conns >= h.o.MaxConns {
 		h.mu.Unlock()
 		h.o.Log.Warn("limit", "kind", "connections", "ip", ip)
@@ -352,7 +379,54 @@ func (h *Hub) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// se lee con Read y un límite propio.
 	ws.SetReadLimit(-1)
 	c := newConn(h, ws, ip)
+	h.mu.Lock()
+	h.live[c] = struct{}{}
+	closing := h.closing
+	h.mu.Unlock()
+	defer func() {
+		h.mu.Lock()
+		delete(h.live, c)
+		h.mu.Unlock()
+	}()
+	if closing {
+		ws.Close(websocket.StatusGoingAway, "restarting")
+		return
+	}
 	c.serve(r.Context())
+}
+
+// Close cierra todas las conexiones con 1001 (el relay se reinicia: los clientes reconectan enseguida, sin el
+// backoff de un error de red) y rechaza las nuevas. main lo registra con http.Server.RegisterOnShutdown.
+func (h *Hub) Close() {
+	h.mu.Lock()
+	h.closing = true
+	conns := make([]*Conn, 0, len(h.live))
+	for c := range h.live {
+		conns = append(conns, c)
+	}
+	h.mu.Unlock()
+	for _, c := range conns {
+		c.closeWith(websocket.StatusGoingAway, "restarting")
+	}
+}
+
+// Wait espera a que terminen todas las conexiones, o a que venza ctx. Devuelve si terminaron.
+func (h *Hub) Wait(ctx context.Context) bool {
+	tick := time.NewTicker(20 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		h.mu.Lock()
+		n := h.conns
+		h.mu.Unlock()
+		if n == 0 {
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-tick.C:
+		}
+	}
 }
 
 // MARK: registro de conexiones
@@ -420,6 +494,8 @@ func (h *Hub) registerMac(c *Conn, acct string) Frame {
 	for _, d := range devices {
 		d.enqueue(Frame{T: "presence", Mac: "online", Since: since})
 	}
+	// Para el barrido de cuentas inactivas (SweepAccounts).
+	_ = h.o.Store.TouchAccount(acct)
 	return Frame{T: "ready", Mac: "online", Since: since}
 }
 
@@ -507,9 +583,11 @@ func (h *Hub) unregister(c *Conn) {
 	}
 	var notify []*Conn
 	var presence Frame
+	macLeft := false
 	switch c.role {
 	case roleMac:
 		if a.mac == c {
+			macLeft = true
 			a.mac = nil
 			a.macSince = h.o.Now()
 			presence = Frame{T: "presence", Mac: "offline", Since: a.macSince.Unix()}
@@ -536,6 +614,9 @@ func (h *Hub) unregister(c *Conn) {
 	}
 	if c.role == roleDevice {
 		_ = h.o.Store.Touch(c.acct, c.id)
+	}
+	if macLeft {
+		_ = h.o.Store.TouchAccount(c.acct)
 	}
 }
 
@@ -666,12 +747,14 @@ func (h *Hub) fromMac(c *Conn, f Frame) {
 			return
 		}
 		if err := h.o.Store.AddDevice(c.acct, f.Device, key); err != nil {
-			c.enqueue(Frame{T: "error", Reason: "device limit"})
+			c.enqueue(Frame{T: "error", Reason: deviceReason(err)})
 			return
 		}
 		h.o.Log.Info("device added", "acct", logx.Prefix(c.acct), "device", logx.Prefix(f.Device))
 	case "device.remove":
 		h.deviceRemove(c, f.Device)
+	case "account.delete":
+		h.accountDelete(c)
 	case "devices":
 		entries, err := h.o.Store.Devices(c.acct)
 		if err != nil {
@@ -694,11 +777,58 @@ func mailboxReason(err error) string {
 		return "unknown device"
 	case errors.Is(err, store.ErrMailboxFull):
 		return "slot limit"
-	case errors.Is(err, store.ErrBlobTooLarge):
-		return "too large"
 	default:
 		return "internal"
 	}
+}
+
+func deviceReason(err error) string {
+	switch {
+	case errors.Is(err, store.ErrTooManyDevices):
+		return "device limit"
+	case errors.Is(err, store.ErrNotFound):
+		return "unknown account"
+	default:
+		return "internal"
+	}
+}
+
+// accountDelete: la Mac da de baja su propia cuenta (al resetear el acceso). Se borran la cuenta, sus dispositivos
+// y su buzón, se cortan sus teléfonos (4403) y su ranura, y la Mac recibe `account.deleted` antes del cierre (1000).
+func (h *Hub) accountDelete(c *Conn) {
+	if err := h.deleteAccount(c.acct, c); err != nil {
+		h.o.Log.Error("account delete", "acct", logx.Prefix(c.acct), "err", err.Error())
+		c.enqueue(Frame{T: "error", Reason: "internal"})
+		return
+	}
+	h.o.Log.Info("account deleted", "acct", logx.Prefix(c.acct), "reason", "mac")
+	// Directo (la biblioteca admite escrituras concurrentes): al cerrar, la cola se descarta.
+	_ = c.writeNow(context.Background(), Frame{T: "account.deleted"})
+	c.closeWith(websocket.StatusNormalClosure, "account deleted")
+}
+
+// deleteAccount borra la cuenta de la base y corta sus conexiones, salvo keep (la Mac que la pidió).
+func (h *Hub) deleteAccount(acct string, keep *Conn) error {
+	if err := h.o.Store.DeleteAccount(acct); err != nil {
+		return err
+	}
+	h.mu.Lock()
+	a := h.accounts[acct]
+	delete(h.accounts, acct)
+	h.mu.Unlock()
+	if a == nil {
+		return nil
+	}
+	for _, d := range a.devices {
+		d.closeWith(CloseDeviceRemoved, "account deleted")
+	}
+	if a.slot != nil && a.slot.conn != nil {
+		a.slot.conn.closeWith(CloseUnauthorized, "pairing closed")
+	}
+	if a.mac != nil && a.mac != keep {
+		a.mac.closeWith(CloseUnauthorized, "account deleted")
+	}
+	return nil
 }
 
 func (h *Hub) macSend(c *Conn, f Frame) {
@@ -869,6 +999,32 @@ func (h *Hub) Sweep() {
 		if e.mac != nil {
 			e.mac.enqueue(Frame{T: "pair.close", Pairing: e.id})
 		}
+	}
+}
+
+// SweepAccounts borra las cuentas cuya Mac no se conecta hace más de AccountIdle: libera lugar de
+// RELAY_MAX_ACCOUNTS y no guarda lo que nadie usa. Una Mac conectada ahora nunca se borra. Lo llama main cada hora.
+func (h *Hub) SweepAccounts() {
+	if h.o.AccountIdle <= 0 {
+		return
+	}
+	ids, err := h.o.Store.IdleAccounts(h.o.Now().Add(-h.o.AccountIdle))
+	if err != nil {
+		h.o.Log.Error("account sweep", "err", err.Error())
+		return
+	}
+	for _, id := range ids {
+		h.mu.Lock()
+		online := h.accounts[id] != nil && h.accounts[id].mac != nil
+		h.mu.Unlock()
+		if online {
+			continue
+		}
+		if err := h.deleteAccount(id, nil); err != nil {
+			h.o.Log.Error("account sweep", "acct", logx.Prefix(id), "err", err.Error())
+			continue
+		}
+		h.o.Log.Info("account deleted", "acct", logx.Prefix(id), "reason", "idle")
 	}
 }
 
