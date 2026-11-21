@@ -84,6 +84,9 @@ describe("diff", () => {
 
 describe("router", () => {
   it("parsea y arma las rutas por hash", () => {
+    expect(parseRoute("#/pr/acme/api/3/diff?file=src%2Fa%20b.ts")).toEqual({ kind: "pr", pr: "acme/api#3", screen: "diff", file: "src/a b.ts" });
+    expect(routeHash({ kind: "pr", pr: "acme/api#3", screen: "diff", file: "src/a b.ts" })).toBe("#/pr/acme/api/3/diff?file=src%2Fa%20b.ts");
+    expect(parseRoute("#/pr/acme/api/3/fixci?file=x")).toEqual({ kind: "pr", pr: "acme/api#3", screen: "fixci" });
     expect(parseRoute("")).toEqual(HOME);
     expect(parseRoute("#/home")).toEqual(HOME);
     expect(parseRoute("#/mine")).toEqual({ kind: "tab", tab: "mine" });

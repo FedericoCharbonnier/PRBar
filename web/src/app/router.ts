@@ -18,7 +18,9 @@ export type ChatKind = "review" | "respond" | "merge";
 export type Route =
   | { kind: "tab"; tab: TabId }
   /** `screen` ausente: la pantalla que corresponde a la sección del PR (`defaultScreen`). */
-  | { kind: "pr"; pr: string; screen?: PRScreenId | undefined; chat?: ChatKind | undefined }
+  | { kind: "pr"; pr: string; screen?: PRScreenId | undefined; chat?: ChatKind | undefined;
+      /** respond:diff abierto desde un archivo (Fix CI): ese archivo elegido. */
+      file?: string | undefined }
   | { kind: "pair" }
   /** El texto completo del link de emparejamiento (`https://<host>/#pair?…`). */
   | { kind: "pairLink"; link: string };
@@ -32,7 +34,8 @@ export const HOME: Route = { kind: "tab", tab: "review" };
 /** `origin` arma el link de emparejamiento completo a partir del fragmento (`#pair?…`). */
 export function parseRoute(hash: string, origin = "https://localhost"): Route {
   if (hash.startsWith("#pair?")) return { kind: "pairLink", link: `${origin}/${hash}` };
-  const path = hash.replace(/^#\/?/, "").split("?")[0]!.replace(/\/+$/, "");
+  const [rawPath, query] = hash.replace(/^#\/?/, "").split("?");
+  const path = rawPath!.replace(/\/+$/, "");
   const parts = path.split("/").map((p) => {
     try {
       return decodeURIComponent(p);
@@ -61,6 +64,10 @@ export function parseRoute(hash: string, origin = "https://localhost"): Route {
       if (screen === "chat" && chat !== undefined && CHATS.includes(chat)) {
         return { kind: "pr", pr, screen: "chat", chat: chat as ChatKind };
       }
+      if (screen === "diff") {
+        const file = new URLSearchParams(query ?? "").get("file");
+        if (file) return { kind: "pr", pr, screen: "diff", file };
+      }
       return { kind: "pr", pr, screen: screen as PRScreenId };
     }
     default:
@@ -82,6 +89,7 @@ export function routeHash(route: Route): string {
       let hash = `#/pr/${encodeURIComponent(owner ?? "")}/${encodeURIComponent(name ?? "")}/${number}`;
       if (route.screen) hash += `/${route.screen}`;
       if (route.screen === "chat" && route.chat) hash += `/${route.chat}`;
+      if (route.screen === "diff" && route.file) hash += `?file=${encodeURIComponent(route.file)}`;
       return hash;
     }
   }
