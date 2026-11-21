@@ -41,7 +41,7 @@ export function Button({
       aria-busy={busy ? "true" : undefined}
       onClick={onClick}
     >
-      {busy ? <Spinner size={18} /> : icon ? <Icon name={icon} size={size === "sm" ? 14 : size === "md" ? 16 : 17} /> : null}
+      {busy ? <Spinner size={18} /> : icon ? <Icon name={icon} size={size === "sm" ? 14 : size === "md" ? 13 : 17} /> : null}
       {children != null && <span class="btn__label">{children}</span>}
       {trailingIcon && <Icon name={trailingIcon} size={22} class="btn__trailing" />}
     </button>

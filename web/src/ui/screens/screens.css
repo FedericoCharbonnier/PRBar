@@ -47,14 +47,14 @@
 }
 
 .offline-card h2 {
-  margin: 14px 0 0;
+  margin: 11px 0 0;
   font-size: 13.2px;
   font-weight: 600;
   line-height: 20px;
 }
 
 .offline-card p {
-  margin: 8px 0 14px;
+  margin: 7px 0 13px;
   color: var(--fg2);
   font-size: 11px;
   line-height: 14px;
@@ -1465,4 +1465,8 @@
 
 .progress-card + .block-title {
   margin-top: 24.5px;
+}
+
+.chat__notice + .chat__time {
+  margin-top: 13px;
 }

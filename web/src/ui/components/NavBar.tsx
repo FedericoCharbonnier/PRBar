@@ -36,7 +36,7 @@ export function NavBar({ leading, leadingContent, title, subtitle, titleIcon, tr
       {title && (
         <div class={subtitle ? "navbar__title navbar__title--sub" : "navbar__title"}>
           <h1>
-            {titleIcon && <Icon name={titleIcon} size={20} class="navbar__title-icon" />}
+            {titleIcon && <Icon name={titleIcon} size={19} class="navbar__title-icon" />}
             {title}
           </h1>
           {subtitle && <p>{subtitle}</p>}

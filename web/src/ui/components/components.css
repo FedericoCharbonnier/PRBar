@@ -449,12 +449,12 @@
   margin: 0;
   font-size: 12.7px;
   font-weight: 700;
-  line-height: 18px;
+  line-height: 16px;
 }
 
 .navbar__title--sub {
   justify-content: flex-start;
-  padding-top: 6.5px;
+  padding-top: 7.5px;
 }
 
 .navbar__title p {
@@ -466,6 +466,7 @@
 
 .navbar__title-icon {
   color: var(--violet);
+  margin: -2px 0;
 }
 
 .large-title {
