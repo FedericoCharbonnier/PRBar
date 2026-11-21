@@ -5,7 +5,10 @@ import { AppStore } from "../../../src/app/store";
 import type { MenuItem } from "../../../src/ui/components";
 import { FakeTransport, type LinkState } from "../../../src/transport/Transport";
 import type { Authorize, Clock } from "../../../src/transport/types";
-import { fixture, type AppFixtureFile } from "../fixtures";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import type { AppFixtureFile } from "../fixtures";
 
 // Un contexto de app sobre FakeTransport con los JSON de la Mac (`app.json`): navegación, avisos y Face ID de mentira.
 
@@ -76,8 +79,10 @@ export interface TestApp extends AppContext {
   presence: { mode: "sign" | "cancel" | "fail" | "none" };
 }
 
+/** `app.json` por ruta (con happy-dom, `URL` no es la de Node y `readFileSync(new URL(…))` falla). */
 export function appFixture(): AppFixtureFile {
-  return fixture<AppFixtureFile>("app.json");
+  const path = join(dirname(fileURLToPath(import.meta.url)), "../../fixtures/app.json");
+  return JSON.parse(readFileSync(path, "utf8")) as AppFixtureFile;
 }
 
 export function makeApp(options: { state?: LinkState; attach?: boolean } = {}): TestApp {
