@@ -13,7 +13,7 @@ import type { Active, Shell } from "../app/shell";
 import { Camera } from "./Camera";
 import { ActionMenu, Banner, Button, Sheet, TabBar } from "./components";
 import {
-  Activity, Chat, Edit, FixCI, Home, Install, Merge, Merged, PairConfirm, PairPaired, PairSas, PairScan, PairWelcome,
+  Activity, BootError, Chat, Edit, FixCI, Home, Install, Merge, Merged, PairConfirm, PairPaired, PairSas, PairScan, PairWelcome,
   Respond, RespondDiff, Review, ReviewPosted, Settings,
 } from "./screens";
 import { ghost, reducedMotion } from "./motion/animate";
@@ -49,6 +49,9 @@ export function InstallGate({ platform, prompt }: { platform: Platform; prompt: 
 
 export function App({ shell }: { shell: Shell }) {
   if (!shell.ready.value) return <div class="boot" aria-busy="true" />;
+  if (shell.bootFailed.value) {
+    return <BootError onRetry={() => location.reload()} onReset={() => void shell.resetAfterBootFailure()} />;
+  }
   const active = shell.active.value;
   const step = shell.pairing.step.value.kind;
   const pairing = !active || shell.pairingOpen.value || step === "paired";
@@ -84,6 +87,7 @@ function PairingFlow({ shell, model }: { shell: Shell; model: PairingModel }) {
           busy={model.busy.value}
           onDeviceNameChange={(name) => model.setDeviceName(name)}
           onPair={() => void model.pair()}
+          onCancel={shell.active.value ? () => shell.closePairing() : undefined}
         />
       );
     case "scanning":

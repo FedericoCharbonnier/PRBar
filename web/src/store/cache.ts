@@ -1,5 +1,5 @@
 import type { RemoteHome, RemotePRDetail } from "../protocol/commands";
-import { getAllValues, getValue, openDatabase, write, type DatabaseOptions } from "./db";
+import { Database, getAllValues, getValue, write, type DatabaseOptions } from "./db";
 
 // Caché de lo que muestran las pantallas sin conexión (R.3, `home:offline`): el último `home` y hasta 50 detalles de
 // PR (LRU), más el último `rev` visto del buzón (P.16 M2). Solo datos de PRs; se borra al desemparejar.
@@ -27,64 +27,64 @@ const HOME = "home";
 const MAILBOX_REVS = "mailboxRevisions";
 
 export class Cache {
-  readonly #db: IDBDatabase;
+  readonly #db: Database;
   readonly #max: number;
   #tick = 0;
 
-  private constructor(db: IDBDatabase, max: number) {
+  private constructor(db: Database, max: number) {
     this.#db = db;
     this.#max = max;
   }
 
   static async open(options: DatabaseOptions & { maxPRs?: number } = {}): Promise<Cache> {
-    const cache = new Cache(await openDatabase(options), options.maxPRs ?? MAX_CACHED_PRS);
-    for (const record of await getAllValues<PRRecord>(cache.#db, "prs")) cache.#tick = Math.max(cache.#tick, record.usedAt);
+    const cache = new Cache(await Database.open(options), options.maxPRs ?? MAX_CACHED_PRS);
+    for (const record of await cache.#db.run((db) => getAllValues<PRRecord>(db, "prs"))) cache.#tick = Math.max(cache.#tick, record.usedAt);
     return cache;
   }
 
   async saveHome(home: RemoteHome, updatedAt: number): Promise<void> {
     const value: CachedHome = { home, updatedAt };
-    await write(this.#db, ["cache"], (store) => store("cache").put(value, HOME));
+    await this.#db.run((db) => write(db, ["cache"], (store) => store("cache").put(value, HOME)));
   }
 
   async loadHome(): Promise<CachedHome | null> {
-    return (await getValue<CachedHome>(this.#db, "cache", HOME)) ?? null;
+    return (await this.#db.run((db) => getValue<CachedHome>(db, "cache", HOME))) ?? null;
   }
 
   async savePR(id: string, detail: RemotePRDetail, updatedAt: number): Promise<void> {
     const record: PRRecord = { id, detail, updatedAt, usedAt: ++this.#tick };
-    await write(this.#db, ["prs"], (store) => store("prs").put(record));
-    const all = await getAllValues<PRRecord>(this.#db, "prs");
+    await this.#db.run((db) => write(db, ["prs"], (store) => store("prs").put(record)));
+    const all = await this.#db.run((db) => getAllValues<PRRecord>(db, "prs"));
     if (all.length <= this.#max) return;
     const evicted = all.sort((a, b) => a.usedAt - b.usedAt).slice(0, all.length - this.#max);
-    await write(this.#db, ["prs"], (store) => {
+    await this.#db.run((db) => write(db, ["prs"], (store) => {
       for (const old of evicted) store("prs").delete(old.id);
-    });
+    }));
   }
 
   /** El detalle guardado de un PR (cuenta como uso para el LRU). */
   async loadPR(id: string): Promise<CachedPR | null> {
-    const record = await getValue<PRRecord>(this.#db, "prs", id);
+    const record = await this.#db.run((db) => getValue<PRRecord>(db, "prs", id));
     if (!record) return null;
     record.usedAt = ++this.#tick;
-    await write(this.#db, ["prs"], (store) => store("prs").put(record));
+    await this.#db.run((db) => write(db, ["prs"], (store) => store("prs").put(record)));
     return { detail: record.detail, updatedAt: record.updatedAt };
   }
 
   async saveMailboxRevisions(revisions: Record<string, number>): Promise<void> {
-    await write(this.#db, ["cache"], (store) => store("cache").put({ ...revisions }, MAILBOX_REVS));
+    await this.#db.run((db) => write(db, ["cache"], (store) => store("cache").put({ ...revisions }, MAILBOX_REVS)));
   }
 
   async loadMailboxRevisions(): Promise<Record<string, number>> {
-    return (await getValue<Record<string, number>>(this.#db, "cache", MAILBOX_REVS)) ?? {};
+    return (await this.#db.run((db) => getValue<Record<string, number>>(db, "cache", MAILBOX_REVS))) ?? {};
   }
 
   /** Al desemparejar (o con un `bye(revoked)`). */
   async clear(): Promise<void> {
-    await write(this.#db, ["cache", "prs"], (store) => {
+    await this.#db.run((db) => write(db, ["cache", "prs"], (store) => {
       store("cache").clear();
       store("prs").clear();
-    });
+    }));
   }
 
   close(): void {

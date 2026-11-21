@@ -2,6 +2,7 @@ import { render } from "preact";
 import { isStandalone, platformOf, type InstallPromptEvent } from "./app/install";
 import { Shell } from "./app/shell";
 import { App, InstallGate } from "./ui/app";
+import { BootError } from "./ui/screens";
 import { installPressFeedback } from "./ui/motion/press";
 import "./ui/tokens.css";
 import "./ui/base.css";
@@ -57,4 +58,9 @@ async function start(): Promise<void> {
   await shell.boot();
 }
 
-void start();
+start().catch((error: unknown) => {
+  // Algo tiró antes de armar la app: el error con "Try Again" en vez de una pantalla en blanco.
+  console.error("start", error);
+  const root = document.getElementById("app");
+  if (root) render(<BootError onRetry={() => location.reload()} />, root);
+});

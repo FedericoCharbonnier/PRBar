@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { generateEd25519, generateX25519 } from "../../../src/crypto/curves";
 import type { RemoteHome } from "../../../src/protocol/commands";
 import { Cache } from "../../../src/store/cache";
-import { getValue, openDatabase, write } from "../../../src/store/db";
+import { Database, getValue, openDatabase, write } from "../../../src/store/db";
 import { KeyStore, type StoredPairing } from "../../../src/store/keys";
 import { SeenIds } from "../../../src/store/seen";
 
@@ -119,5 +119,37 @@ describe("SeenIds", () => {
     expect((await seen.list()).at(-1)).toBe("id-5");
     await seen.clear();
     expect(await seen.list()).toEqual([]);
+  });
+});
+
+describe("Database", () => {
+  it("si la conexión se perdió (WebKit en segundo plano), abre otra y reintenta", async () => {
+    const indexedDB = new IDBFactory();
+    const database = await Database.open({ indexedDB });
+    await database.run((db) => write(db, ["keys"], (store) => store("keys").put("v", "k")));
+    const first = await database.connection();
+    // Una conexión cerrada tira InvalidStateError en la próxima transacción.
+    first.close();
+    expect(await database.run((db) => getValue(db, "keys", "k"))).toBe("v");
+    expect(await database.connection()).not.toBe(first);
+  });
+
+  it("otros errores no se reintentan", async () => {
+    const database = await Database.open({ indexedDB: new IDBFactory() });
+    let calls = 0;
+    await expect(database.run(async () => {
+      calls++;
+      throw new TypeError("boom");
+    })).rejects.toBeInstanceOf(TypeError);
+    expect(calls).toBe(1);
+  });
+
+  it("KeyStore.clear anda después de perder la conexión", async () => {
+    const indexedDB = new IDBFactory();
+    const store = await KeyStore.open({ indexedDB });
+    await store.savePairing(pairing());
+    store.close();
+    await store.clear();
+    expect(await store.hasPairing()).toBe(false);
   });
 });

@@ -116,6 +116,14 @@ export interface PairWelcomeProps {
   busy?: boolean | undefined;
   /** Error o aviso arriba del botón ("This device lost its pairing. Pair it again from your Mac."). */
   notice?: string | undefined;
+  /** Abierto sobre una sesión que sigue andando (un link nuevo, o un emparejamiento que falló): volver a ella. */
+  onCancel?: (() => void) | undefined;
+}
+
+export interface BootErrorProps {
+  onRetry: () => void;
+  /** Borra lo guardado y vuelve a pair:welcome (si el arranque llegó a abrir el almacenamiento). */
+  onReset?: (() => void) | undefined;
 }
 
 export interface PasteCodeVM {

@@ -29,7 +29,13 @@ export interface Active {
 export interface ShellEnvironment {
   mode: string;
   window: Window;
+  /** Solo para los tests: el almacenamiento y la sesión sin IndexedDB ni relay de verdad. */
+  openStorage?: () => Promise<Storage>;
+  openSession?: typeof openSession;
 }
+
+/** El texto si no se pudieron borrar las claves al desemparejar (ni borrando la base entera). */
+export const FORGET_FAILED_MESSAGE = "This iPhone couldn’t erase its keys. Close PRBar, open it again and unpair once more.";
 
 function notificationPermission(): NotificationPermission {
   if (typeof Notification === "undefined") return "unsupported";
@@ -40,6 +46,8 @@ export class Shell {
   readonly ui = new ShellUI();
   readonly router: Router;
   readonly ready = signal(false);
+  /** El arranque falló: se muestra el error con "Try Again" en vez de una pantalla en blanco. */
+  readonly bootFailed = signal(false);
   readonly active = signal<Active | null>(null);
   /** El flujo de emparejamiento sobre una sesión (un link nuevo mientras ya está emparejado). */
   readonly pairingOpen = signal(false);
@@ -90,6 +98,10 @@ export class Shell {
 
   async storage(): Promise<Storage> {
     if (this.#storage) return this.#storage;
+    if (this.#env.openStorage) {
+      this.#storage = await this.#env.openStorage();
+      return this.#storage;
+    }
     const [keys, cache, seen] = await Promise.all([KeyStore.open(), Cache.open(), SeenIds.open()]);
     this.#storage = { keys, cache, seen };
     return this.#storage;
@@ -113,15 +125,35 @@ export class Shell {
     } catch (error) {
       console.error("storage", error);
     }
-    if (pairing) await this.#activate(pairing);
+    try {
+      if (pairing) await this.#activate(pairing);
+    } catch (error) {
+      // Un emparejamiento guardado que no abre (o algo que tiró al armar la sesión): nunca una pantalla en blanco.
+      console.error("boot", error);
+      this.bootFailed.value = true;
+    }
     this.ready.value = true;
-    this.#routeChanged();
+    try {
+      this.#routeChanged();
+    } catch (error) {
+      console.error("route", error);
+    }
+  }
+
+  /** Desde la pantalla de error del arranque: borra lo guardado y recarga (vuelve a pair:welcome). */
+  async resetAfterBootFailure(): Promise<void> {
+    try {
+      await forget(await this.storage());
+    } catch (error) {
+      console.error("reset", error);
+    }
+    this.#env.window.location.reload();
   }
 
   /** `renewPush`: recién emparejado, la suscripción de push se rehace (otro endpoint) y se espera. */
   async #activate(pairing: StoredPairing, renewPush = false): Promise<void> {
     const storage = await this.storage();
-    const session = await openSession(pairing, {
+    const session = await (this.#env.openSession ?? openSession)(pairing, {
       storage, mode: this.#env.mode, onRevoked: (mac) => void this.#revoked(session, mac),
     });
     this.use(session);
@@ -158,11 +190,11 @@ export class Shell {
     if (this.active.value?.session !== session) return;
     session.transport.stop();
     session.store.detach();
-    await forget(await this.storage());
+    const forgotten = await this.#forget();
     batch(() => {
       this.active.value = null;
       this.pairingOpen.value = false;
-      this.pairing.setNotice(revokedMessage(mac));
+      this.pairing.setNotice(forgotten ? revokedMessage(mac) : FORGET_FAILED_MESSAGE);
     });
     this.router.replace({ kind: "pair" });
   }
@@ -172,12 +204,24 @@ export class Shell {
     const active = this.active.value;
     if (!active) return;
     await retire(active.session);
-    await forget(await this.storage());
+    const forgotten = await this.#forget();
     batch(() => {
       this.active.value = null;
-      this.pairing.setNotice(null);
+      this.pairingOpen.value = false;
+      this.pairing.setNotice(forgotten ? null : FORGET_FAILED_MESSAGE);
     });
     this.router.replace({ kind: "pair" });
+  }
+
+  /** Borra claves y caché. `false` si las claves no se pudieron borrar: el aviso lo dice (no se traga el error). */
+  async #forget(): Promise<boolean> {
+    try {
+      await forget(await this.storage());
+      return true;
+    } catch (error) {
+      console.error("forget", error);
+      return false;
+    }
   }
 
   /** Cerrar el flujo de emparejamiento abierto sobre una sesión (Cancel). */

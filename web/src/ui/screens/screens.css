@@ -1427,6 +1427,11 @@
   font-size: 13px;
 }
 
+.paste__hint code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
 .paste__input {
   padding: 14px 16px;
   border: 0;

@@ -3,6 +3,7 @@ import { AppStore } from "./store";
 import { passkeyAuthorizer } from "../presence/webauthn";
 import { pushManager, subscribePush, unsubscribePush } from "../push/subscribe";
 import type { Cache } from "../store/cache";
+import { deleteDatabase } from "../store/db";
 import type { KeyStore, StoredPairing } from "../store/keys";
 import type { SeenIds } from "../store/seen";
 import { LiveTransport, type Transport } from "../transport/Transport";
@@ -102,14 +103,19 @@ export async function retire(session: Session): Promise<void> {
   session.store.wipe();
 }
 
-/** Revocado o desemparejado: claves, caché, ids vistos, suscripción de push e insignia. */
-export async function forget(storage: Storage): Promise<void> {
+/** Revocado o desemparejado: claves, caché, ids vistos, suscripción de push e insignia. Las claves tienen que irse: si
+ *  no se pueden borrar (ni reabriendo la base), se borra la base entera; si tampoco, tira (el próximo arranque
+ *  volvería a cargar el emparejamiento viejo). */
+export async function forget(storage: Storage, wipe: () => Promise<void> = () => deleteDatabase()): Promise<void> {
   // La baja de la suscripción no se espera (sin service worker tardaría en rendirse).
   void pushManager().then(unsubscribePush).catch(() => {});
-  await Promise.all([
-    storage.keys.clear().catch(() => {}),
-    storage.cache.clear().catch(() => {}),
-    storage.seen.clear().catch(() => {}),
-  ]);
+  const [keys] = await Promise.allSettled([storage.keys.clear(), storage.cache.clear(), storage.seen.clear()]);
   setAppBadge(0);
+  if (keys.status === "fulfilled") return;
+  console.error("forget", keys.reason);
+  // Último recurso: se sueltan las conexiones (se reabren solas si hacen falta) y se borra la base.
+  storage.keys.close();
+  storage.cache.close();
+  storage.seen.close();
+  await wipe();
 }
