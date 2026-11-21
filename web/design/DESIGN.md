@@ -46,7 +46,8 @@ Selected tab: accentfg tint on a fill capsule. Detail screens push from rows; na
 **Mac pill (top of Home and Activity, leading):** glass capsule 44 pt: 32 pt circle (fill) with `laptopcomputer`, then
 "Diego's MacBook Pro" (14 semibold) over a 7 pt dot + "Connected · updated just now" (12, fg2). Offline: grey dot,
 "Offline · last seen 8:12 AM". VoiceOver: "<Mac>, connected, updated just now". Home also has a trailing glass circle
-button "Filter" (`line.3.horizontal.decrease`).
+button "Filter" (`line.3.horizontal.decrease`); the web app leaves it out until it has a defined behaviour. The pill has
+no action of its own (not a button).
 
 **Section header:** title 17 semibold + count 15 fg2 + trailing chevron (down when open, right when collapsed); the whole
 header toggles; VO "<title>, <n>, expanded/collapsed". Rows are grouped in a bg2 card r24 with 0.5 pt separators inset 62.
