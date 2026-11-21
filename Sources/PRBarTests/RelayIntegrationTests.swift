@@ -85,7 +85,7 @@ enum RelayIntegrationTests {
                 })
             try await host.connect()
             // Emparejar.
-            let presence = SoftwarePresenceSigner()
+            let presence = SoftwareWebAuthnAuthenticator(rpId: rpIdOf(relay.host))
             let client = RemoteClient(configuration: .init(appVersion: "1.2.0", deviceName: "iPhone", model: "iPhone",
                                                            handshakeTimeout: .seconds(5)),
                                       linkFactory: factory)
@@ -96,7 +96,7 @@ enum RelayIntegrationTests {
                 for await event in events { if case .pairingJoined(let sas, _, _) = event { return sas } }
                 throw TestFailure(description: "no join")
             }
-            let sas = try await client.startPairing(qr: qr, presenceKey: presence.publicKey)
+            let sas = try await client.startPairing(qr: qr, presence: presence.credential)
             let joinedSAS = try await joined
             try expectEqual(joinedSAS, sas)
             try await host.confirmPairing(true)

@@ -19,7 +19,9 @@ extension SnapshotFixtures {
         PairedDevice(deviceId: id, name: name, model: model,
                      noise: Curve25519.KeyAgreement.PrivateKey().publicKey.rawRepresentation,
                      push: Curve25519.KeyAgreement.PrivateKey().publicKey.rawRepresentation,
-                     presence: P256.Signing.PrivateKey().publicKey.x963Representation,
+                     presence: PresenceCredential(credentialId: randomBytes(16),
+                                                  publicKey: P256.Signing.PrivateKey().publicKey.derRepresentation,
+                                                  rpId: RemoteSettings.defaultRelayHost),
                      pairedAt: Date().addingTimeInterval(-pairedDaysAgo * 86_400), requirePresence: requirePresence)
     }
 

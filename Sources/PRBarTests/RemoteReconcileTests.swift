@@ -97,7 +97,7 @@ enum RemoteReconcileTests {
             try await eventually(3, "ranura") { await relay.pairingSlot(account) == info.pairing }
             // El relay deja pasar el handshake y el `confirm`, pero retiene el resultado y el acuse.
             await relay.setPairForwardLimit(2)
-            _ = try await client.startPairing(qr: try PairingQR(url: info.qr), presenceKey: h.presence.publicKey)
+            _ = try await client.startPairing(qr: try PairingQR(url: info.qr), presence: h.presence.credential)
             _ = try await h.service.pairWait(pairing: info.pairing, events: { _ in })
             let confirming = Task { @MainActor in try await h.service.pairConfirm(pairing: info.pairing, accepted: true) }
             try await Task.sleep(for: .milliseconds(150))
@@ -125,7 +125,7 @@ enum RemoteReconcileTests {
             let relay = h.relay, account = h.account
             try await eventually(3, "ranura") { await relay.pairingSlot(account) == info.pairing }
             let client = h.client()
-            _ = try await client.startPairing(qr: try PairingQR(url: info.qr), presenceKey: h.presence.publicKey)
+            _ = try await client.startPairing(qr: try PairingQR(url: info.qr), presence: h.presence.credential)
             let joined = try await within { try await sheet.value }
             try expect(joined.code != nil)
         },

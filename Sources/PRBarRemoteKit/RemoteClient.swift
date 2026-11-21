@@ -151,9 +151,10 @@ public actor RemoteClient {
     }
 
     /// Se une a la ranura del QR, hace el handshake IKpsk2 y devuelve el código de 6 dígitos para comparar con la Mac.
-    /// `presenceKey`: la pública x963 de la clave del Secure Enclave. `keys`: las claves nuevas del teléfono (la app
-    /// las genera y las guarda recién cuando la Mac confirma).
-    public func startPairing(qr: PairingQR, presenceKey: Data, keys: DeviceKeys = DeviceKeys()) async throws -> String {
+    /// `presence`: la passkey creada antes del handshake (W.4.6; `nil` si no se pudo). `keys`: las claves nuevas del
+    /// teléfono (se guardan recién cuando la Mac confirma).
+    public func startPairing(qr: PairingQR, presence: PresenceCredential?, keys: DeviceKeys = DeviceKeys()) async throws
+        -> String {
         await cancelPairingFlow()
         let secrets = PairingSecrets(secret: qr.secret)
         let link = linkFactory(.pairing(account: qr.accountId, pairing: qr.pairingId, authKey: secrets.authKey))
@@ -183,7 +184,7 @@ public actor RemoteClient {
                 psk: secrets.psk)
             let join = PairingJoin(deviceName: config.deviceName, model: config.model,
                                    relayKey: keys.relay.publicKey.rawRepresentation,
-                                   push: keys.push.publicKey.rawRepresentation, presence: presenceKey)
+                                   push: keys.push.publicKey.rawRepresentation, presence: presence)
             try link.send(.send(to: "mac", sid: sid, b: try handshake.writeMessage(payload: try PairingMessage.join(join).encoded())))
             let reply = try await withCheckedThrowingContinuation { (c: CheckedContinuation<Data, Error>) in
                 guard pairingFlow?.sid == sid else { return c.resume(throwing: RemoteError.pairingCancelled) }
@@ -614,8 +615,8 @@ public actor RemoteClient {
     }
 
     /// Manda un comando. Los eventos (`progress`, `text`) llegan antes de la respuesta final, que cierra el stream.
-    /// `presence`: firma la atestación de Face ID (para los comandos gated).
-    public func send(_ command: AppCommand, presence: PresenceSigner? = nil) async throws
+    /// `presence`: firma el desafío de Face ID con la passkey (para los comandos gated, W.5).
+    public func send(_ command: AppCommand, presence: WebAuthnAuthenticator? = nil) async throws
         -> AsyncThrowingStream<CommandResponse, Error> {
         try await ensureSession()
         guard let current = channel else { throw RemoteError.sessionClosed }
@@ -624,7 +625,7 @@ public actor RemoteClient {
         let cmd = try CommandProtocol.encoder.encode(command)
         var proof: PresenceProof?
         if let presence {
-            proof = try await PresenceProof.make(signer: presence, sessionHash: current.handshakeHash, reqId: UInt64(id),
+            proof = try await PresenceProof.make(authenticator: presence, sessionHash: current.handshakeHash, reqId: UInt64(id),
                                                  commandBytes: cmd, at: clock())
             // La firma pudo tardar (Face ID): si la sesión cambió, la prueba ya no sirve.
             guard channel?.sid == current.sid else { throw RemoteError.sessionClosed }
@@ -652,7 +653,7 @@ public actor RemoteClient {
     }
 
     /// Manda un comando y espera solo el resultado final.
-    public func run(_ command: AppCommand, presence: PresenceSigner? = nil) async throws -> CommandResponse {
+    public func run(_ command: AppCommand, presence: WebAuthnAuthenticator? = nil) async throws -> CommandResponse {
         var last: CommandResponse?
         for try await response in try await send(command, presence: presence) where response.event == nil {
             last = response

@@ -69,10 +69,11 @@ struct PairingJoin: Codable, Equatable, Sendable {
     var model: String
     var relayKey: Data
     var push: Data
-    var presence: Data
+    /// La passkey (W.4.5); sin ella el teléfono se empareja igual, pero sin poder pasar Face ID.
+    var presence: PresenceCredential?
 
     var isValid: Bool {
-        relayKey.count == 32 && push.count == 32 && (try? P256.Signing.PublicKey(x963Representation: presence)) != nil
+        relayKey.count == 32 && push.count == 32 && (presence?.isValid ?? true)
             && !deviceName.isEmpty && deviceName.count <= 64 && model.count <= 64
     }
 }

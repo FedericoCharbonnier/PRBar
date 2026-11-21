@@ -116,13 +116,36 @@ enum RemoteSettingsTests {
             try store.add(sampleDevice("dev3"))
             try expectEqual(RemoteDeviceStore(directory: dir).devices.count, 1)
         },
+        TestCase("remote devices: un devices.json de la app nativa (presence x963) se lee como vacío") {
+            let dir = try temporaryDirectory().appendingPathComponent("remote")
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let old = """
+            [{"device":{"deviceId":"dev1","model":"iPhone","name":"iPhone","noise":"\(Base64URL.encode(Data(count: 32)))",
+            "pairedAt":"2026-11-20T10:00:00Z","presence":"\(Base64URL.encode(Data(count: 65)))",
+            "push":"\(Base64URL.encode(Data(count: 32)))","requirePresence":true},"notificationsOff":false}]
+            """
+            try Data(old.utf8).write(to: dir.appendingPathComponent("devices.json"))
+            try expect(RemoteDeviceStore(directory: dir).devices.isEmpty)
+        },
+        TestCase("remote devices: la passkey se guarda y un dispositivo sin passkey también") {
+            let dir = try temporaryDirectory().appendingPathComponent("remote")
+            let store = RemoteDeviceStore(directory: dir)
+            let withPasskey = sampleDevice("dev1")
+            var without = sampleDevice("dev2")
+            without.presence = nil
+            try store.add(withPasskey)
+            try store.add(without)
+            let reopened = RemoteDeviceStore(directory: dir).devices.map(\.device)
+            try expectEqual(reopened, [withPasskey, without])
+            try expect(reopened[0].presence?.isValid == true)
+        },
     ]
 
     static func sampleDevice(_ id: String, name: String = "Federico’s iPhone") -> PairedDevice {
         PairedDevice(deviceId: id, name: name, model: "iPhone 17 Pro",
                      noise: Curve25519.KeyAgreement.PrivateKey().publicKey.rawRepresentation,
                      push: Curve25519.KeyAgreement.PrivateKey().publicKey.rawRepresentation,
-                     presence: P256.Signing.PrivateKey().publicKey.x963Representation,
+                     presence: SoftwareWebAuthnAuthenticator(rpId: "relay.test").credential,
                      pairedAt: Date(timeIntervalSince1970: 1_800_000_000))
     }
 }

@@ -48,7 +48,7 @@ struct ServiceHarness {
     let secrets: FakeSecrets
     let service: RemoteAccessService
     let actions: FakeActions
-    let presence = SoftwarePresenceSigner()
+    let presence = SoftwareWebAuthnAuthenticator(rpId: "relay.test")
     let devicesDir: URL
 
     static func make(keepAwake: KeepAwake? = nil, enabled: Bool = true) async throws -> ServiceHarness {
@@ -94,13 +94,13 @@ struct ServiceHarness {
     }
 
     /// Empareja un teléfono por el servicio (QR → código → Codes Match) y conecta su sesión.
-    func pair(name: String = "Federico’s iPhone", presence: SoftwarePresenceSigner? = nil) async throws -> RemoteClient {
+    func pair(name: String = "Federico’s iPhone", presence: SoftwareWebAuthnAuthenticator? = nil) async throws -> RemoteClient {
         let client = client(name: name)
         let info = try await service.pairStart()
         let relay = relay, account = account
         try await eventually(3, "ranura") { await relay.pairingSlot(account) == info.pairing }
         let qr = try PairingQR(url: info.qr)
-        let sas = try await client.startPairing(qr: qr, presenceKey: (presence ?? self.presence).publicKey)
+        let sas = try await client.startPairing(qr: qr, presence: (presence ?? self.presence).credential)
         let joined = try await service.pairWait(pairing: info.pairing, events: { _ in })
         try expectEqual(joined.code?.replacingOccurrences(of: " ", with: ""), sas)
         try expectEqual(joined.deviceName, name)
@@ -198,7 +198,7 @@ enum RemoteBridgeTests {
         try expectEqual(h.service.devices.map(\.device.deviceId), [paired.deviceId])
         let stored = h.service.devices[0].device
         try expect(stored.requirePresence)
-        try expectEqual(stored.presence, h.presence.publicKey)
+        try expectEqual(stored.presence, h.presence.credential)
         try expect(stored.noise.count == 32 && stored.push.count == 32)
         let registered = await h.relay.hasDevice(h.account, paired.deviceId)
         try expect(registered)
@@ -208,7 +208,7 @@ enum RemoteBridgeTests {
         let info = try await h.service.pairStart()
         let relay = h.relay, account = h.account
         try await eventually(3, "ranura") { await relay.pairingSlot(account) == info.pairing }
-        _ = try await other.startPairing(qr: try PairingQR(url: info.qr), presenceKey: h.presence.publicKey)
+        _ = try await other.startPairing(qr: try PairingQR(url: info.qr), presence: h.presence.credential)
         _ = try await h.service.pairWait(pairing: info.pairing, events: { _ in })
         let cancelled = try await h.service.pairConfirm(pairing: info.pairing, accepted: false)
         try expectEqual(cancelled.device, nil)
@@ -289,7 +289,7 @@ enum RemoteBridgeTests {
     static func bridgePresence() async throws {
         let h = try await ServiceHarness.make()
         let mine = try await h.pair()
-        let otherSigner = SoftwarePresenceSigner()
+        let otherSigner = SoftwareWebAuthnAuthenticator(rpId: "relay.test")
         let other = try await h.pair(name: "Work iPhone", presence: otherSigner)
         let mineId = await mine.paired!.deviceId
         let otherId = await other.paired!.deviceId
@@ -408,7 +408,7 @@ enum RemoteBridgeTests {
         let info = try await h.service.pairStart()
         let relay = h.relay, account = h.account
         try await eventually(3, "ranura") { await relay.pairingSlot(account) == info.pairing }
-        _ = try await client.startPairing(qr: try PairingQR(url: info.qr), presenceKey: h.presence.publicKey)
+        _ = try await client.startPairing(qr: try PairingQR(url: info.qr), presence: h.presence.credential)
         let joined = try await h.service.pairWait(pairing: info.pairing, events: { _ in })
         try expectEqual(joined.deviceName, "FedeenohPi X")
         _ = try await h.service.pairConfirm(pairing: info.pairing, accepted: true)
