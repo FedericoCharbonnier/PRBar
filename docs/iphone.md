@@ -48,8 +48,9 @@ Options:
   power, PRBar keeps it from idle sleep so the iPhone can reach it. The display still sleeps. With the lid closed and
   no external display, macOS sleeps anyway. `pmset -g assertions | grep PRBar` shows it.
 - **Keep the last state on the relay for 7 days** (`prbar remote mailbox on|off`, on by default): the Mac leaves its
-  latest PR list, encrypted for each paired iPhone, so the iPhone shows something recent while the Mac sleeps.
-  Turning it off replaces it with an empty state.
+  latest PR list, encrypted for each paired iPhone, so the iPhone shows something recent while the Mac sleeps
+  ("Last updated" is when the Mac wrote it). The iPhone never shows a copy older than 7 days or older than what it
+  already has. Turning it off replaces it with an empty state (on the next connection if the Mac is offline).
 
 ## 3. Pair the iPhone
 
@@ -58,16 +59,24 @@ Camera or with PRBar on the iPhone. Both screens then show the same **6-digit co
 **Codes Match** (or answer `y`). The QR works once and expires in 5 minutes. If the codes don't match, cancel:
 someone else may have scanned your QR.
 
-By default, **merge, push and approve need Face ID** on the iPhone. You can turn it off per iPhone (Settings ›
-iPhone, `prbar remote devices --require-face-id <iphone> off`, or on the iPhone itself, which asks for Face ID to turn
-it off).
+By default, **merge, push, approve and running the tests need Face ID** on the iPhone. You can turn it off per iPhone
+(Settings › iPhone, `prbar remote devices --require-face-id <iphone> off`, or on the iPhone itself, which asks for Face
+ID to turn it off). The iPhone can ask Claude to implement fixes and edit them in the chat without Face ID, but that
+never runs anything: the repo's test command (and a push, which runs your git hooks) only runs on the Mac with a Face ID
+proof from that iPhone, checked by the Mac. A change of this setting on the Mac reaches a connected iPhone right away.
+If the Mac confirms the code before you tap **Codes Match** on the iPhone, the iPhone waits for your tap before it
+stores the pairing.
 
 ## 4. Revoke or reset
 
 - **Revoke** an iPhone: Settings › iPhone › Revoke…, `prbar remote revoke <iphone>`, or "Unpair this iPhone" on the
-  iPhone. The Mac forgets its keys right away, so it can't connect again even if the relay misbehaves.
+  iPhone. The Mac forgets its keys right away, so it can't connect again even if the relay misbehaves. If the Mac is
+  offline (or iPhone access is off), the relay is told the next time the Mac connects: on every connection the Mac
+  removes from the relay any iPhone it doesn't have, which also deletes its mailbox copy.
 - **Reset iPhone Access…** (`prbar remote reset`): new Mac keys and a new relay account, and every iPhone is removed.
-  Use it if the relay or the Mac may be compromised. You'll need the enrollment token again.
+  Use it if the relay or the Mac may be compromised. You'll need the enrollment token again. The relay can't delete
+  accounts, so PRBar keeps the old account's relay key until it has removed every iPhone of that account from the relay
+  (right away, or at the next start if the relay can't be reached), then forgets it.
 
 ## What the relay can and can't see
 
@@ -78,10 +87,12 @@ it off).
 | Send an empty push ("New activity on your Mac") | Show a fake notification: the iPhone only shows what the Mac encrypted |
 | Refuse to forget a revoked iPhone | Let a revoked iPhone back in: the Mac enforces revocation |
 | — | Pair its own phone: it needs the secret in the QR and your OK on the 6-digit code |
-| — | Merge, push or approve without Face ID: the Mac checks the Face ID signature |
+| — | Merge, push, approve or run the tests without Face ID: the Mac checks the Face ID signature |
 
 Frames are **not compressed** before encryption: a PR list mixes private data with titles anyone can write, and
-compressed sizes would leak it. What the iPhone receives never includes local paths or tool paths from the Mac.
+compressed sizes would leak it. What the iPhone receives never includes local paths (your home folder, clones, worktree
+and temporary folders, anywhere in a message, test output or chat), tool paths or SSH hosts from the Mac, terminal
+escape codes or invisible bidi characters, and tokens that show up in test output are masked.
 
 The Mac also caps what one iPhone can ask for (8 requests at a time, 30 in a burst then 5 per second, and a few new
 secure sessions per minute), so a stolen phone or a misbehaving relay can't flood it.

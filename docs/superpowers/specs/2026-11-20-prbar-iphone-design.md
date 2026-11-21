@@ -28,7 +28,8 @@ es `DIGEST.md` (ver R.1); los ids de pantalla de este spec (`home`, `review:face
 3. **Emparejamiento** con un QR que muestra la Mac + un **código de 6 dígitos** que se ve en los dos lados. Dispositivos
    revocables desde Settings de la Mac.
 4. **Face ID** en el teléfono para **merge, push y approve** (ajuste del diseño: "Require Face ID for merge, push and
-   approve").
+   approve"); desde la revisión de seguridad del iPhone (P.16, H1) también para **correr los tests** (el ajuste dice
+   "merge, push, approve and tests").
 5. **La Mac hace todo** (GitHub, Claude, Slack, push, merge). La Mac sale **hacia** el relay (WebSocket sobre TLS); no
    abre puertos. Mac dormida o apagada → el teléfono muestra el estado offline con lo cacheado en gris.
 6. **Alcance**: todo lo que hace la app de la Mac, en fases. Fase 1: relay + emparejamiento + listas en vivo (las dos
@@ -208,12 +209,12 @@ compila hasta que alguien decide. Clases: `.allowed`, `.gated` (Face ID, P.8), `
 | Clase | Comandos |
 |---|---|
 | Lectura (allowed) | `status`, `listPRs`, `resolvePR`, `history`, `historyShow`, `reviewShow`, `respondShow`, `respondDiff`, `mergePreview`, `chatShow`, `resources`, `usage`, `ciList`, `notifyList` |
-| Acciones (allowed) | `refresh`, `reviewStart`, `reviewEdit`, `reviewSetIncluded`, `reviewSetComment`, `reviewPublish` (comment / request changes), `reviewCancel`, `reviewDismiss`, `respondStart`, `respondSelect`, `respondReset`, `respondImplement`, `respondTest`, `respondReplyOnly`, `respondCancel`, `respondDismiss`, `ciFix`, `mergeDismiss`, `chatSend`, `chatUndo`, `chatStop`, `notifySet`, `notifySetEnabled` |
-| Face ID (gated) | `merge`, `respondPush`, `respondPushAnyway`, `reviewPublish` con `event == .approve`, y `remoteSetPresenceRequirement(false)` |
+| Acciones (allowed) | `refresh`, `reviewStart`, `reviewEdit`, `reviewSetIncluded`, `reviewSetComment`, `reviewPublish` (comment / request changes), `reviewCancel`, `reviewDismiss`, `respondStart`, `respondSelect`, `respondReset`, `respondImplement`, `respondReplyOnly`, `respondCancel`, `respondDismiss`, `ciFix`, `mergeDismiss`, `chatSend`, `chatUndo`, `chatStop`, `notifySet`, `notifySetEnabled` |
+| Face ID (gated) | `merge`, `respondPush`, `respondPushAnyway`, `respondTest` (P.16 H1), `reviewPublish` con `event == .approve`, y `remoteSetPresenceRequirement(false)` |
 | Denegados | todo lo demás: ventanas y app (`open*`, `quit`, `openPopover`, `historyReopen`), cuentas/repos/follow, `tools*`, Slack (incluye tokens y `slackSelfTest`), `update*`, `runner*`, `rules*`, `claude*` de escritura, prompts, `cleanup`, `setLaunchAtLogin`, `setRefreshInterval`, `setDiskWarning`, `setUpdateInterval`, `chatProposal`, `configShow`, `claudeShow`, `toolsList`, `slackShow`, y todos los `remote*` |
 
 - Criterio: nada que cambie rutas de herramientas, tokens, destinos SSH, el updater, o que muestre secretos o rutas
-  locales; de Settings solo las notificaciones (el resto de Settings del teléfono es local al teléfono, R.6).
+  locales; **nada que ejecute código del repo en la Mac sin Face ID** (`RemotePolicy.runsRepoCode`: tests y push, P.16); de Settings solo las notificaciones (el resto de Settings del teléfono es local al teléfono, R.6).
 - Un comando denegado contesta `CommandFailure(.unauthorized, "This can’t be done from iPhone. Use PRBar on your Mac.")`
   y se loguea su `name` (nunca los argumentos).
 - `confirmed` sigue siendo obligatorio donde hoy lo es (el teléfono lo manda después de su hoja de confirmación).
@@ -348,7 +349,7 @@ compila hasta que alguien decide. Clases: `.allowed`, `.gated` (Face ID, P.8), `
 | VPS/relay comprometido | Ver ids, tamaños aproximados (con relleno), horarios, IPs, tokens de APNs; cortar o demorar mensajes; borrar datos; mandar pushes con contenido falso visible solo como el texto genérico | Leer contenido (Noise/HPKE); mandar comandos (no tiene estáticas ni `presenceKey`); repetir comandos (contadores de Noise, `sentAt` ≤ 120 s, ids de `req`); falsificar notificaciones (HPKE auth con `macSealKey`; sin eso la NSE muestra el texto genérico); emparejar un teléfono suyo (necesita `ps` del QR y que el usuario apruebe el SAS en la Mac) |
 | Alguien en la red | Lo mismo que el relay menos ver ids (TLS) | — |
 | Cliente al azar en internet | Llegar al `challenge` | Crear cuentas (token de inscripción), ocupar buzones (firma), agotar recursos (límites por IP y conexión) |
-| Teléfono robado y desbloqueado | Ver listas, chatear, empezar reviews (lo que haría el dueño sin Face ID) | Merge, push, approve (Face ID en Secure Enclave verificado por la Mac); apagar Face ID (gated); cambiar tokens, herramientas, destinos SSH o actualizar (denegados). Mitigación: Revoke desde la Mac |
+| Teléfono robado y desbloqueado | Ver listas, chatear, empezar reviews, pedirle a Claude que cambie el worktree (lo que haría el dueño sin Face ID; Claude no tiene `Bash`) | Merge, push, approve, **correr los tests o cualquier código del repo en la Mac** (Face ID en Secure Enclave verificado por la Mac, P.16 H1); apagar Face ID (gated); cambiar tokens, herramientas, destinos SSH o actualizar (denegados). Mitigación: Revoke desde la Mac |
 | Teléfono robado y bloqueado | Nada: el llavero de la app es `AfterFirstUnlockThisDeviceOnly` y la caché tiene protección de datos | — |
 | Contenido de PRs ajenos | Llega al teléfono como texto | Ejecutar nada: el teléfono solo muestra texto (`Text` sin markdown activo para contenido ajeno, links sin auto-abrir) |
 | Apple (APNs) | Ver tokens, horarios, colapso/hilo opacos | Leer contenido |
@@ -460,6 +461,61 @@ inundar la Mac, y un relay malicioso no puede hacerla trabajar):
 Un `deviceId` desconocido o revocado se rechaza antes de cualquier DH, y el emparejamiento ya era una ranura con un
 solo teléfono. Cada tope frenado emite `RemoteHostEvent.rateLimited(device:)` (la app lo loguea con el prefijo del id).
 
+### P.16 Revisión de seguridad de la integración del iPhone (feat/ios-app @ 0b62dbb)
+
+Una revisión de `PRBarRemoteMac`, los cambios de RemoteKit, los comandos `remote*`, Settings › iPhone y
+`ios/PRBarMobileKit` encontró un hallazgo alto, cinco medios y seis bajos. Decisiones:
+
+- **H1 — código del repo en la Mac desde el teléfono sin Face ID.** El chat de Respond/Fix CI puede editar el worktree
+  (`Edit`/`Write`, nunca `Bash`) y `respondTest` corría el comando de tests de ese worktree. **Decisión**: implementar,
+  el chat, Undo y Fix CI siguen sin Face ID y **nunca corren tests solos** (no lo hacían; ahora hay tests que lo fijan);
+  todo lo que ejecuta código del repo en la Mac pide una prueba de presencia de ese pedido: `respondTest` pasa a gated
+  (como `respondPush`/`respondPushAnyway`, que corren los hooks de git del usuario y, con "Run tests before pushing",
+  los tests). `RemotePolicy.runsRepoCode = [respondTest, respondPush, respondPushAnyway]`, todos gated (test). Se hace
+  cumplir en la Mac en tres capas: (1) `RemoteHost` verifica la prueba (P.8) y le pasa al puente `RemoteCaller
+  {device, presenceVerified}`; (2) el puente rechaza esos comandos sin prueba (salvo un iPhone con "Require Face ID"
+  apagado en la Mac, decisión del usuario, igual que merge y push) y despacha dentro de `CommandOrigin.phone(device:,
+  mayRunRepoCode:)` (`@TaskLocal` de Core); (3) `RespondQueue.runTests`/`pushAfterTests`/`publish` y los comandos de
+  `AppModel` no arrancan tests ni push con `mayRunRepoCode == false`. Los trabajos del `JobScheduler` corren como
+  `.mac`, así un push pedido en la Mac nunca hereda el origen de un pedido del teléfono. En el iPhone, Respond muestra
+  "Tests" con el glifo de Face ID y el ajuste dice "Require Face ID for merge, push, approve and tests".
+- **M1 — rutas locales por valor.** `RemoteRedactor` (Core) corre sobre cada resultado, error (`CommandFailure`),
+  evento (`progress`, `text`), tópico, `chatDelta` y push: reescribe el home (`~`), las carpetas de PRBar, la temporal
+  (`$TMPDIR`), los clones, carpetas de worktrees y de runners de la config (su último componente), los hosts SSH
+  ("remote host") y cualquier otro `/Users/<x>`, `/home/<x>` o `/var/folders/…`; saca escapes ANSI, controles y
+  caracteres de formato (bidi, ancho cero; queda el ZWJ de los emoji) con `RemoteText.clean` (Wire) y tacha tokens y
+  formas de secretos como en los logs de CI. Por clave: `clone`, `localPath`, `worktreeDir` y `dir` se suman a
+  `logPath`/`worktree`/`path`, solo si son absolutas (una ruta relativa al repo queda entera), y el `host` de un
+  trabajo remoto queda "remote". Un `diff` queda tal cual salvo controles y bidi, que se ven como U+FFFD. Los deltas
+  del chat se calculan sobre el texto ya redactado (una ruta partida entre dos pedazos igual se reescribe). Test que
+  envenena cada texto de `RemoteActivity`, `RemoteHome` y `RemotePRDetail` y busca fugas.
+- **M2 — el buzón no vuelve atrás.** `rev` en vivo (por sesión de la Mac) y `rev` del buzón (reloj de la Mac en ms) son
+  guardas separadas en `AppStore`; la del buzón se guarda en la caché (`mailbox.json`) y `LiveTransport` la restaura en
+  `RemoteClient`. `MailboxBlob.open` rechaza un blob de más de 7 días (o más de 10 min en el futuro); el teléfono además
+  ignora un blob escrito antes del `home` que está mostrando, y "Last updated" es su `createdAt`, no la hora de llegada.
+- **M3 — sesión muerta "online".** `RemoteClient` descarta la sesión y pasa a `.disconnected` cuando llega `presence
+  mac=online` con una sesión abierta (la Mac se volvió a registrar sin pasar por offline), cuando un marco no
+  autentica, con un `bye` de la Mac (`rotate`, `desync`…), en su propia rotación y cuando un pedido vence;
+  `LiveTransport` reconecta y vuelve a suscribirse. Test de punta a punta con el relay de Go.
+- **M4 — feed.** Los pedidos que llegan mientras se calcula se juntan (unión de tópicos; uno completo gana).
+- **M5 — lo hecho sin conexión.** Al conectar, la Mac pide `devices` al relay y da de baja los que no tiene (Revoke sin
+  conexión o con el acceso apagado, un `device.remove` perdido, un emparejamiento que no terminó); con el buzón apagado
+  pisa los slots. El relay no tiene "borrar cuenta": Reset guarda la clave de relay de la cuenta vieja como
+  **retirada** (llavero, `mac-relay-retired`), entra con ella, da de baja todos sus dispositivos (con eso el relay borra
+  sus buzones), confirma con otra lista vacía y recién ahí la olvida; si no llega, reintenta en el próximo arranque.
+  La cuenta vacía sigue ocupando un lugar en `RELAY_MAX_ACCOUNTS` (abierto: un `account.delete` en el relay).
+- **Bajos.** L1: la salida de los tests pasa por `RemoteRedactor` (M1). L2: `RemoteClient.presencePolicyUpdates`; el
+  cambio de Face ID hecho en la Mac llega a mitad de sesión. L3: Cancel durante la espera del acuse cierra la ranura en
+  el host (`cancelPairing`, deshace el alta en el relay y el acuse tardío no encuentra nada); cancelar una espera de
+  `pairWait` no corta las demás. L4: la cuenta que devuelve la inscripción se valida con
+  `RemoteSettings.isValidAccountId`. L5: nombres en una línea y sin bidi/escapes (`RemoteText.displayName`): el de la
+  Mac en el QR/link y en el `hello`/resultado, el del teléfono al unirse; títulos de push; y el teléfono guarda un
+  emparejamiento recién con su propio "Codes Match" (si la Mac confirma antes, el resultado queda en memoria). L6:
+  `SystemKeychain` actualiza en el lugar (`SecItemUpdate`, agrega solo si falta); `retryNow` no se pisa consigo mismo y
+  `stop()` no marca "disabled" un host nuevo; el host SSH de un trabajo no sale de la Mac.
+- **Abierto**: un corte de red con una ranura de emparejamiento abierta la cancela (la ranura del relay también se pierde
+  con la conexión); borrar cuentas en el relay (M5).
+
 ---
 
 ## Q. Lado Mac
@@ -559,9 +615,11 @@ false)` también cierra una ranura a la que nadie se unió. "Codes Match" espera
 **El puente.** `RemoteHost` le pasa al handler el `PairedDevice` (`DeviceHandler`, agregado en RemoteKit); el puente
 loguea `iPhone <4>: <comando>`, vuelve a mirar `RemotePolicy` (defensa en profundidad), reemplaza el `device` de
 `remoteSetPresenceRequirement` por el del teléfono que lo pidió y llama a `CommandDispatcher.run` sobre el mismo
-`AppModel`. **Redacción**: a todo resultado y tópico que va al teléfono se le aplica `RemoteRedaction.scrub`: `logPath`,
-`worktree` y `path` quedan en su último componente y `tools` vacío (P.7: ni rutas locales ni herramientas; `status`
-traía las rutas de `gh`/`git`/`claude` y `resources` las carpetas del disco). Los tipos se siguen decodificando.
+`AppModel`. **Redacción**: a todo resultado, error, evento y tópico que va al teléfono se le aplica `RemoteRedactor`
+(por clave y por valor, P.16 M1): las rutas absolutas de `logPath`, `worktree`, `path`, `clone`, `localPath`,
+`worktreeDir` y `dir` quedan en su último componente, `tools` vacío, y cada texto sin rutas locales, escapes, bidi ni
+secretos (P.7; `status` traía las rutas de `gh`/`git`/`claude` y `resources` las carpetas del disco). Los tipos se siguen
+decodificando. El puente despacha dentro de `CommandOrigin.phone` (P.16 H1).
 
 **Feed.** `AppModel` es `ObservableObject` (Combine), no `@Observable`: en vez de `withObservationTracking`, el servicio
 recibe los `objectWillChange` de `AppModel`, `PRStore`, las colas de review/respond y `MergeQueue`, agrupados cada 300 ms.
@@ -601,8 +659,8 @@ o "Last seen …", "Require Face ID", Revoke…, aviso de notificaciones apagada
 iPhone Access…). Capturas: `settings-iphone` (conectado, dos iPhones, con link), `settings-iphone-off`,
 `settings-iphone-off-link`, `iphone-pair-qr`, `iphone-pair-code`, `iphone-enable`.
 
-**Revocar con el acceso apagado** solo borra el dispositivo en la Mac (no hay conexión para mandar `device.remove`);
-la Mac igual rechaza su estática, y un relay que lo siga conociendo solo le deja llegar al `challenge`/handshake fallido.
+**Revocar con el acceso apagado** borra el dispositivo en la Mac en el acto (la Mac rechaza su estática); el
+`device.remove` sale al volver a conectar, cuando la Mac reconcilia su lista con la del relay (P.16 M5).
 
 **Tests.** `RemoteSettingsTests`, `RemoteBridgeTests` (servicio + `InMemoryRelay` + `FakeActions` + `RemoteClient`),
 `RemoteCLITests`, `RemoteHardeningTests` (P.15), y `RemoteMacIntegrationTests` contra el binario del relay en
@@ -712,7 +770,8 @@ Estado: la app habla con la Mac por el relay (`LiveTransport`, `LivePairingServi
   `RemoteActivity`, `CIListEntry`, `CICheckFailure`, `UsageInfo`). Se borraron `RemoteCommand`, `RespondExtras`,
   `CIEntry`, `CICheck`, `UsageDigest`, `SystemStats` y `RunningJob`.
 - **Tópicos.** Cada pantalla retiene su tópico mientras está visible (`activity` solo con Activity abierta). `rev`: por
-  sesión para los `state`; el del buzón se compara con el último `home` guardado.
+  sesión para los `state`; el del buzón es otra guarda, guardada en la caché, y un blob solo se muestra si es más nuevo
+  que el `home` en pantalla y tiene menos de 7 días ("Last updated" = cuándo lo escribió la Mac; P.16 M2).
 - **Datos que el diseño muestra (campos opcionales, sin cambiar el protocolo).** La Mac los llena con lo que ya
   tiene, sin pedidos nuevos a GitHub; sin ellos la UI usa su texto genérico:
   - `PRInfo.authorName` (nombre visible del autor; `... on User { name }` en la consulta de PRs abiertos que ya se hacía,
@@ -815,7 +874,8 @@ Estado: la app habla con la Mac por el relay (`LiveTransport`, `LivePairingServi
 3. Noise KK para sesiones, Noise IKpsk2 para emparejar, HPKE auth para pushes y buzón; todo CryptoKit.
 4. SAS = HKDF del hash del handshake, 6 dígitos; la Mac confirma.
 5. Face ID = firma P-256 del Secure Enclave atada a sesión, comando, id y hora; la verifica la Mac.
-6. Lista permitida exhaustiva en código compartido; por defecto se deniega.
+6. Lista permitida exhaustiva en código compartido; por defecto se deniega. Ejecutar código del repo en la Mac (tests,
+   push) desde el teléfono pide siempre Face ID, verificado en la Mac y vuelto a mirar en Core (`CommandOrigin`, P.16).
 7. Sin cola de comandos offline; con buzón de estado cifrado (último `home`) y caché local.
 8. Relay en Go/distroless con bbolt, inscripción por token, auth Ed25519 por desafío, logs sin contenido.
 9. iOS 26 mínimo; XcodeGen; bundle ids `com.federico.prbar.ios[.notifications]`.

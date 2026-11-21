@@ -15,7 +15,14 @@ swift run PRBarMobileSnapshots   # every screen id, light and dark, to ios/snaps
 End to end on this Mac, no simulator: `Scripts/ios-e2e.sh` (needs Go) builds the relay into a temporary folder, runs
 it on 127.0.0.1 and drives the phone's view models over `LiveTransport` against a real `RemoteAccessService` with
 fixture PRs: pairing (QR, code, acknowledgement), home, review toggle, approve and merge with Face ID proofs (software
-key), chat, revoke, and a relay 4403 that must not unpair. Without `PRBAR_RELAY_BIN` the suite is skipped.
+key), chat, revoke, a relay 4403 that must not unpair, a Mac that registers again at the relay without going offline
+(the phone must rebuild its session) and Face ID turned off and on from the Mac mid-session. Without
+`PRBAR_RELAY_BIN` the suite is skipped.
+
+Security review decisions that show in the app (spec P.16): "Tests" on the Respond screen asks for Face ID (the Mac
+runs the repo's test command); the pairing is stored only after **Codes Match** on the phone; the mailbox's `home` is
+shown only when it is newer than what the phone has and at most 7 days old, with the Mac's time as "Last updated"; a
+dead session (Mac reconnected, `bye`, timeout) reconnects and resubscribes on its own.
 
 `Scripts/ios-build-check.sh` compiles the app for the simulator, for the device SDK (unsigned) and the test bundle
 without a run destination (it leaves out the asset catalog, which needs a simulator runtime). Build products go to

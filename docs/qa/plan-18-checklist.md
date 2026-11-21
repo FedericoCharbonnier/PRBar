@@ -69,3 +69,22 @@ PRBAR_RELAY_BIN=/tmp/prbar-relay swift run PRBarTests "integration"
       copia el link y "Open Link" lo abre en el navegador. Escanear el QR con la cámara abre TestFlight.
 - [ ] `prbar remote app-link set http://testflight.apple.com/…` o `https://evil.example.com/…` → error.
       `prbar remote app-link clear` vuelve al texto de Xcode.
+
+## G. Revisión de seguridad del iPhone (spec P.16)
+- [ ] Desde el iPhone, en un Respond listo para pushear: "Tests" muestra el glifo de Face ID; cancelar Face ID no corre
+      nada en la Mac (Activity sin "testing"). Con Face ID corren. Implementar y chatear desde el iPhone nunca corren
+      los tests solos.
+- [ ] `prbar remote devices --require-face-id <id> off` con el iPhone abierto: el ajuste del iPhone se apaga sin
+      reconectar; "Tests" corre sin Face ID. Volver a `on`.
+- [ ] Un error del Respond que menciona una ruta (p. ej. un clone que no existe) llega al iPhone como "~/…" o el nombre
+      de la carpeta, nunca "/Users/<vos>/…". Activity › disco no muestra rutas completas ni el host SSH de un trabajo.
+- [ ] Un PR con caracteres bidi (`\u202E`) en el título: en el iPhone (lista, Merge, Activity y la notificación) se ve
+      sin reordenar.
+- [ ] Cambiar de Wi‑Fi en la Mac con el iPhone abierto en un PR: el iPhone vuelve a "online" solo y el PR se sigue
+      actualizando (sin quedar "online" con pedidos que vencen).
+- [ ] Apagar el acceso, Revoke de un iPhone, volver a prenderlo: el relay ya no conoce al iPhone (4403 en el iPhone).
+- [ ] Reset iPhone Access… con la Mac sin red: al volver la red (o al reabrir PRBar) la cuenta vieja queda sin iPhones
+      en el relay; el log dice "the old relay account … has no iPhones left".
+- [ ] Emparejar con un link `prbar://pair` cuyo nombre trae bidi: la pantalla de confirmación lo muestra en una línea
+      sin reordenar; si la Mac confirma antes que el iPhone, el iPhone no guarda nada hasta "Codes Match".
+- [ ] Mac apagada: el iPhone muestra el último `home` del buzón con la hora en que lo escribió la Mac.
