@@ -101,6 +101,13 @@ struct RemotePair: RemoteCommand {
 
     var confirmationPolicy: ConfirmationPolicy { .always }
 
+    /// Comparar el código es lo que frena a alguien en el medio (paso 6 del emparejamiento): `--yes` no lo saltea.
+    func validate() throws {
+        if global.yes {
+            throw ValidationError("Pairing always asks you to compare the 6-digit code: run it without --yes.")
+        }
+    }
+
     mutating func prepare(_ connection: AppConnection, _ output: Output) throws {
         guard output.terminal.isInteractive, !output.json else {
             throw CommandFailure(.invalidUsage, "Pairing needs a terminal to show the QR code.")

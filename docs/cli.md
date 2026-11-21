@@ -73,7 +73,7 @@ shows the help of `review start`, the group’s default subcommand).
 | `prbar ci fix <pr> [--wait]` | Fix CI (manual only): PRBar reads the failing checks and their logs on this Mac, Claude fixes the code in PRBar’s worktree (here or on the repo’s host). Nothing is pushed; no comment is posted |
 | `prbar ci show <pr> [--full]` | The failing checks, Claude’s summary and its commit (`--full`: the CI output Claude saw) |
 | `prbar ci diff <pr> [--stat]`, `prbar ci test <pr> [--wait]` | The diff that would be pushed / run the repo’s tests in the worktree |
-| `prbar ci push <pr> [--wait] [--yes]` | Push the fix from this Mac, after checking on GitHub that the PR is still at the commit whose checks failed and that they still don’t pass |
+| `prbar ci push <pr> [--wait] [--yes]` | Push the fix from this Mac, after checking on GitHub that the PR is still at the commit whose checks failed and that they still don’t pass. Refused (exit 6) if the PR’s run isn’t a Fix CI, also with `--yes` |
 | `prbar ci push <pr> --anyway [--yes]` | Push Anyway: the tests failed, or the failing checks pass now (a new head is never pushed) |
 | `prbar ci cancel\|dismiss <pr>` | Cancel / dismiss (the chat works as in Respond: `prbar chat <pr>`) |
 | `prbar chat <pr> ["message"]` | Chat with Claude about the review, the Respond analysis or, for a PR that’s Ready to Merge, the PR before merging (read only, like the Merge window’s chat); without a message in a terminal, an interactive chat (`/undo`, `/show`, `/stop`, `/quit`); without a terminal the message comes from stdin |
@@ -97,7 +97,7 @@ shows the help of `review start`, the group’s default subcommand).
 | `prbar remote [status]` | iPhone access: on or off, the relay, the connection, paired iPhones, keep awake, mailbox and the phone web app's address |
 | `prbar remote enable [--relay HOST] [--enroll-token-stdin]` | Allow iPhone remote control (default relay `prbar.fcharbonnier.duckdns.org`). The first time it asks for the relay’s enrollment token without echo (or reads it from stdin) and never stores it; enabling the same relay again doesn’t need it |
 | `prbar remote disable` | Turn it off (paired iPhones stay paired) |
-| `prbar remote pair` | Pair an iPhone: QR code in the terminal (needs a terminal) and the same link to paste in the app (Paste code), waits for the phone, then asks “Does your iPhone show 123 456?” |
+| `prbar remote pair` | Pair an iPhone: QR code in the terminal (needs a terminal) and the same link to paste in the app (Paste code), waits for the phone, then asks “Does your iPhone show 123 456?” It always asks: `--yes` is refused |
 | `prbar remote devices [--json]`, `prbar remote devices --require-face-id <iphone> on\|off` | Paired iPhones / whether merge, push, approve and tests need Face ID on one |
 | `prbar remote revoke <iphone> [--yes]` | Remove an iPhone (id, id prefix or name) |
 | `prbar remote keep-awake on\|off`, `prbar remote mailbox on\|off` | Keep this Mac awake while charging / leave the last encrypted state on the relay (7 days) |

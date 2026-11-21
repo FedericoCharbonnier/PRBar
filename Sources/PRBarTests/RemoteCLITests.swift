@@ -127,6 +127,13 @@ enum RemoteCLITests {
             try expectEqual(no.code, CLIExit.cancelled)
             calls = await server.fake.calls
             try expectEqual(calls, ["remotePairStart", "remotePairWait p1", "remotePairConfirm p1 false"])
+            // --yes no saltea la comparación del código (M2): ni siquiera abre la ranura.
+            do {
+                _ = try PRBarCommand.parseAsRoot(["remote", "pair", "--yes"])
+                throw TestFailure(description: "aceptó --yes")
+            } catch let error where !(error is TestFailure) {
+                try expect(PRBarCommand.message(for: error).contains("compare the 6-digit code"), PRBarCommand.message(for: error))
+            }
         },
         TestCase("remote cli: status, devices y revoke por el socket") {
             let server = try await Server()
