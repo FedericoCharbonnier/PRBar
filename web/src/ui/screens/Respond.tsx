@@ -26,7 +26,7 @@ export function ProgressCard({ progress }: { progress: ProgressVM }) {
   return (
     <section class="progress-card" aria-label={progress.title}>
       <h2 class={progress.done ? "progress-card__head progress-card__head--done" : "progress-card__head"}>
-        <Icon name={progress.done ? "checkmark.circle.fill" : "sparkles"} size={progress.done ? 20 : 18} />
+        <Icon name={progress.done ? "checkmark.circle.fill" : "sparkles"} size={progress.done ? 15 : 18} />
         <span>{progress.title}</span>
         <span class="progress-card__time">{progress.elapsed}</span>
       </h2>
@@ -37,7 +37,7 @@ export function ProgressCard({ progress }: { progress: ProgressVM }) {
               {s.state === "current" ? (
                 <Spinner size={18} />
               ) : (
-                <Icon name={s.state === "done" ? "checkmark.circle.fill" : "circle.dashed"} size={s.state === "done" ? 16 : 16} />
+                <Icon name={s.state === "done" ? "checkmark.circle.fill" : "circle.dashed"} size={s.state === "done" ? 13 : 15} />
               )}
             </span>
             <span class="stage__text">
@@ -124,7 +124,7 @@ export function Respond(props: RespondProps) {
       ))}
       {props.changesSummary && (
         <button type="button" class="changes-row" onClick={props.onOpenChanges}>
-          <Icon name="doc.text" size={20} />
+          <Icon name="doc.text" size={17} />
           <span>{props.changesSummary}</span>
           <Icon name="chevron.right" size={15} class="changes-row__chev" />
         </button>

@@ -95,3 +95,7 @@ html[data-story="review-full"] .screen {
 .sg-swatch--codebg { background: var(--codebg); }
 .sg-swatch--addbg { background: var(--addbg); }
 .sg-swatch--delbg { background: var(--delbg); }
+
+.styleguide > .mac-pill {
+  align-self: flex-start;
+}

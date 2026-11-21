@@ -463,7 +463,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: 0 0 4px;
+  margin: 0 0 2px;
   color: var(--violet);
   font-size: 10.9px;
   font-weight: 600;
@@ -490,8 +490,8 @@
 .stage {
   display: flex;
   align-items: center;
-  gap: 13px;
-  min-height: 44px;
+  gap: 9px;
+  min-height: 48px;
   padding: 7px 0;
 }
 
@@ -619,7 +619,7 @@
 .file-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   width: 100%;
   min-height: 47px;
   padding: 0 16px;
@@ -1461,4 +1461,8 @@
 
 .merge-summary + .list-caption {
   margin-top: 17px;
+}
+
+.progress-card + .block-title {
+  margin-top: 24.5px;
 }

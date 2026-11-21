@@ -1558,3 +1558,8 @@
   color: #fff;
   cursor: pointer;
 }
+
+/* Con la barra de pestañas flotante, el contenido no queda tapado al final. */
+body:has(.tabbar) .screen {
+  padding-bottom: calc(var(--safe-bottom) + 96px);
+}
