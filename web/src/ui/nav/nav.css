@@ -27,6 +27,7 @@
 .stack {
   position: absolute;
   inset: 0;
+  isolation: isolate;
 }
 
 /* Otra pestaña: se conserva montada (y con su scroll) pero no se ve. */
@@ -38,6 +39,9 @@
 .page {
   position: absolute;
   inset: 0;
+  /* Cada pantalla es su propia capa: la barra de pestañas o la de arriba de la de abajo (con z-index) no se dibujan
+     encima de la que entra. */
+  isolation: isolate;
   background: var(--bg);
 }
 
