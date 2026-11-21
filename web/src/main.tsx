@@ -4,6 +4,7 @@ import { Shell } from "./app/shell";
 import { App, InstallGate } from "./ui/app";
 import { BootError } from "./ui/screens";
 import { installPressFeedback } from "./ui/motion/press";
+import { installKeyboardTracking } from "./ui/viewport";
 import "./ui/tokens.css";
 import "./ui/base.css";
 
@@ -52,6 +53,7 @@ async function start(): Promise<void> {
     render(<InstallGate platform={platformOf(navigator.userAgent, navigator.maxTouchPoints)} prompt={() => installPrompt} />, root);
     return;
   }
+  installKeyboardTracking();
   const shell = new Shell({ mode: MODE, window });
   if (MODE !== "production") shell.exposeTestHooks();
   render(<App shell={shell} />, root);

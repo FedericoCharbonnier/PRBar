@@ -131,3 +131,25 @@ html.card-presenting body {
 .nav-host--card {
   border-radius: 12px;
 }
+
+/* El teclado de iOS (viewport.ts): `--kb` es lo que tapa abajo. El scroll de cada pantalla, el compositor del chat y
+   las hojas se apoyan arriba; con el teclado abierto no hace falta el margen del indicador de inicio. */
+.page__scroll {
+  bottom: var(--kb, 0px);
+}
+
+.chat__input {
+  bottom: var(--kb, 0px);
+}
+
+html.kb-open .chat__input {
+  padding-bottom: 8px;
+}
+
+.sheet-layer {
+  bottom: var(--kb, 0px);
+}
+
+html.kb-open .sheet {
+  padding-bottom: 16px;
+}

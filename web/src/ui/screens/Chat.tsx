@@ -1,10 +1,16 @@
 import { ActionCard, ChatBubble, Composer, Icon, NavBar, Screen, TypingIndicator } from "../components";
+import { usePage } from "../nav/context";
+import { useStickToBottom } from "../nav/stickToBottom";
 import type { ChatProps } from "./types";
 import "./screens.css";
 
 // chat:review, chat:respond, chat:merge (solo lectura).
 export function Chat({ context, readOnly, timestamp, items, typing, draft, placeholder, disabled, onBack, onDraft, onSend, onUndo }: ChatProps) {
   let prev: string | undefined;
+  // Abre en el último mensaje y lo sigue mientras llegan mensajes o la respuesta (si no se subió a leer).
+  const last = items.at(-1);
+  const content = `${items.length}|${last && last.kind !== "action" ? last.text.length : ""}|${typing ? 1 : 0}`;
+  const stick = useStickToBottom(usePage()?.scroller, content);
   return (
     <Screen variant="plain" class="chat" label="Claude">
       <NavBar leading={{ icon: "chevron.left", label: "Back", onClick: onBack }} title="Claude" titleIcon="sparkles" subtitle={context} />
@@ -28,7 +34,10 @@ export function Chat({ context, readOnly, timestamp, items, typing, draft, place
         {typing && <TypingIndicator />}
       </div>
       <div class="chat__input">
-        <Composer value={draft} placeholder={placeholder} disabled={disabled} onInput={onDraft} onSend={onSend} />
+        <Composer value={draft} placeholder={placeholder} disabled={disabled} onInput={onDraft} onSend={() => {
+          onSend();
+          stick();
+        }} />
       </div>
     </Screen>
   );
