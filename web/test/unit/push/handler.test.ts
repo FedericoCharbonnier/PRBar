@@ -130,6 +130,31 @@ describe("Web Push: suscripción", () => {
     expect(other.calls.subscribed).toHaveLength(1);
   });
 
+  it("con renew (emparejamiento nuevo) siempre da de baja la suscripción y hace otra, aunque la clave sea la misma", async () => {
+    const same = manager(null);
+    const old = same.sub(vapid);
+    same.m.getSubscription = async () => old;
+    await ensureSubscription(same.m, vapid, true);
+    expect(same.calls.unsubscribed).toBe(1);
+    expect(same.calls.subscribed).toHaveLength(1);
+
+    const viaSubscribe = manager(null);
+    const previous = viaSubscribe.sub(vapid);
+    viaSubscribe.m.getSubscription = async () => previous;
+    const registered: unknown[] = [];
+    expect(await subscribePush({ manager: viaSubscribe.m, fetch: fetcher(200, { publicKey: b64urlEncode(vapid) }),
+                                 register: (keys) => void registered.push(keys), renew: true })).toBe(true);
+    expect(viaSubscribe.calls.unsubscribed).toBe(1);
+    expect(viaSubscribe.calls.subscribed).toHaveLength(1);
+    expect(registered).toHaveLength(1);
+
+    // Sin una suscripción previa, solo se suscribe.
+    const fresh = manager(null);
+    await ensureSubscription(fresh.m, vapid, true);
+    expect(fresh.calls.unsubscribed).toBe(0);
+    expect(fresh.calls.subscribed).toHaveLength(1);
+  });
+
   it("registra endpoint y claves en el relay", async () => {
     const { m } = manager(null);
     const registered: unknown[] = [];

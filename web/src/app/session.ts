@@ -73,15 +73,37 @@ export function setAppBadge(count: number): void {
 }
 
 /** Suscribe Web Push y lo registra en el relay (si hay permiso y service worker). */
-export async function registerPush(transport: Transport): Promise<boolean> {
-  if (typeof Notification === "undefined" || Notification.permission !== "granted") return false;
+export interface RegisterPushOptions {
+  /** Recién emparejado con otra Mac (o de nuevo): la suscripción de antes se da de baja y se hace otra, así su
+   *  endpoint (que el relay tenía para el emparejamiento anterior) deja de servir. */
+  renew?: boolean;
+}
+
+export async function registerPush(transport: Transport, options: RegisterPushOptions = {}): Promise<boolean> {
+  const granted = typeof Notification !== "undefined" && Notification.permission === "granted";
+  if (!granted && !options.renew) return false;
   const manager = await pushManager();
   if (!manager) return false;
+  if (!granted) {
+    await unsubscribePush(manager);
+    return false;
+  }
   return subscribePush({
     manager,
     fetch: (url, init) => fetch(url, init),
     register: (keys) => transport.registerWebPush(keys),
+    renew: options.renew ?? false,
   });
+}
+
+/** Cierra una sesión que se deja (desemparejar, o un emparejamiento nuevo que la reemplaza): avisa a la Mac con
+ *  `unpair` (mejor esfuerzo: sin sesión abierta no sale), así la Mac olvida este teléfono y el relay borra su buzón y su
+ *  suscripción de push; después corta el transporte y borra el store en memoria. */
+export async function retire(session: Session): Promise<void> {
+  await session.transport.unpair().catch(() => {});
+  session.transport.stop();
+  session.store.detach();
+  session.store.wipe();
 }
 
 /** Revocado o desemparejado: claves, caché, ids vistos, suscripción de push e insignia. */

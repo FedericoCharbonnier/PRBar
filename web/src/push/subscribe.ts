@@ -38,13 +38,14 @@ function sameKey(a: ArrayBuffer | null | undefined, b: Uint8Array): boolean {
   return x.length === b.length && x.every((v, i) => v === b[i]);
 }
 
-/** Una suscripción con la clave VAPID actual (reusa la que hay si es de esa clave). */
-export async function ensureSubscription(manager: PushManagerLike, vapid: Uint8Array): Promise<PushSubscriptionLike> {
+/** Una suscripción con la clave VAPID actual (reusa la que hay si es de esa clave, salvo con `renew`: entonces siempre
+ *  una nueva, con otro endpoint). */
+export async function ensureSubscription(manager: PushManagerLike, vapid: Uint8Array, renew = false): Promise<PushSubscriptionLike> {
   const existing = await manager.getSubscription();
   if (existing) {
     const key = existing.options?.applicationServerKey;
     // Sin `options` (navegadores viejos) no se puede saber: se reusa.
-    if (key === undefined || sameKey(key, vapid)) return existing;
+    if (!renew && (key === undefined || sameKey(key, vapid))) return existing;
     await existing.unsubscribe().catch(() => false);
   }
   return manager.subscribe({ userVisibleOnly: true, applicationServerKey: vapid as BufferSource });
@@ -61,13 +62,15 @@ export interface SubscribeDeps {
   manager: PushManagerLike;
   fetch: FetchLike;
   register(keys: WebPushSubscriptionKeys): void;
+  /** Ver `ensureSubscription`. */
+  renew?: boolean;
 }
 
 /** Suscribe y registra en el relay. `false` si el relay no tiene pushes. */
 export async function subscribePush(deps: SubscribeDeps): Promise<boolean> {
   const vapid = await fetchVapidKey(deps.fetch);
   if (!vapid) return false;
-  const subscription = await ensureSubscription(deps.manager, vapid);
+  const subscription = await ensureSubscription(deps.manager, vapid, deps.renew ?? false);
   deps.register(subscriptionKeys(subscription));
   return true;
 }

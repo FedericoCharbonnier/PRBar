@@ -13,7 +13,7 @@ import { createHomeModel, type HomeModel } from "./models/home";
 import { createPairingModel, LOST_PAIRING_MESSAGE, revokedMessage, type PairingModel } from "./models/pairing";
 import { createSettingsModel, type SettingsModel } from "./models/settings";
 import { HOME, parseRoute, Router, type Route } from "./router";
-import { APP_VERSION, forget, openSession, registerPush, type Session, type Storage } from "./session";
+import { APP_VERSION, forget, openSession, registerPush, retire, type Session, type Storage } from "./session";
 
 // El shell de la app instalada: arranca (claves y caché de IndexedDB), arma la sesión con la Mac emparejada o el flujo
 // de emparejamiento, maneja la revocación y el desemparejar, el router, los avisos y los mensajes del service worker.
@@ -116,13 +116,15 @@ export class Shell {
     this.#routeChanged();
   }
 
-  async #activate(pairing: StoredPairing): Promise<void> {
+  /** `renewPush`: recién emparejado, la suscripción de push se rehace (otro endpoint) y se espera. */
+  async #activate(pairing: StoredPairing, renewPush = false): Promise<void> {
     const storage = await this.storage();
     const session = await openSession(pairing, {
       storage, mode: this.#env.mode, onRevoked: (mac) => void this.#revoked(session, mac),
     });
     this.use(session);
-    void registerPush(session.transport).catch((error) => console.warn("push", error));
+    const push = registerPush(session.transport, { renew: renewPush }).catch((error) => console.warn("push", error));
+    if (renewPush) await push;
   }
 
   /** Muestra la app para una sesión abierta (los tests la arman sobre FakeTransport). */
@@ -137,16 +139,16 @@ export class Shell {
     };
   }
 
-  /** Recién emparejado: la sesión anterior (otra Mac, o la misma) se cierra y su caché se borra. */
+  /** Recién emparejado: la sesión anterior (otra Mac, o la misma) se cierra con `unpair` (la Mac de antes olvida este
+   *  teléfono y el relay borra su suscripción de push) y su caché se borra. La suscripción de push se rehace, así el
+   *  endpoint que conocía el emparejamiento anterior deja de servir aunque el `unpair` no haya salido. */
   async #replaceSession(pairing: StoredPairing): Promise<void> {
     const previous = this.active.value;
     if (previous) {
-      previous.session.store.detach();
-      previous.session.transport.stop();
-      previous.session.store.wipe();
       this.active.value = null;
+      await retire(previous.session);
     }
-    await this.#activate(pairing);
+    await this.#activate(pairing, true);
   }
 
   /** `bye(revoked)` de la Mac: se borra todo y vuelve a pair:welcome con el aviso. */
@@ -167,10 +169,7 @@ export class Shell {
   async unpair(): Promise<void> {
     const active = this.active.value;
     if (!active) return;
-    await active.session.transport.unpair().catch(() => {});
-    active.session.transport.stop();
-    active.session.store.detach();
-    active.session.store.wipe();
+    await retire(active.session);
     await forget(await this.storage());
     batch(() => {
       this.active.value = null;
