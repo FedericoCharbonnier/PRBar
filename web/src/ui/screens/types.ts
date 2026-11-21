@@ -91,11 +91,11 @@ export interface HomeProps {
   offline?: OfflineCardVM | undefined;
   /** Aviso fino (datos viejos, sin red) arriba de la lista. */
   banner?: BannerVM | undefined;
+  /** Actualizando (lo muestra el pull-to-refresh de la pantalla). */
   refreshing?: boolean | undefined;
   onOpen: (rowId: string) => void;
   onAction: (rowId: string) => void;
   onToggleSection: (sectionId: string) => void;
-  onFilter: () => void;
   onRetry?: (() => void) | undefined;
   onBannerAction?: (() => void) | undefined;
 }

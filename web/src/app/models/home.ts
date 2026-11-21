@@ -302,7 +302,6 @@ export function createHomeModel(ctx: AppContext): HomeModel {
         onOpen: (id) => model.open(id),
         onAction: (id) => void model.action(id),
         onToggleSection: (id) => model.toggle(id),
-        onFilter: () => {},
         onRetry: () => model.retry(),
       };
     },

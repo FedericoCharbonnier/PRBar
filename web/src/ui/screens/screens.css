@@ -14,13 +14,6 @@
   padding-top: 0;
 }
 
-.home-refresh {
-  display: flex;
-  justify-content: center;
-  padding: 8px 0 0;
-  color: var(--fg2);
-}
-
 .offline-card {
   display: flex;
   flex-direction: column;

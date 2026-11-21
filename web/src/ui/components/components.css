@@ -498,6 +498,10 @@
   backdrop-filter: blur(20px) saturate(180%);
 }
 
+.mac-pill--static {
+  cursor: default;
+}
+
 .mac-pill__icon {
   display: inline-flex;
   align-items: center;
