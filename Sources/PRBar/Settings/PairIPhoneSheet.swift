@@ -63,7 +63,7 @@ struct PairIPhoneSheet: View {
             QRCodeView(text: pairing.qr)
                 .frame(width: 220, height: 220)
                 .accessibilityLabel("Pairing QR code")
-            Text("Scan this with the Camera app or with PRBar on your iPhone.")
+            Text("Scan this with PRBar on your phone (Pair › Scan).")
                 .multilineTextAlignment(.center)
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 let seconds = max(0, Int(pairing.expiresAt.timeIntervalSince(context.date).rounded()))

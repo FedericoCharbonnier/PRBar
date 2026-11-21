@@ -56,7 +56,7 @@ struct RemoteHarness {
     let account: String
     let host: RemoteHost
     let recorder: CommandRecorder
-    let presence = SoftwarePresenceSigner()
+    let presence = SoftwareWebAuthnAuthenticator(rpId: "relay.test")
     let factory: RelayLinkFactory
 
     typealias Handler = RemoteHost.Handler
@@ -121,7 +121,7 @@ struct RemoteHarness {
         let client = client(commandProtocol: commandProtocol, requestTimeout: requestTimeout)
         let qr = try await openPairing()
         async let join = nextJoin()
-        let sas = try await client.startPairing(qr: qr, presenceKey: presence.publicKey)
+        let sas = try await client.startPairing(qr: qr, presence: presence.credential)
         let joined = try await join
         try expectEqual(joined.sas, sas)
         try await host.confirmPairing(true)
@@ -138,9 +138,9 @@ enum RemoteEndToEndTests {
             let h = try await RemoteHarness.make()
             let client = h.client()
             let qr = try await h.openPairing()
-            try expect(qr.url.hasPrefix("prbar://pair?"))
+            try expect(qr.url.hasPrefix("https://relay.test/#pair?v=1&"), qr.url)
             async let join = h.nextJoin()
-            let sas = try await client.startPairing(qr: qr, presenceKey: h.presence.publicKey)
+            let sas = try await client.startPairing(qr: qr, presence: h.presence.credential)
             let joined = try await join
             try expectEqual(joined.sas, sas)
             try expectEqual(joined.name, "Federico’s iPhone")
@@ -152,7 +152,7 @@ enum RemoteEndToEndTests {
             try expectEqual(mac.macSeal, h.macKeys.seal.publicKey.rawRepresentation)
             let devices = await h.host.pairedDevices
             try expectEqual(devices.map(\.deviceId), [mac.deviceId])
-            try expectEqual(devices.first?.presence, h.presence.publicKey)
+            try expectEqual(devices.first?.presence, h.presence.credential)
             let registered = await h.relay.hasDevice(h.account, mac.deviceId)
             try expect(registered)
         },
@@ -162,7 +162,7 @@ enum RemoteEndToEndTests {
             let client = h.client()
             let qr = try await h.openPairing()
             async let join = h.nextJoin()
-            _ = try await client.startPairing(qr: qr, presenceKey: h.presence.publicKey)
+            _ = try await client.startPairing(qr: qr, presence: h.presence.credential)
             _ = try await join
             try await h.host.confirmPairing(false)
             let cancelled = try await within { () -> RemoteError? in
@@ -173,18 +173,18 @@ enum RemoteEndToEndTests {
             let late = try await h.openPairing()
             h.clock.advance(301)
             let expired = await { () -> RemoteError? in
-                do { _ = try await h.client().startPairing(qr: late, presenceKey: h.presence.publicKey); return nil }
+                do { _ = try await h.client().startPairing(qr: late, presence: h.presence.credential); return nil }
                 catch let error as RemoteError { return error } catch { return nil }
             }()
             try expectEqual(expired, .pairingExpired)
             // Un segundo teléfono en la ranura: rechazado y la ranura queda quemada.
             let busy = try await h.openPairing()
             async let firstJoin = h.nextJoin()
-            _ = try await h.client().startPairing(qr: busy, presenceKey: h.presence.publicKey)
+            _ = try await h.client().startPairing(qr: busy, presence: h.presence.credential)
             _ = try await firstJoin
             let events = h.host.events
             let second = await { () -> RemoteError? in
-                do { _ = try await h.client().startPairing(qr: busy, presenceKey: h.presence.publicKey); return nil }
+                do { _ = try await h.client().startPairing(qr: busy, presence: h.presence.credential); return nil }
                 catch let error as RemoteError { return error } catch { return nil }
             }()
             try expectEqual(second, .pairingExpired)
@@ -202,12 +202,12 @@ enum RemoteEndToEndTests {
             wrong.secret = Data(repeating: 1, count: 32)
             for _ in 0..<3 {
                 do {
-                    _ = try await h.client().startPairing(qr: wrong, presenceKey: h.presence.publicKey)
+                    _ = try await h.client().startPairing(qr: wrong, presence: h.presence.credential)
                     throw TestFailure(description: "entró con otro secreto")
                 } catch RemoteError.pairingExpired {}
             }
             do {
-                _ = try await h.client().startPairing(qr: good, presenceKey: h.presence.publicKey)
+                _ = try await h.client().startPairing(qr: good, presence: h.presence.credential)
                 throw TestFailure(description: "la ranura no se quemó")
             } catch RemoteError.pairingExpired {}
         },
@@ -238,7 +238,7 @@ enum RemoteEndToEndTests {
             let bare = try await client.run(merge)
             try expectEqual(bare.error, CommandFailure(.unauthorized, RemotePolicy.presenceRequiredMessage))
             // Otra clave (no la registrada al emparejar).
-            let impostor = try await client.run(merge, presence: SoftwarePresenceSigner())
+            let impostor = try await client.run(merge, presence: SoftwareWebAuthnAuthenticator(rpId: "relay.test"))
             try expectEqual(impostor.error?.code, .unauthorized)
             var commands = await h.recorder.commands
             try expect(commands.isEmpty)
@@ -261,19 +261,65 @@ enum RemoteEndToEndTests {
             let client = try await h.pairedClient()
             try await client.connect()
             let merge = AppCommand.merge(pr: "a/b#1", method: nil, confirmed: true, expectedHeadOid: "abc")
-            // Un signer que firma con la clave buena pero sobre otro hash de sesión.
-            struct OtherSession: PresenceSigner {
-                let inner: SoftwarePresenceSigner
-                func sign(_ message: Data) async throws -> Data {
-                    var tampered = message
-                    tampered[tampered.startIndex + 16] ^= 1     // primer byte de sessionHash
-                    return try await inner.sign(tampered)
+            // Una passkey buena que firma el desafío de otra sesión.
+            struct OtherSession: WebAuthnAuthenticator {
+                let inner: SoftwareWebAuthnAuthenticator
+                var credentialId: Data { inner.credentialId }
+                func assert(challenge: Data) async throws -> WebAuthnAssertion {
+                    var tampered = challenge
+                    tampered[tampered.startIndex] ^= 1
+                    return try await inner.assert(challenge: tampered)
                 }
             }
             let response = try await client.run(merge, presence: OtherSession(inner: h.presence))
             try expectEqual(response.error, CommandFailure(.unauthorized, RemotePolicy.presenceRequiredMessage))
+            // Una passkey del sitio equivocado (otro origen) tampoco.
+            let wrongOrigin = SoftwareWebAuthnAuthenticator(rpId: "relay.test", key: h.presence.key,
+                                                            credentialId: h.presence.credentialId,
+                                                            origin: "https://evil.test")
+            let evil = try await client.run(merge, presence: wrongOrigin)
+            try expectEqual(evil.error, CommandFailure(.unauthorized, RemotePolicy.presenceRequiredMessage))
             let commands = await h.recorder.commands
             try expect(commands.isEmpty)
+        },
+        TestCase("remote: emparejado sin passkey, todo lo gated pide volver a emparejar") {
+            let h = try await RemoteHarness.make()
+            let client = h.client()
+            let qr = try await h.openPairing()
+            async let join = h.nextJoin()
+            _ = try await client.startPairing(qr: qr, presence: nil)
+            _ = try await join
+            let device = try await h.host.confirmPairing(true)
+            try expect(device?.presence == nil)
+            try expect(device?.requirePresence == true)
+            _ = try await within { try await client.finishPairing() }
+            try await client.connect()
+            let merge = AppCommand.merge(pr: "a/b#1", method: nil, confirmed: true, expectedHeadOid: "abc")
+            let bare = try await client.run(merge)
+            try expectEqual(bare.error, CommandFailure(.unauthorized, RemotePolicy.presenceNotSetUpMessage))
+            let signed = try await client.run(merge, presence: h.presence)
+            try expectEqual(signed.error, CommandFailure(.unauthorized, RemotePolicy.presenceNotSetUpMessage))
+            try expectEqual(RemotePolicy.presenceNotSetUpMessage, "Face ID isn't set up on this device. Pair it again.")
+            let off = try await client.run(.remoteSetPresenceRequirement(device: "x", enabled: false))
+            try expectEqual(off.error?.code, .unauthorized)
+            let status = try await client.run(.status)
+            try expectEqual(status.ok, true)
+            let commands = await h.recorder.commands
+            try expectEqual(commands, [.status])
+        },
+        TestCase("remote: una passkey de otro rpId no empareja") {
+            let h = try await RemoteHarness.make()
+            let qr = try await h.openPairing()
+            let elsewhere = SoftwareWebAuthnAuthenticator(rpId: "evil.test")
+            do {
+                _ = try await h.client().startPairing(qr: qr, presence: elsewhere.credential)
+                throw TestFailure(description: "emparejó con otro rpId")
+            } catch let error as RemoteError {
+                // La Mac quema la ranura (y se lo avisa al teléfono, o el handshake no llega).
+                try expect(error == .pairingCancelled || error == .pairingExpired, "\(error)")
+            }
+            let devices = await h.host.pairedDevices
+            try expect(devices.isEmpty)
         },
         TestCase("remote: un pedido de hace 121 s vence") {
             let h = try await RemoteHarness.make()
@@ -402,6 +448,21 @@ enum RemoteEndToEndTests {
             let tooBig = await h.host.putMailbox(slot: "home", data: Data(count: 200 * 1024))
             try expect(!tooBig)
         },
+        TestCase("remote: el teléfono registra su suscripción de Web Push en el relay") {
+            let h = try await RemoteHarness.make()
+            let client = try await h.pairedClient()
+            try await client.connect()
+            let paired = await client.paired!
+            let p256dh = Data([4]) + Data(repeating: 7, count: 64)
+            try await client.registerWebPush(endpoint: "https://web.push.apple.com/QGuQ", p256dh: p256dh,
+                                             auth: Data(repeating: 1, count: 16))
+            let relay = h.relay, account = h.account
+            try await eventually(3, "suscripción") { await relay.subscription(account, paired.deviceId) != nil }
+            let stored = await relay.subscription(account, paired.deviceId)
+            try expectEqual(stored?.endpoint, "https://web.push.apple.com/QGuQ")
+            try expectEqual(stored?.p256dh, p256dh)
+            try expectEqual(stored?.auth, Data(repeating: 1, count: 16))
+        },
         TestCase("remote: push con colapso e hilo opacos que el teléfono abre") {
             let h = try await RemoteHarness.make()
             let client = try await h.pairedClient()
@@ -420,7 +481,7 @@ enum RemoteEndToEndTests {
             let ids = try PushIdentifiers(devicePush: keys.push,
                                           macSeal: try Curve25519.KeyAgreement.PublicKey(rawRepresentation: paired.macSeal))
             try expectEqual(collapse, ids.collapse(kind: "approved", pr: "acme/web#12"))
-            let opened = try PushPayload.open(apnsField: b.base64EncodedString(), by: keys.push,
+            let opened = try PushPayload.open(pushField: Base64URL.encode(b), by: keys.push,
                                               from: try Curve25519.KeyAgreement.PublicKey(rawRepresentation: paired.macSeal),
                                               info: SealedInfo.push(account: paired.accountId, device: paired.deviceId))
             try expectEqual(opened, payload)

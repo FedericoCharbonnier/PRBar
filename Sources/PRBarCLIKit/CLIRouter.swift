@@ -94,8 +94,6 @@ public enum CLIRouter {
         .init("remote revoke", [.remoteRevoke], ["remote", "revoke", "dev1", "--yes"]),
         .init("remote keep-awake", [.remoteSetKeepAwake], ["remote", "keep-awake", "on"]),
         .init("remote mailbox", [.remoteSetMailbox], ["remote", "mailbox", "off"]),
-        .init("remote app-link set", [.remoteSetAppLink], ["remote", "app-link", "set", "https://testflight.apple.com/join/AbCd1234"]),
-        .init("remote app-link clear", [.remoteSetAppLink], ["remote", "app-link", "clear"]),
         .init("remote reset", [.remoteReset], ["remote", "reset", "--yes"]),
         // Chat (plan 6)
         .init("chat", [.chatSend, .chatShow, .chatUndo, .chatStop],

@@ -92,7 +92,7 @@ enum RemoteFeedExtrasTests {
             let keys = DeviceKeys()
             let qr = try await h.openPairing()
             async let join = h.nextJoin()
-            _ = try await client.startPairing(qr: qr, presenceKey: h.presence.publicKey, keys: keys)
+            _ = try await client.startPairing(qr: qr, presence: h.presence.credential, keys: keys)
             _ = try await join
             try await h.host.confirmPairing(true)
             _ = try await within { try await client.finishPairing() }

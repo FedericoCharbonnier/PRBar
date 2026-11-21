@@ -50,7 +50,8 @@ public enum RelayMessage: Equatable, Sendable {
     case mboxPut(to: String, slot: String, b: Data)
     case mboxGet
     case mbox(items: [RelayMailboxItem])
-    case apns(token: String, env: String)
+    /// La suscripción de Web Push del teléfono (spec web W.6). `p256dh` (65 bytes) y `auth` (16) en base64url.
+    case webpush(endpoint: String, p256dh: Data, auth: Data)
     case pairOpen(pairing: String, authKey: Data, expires: Int)
     case pairClose(pairing: String)
     case deviceAdd(device: String, relayKey: Data)
@@ -77,7 +78,7 @@ public enum RelayMessage: Equatable, Sendable {
         case .mboxPut: "mbox.put"
         case .mboxGet: "mbox.get"
         case .mbox: "mbox"
-        case .apns: "apns"
+        case .webpush: "webpush"
         case .pairOpen: "pair.open"
         case .pairClose: "pair.close"
         case .deviceAdd: "device.add"
@@ -107,7 +108,7 @@ public enum RelayMessage: Equatable, Sendable {
 extension RelayMessage: Codable {
     private enum Keys: String, CodingKey {
         case t, nonce, time, acct, client, sig, pairing, proof, mac, since, to, sid, b, from, device, state, id, collapse
-        case thread, status, reason, slot, items, token, env, authKey, expires, relayKey, at, lastSeen
+        case thread, status, reason, slot, items, endpoint, p256dh, auth, authKey, expires, relayKey, at, lastSeen
     }
 
     private struct MailboxItemDTO: Codable {
@@ -150,7 +151,8 @@ extension RelayMessage: Codable {
         case "mbox":
             let items = try c.decode([MailboxItemDTO].self, forKey: .items)
             self = .mbox(items: try items.map { RelayMailboxItem(slot: $0.slot, b: try Base64URL.decode($0.b), at: $0.at) })
-        case "apns": self = .apns(token: try string(.token), env: try string(.env))
+        case "webpush":
+            self = .webpush(endpoint: try string(.endpoint), p256dh: try bytes(.p256dh), auth: try bytes(.auth))
         case "pair.open":
             self = .pairOpen(pairing: try string(.pairing), authKey: try bytes(.authKey), expires: try int(.expires))
         case "pair.close": self = .pairClose(pairing: try string(.pairing))
@@ -213,9 +215,10 @@ extension RelayMessage: Codable {
             try put(b, .b)
         case .mbox(let items):
             try c.encode(items.map { MailboxItemDTO(slot: $0.slot, b: Base64URL.encode($0.b), at: $0.at) }, forKey: .items)
-        case .apns(let token, let env):
-            try c.encode(token, forKey: .token)
-            try c.encode(env, forKey: .env)
+        case .webpush(let endpoint, let p256dh, let auth):
+            try c.encode(endpoint, forKey: .endpoint)
+            try put(p256dh, .p256dh)
+            try put(auth, .auth)
         case .pairOpen(let pairing, let authKey, let expires):
             try c.encode(pairing, forKey: .pairing)
             try put(authKey, .authKey)

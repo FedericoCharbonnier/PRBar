@@ -76,9 +76,7 @@ enum RemoteCLITests {
             try expectEqual(try parse(["remote", "keep-awake", "on"]), .remoteSetKeepAwake(enabled: true))
             try expectEqual(try parse(["remote", "mailbox", "off"]), .remoteSetMailbox(enabled: false))
             try expectEqual(try parse(["remote", "reset", "--yes"]), .remoteReset(confirmed: true))
-            try expectEqual(try parse(["remote", "app-link", "set", "https://testflight.apple.com/join/X"]),
-                            .remoteSetAppLink(url: "https://testflight.apple.com/join/X"))
-            try expectEqual(try parse(["remote", "app-link", "clear"]), .remoteSetAppLink(url: nil))
+            try expect((try? parse(["remote", "app-link", "clear"])) == nil, "app-link ya no existe")
             do {
                 _ = try PRBarCommand.parseAsRoot(["remote", "devices", "--require-face-id", "dev1"])
                 throw TestFailure(description: "aceptó --require-face-id sin on|off")
@@ -91,7 +89,7 @@ enum RemoteCLITests {
             try expectEqual(lines, ["█▀██", "██▄█"])
             let inverted = QRRender.halfBlocks(matrix: [[true, false], [false, true]], quietZone: 1, inverted: true)
             try expectEqual(inverted, [" ▄  ", "  ▀ "])
-            let text = "prbar://pair?v=1&r=prbar.example.com&a=abcdefghijklmnopqrstuvwxyz&p=abcdefghijklmnop&k=xyz&m=abc&n=Mac"
+            let text = "https://prbar.example.com/#pair?v=1&r=prbar.example.com&a=abcdefghijklmnopqrstuvwxyz&p=abcdefghijklmnop&k=xyz&m=abc&n=Mac"
             guard let matrix = QRCodeMatrix.make(text) else { throw TestFailure(description: "sin QR") }
             try expect(matrix.count >= 21 && (matrix.count - 21) % 4 == 0, "\(matrix.count)")
             try expect(matrix.allSatisfy { $0.count == matrix.count })
@@ -117,7 +115,8 @@ enum RemoteCLITests {
             let yes = try await cli(["remote", "pair"], socket: server.url, interactive: true, answer: true)
             try expectEqual(yes.code, 0)
             try expect(yes.out.contains("█"), "sin QR")
-            try expect(yes.out.contains("prbar://pair?v=1"), "sin el link de respaldo")
+            try expect(yes.out.contains("Or paste this in PRBar › Pair › Paste code: https://prbar.example.com/#pair?v=1"),
+                       "sin el link de respaldo: \(yes.out)")
             try expect(yes.out.contains("Waiting for your iPhone… (expires in "), yes.out)
             try expectEqual(yes.questions, ["Does your iPhone show 123 456?"])
             try expect(yes.out.contains("Paired Federico’s iPhone."), yes.out)

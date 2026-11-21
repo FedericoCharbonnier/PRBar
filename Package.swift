@@ -14,6 +14,8 @@ let package = Package(
         // The Mac side plus a fixture dispatcher: the iPhone's end-to-end test (macOS only) runs a real
         // `RemoteAccessService` with it through the local relay.
         .library(name: "PRBarRemoteFixtures", targets: ["PRBarRemoteFixtures", "PRBarRemoteMac", "PRBarCore"]),
+        // Los vectores cruzados de la web app y una Mac simulada para su e2e (spec web W.9).
+        .executable(name: "prbar-remote-fixture", targets: ["PRBarRemoteFixtureServer"]),
     ],
     dependencies: [
         // Primera y única dependencia externa (spec C.3). Versión exacta: subirla es un cambio explícito.
@@ -29,13 +31,16 @@ let package = Package(
         // `CommandDispatcher`, el feed de estado, el buzón y los pushes. Aparte de la app para poder testearlo, y de
         // Core para que `prbar` no cargue CryptoKit ni el protocolo del relay.
         .target(name: "PRBarRemoteMac", dependencies: ["PRBarCore", "PRBarRemoteKit"]),
-        .target(name: "PRBarRemoteFixtures", dependencies: ["PRBarCore", "PRBarRemoteMac"]),
+        .target(name: "PRBarRemoteFixtures", dependencies: ["PRBarCore", "PRBarRemoteKit", "PRBarRemoteMac"]),
+        .executableTarget(name: "PRBarRemoteFixtureServer",
+                          dependencies: ["PRBarCore", "PRBarRemoteKit", "PRBarRemoteMac", "PRBarRemoteFixtures"]),
         .executableTarget(name: "PRBar", dependencies: ["PRBarCore", "PRBarRemoteKit", "PRBarRemoteMac"]),
         .target(name: "PRBarCLIKit", dependencies: [
             "PRBarCore",
             .product(name: "ArgumentParser", package: "swift-argument-parser"),
         ]),
         .executableTarget(name: "PRBarCLI", dependencies: ["PRBarCLIKit"]),
-        .executableTarget(name: "PRBarTests", dependencies: ["PRBarCore", "PRBarCLIKit", "PRBarRemoteKit", "PRBarRemoteMac"]),
+        .executableTarget(name: "PRBarTests", dependencies: ["PRBarCore", "PRBarCLIKit", "PRBarRemoteKit", "PRBarRemoteMac",
+                                                            "PRBarRemoteFixtures"]),
     ]
 )

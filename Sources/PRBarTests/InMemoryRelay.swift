@@ -20,7 +20,7 @@ actor InMemoryRelay {
     private struct Account {
         var macKey: Curve25519.Signing.PublicKey
         var devices: [String: Curve25519.Signing.PublicKey] = [:]
-        var apns: [String: (token: String, env: String)] = [:]
+        var subscriptions: [String: (endpoint: String, p256dh: Data, auth: Data)] = [:]
         var mailbox: [String: [String: (b: Data, at: Int)]] = [:]
         var slot: Slot?
         var burnedSlots: Set<String> = []
@@ -92,6 +92,10 @@ actor InMemoryRelay {
         disconnected(mac)
     }
 
+    /// La suscripción de Web Push que registró un dispositivo (marco `webpush`).
+    func subscription(_ acct: String, _ device: String) -> (endpoint: String, p256dh: Data, auth: Data)? {
+        accounts[acct]?.subscriptions[device]
+    }
     func setPushStatus(_ status: Int) { pushStatus = status }
 
     /// Relay que perdió su base: ya no conoce al dispositivo (rechaza su `auth` con 4401).
@@ -229,8 +233,8 @@ actor InMemoryRelay {
         case .mboxGet:
             let items = (accounts[acct]?.mailbox[id] ?? [:]).map { RelayMailboxItem(slot: $0.key, b: $0.value.b, at: $0.value.at) }
             link.deliver(.mbox(items: items.sorted { $0.slot < $1.slot }))
-        case .apns(let token, let env):
-            accounts[acct]?.apns[id] = (token, env)
+        case .webpush(let endpoint, let p256dh, let auth):
+            accounts[acct]?.subscriptions[id] = (endpoint, p256dh, auth)
         default:
             link.deliver(.error(reason: "forbidden"))
         }
@@ -269,7 +273,7 @@ actor InMemoryRelay {
         case .deviceRemove(let device):
             guard !ignoreDeviceRemoval else { return }
             accounts[acct]?.devices[device] = nil
-            accounts[acct]?.apns[device] = nil
+            accounts[acct]?.subscriptions[device] = nil
             accounts[acct]?.mailbox[device] = nil
             accounts[acct]?.deviceLinks[device]?.closeByRelay(code: 4403, reason: "removed")
             accounts[acct]?.deviceLinks[device] = nil

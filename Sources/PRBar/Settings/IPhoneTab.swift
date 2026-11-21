@@ -4,7 +4,7 @@ import PRBarRemoteKit
 import PRBarRemoteMac
 import SwiftUI
 
-/// Settings › iPhone (spec Q.2): cómo conseguir la app del iPhone, el acceso remoto, los iPhones emparejados y sus
+/// Settings › iPhone (spec Q.2 y web W.4.1): cómo abrir la web app en el teléfono, el acceso remoto, los iPhones emparejados y sus
 /// ajustes. Cada control llama al mismo método que `prbar remote …`.
 struct IPhoneTab: View {
     @ObservedObject var model: AppModel
@@ -37,13 +37,15 @@ struct IPhoneTab: View {
         }
     }
 
-    // MARK: Get PRBar for iPhone
+    // MARK: Open PRBar on your phone
 
-    /// El QR de instalación es público y permanente: nunca se muestra en la misma vista que el de emparejamiento
-    /// (secreto y efímero), así que con la hoja de emparejar abierta queda oculto.
+    /// La web app la sirve el relay (spec web W.4.1): un QR a `https://<relay>/`. Solo con el acceso prendido (sin relay
+    /// no hay página). Es público y permanente: nunca se muestra en la misma vista que el de emparejamiento (secreto y
+    /// efímero), así que con la hoja de emparejar abierta queda oculto.
+    @ViewBuilder
     private var installSection: some View {
-        Section {
-            if let url = settings.appInstallURL {
+        if settings.enabled, let relay = settings.relayHost, let url = RemoteSettings.webAppURL(relayHost: relay) {
+            Section {
                 HStack(alignment: .top, spacing: 16) {
                     if sheet == .pair {
                         Label("Hidden while pairing", systemImage: "qrcode")
@@ -53,39 +55,24 @@ struct IPhoneTab: View {
                     } else {
                         QRCodeView(text: url.absoluteString)
                             .frame(width: 120, height: 120)
-                            .accessibilityLabel("QR code to install PRBar for iPhone")
+                            .accessibilityLabel("QR code to open PRBar on your phone")
                     }
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Scan with the iPhone’s Camera to install PRBar for iPhone.")
+                        Text("Scan with your iPhone camera, then Share › Add to Home Screen.")
                         Text(url.absoluteString)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .textSelection(.enabled)
                             .lineLimit(2)
-                        HStack {
-                            Button("Copy Link") {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(url.absoluteString, forType: .string)
-                            }
-                            Button("Open Link") { NSWorkspace.shared.open(url) }
-                        }
-                        .controlSize(.small)
                     }
                 }
-            } else {
-                Label {
-                    Text("The iPhone app isn’t on TestFlight yet — install it from Xcode (see docs/iphone.md).")
-                } icon: {
-                    Image(systemName: "iphone.badge.play")
-                }
-                .foregroundStyle(.secondary)
+            } header: {
+                Text("Open PRBar on your phone")
+            } footer: {
+                Text("See your PRs, get notifications and review, respond, fix CI and merge from your phone. This Mac does the work; the phone is a remote control.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
-        } header: {
-            Text("Get PRBar for iPhone")
-        } footer: {
-            Text("See your PRs, get notifications and review, respond, fix CI and merge from your iPhone. This Mac does the work; the iPhone is a remote control.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
     }
 

@@ -9,7 +9,7 @@ struct RemoteGroup: ParsableCommand {
         commandName: "remote", abstract: "Control this Mac from PRBar on your iPhone.",
         discussion: "PRBar connects out to your relay server (no open ports) and everything between the Mac and the iPhone is end-to-end encrypted. See docs/iphone.md.",
         subcommands: [RemoteStatus.self, RemoteEnable.self, RemoteDisable.self, RemotePair.self, RemoteDevices.self,
-                      RemoteRevoke.self, RemoteKeepAwake.self, RemoteMailbox.self, RemoteAppLinkGroup.self, RemoteReset.self],
+                      RemoteRevoke.self, RemoteKeepAwake.self, RemoteMailbox.self, RemoteReset.self],
         defaultSubcommand: RemoteStatus.self)
 }
 
@@ -29,7 +29,9 @@ enum RemoteRender {
         pairs.append(("Paired iPhones", "\(info.devices)"))
         pairs.append(("Keep awake while charging", Render.onOff(info.keepAwake) + (info.keepingAwake ? " (holding)" : "")))
         pairs.append(("Mailbox (last state, 7 days)", Render.onOff(info.mailbox)))
-        pairs.append(("iPhone app link", info.appInstallURL?.absoluteString ?? "none (install from Xcode, see docs/iphone.md)"))
+        if let relay = info.relayHost, let url = RemoteSettings.webAppURL(relayHost: relay) {
+            pairs.append(("Phone app", "\(url.absoluteString) (open it on the phone, then Add to Home Screen)"))
+        }
         Render.pairs(pairs, output)
         if !info.enabled && info.relayHost == nil {
             output.line(output.paint("Turn it on with: prbar remote enable --relay \(RemoteSettings.defaultRelayHost)", .dim))
@@ -91,7 +93,7 @@ struct RemoteDisable: RemoteCommand {
 struct RemotePair: RemoteCommand {
     static let configuration = CommandConfiguration(
         commandName: "pair", abstract: "Pair an iPhone: shows a QR code, then asks you to compare a 6-digit code.",
-        discussion: "Scan the QR with the iPhone’s Camera or with PRBar. It works once and expires in 5 minutes.")
+        discussion: "Scan the QR with PRBar on your phone (Pair › Scan), or paste the link. It works once and expires in 5 minutes.")
     @OptionGroup var global: GlobalOptions
 
     /// Lo que va pasando (lo llena `prepare`).
@@ -110,8 +112,9 @@ struct RemotePair: RemoteCommand {
         output.line()
         QRRender.halfBlocks(matrix: matrix).forEach { output.line(output.terminal.colors ? QRRender.colored($0) : $0) }
         output.line()
-        output.line("Scan this with the Camera app or with PRBar on your iPhone.")
-        output.line(output.paint("Or open this link on the iPhone (it’s secret: don’t share it): \(started.qr)", .dim))
+        output.line("Scan this with PRBar on your phone (Pair › Scan).")
+        output.line(output.paint("Or paste this in PRBar › Pair › Paste code: \(started.qr)", .dim))
+        output.line(output.paint("It’s secret: don’t share it.", .dim))
         let seconds = max(0, Int(started.expiresAt.timeIntervalSinceNow.rounded()))
         output.line("Waiting for your iPhone… (expires in \(seconds / 60):\(String(format: "%02d", seconds % 60)))")
         let interrupt = InterruptHandler(cancel: .remotePairConfirm(pairing: started.pairing, confirmed: false),
@@ -210,28 +213,6 @@ struct RemoteMailbox: RemoteCommand {
     func render(_ result: JSONValue, _ output: Output) throws {
         output.line(value.isOn ? "Mailbox on." : "Mailbox off: the relay keeps nothing (an empty state replaces the last one).")
     }
-}
-
-struct RemoteAppLinkGroup: ParsableCommand {
-    static let configuration = CommandConfiguration(
-        commandName: "app-link", abstract: "The link Settings › iPhone shows to install PRBar for iPhone.",
-        subcommands: [RemoteAppLinkSet.self, RemoteAppLinkClear.self])
-}
-
-struct RemoteAppLinkSet: RemoteCommand {
-    static let configuration = CommandConfiguration(
-        commandName: "set", abstract: "Set the TestFlight or App Store link (https, testflight.apple.com or apps.apple.com).")
-    @Argument(help: "The link, e.g. https://testflight.apple.com/join/…") var url: String
-    @OptionGroup var global: GlobalOptions
-    func appCommand(confirmed: Bool) -> AppCommand { .remoteSetAppLink(url: url) }
-    func render(_ result: JSONValue, _ output: Output) throws { output.line("Saved. Settings › iPhone shows its QR code.") }
-}
-
-struct RemoteAppLinkClear: RemoteCommand {
-    static let configuration = CommandConfiguration(commandName: "clear", abstract: "Remove the link.")
-    @OptionGroup var global: GlobalOptions
-    func appCommand(confirmed: Bool) -> AppCommand { .remoteSetAppLink(url: nil) }
-    func render(_ result: JSONValue, _ output: Output) throws { output.line("Link removed.") }
 }
 
 struct RemoteReset: RemoteCommand {

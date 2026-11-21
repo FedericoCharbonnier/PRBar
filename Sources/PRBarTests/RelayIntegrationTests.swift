@@ -85,7 +85,7 @@ enum RelayIntegrationTests {
                 })
             try await host.connect()
             // Emparejar.
-            let presence = SoftwarePresenceSigner()
+            let presence = SoftwareWebAuthnAuthenticator(rpId: rpIdOf(relay.host), origin: "https://\(relay.host)")
             let client = RemoteClient(configuration: .init(appVersion: "1.2.0", deviceName: "iPhone", model: "iPhone",
                                                            handshakeTimeout: .seconds(5)),
                                       linkFactory: factory)
@@ -96,7 +96,7 @@ enum RelayIntegrationTests {
                 for await event in events { if case .pairingJoined(let sas, _, _) = event { return sas } }
                 throw TestFailure(description: "no join")
             }
-            let sas = try await client.startPairing(qr: qr, presenceKey: presence.publicKey)
+            let sas = try await client.startPairing(qr: qr, presence: presence.credential)
             let joinedSAS = try await joined
             try expectEqual(joinedSAS, sas)
             try await host.confirmPairing(true)
@@ -112,7 +112,7 @@ enum RelayIntegrationTests {
             try expectEqual(gated.error?.code, .unauthorized)
             let signed = try await client.run(merge, presence: presence)
             try expectEqual(signed.ok, true)
-            // Push: sin token de APNs el relay contesta 410 (sin APNs configurado, 503): llega y vuelve.
+            // Push: sin suscripción de Web Push el relay contesta 410 (sin VAPID, 503): llega y vuelve.
             let payload = PushPayload(createdAt: Date(), kind: "k", title: "t", body: "b", threadId: "x",
                                       deepLink: "prbar://")
             let pushStatus = try await host.push(payload, to: paired.deviceId)

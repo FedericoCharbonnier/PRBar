@@ -124,5 +124,4 @@ extension AppModel: RemoteActions {
         try await remoteAccess.setPresenceRequirement(device, enabled: enabled)
     }
     func remoteSetMailbox(enabled: Bool) async throws -> RemoteStatusInfo { try await remoteAccess.setMailbox(enabled) }
-    func remoteSetAppLink(url: String?) throws -> RemoteStatusInfo { try remoteAccess.setAppLink(url) }
 }

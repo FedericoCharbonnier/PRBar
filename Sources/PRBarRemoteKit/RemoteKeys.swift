@@ -43,7 +43,7 @@ public struct MacKeys: Codable, Sendable {
     }
 }
 
-/// Las tres claves de largo plazo del teléfono (la de presencia vive en el Secure Enclave y no está acá).
+/// Las tres claves de largo plazo del teléfono (la de presencia es una passkey del sistema y no está acá).
 public struct DeviceKeys: Codable, Sendable {
     public var relay: Curve25519.Signing.PrivateKey
     public var noise: Curve25519.KeyAgreement.PrivateKey
@@ -127,13 +127,14 @@ public struct PairedDevice: Codable, Equatable, Sendable {
     public var noise: Data
     /// `devicePushKey.pub` (X25519).
     public var push: Data
-    /// `presenceKey.pub` (P-256, x963).
-    public var presence: Data
+    /// La passkey del teléfono (W.4.5). `nil`: se emparejó sin passkey y los comandos gated quedan bloqueados.
+    public var presence: PresenceCredential?
     public var pairedAt: Date
     /// Merge, push y approve piden Face ID (por defecto sí, spec P.8).
     public var requirePresence: Bool
 
-    public init(deviceId: String, name: String, model: String, noise: Data, push: Data, presence: Data, pairedAt: Date,
+    public init(deviceId: String, name: String, model: String, noise: Data, push: Data, presence: PresenceCredential?,
+                pairedAt: Date,
                 requirePresence: Bool = true) {
         self.deviceId = deviceId
         self.name = name
@@ -154,7 +155,8 @@ public struct PairedDevice: Codable, Equatable, Sendable {
         model = try c.decode(String.self, forKey: .model)
         noise = try Base64URL.decode(try c.decode(String.self, forKey: .noise))
         push = try Base64URL.decode(try c.decode(String.self, forKey: .push))
-        presence = try Base64URL.decode(try c.decode(String.self, forKey: .presence))
+        // Un `devices.json` de la app nativa tenía acá un texto (x963): no decodifica y el archivo se descarta.
+        presence = try c.decodeIfPresent(PresenceCredential.self, forKey: .presence)
         pairedAt = try c.decode(Date.self, forKey: .pairedAt)
         requirePresence = try c.decodeIfPresent(Bool.self, forKey: .requirePresence) ?? true
     }
@@ -166,7 +168,7 @@ public struct PairedDevice: Codable, Equatable, Sendable {
         try c.encode(model, forKey: .model)
         try encodeKey(noise, &c, CodingKeys.noise)
         try encodeKey(push, &c, CodingKeys.push)
-        try encodeKey(presence, &c, CodingKeys.presence)
+        try c.encodeIfPresent(presence, forKey: .presence)
         try c.encode(pairedAt, forKey: .pairedAt)
         try c.encode(requirePresence, forKey: .requirePresence)
     }

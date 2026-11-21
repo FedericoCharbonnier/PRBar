@@ -125,7 +125,7 @@ enum RemoteContinuationTests {
             let client = h.client()
             let qr = try await h.openPairing()
             async let join = h.nextJoin()
-            _ = try await client.startPairing(qr: qr, presenceKey: h.presence.publicKey)
+            _ = try await client.startPairing(qr: qr, presence: h.presence.credential)
             _ = try await join
             let finished = Finished()
             for _ in 0..<2 {

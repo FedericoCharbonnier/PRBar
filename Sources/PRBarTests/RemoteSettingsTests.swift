@@ -11,13 +11,11 @@ enum RemoteSettingsTests {
             try expectEqual(config.remote, RemoteSettings.default)
             try expect(!config.remote.enabled && config.remote.relayHost == nil && config.remote.accountId == nil)
             try expect(!config.remote.keepAwakeWhileCharging && config.remote.mailboxEnabled)
-            try expectEqual(config.remote.appInstallURL, nil)
         },
         TestCase("remote settings: ida y vuelta, y valores rotos no rompen la config") {
             var config = AppConfig()
             config.remote = RemoteSettings(enabled: true, relayHost: "relay.example.com:8443", accountId: "abc",
-                                           keepAwakeWhileCharging: true, mailboxEnabled: false,
-                                           appInstallURL: URL(string: "https://testflight.apple.com/join/AbCd1234"))
+                                           keepAwakeWhileCharging: true, mailboxEnabled: false)
             let data = try JSONEncoder().encode(config)
             let back = try JSONDecoder().decode(AppConfig.self, from: data)
             try expectEqual(back.remote, config.remote)
@@ -25,7 +23,12 @@ enum RemoteSettingsTests {
             let tolerant = try JSONDecoder().decode(AppConfig.self, from: Data(broken.utf8))
             try expectEqual(tolerant.remote.enabled, false)
             try expectEqual(tolerant.remote.relayHost, nil)
-            try expectEqual(tolerant.remote.appInstallURL, nil)
+            // Un `appInstallURL` viejo (el link de TestFlight) se ignora y no vuelve a escribirse.
+            let old = #"{"remote": {"enabled": false, "appInstallURL": "https://testflight.apple.com/join/AbCd1234"}}"#
+            let reencoded = String(decoding: try JSONEncoder().encode(try JSONDecoder().decode(AppConfig.self,
+                                                                                               from: Data(old.utf8))),
+                                   as: UTF8.self)
+            try expect(!reencoded.contains("appInstallURL"), reencoded)
         },
         TestCase("remote settings: host del relay (host, host:puerto, https://host) y rechazos") {
             try expectEqual(RemoteSettings.normalizedRelayHost("prbar.example.com"), "prbar.example.com")
@@ -38,21 +41,14 @@ enum RemoteSettingsTests {
                 try expectEqual(RemoteSettings.normalizedRelayHost(bad), nil)
             }
             try expectEqual(RemoteSettings.normalizedRelayHost("127.0.0.1:9000", allowIPForTests: true), "127.0.0.1:9000")
+            try expectEqual(RemoteSettings.normalizedRelayHost("localhost:9000"), nil)
+            try expectEqual(RemoteSettings.normalizedRelayHost("localhost:9000", allowIPForTests: true), "localhost:9000")
         },
-        TestCase("remote settings: el link de instalación es https de TestFlight o del App Store") {
-            let ok = try RemoteSettings.installURL("https://testflight.apple.com/join/AbCd1234")
-            try expectEqual(ok.absoluteString, "https://testflight.apple.com/join/AbCd1234")
-            _ = try RemoteSettings.installURL("https://apps.apple.com/app/prbar/id123456")
-            for bad in ["http://testflight.apple.com/join/x", "https://testflight.apple.com.evil.com/join/x",
-                        "https://evil.com/testflight.apple.com", "https://user@apps.apple.com/app/x",
-                        "https://apps.apple.com:444/app/x", "testflight.apple.com/join/x", "javascript:alert(1)", ""] {
-                do {
-                    _ = try RemoteSettings.installURL(bad)
-                    throw TestFailure(description: "aceptó \(bad)")
-                } catch let failure as CommandFailure {
-                    try expectEqual(failure.code, .invalidUsage)
-                }
-            }
+        TestCase("remote settings: la web app vive en https://<host del relay>/") {
+            try expectEqual(RemoteSettings.webAppURL(relayHost: "prbar.example.com")?.absoluteString,
+                            "https://prbar.example.com/")
+            try expectEqual(RemoteSettings.webAppURL(relayHost: "prbar.example.com:8443")?.absoluteString,
+                            "https://prbar.example.com:8443/")
         },
         TestCase("remote keys: se crean una vez, en el llavero (nunca en config.json), y reset las borra") {
             let secrets = FakeSecrets()
@@ -116,13 +112,36 @@ enum RemoteSettingsTests {
             try store.add(sampleDevice("dev3"))
             try expectEqual(RemoteDeviceStore(directory: dir).devices.count, 1)
         },
+        TestCase("remote devices: un devices.json de la app nativa (presence x963) se lee como vacío") {
+            let dir = try temporaryDirectory().appendingPathComponent("remote")
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let old = """
+            [{"device":{"deviceId":"dev1","model":"iPhone","name":"iPhone","noise":"\(Base64URL.encode(Data(count: 32)))",
+            "pairedAt":"2026-11-20T10:00:00Z","presence":"\(Base64URL.encode(Data(count: 65)))",
+            "push":"\(Base64URL.encode(Data(count: 32)))","requirePresence":true},"notificationsOff":false}]
+            """
+            try Data(old.utf8).write(to: dir.appendingPathComponent("devices.json"))
+            try expect(RemoteDeviceStore(directory: dir).devices.isEmpty)
+        },
+        TestCase("remote devices: la passkey se guarda y un dispositivo sin passkey también") {
+            let dir = try temporaryDirectory().appendingPathComponent("remote")
+            let store = RemoteDeviceStore(directory: dir)
+            let withPasskey = sampleDevice("dev1")
+            var without = sampleDevice("dev2")
+            without.presence = nil
+            try store.add(withPasskey)
+            try store.add(without)
+            let reopened = RemoteDeviceStore(directory: dir).devices.map(\.device)
+            try expectEqual(reopened, [withPasskey, without])
+            try expect(reopened[0].presence?.isValid == true)
+        },
     ]
 
     static func sampleDevice(_ id: String, name: String = "Federico’s iPhone") -> PairedDevice {
         PairedDevice(deviceId: id, name: name, model: "iPhone 17 Pro",
                      noise: Curve25519.KeyAgreement.PrivateKey().publicKey.rawRepresentation,
                      push: Curve25519.KeyAgreement.PrivateKey().publicKey.rawRepresentation,
-                     presence: P256.Signing.PrivateKey().publicKey.x963Representation,
+                     presence: SoftwareWebAuthnAuthenticator(rpId: "relay.test").credential,
                      pairedAt: Date(timeIntervalSince1970: 1_800_000_000))
     }
 }

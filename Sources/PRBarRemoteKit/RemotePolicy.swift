@@ -19,6 +19,8 @@ public enum RemotePolicy {
 
     public static let deniedMessage = "This can’t be done from iPhone. Use PRBar on your Mac."
     public static let presenceRequiredMessage = "Face ID is required for this on iPhone."
+    /// El teléfono se emparejó sin passkey (W.4.6): nada gated hasta volver a emparejarlo.
+    public static let presenceNotSetUpMessage = "Face ID isn't set up on this device. Pair it again."
 
     public static func classify(_ name: AppCommand.Name) -> Class {
         switch name {
@@ -54,7 +56,7 @@ public enum RemotePolicy {
              .runnerSet, .runnerRemove, .runnerTest, .runnerDefault,
              // El acceso remoto se maneja desde la Mac (salvo Face ID del propio teléfono, arriba).
              .remoteStatus, .remoteEnable, .remoteDisable, .remotePairStart, .remotePairWait, .remotePairConfirm,
-             .remoteDevices, .remoteRevoke, .remoteSetKeepAwake, .remoteReset, .remoteSetMailbox, .remoteSetAppLink:
+             .remoteDevices, .remoteRevoke, .remoteSetKeepAwake, .remoteReset, .remoteSetMailbox:
             return .denied
         }
     }

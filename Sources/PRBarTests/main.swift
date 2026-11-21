@@ -146,6 +146,7 @@ let allTests: [TestCase] = []
     + SASTests.cases
     + PairingQRTests.cases
     + PresenceTests.cases
+    + WebVectorsTests.cases
     + FramingTests.cases
     + RemotePolicyTests.cases
     + RemoteEndToEndTests.cases

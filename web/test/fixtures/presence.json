@@ -1,0 +1,39 @@
+[
+  {
+    "authenticatorData" : "0604d0b06caf6807bcb249031f762713c79cdd7d22abb52efa4bac622bf8990c0500000000",
+    "challenge" : "433b525ddba7fcaa621f26b551882f0fb725cb789e9852747629f5a601f2c727",
+    "clientDataJSON" : "{\"type\":\"webauthn.get\",\"challenge\":\"QztSXdun_KpiHya1UYgvD7cly3iemFJ0din1pgHyxyc\",\"origin\":\"https://prbar.example.org\",\"crossOrigin\":false}",
+    "cmd" : "7b226d65726765223a7b22636f6e6669726d6564223a747275652c226578706563746564486561644f6964223a2239663363326131222c226d6574686f64223a22737175617368222c227072223a2261636d652f61706923333232227d7d",
+    "cmdText" : "{\"merge\":{\"confirmed\":true,\"expectedHeadOid\":\"9f3c2a1\",\"method\":\"squash\",\"pr\":\"acme/api#322\"}}",
+    "credential" : {
+      "credentialId" : "ZMAkxmOIv9GpMIxp-J9zog",
+      "publicKey" : "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE4t-83uGiFRH3Q-qovTtFEToo5h1cF7SUkoul0PHMVGmy-vbvc9ou9DHb-wsBfTVaGLLjwOelf865hUM5hNGVuw",
+      "rpId" : "prbar.example.org"
+    },
+    "origin" : "https://prbar.example.org",
+    "preimage" : "505242617250726573656e6365207632be0ebe1f6d94cefd91440de0c3262c5b60c36e3b8f290a8fcfedbde1d4e274c100000000000000074e4b6442bea9391c76cfec25a821c9965aa4f1027e4275a8f11efe4225b4d269000001a1f8f6b4bb",
+    "privateKey" : "89d189b1cd03f67ea47ba4601e32d86afb38b87925e890c754141aac116a538c",
+    "proof" : {
+      "authenticatorData" : "BgTQsGyvaAe8skkDH3YnE8ec3X0iq7Uu-kusYiv4mQwFAAAAAA",
+      "clientDataJSON" : "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiUXp0U1hkdW5fS3BpSHlhMVVZZ3ZEN2NseTNpZW1GSjBkaW4xcGdIeXh5YyIsIm9yaWdpbiI6Imh0dHBzOi8vcHJiYXIuZXhhbXBsZS5vcmciLCJjcm9zc09yaWdpbiI6ZmFsc2V9",
+      "credentialId" : "ZMAkxmOIv9GpMIxp-J9zog",
+      "signature" : "MEUCIAbw-bEd2ZCp8A8SJfhy-ZrrovyxJAzPozQEoDNFGaQCAiEAiLKYY5PsaCi_FO6jI2RdkX6seTE-RlepBJ0SgSk9Gbc",
+      "ts" : 1795178280123,
+      "v" : 2
+    },
+    "reqId" : 7,
+    "rpId" : "prbar.example.org",
+    "sessionHash" : "be0ebe1f6d94cefd91440de0c3262c5b60c36e3b8f290a8fcfedbde1d4e274c1",
+    "signature" : "3045022006f0f9b11dd990a9f00f1225f872f99aeba2fcb1240ccfa33404a0334519a40202210088b2986393ec6828bf14eea323645d917eac79313e4657a9049d1281293d19b7",
+    "ts" : 1795178280123
+  },
+  {
+    "challenge" : "3a2c530a6f1bfa2816083c5f04bfefd52e7e9b18a4bfc5a2af705b1187aef7cd",
+    "cmd" : "78",
+    "cmdText" : "x",
+    "preimage" : "505242617250726573656e6365207632be0ebe1f6d94cefd91440de0c3262c5b60c36e3b8f290a8fcfedbde1d4e274c100010203040506072d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a488100000000000005dc",
+    "reqId" : 283686952306183,
+    "sessionHash" : "be0ebe1f6d94cefd91440de0c3262c5b60c36e3b8f290a8fcfedbde1d4e274c1",
+    "ts" : 1500
+  }
+]

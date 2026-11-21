@@ -58,6 +58,9 @@ public actor RemoteHost {
         public var accountId: String
         /// El host del relay que va en el QR (y que firma el desafío).
         public var relayHost: String
+        /// El origen de la web app (W.5): el `origin` que tiene que traer cada aserción de WebAuthn. Su host (sin
+        /// puerto) es el rpId de las passkeys. Por defecto `https://<relayHost>`.
+        public var webOrigin: String
         public var macName: String
         public var appVersion: String
         public var keys: MacKeys
@@ -72,14 +75,19 @@ public actor RemoteHost {
         /// Espera antes de reconectar con el relay (intento 1, 2, …).
         public var backoff: @Sendable (Int) -> Duration
 
+        /// El rpId que tienen que tener las passkeys: el host de `webOrigin`, sin puerto.
+        public var rpId: String { URLComponents(string: webOrigin)?.host ?? relayHost }
+
         public init(accountId: String, relayHost: String, macName: String, appVersion: String, keys: MacKeys,
                     commandProtocol: Int = CommandProtocol.version,
                     minimumRemoteVersion: Int = CommandProtocol.minimumRemoteVersion,
                     pairingLifetime: TimeInterval = 300, pushTimeout: Duration = .seconds(10),
                     pairingAckTimeout: Duration = .seconds(20), limits: RemoteLimits = .standard,
-                    backoff: @escaping @Sendable (Int) -> Duration = RemoteBackoff.standard) {
+                    backoff: @escaping @Sendable (Int) -> Duration = RemoteBackoff.standard,
+                    webOrigin: String? = nil) {
             self.accountId = accountId
             self.relayHost = relayHost
+            self.webOrigin = webOrigin ?? "https://\(relayHost)"
             self.macName = macName
             self.appVersion = appVersion
             self.keys = keys
@@ -477,9 +485,16 @@ public actor RemoteHost {
             eventSink.yield(.commandRefused(device: deviceId, name: command.name))
             return reply(CommandFailure(.unauthorized, RemotePolicy.deniedMessage))
         case .gated where devices[deviceId]?.requirePresence ?? true:
-            guard let device = devices[deviceId], let proof = request.presence,
-                  (try? PresenceVerifier.verify(proof, publicKey: device.presence, sessionHash: session.channel.handshakeHash,
-                                                reqId: UInt64(max(request.id, 0)), commandBytes: request.cmd, now: now)) != nil,
+            if let device = devices[deviceId], device.presence == nil {
+                // Se emparejó sin passkey (W.4.6): no hay con qué verificar Face ID.
+                eventSink.yield(.commandRefused(device: deviceId, name: command.name))
+                return reply(CommandFailure(.unauthorized, RemotePolicy.presenceNotSetUpMessage))
+            }
+            guard let device = devices[deviceId], let credential = device.presence, let proof = request.presence,
+                  (try? WebAuthnPresenceVerifier.verify(proof, credential: credential, origin: config.webOrigin,
+                                                        sessionHash: session.channel.handshakeHash,
+                                                        reqId: UInt64(max(request.id, 0)), commandBytes: request.cmd,
+                                                        now: now)) != nil,
                   checkReplay(deviceId: deviceId, sid: sid, reqId: request.id, now: now) else {
                 eventSink.yield(.commandRefused(device: deviceId, name: command.name))
                 return reply(CommandFailure(.unauthorized, RemotePolicy.presenceRequiredMessage))
@@ -565,13 +580,12 @@ public actor RemoteHost {
         return true
     }
 
-    /// Manda un push cifrado; devuelve el status HTTP de APNs que informa el relay.
+    /// Manda un push cifrado; devuelve el status que informa el relay (200 entregado, 410 sin suscripción).
     public func push(_ payload: PushPayload, to deviceId: String) async throws -> Int {
         guard let device = devices[deviceId], link != nil else { throw RelayClosed(code: nil, reason: "Not connected") }
         let push = try Curve25519.KeyAgreement.PublicKey(rawRepresentation: device.push)
-        let field = try payload.sealedForAPNs(from: config.keys.seal, to: push,
-                                              info: SealedInfo.push(account: config.accountId, device: deviceId))
-        guard let envelope = Data(base64Encoded: field) else { throw SealedError.malformed }
+        let envelope = try payload.sealedForPush(from: config.keys.seal, to: push,
+                                                 info: SealedInfo.push(account: config.accountId, device: deviceId))
         let ids = try PushIdentifiers(macSeal: config.keys.seal, devicePush: push)
         let id = UUID().uuidString.lowercased()
         let pr = payload.pr ?? payload.threadId
@@ -689,6 +703,8 @@ public actor RemoteHost {
                 guard case .join(var join) = try PairingMessage.decode(try handshake.readMessage(b)), join.isValid else {
                     throw NoiseError.malformed
                 }
+                // Una passkey de otro sitio nunca daría aserciones válidas para esta Mac.
+                if let presence = join.presence, presence.rpId != config.rpId { throw NoiseError.malformed }
                 // Lo muestra la hoja de emparejar, Settings y `prbar remote devices`: una línea sin bidi (L5).
                 join.deviceName = RemoteText.displayName(join.deviceName)
                 join.model = RemoteText.displayName(join.model)

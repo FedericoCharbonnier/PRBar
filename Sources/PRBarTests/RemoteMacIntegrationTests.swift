@@ -52,14 +52,14 @@ enum RemoteMacIntegrationTests {
         try await eventually(10, "connected") { await service.state == .connected }
 
         // Emparejar con el QR y el código.
-        let presence = SoftwarePresenceSigner()
+        let presence = SoftwareWebAuthnAuthenticator(rpId: rpIdOf(relay.host), origin: "https://\(relay.host)")
         let client = RemoteClient(configuration: .init(appVersion: "1.3.0", deviceName: "Integration iPhone",
                                                        model: "iPhone 17 Pro", handshakeTimeout: .seconds(5),
                                                        requestTimeout: .seconds(20)),
                                   linkFactory: WebSocketRelayLink.factory(host: relay.host, allowInsecureTransportForTests: true))
         let info = try await service.pairStart()
         let qr = try PairingQR(url: info.qr, allowInsecure: true)
-        let sas = try await client.startPairing(qr: qr, presenceKey: presence.publicKey)
+        let sas = try await client.startPairing(qr: qr, presence: presence.credential)
         let joined = try await service.pairWait(pairing: info.pairing, events: { _ in })
         try expectEqual(joined.code?.replacingOccurrences(of: " ", with: ""), sas)
         let paired = try await service.pairConfirm(pairing: info.pairing, accepted: true)
@@ -121,11 +121,11 @@ enum RemoteSmokeTests {
                 return
             }
             let qr = try PairingQR(url: link)
-            let presence = SoftwarePresenceSigner()
+            let presence = SoftwareWebAuthnAuthenticator(rpId: rpIdOf(qr.relayHost), origin: "https://\(qr.relayHost)")
             let client = RemoteClient(
                 configuration: .init(appVersion: "smoke", deviceName: "Simulated iPhone", model: "PRBarTests"),
                 linkFactory: WebSocketRelayLink.factory(host: qr.relayHost))
-            let sas = try await client.startPairing(qr: qr, presenceKey: presence.publicKey)
+            let sas = try await client.startPairing(qr: qr, presence: presence.credential)
             print("    The Mac should show \(sas.prefix(3)) \(sas.suffix(3)). Choose Codes Match (5 min).")
             _ = try await within(300) { try await client.finishPairing() }
             try await client.connect()

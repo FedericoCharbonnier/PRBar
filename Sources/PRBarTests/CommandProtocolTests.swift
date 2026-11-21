@@ -38,8 +38,8 @@ enum CommandProtocolTests {
             try expect(!line.contains("\n"), line)
         },
         TestCase("protocolo: versión 6 (Fix CI y uso de Claude)") {
-            try expectEqual(CommandProtocol.version, 7)
-            try expectEqual(CommandProtocol.minimumRemoteVersion, 7)
+            try expectEqual(CommandProtocol.version, 8)
+            try expectEqual(CommandProtocol.minimumRemoteVersion, 8)
         },
         TestCase("protocolo: mensaje de versiones incompatibles") {
             try expectEqual(CommandFailure.protocolMismatch(cli: "1.3.0", app: "1.2.0").message,

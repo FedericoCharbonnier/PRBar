@@ -452,8 +452,9 @@ public final class RemoteAccessService: ObservableObject {
     }
 
     private func pushAnswered(_ id: String, status: Int) {
-        // 410 o 400: APNs olvidó el token ("Notifications off" hasta que el teléfono registre uno nuevo).
-        let off = status == 410 || status == 400
+        // 410: el relay no tiene suscripción de Web Push o el servicio de push la dio de baja ("Notifications off"
+        // hasta que el teléfono registre una nueva).
+        let off = status == 410
         guard status == 200 || off else { return }
         try? env.devices.setNotificationsOff(off, for: id)
         devices = env.devices.devices
@@ -523,7 +524,7 @@ public final class RemoteAccessService: ObservableObject {
         return RemoteStatusInfo(enabled: settings.enabled, relayHost: settings.relayHost, state: state.name, detail: detail,
                                 devices: devices.count, devicesOnline: online.count, keepAwake: settings.keepAwakeWhileCharging,
                                 keepingAwake: keepingAwake, mailbox: settings.mailboxEnabled,
-                                appInstallURL: settings.appInstallURL, accountPrefix: settings.accountId.map { String($0.prefix(4)) })
+                                accountPrefix: settings.accountId.map { String($0.prefix(4)) })
     }
 
     public func enable(relay: String, enrollToken: String) async throws -> RemoteStatusInfo {
@@ -765,11 +766,6 @@ public final class RemoteAccessService: ObservableObject {
         return status()
     }
 
-    public func setAppLink(_ text: String?) throws -> RemoteStatusInfo {
-        let url = try text.map { try RemoteSettings.installURL($0) }
-        try store.updateRemoteSettings { $0.appInstallURL = url }
-        return status()
-    }
 }
 
 /// `body`, o falla si tarda más que `limit` (y lo cancela).
