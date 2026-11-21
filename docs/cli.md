@@ -173,7 +173,7 @@ Without a terminal (a script, a pipe, `--json`) `prbar` never asks. Commands tha
 
 Keys are sorted; dates are ISO 8601. `data` is the command’s result: `StatusInfo`, `[PRInfo]`, `ReviewInfo`,
 `RespondInfo`, `[HistoryEntryInfo]`, `HistoryDetail`, `[CIListEntry]`, `UsageInfo`, … (see
-`Sources/PRBarCore/CommandResults.swift`). Commands with nothing to return give `{"ok": true}`. New optional keys may
+`Sources/PRBarCore/CommandResults+Core.swift`). Commands with nothing to return give `{"ok": true}`. New optional keys may
 appear; renaming or removing one bumps `schemaVersion`.
 
 Claude’s usage (`usage` in `history`, `review show`, `respond show`/`ci show`, `usage`; `claudeThisMonth` in
