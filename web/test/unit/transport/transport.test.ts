@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { ActionRunner } from "../../../src/app/actions";
+import { passkeyAuthorizer } from "../../../src/presence/webauthn";
 import { ed25519PublicKey, generateEd25519, generateX25519, x25519PublicKey } from "../../../src/crypto/curves";
 import { sessionPrologue } from "../../../src/crypto/noise";
 import type { RemoteFrame } from "../../../src/protocol/appFrames";
@@ -120,6 +122,56 @@ describe("LiveTransport", () => {
     await flush();
     expect(asked).toBe(false);
     expect(t.sessions[0]!.mac.received.at(-1)).not.toHaveProperty("presence");
+  });
+
+  it("con la sesión abierta, Face ID se pide en el mismo toque: sin ningún await antes de credentials.get", async () => {
+    const t = setup();
+    t.transport.start();
+    await flush();
+    expect(t.transport.state.kind).toBe("online");
+    const gets: CredentialRequestOptions[] = [];
+    const credentials = {
+      create: async () => null,
+      get: (options: CredentialRequestOptions) => {
+        gets.push(options);
+        return new Promise<Credential | null>(() => {});
+      },
+    };
+    const presence = { credentialId: new Uint8Array(16), publicKey: new Uint8Array(91), rpId: "relay.example" };
+    const runner = new ActionRunner(() => t.transport, () => passkeyAuthorizer(presence, credentials));
+    // Lo que hace el click de "Merge": `run` sin esperar nada. Safari solo muestra Face ID si `credentials.get` se
+    // llama antes de que termine el listener (ni un microtask después).
+    void runner.run({ merge: { pr: "a/b#1", confirmed: true, expectedHeadOid: "x" } });
+    expect(gets).toHaveLength(1);
+    expect(gets[0]!.publicKey!.rpId).toBe("relay.example");
+    expect(runner.faceIdPending.value).toBe(true);
+  });
+
+  it("sin la sesión abierta, un comando gated no pide Face ID después: falla y la sesión se abre", async () => {
+    const t = setup();
+    t.transport.start();
+    expect(t.transport.state.kind).not.toBe("online");
+    let asked = false;
+    const merge = { merge: { pr: "a/b#1", confirmed: true, expectedHeadOid: "x" } };
+    await expect(t.transport.send(merge, { authorize: async () => { asked = true; throw new Error("no"); } }))
+      .rejects.toMatchObject({ code: "connecting" });
+    expect(asked).toBe(false);
+    await flush();
+    expect(t.transport.state.kind).toBe("online");
+    // Lo que no es gated sí espera la sesión.
+    const pending = t.transport.send({ status: {} });
+    await flush();
+    expect((await pending).id).toBeGreaterThan(0);
+  });
+
+  it("sin sesión y con la Mac offline, un comando gated dice que la Mac está offline", async () => {
+    const t = setup();
+    t.relay.macOnline = false;
+    t.transport.start();
+    await flush();
+    const merge = { merge: { pr: "a/b#1", confirmed: true, expectedHeadOid: "x" } };
+    await expect(t.transport.send(merge, { authorize: async () => { throw new Error("no"); } }))
+      .rejects.toMatchObject({ code: "macOffline" });
   });
 
   it("hello incompatible: estado con el texto y sin reintentos", async () => {

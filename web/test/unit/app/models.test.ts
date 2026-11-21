@@ -443,3 +443,45 @@ describe("store", () => {
     expect(app.store.lastUpdated.value).toBeNull();
   });
 });
+
+// Safari solo muestra Face ID si `credentials.get` se llama dentro del listener del toque: cada botón gated tiene que
+// llegar a la passkey sin ningún `await` en el camino (la sesión con la Mac ya está abierta; ver LiveTransport.send).
+describe("Face ID en el mismo toque", () => {
+  it("Merge, Post (Approve), Tests, Push y apagar Face ID firman antes de volver del click", async () => {
+    const app = makeApp();
+    const merge = createMergeModel(app, "acme/api#322");
+    await merge.load();
+    const mergeView = merge.view.value;
+    if (mergeView.kind !== "merge") throw new Error(mergeView.kind);
+    mergeView.props.onMerge();
+    expect(app.signed).toHaveLength(1);
+
+    const review = createReviewModel(app, "acme/api#317");
+    const reviewView = review.view.value;
+    if (reviewView.kind !== "review") throw new Error(reviewView.kind);
+    reviewView.props.onSelectDecision("approve");
+    const approve = review.view.value;
+    if (approve.kind !== "review") throw new Error(approve.kind);
+    approve.props.onPost();
+    expect(app.signed).toHaveLength(2);
+
+    const pr = "acme/web-app#488";
+    app.transport.setTopic(`pr:${pr}`, { respond: { ...respondInfo(), pr, phase: "readyToPush", testCommand: "npm test" } });
+    const respond = createRespondModel(app, pr, "feedback");
+    respond.open();
+    const fix = respond.view("main");
+    if (fix.kind !== "fixci") throw new Error(fix.kind);
+    fix.props.onRunTests!();
+    expect(app.signed).toHaveLength(3);
+    await flush();
+    const ready = respond.view("main");
+    if (ready.kind !== "fixci") throw new Error(ready.kind);
+    ready.props.onPrimary();
+    expect(app.signed).toHaveLength(4);
+
+    const settings = createSettingsModel(app, { version: "v", unpair: async () => {} });
+    settings.props.value.onToggleFaceId(false);
+    expect(app.signed).toHaveLength(5);
+    await flush();
+  });
+});

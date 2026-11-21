@@ -64,7 +64,8 @@ export type Authorize = (challenge: Uint8Array) => Promise<PresenceAssertion>;
 
 export type RemoteErrorCode =
   | "notPaired" | "macOffline" | "relayUnreachable" | "revoked" | "relayRejected" | "replaced" | "incompatible"
-  | "pairingCancelled" | "pairingExpired" | "handshakeFailed" | "sessionClosed" | "timeout" | "presenceRequired";
+  | "pairingCancelled" | "pairingExpired" | "handshakeFailed" | "sessionClosed" | "timeout" | "presenceRequired"
+  | "connecting";
 
 const MESSAGES: Record<Exclude<RemoteErrorCode, "incompatible">, string> = {
   notPaired: "This iPhone isn’t paired with a Mac.",
@@ -79,6 +80,7 @@ const MESSAGES: Record<Exclude<RemoteErrorCode, "incompatible">, string> = {
   sessionClosed: "The connection with your Mac was reset. Try again.",
   timeout: "Your Mac didn’t answer in time. Refresh to see whether it ran.",
   presenceRequired: "Face ID is required for this on iPhone.",
+  connecting: "Still connecting to your Mac. Try again in a moment.",
 };
 
 /** Un error del lado del teléfono, con el texto que muestra la UI (RemoteError de RemoteClient.swift). */

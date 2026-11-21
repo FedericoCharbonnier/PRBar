@@ -279,7 +279,15 @@ export class LiveTransport implements Transport {
   async send(command: AppCommand, options: SendOptions = {}): Promise<PendingCommand> {
     const needsPresence = this.needsPresence(command);
     if (needsPresence && !options.authorize) throw new RemoteError("presenceRequired");
-    const session = await this.#ensureSession();
+    // Face ID tiene que pedirse dentro del toque: Safari no muestra el aviso de WebAuthn después de un `await`. Con la
+    // sesión abierta, `authorize` corre sincrónico desde acá (sin `await` antes de `credentials.get`); sin sesión, un
+    // comando gated no espera a abrirla para pedirlo: falla y la sesión se abre para el próximo toque.
+    let session = this.#session?.isOpen ? this.#session : null;
+    if (!session && needsPresence) {
+      this.#ensureSession().catch(() => {});
+      throw this.#unavailable() ?? new RemoteError("connecting");
+    }
+    session ??= await this.#ensureSession();
     const log: EventLog = { events: [], listeners: new Set() };
     const sent = await session.request(command, {
       ...(needsPresence ? { authorize: options.authorize! } : {}),
@@ -561,23 +569,29 @@ export class LiveTransport implements Transport {
     this.#mailboxWaiter = null;
   }
 
-  async #ensureSession(): Promise<Session> {
-    if (this.#session?.isOpen) return this.#session;
+  /** Por qué no se puede abrir una sesión ahora mismo (revocado, incompatible, la Mac offline), o `null`. */
+  #unavailable(): RemoteError | null {
     switch (this.#state.kind) {
       case "revoked":
-        throw new RemoteError("revoked");
+        return new RemoteError("revoked");
       case "unpaired":
-        throw new RemoteError("notPaired");
+        return new RemoteError("notPaired");
       case "incompatible":
-        throw new RemoteError("incompatible", this.#state.reason);
+        return new RemoteError("incompatible", this.#state.reason);
       default:
         break;
     }
     const relay = this.#relay.state;
-    if (relay.kind === "ready") {
-      if (relay.mac === "offline") throw new RemoteError("macOffline", undefined, relay.since * 1000);
-      return this.#openSession();
-    }
+    if (relay.kind === "ready" && relay.mac === "offline") return new RemoteError("macOffline", undefined, relay.since * 1000);
+    return null;
+  }
+
+  async #ensureSession(): Promise<Session> {
+    if (this.#session?.isOpen) return this.#session;
+    const unavailable = this.#unavailable();
+    if (unavailable) throw unavailable;
+    const relay = this.#relay.state;
+    if (relay.kind === "ready") return this.#openSession();
     if (relay.kind === "idle") this.#relay.start();
     else if (relay.kind !== "connecting") this.#relay.retryNow();
     // Espera a que el relay conteste (y la sesión abra) o a que falle.
