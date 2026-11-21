@@ -3,7 +3,7 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { describe, expect, it } from "vitest";
 import { b64urlDecode } from "../../../src/crypto/b64";
 import { concat, randomBytes, type Bytes } from "../../../src/crypto/bytes";
-import { generateX25519 } from "../../../src/crypto/curves";
+import { generateX25519, x25519PublicKey } from "../../../src/crypto/curves";
 import { sessionPrologue } from "../../../src/crypto/noise";
 import { presenceChallenge } from "../../../src/crypto/presence";
 import type { RemoteFrame } from "../../../src/protocol/appFrames";
@@ -12,7 +12,6 @@ import type { RelayMessage } from "../../../src/protocol/relayFrames";
 import { Session, type SessionHandlers } from "../../../src/transport/Session";
 import { RemoteError } from "../../../src/transport/types";
 import { flush, MacPeer, ManualClock } from "./harness";
-import { x25519PublicKey } from "../../../src/crypto/curves";
 
 const account = "hohrh3jbgktkby7euvoae3wjze";
 const device = "fmh7nna7zna2bylvvuaupg6fnm";
