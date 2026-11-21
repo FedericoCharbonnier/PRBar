@@ -1,5 +1,7 @@
 # PRBar — Plan 19: PRBar para iPhone (app de iOS)
 
+> Reemplazado por `2026-11-21-prbar-plan-20-web-app.md` (web app, spec `2026-11-21-prbar-web-app-design.md`); la app nativa (`ios/`) se borró. Se conserva como historia.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** La app nativa de iOS que controla PRBar en la Mac a través del relay: emparejamiento, listas en vivo de las dos

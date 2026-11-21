@@ -200,8 +200,9 @@ phone_steps() {
     say "   Camera (or open https://$RELAY_HOST/ in Safari)."
     say "2. In Safari: Share > Add to Home Screen."
     say "3. Open PRBar from the new icon on the Home Screen (not from Safari)."
-    say "4. Tap Pair. On the Mac run: prbar remote pair (or Settings > iPhone > Pair iPhone...), and scan its QR."
-    say "5. Check that the 6-digit code is the same on both screens and confirm it on both."
+    say "4. On the Mac run: prbar remote pair (or Settings > iPhone > Pair iPhone...). In the app tap Scan QR on your"
+    say "   Mac, scan that QR, then tap Pair (iOS offers to save a passkey: that's Face ID for PRBar, accept it)."
+    say "5. Check that the 6-digit code is the same on both screens and confirm it on the Mac."
     say "6. Allow notifications when PRBar asks."
 }
 

@@ -671,6 +671,8 @@ manual. Nada habla con el relay desplegado (todavía no existe).
 
 ## R. App de iOS
 
+> Reemplazada por `2026-11-21-prbar-web-app-design.md` (web app); se conserva como historia.
+
 ### R.1 Diseño y `DIGEST.md`
 
 El diseño es la referencia visual (pantallas, textos, tokens claro/oscuro, espaciados, SF Symbols, interacciones).

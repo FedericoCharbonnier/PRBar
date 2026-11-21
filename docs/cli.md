@@ -94,10 +94,10 @@ shows the help of `review start`, the group’s default subcommand).
 | `prbar slack emoji eyes\|comment\|approved <name>`, `prbar slack search-days <7–90>` | Reactions |
 | `prbar slack template list\|show\|set\|reset <new-pr\|update\|round\|merged> [text\|--editor]` | Templates (`myPR.merged` is an alias of `merged`) |
 | `prbar slack test [--yes]` | Test message to your DM |
-| `prbar remote [status]` | iPhone access: on or off, the relay, the connection, paired iPhones, keep awake, mailbox and the install link |
+| `prbar remote [status]` | iPhone access: on or off, the relay, the connection, paired iPhones, keep awake, mailbox and the phone web app's address |
 | `prbar remote enable [--relay HOST] [--enroll-token-stdin]` | Allow iPhone remote control (default relay `prbar.fcharbonnier.duckdns.org`). The first time it asks for the relay’s enrollment token without echo (or reads it from stdin) and never stores it; enabling the same relay again doesn’t need it |
 | `prbar remote disable` | Turn it off (paired iPhones stay paired) |
-| `prbar remote pair` | Pair an iPhone: QR code in the terminal (needs a terminal), waits for the phone, then asks “Does your iPhone show 123 456?” |
+| `prbar remote pair` | Pair an iPhone: QR code in the terminal (needs a terminal) and the same link to paste in the app (Paste code), waits for the phone, then asks “Does your iPhone show 123 456?” |
 | `prbar remote devices [--json]`, `prbar remote devices --require-face-id <iphone> on\|off` | Paired iPhones / whether merge, push, approve and tests need Face ID on one |
 | `prbar remote revoke <iphone> [--yes]` | Remove an iPhone (id, id prefix or name) |
 | `prbar remote keep-awake on\|off`, `prbar remote mailbox on\|off` | Keep this Mac awake while charging / leave the last encrypted state on the relay (7 days) |
