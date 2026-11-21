@@ -125,6 +125,11 @@ enum UnixSocket {
 
 /// Un extremo del socket que lee y escribe líneas. `readLine` se llama desde un solo hilo; `write` y `close` son
 /// seguros desde varios.
+///
+/// El fd vive mientras alguien lo usa: `close` lo marca cerrado y hace `shutdown` (despierta un `read`/`write`
+/// bloqueado), pero el `close(2)` real lo hace el último `read`/`write` en curso al terminar. Después de `close`,
+/// `write` lanza `EBADF` y `readLine` devuelve nil: nunca se escribe en un número de fd que el kernel ya le dio a
+/// otra conexión o a un archivo.
 final class LineConnection: @unchecked Sendable {
     /// Lo más largo que acepta la CLI de una respuesta (un diff, el historial).
     static let maxResponseLine = 16 * 1024 * 1024
@@ -136,15 +141,37 @@ final class LineConnection: @unchecked Sendable {
     /// Hasta dónde ya se buscó `\n` en `buffer`: una línea larga no se recorre de nuevo con cada pedazo.
     private var scanned = 0
     private let writeLock = NSLock()
-    private let closeLock = NSLock()
+    /// Protege `closed`, `users` y el `close(2)` del fd.
+    private let stateLock = NSLock()
     private var closed = false
+    /// Lecturas y escrituras en curso sobre `fd`.
+    private var users = 0
 
     init(fd: Int32, maxLine: Int) {
         self.fd = fd
         self.maxLine = maxLine
     }
 
-    /// La próxima línea (sin `\n`), o `nil` si el otro extremo cerró.
+    var isClosed: Bool { stateLock.withLock { closed } }
+
+    /// Reserva el fd para una operación; false si ya se cerró.
+    private func acquire() -> Bool {
+        stateLock.withLock {
+            guard !closed else { return false }
+            users += 1
+            return true
+        }
+    }
+
+    /// Termina una operación; si se cerró mientras tanto y era la última, cierra el fd.
+    private func release() {
+        stateLock.withLock {
+            users -= 1
+            if closed && users == 0 { Darwin.close(fd) }
+        }
+    }
+
+    /// La próxima línea (sin `\n`), o `nil` si el otro extremo cerró (o se cerró este).
     func readLine() -> String? {
         while true {
             if let newline = buffer[(buffer.startIndex + scanned)...].firstIndex(of: 0x0A) {
@@ -157,8 +184,11 @@ final class LineConnection: @unchecked Sendable {
             }
             scanned = buffer.count
             var chunk = [UInt8](repeating: 0, count: 64 * 1024)
+            guard acquire() else { return nil }
             let count = chunk.withUnsafeMutableBytes { Darwin.read(fd, $0.baseAddress, $0.count) }
-            if count < 0 && errno == EINTR { continue }
+            let readErrno = errno
+            release()
+            if count < 0 && readErrno == EINTR { continue }
             // 0 = el otro lado cerró; -1 = error o `SO_RCVTIMEO` vencido (sin hello a tiempo).
             guard count > 0 else { return nil }
             buffer.append(contentsOf: chunk[0..<count])
@@ -169,6 +199,8 @@ final class LineConnection: @unchecked Sendable {
     func write(_ line: String) throws {
         writeLock.lock()
         defer { writeLock.unlock() }
+        guard acquire() else { throw SocketError(operation: "write", code: EBADF) }
+        defer { release() }
         let bytes = Array((line + "\n").utf8)
         var offset = 0
         while offset < bytes.count {
@@ -182,12 +214,12 @@ final class LineConnection: @unchecked Sendable {
     }
 
     func close() {
-        closeLock.lock()
-        defer { closeLock.unlock() }
-        guard !closed else { return }
-        closed = true
-        shutdown(fd, SHUT_RDWR)
-        Darwin.close(fd)
+        stateLock.withLock {
+            guard !closed else { return }
+            closed = true
+            shutdown(fd, SHUT_RDWR)
+            if users == 0 { Darwin.close(fd) }
+        }
     }
 }
 

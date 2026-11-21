@@ -125,6 +125,35 @@ enum CommandServerTests {
             for _ in 0..<100 where !cancelled.isSet { try await Task.sleep(for: .milliseconds(20)) }
             try expect(cancelled.isSet)
         },
+        TestCase("socket: la respuesta tardía de un cliente que se fue nunca llega a la conexión que reusa su fd") {
+            let url = try shortSocketURL()
+            defer { removeSocketDirectory(url) }
+            let server = CommandServer(socketURL: url, appVersion: "9.9.9") { command, _ in
+                if case .status = command {
+                    try? await Task.sleep(for: .milliseconds(900))
+                    return .success(.string("new"))
+                }
+                // Como un push: termina aunque el cliente se haya ido, y contesta tarde.
+                while !Task.isCancelled { try? await Task.sleep(for: .milliseconds(10)) }
+                try? await Task.detached { try await Task.sleep(for: .milliseconds(400)) }.value
+                return .success(.string("old"))
+            }
+            try server.start()
+            defer { server.stop() }
+            let first = try await offMain { try CommandClient.connect(socketURL: url, clientVersion: "1.0.0") }
+            let sending = Task.detached { _ = try? first.send(.reviewStart(pr: "a#1", wait: true)) }
+            try await Task.sleep(for: .milliseconds(150))
+            first.close()
+            _ = await sending.value
+            try await Task.sleep(for: .milliseconds(100))
+            // El fd que liberó el servidor es el más bajo libre: `accept` se lo da a esta conexión.
+            let answer = try await offMain { () -> JSONValue in
+                let client = try CommandClient.connect(socketURL: url, clientVersion: "1.0.0")
+                defer { client.close() }
+                return try client.send(.status)
+            }
+            try expectEqual(answer, .string("new"))
+        },
         TestCase("socket: un comando que la app no conoce → error con el id del pedido") {
             let url = try shortSocketURL()
             defer { removeSocketDirectory(url) }
