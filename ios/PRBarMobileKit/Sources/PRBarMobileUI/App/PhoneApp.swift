@@ -97,6 +97,22 @@ public final class PhoneApp {
             case nil: defaultRoute(for: id)
             }
             paths[tab] = [route]
+        case .home:
+            guard !needsPairing else { return }
+            tab = .toReview
+            paths[.toReview] = []
+        case .activity:
+            guard !needsPairing else { return }
+            tab = .activity
+            paths[.activity] = []
+        }
+    }
+
+    /// The PR on screen (the top of the current tab's stack), so a notification about it shows no banner (spec R.5).
+    public var visiblePR: String? {
+        switch path(tab).last {
+        case .review(let id)?, .respond(let id, _)?, .merge(let id)?, .chat(let id, _)?, .pr(let id)?: id
+        case nil: nil
         }
     }
 

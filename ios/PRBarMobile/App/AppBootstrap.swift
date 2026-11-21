@@ -70,6 +70,13 @@ enum AppBootstrap {
         return base.appendingPathComponent("Cache", isDirectory: true)
     }
 
+    /// `sandbox` for development-signed builds (Debug), `production` otherwise: the same build setting writes the
+    /// `aps-environment` entitlement and this Info.plist key, so they can't disagree.
+    static var pushEnvironment: PushRegistration.Environment {
+        (Bundle.main.object(forInfoDictionaryKey: "PRBarPushEnvironment") as? String)
+            .flatMap(PushRegistration.Environment.init(rawValue:)) ?? .sandbox
+    }
+
     /// The Secure Enclave key; a software key only in DEBUG simulator builds (no Secure Enclave there).
     static func authorizer(keychain: DeviceKeychain) -> any PresenceAuthorizer {
         #if DEBUG && targetEnvironment(simulator)
@@ -107,8 +114,12 @@ struct KeychainPresenceAuthorizer: PresenceAuthorizer {
     }
 }
 
+/// Asked right after pairing; once allowed, the app asks APNs for a token (`AppDelegate` sends it to the relay).
 struct SystemNotificationPermission: NotificationPermission {
     func request() async -> Bool {
-        (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])) ?? false
+        let granted = (try? await UNUserNotificationCenter.current()
+            .requestAuthorization(options: [.alert, .badge, .sound])) ?? false
+        if granted { await UIApplication.shared.registerForRemoteNotifications() }
+        return granted
     }
 }

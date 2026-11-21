@@ -39,6 +39,8 @@
 	<string>group.com.federico.prbar.ios</string>
 	<key>PRBarKeychainAccessGroup</key>
 	<string>$(AppIdentifierPrefix)com.federico.prbar.ios.shared</string>
+	<key>PRBarPushEnvironment</key>
+	<string>$(PRBAR_PUSH_ENVIRONMENT)</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>

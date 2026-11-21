@@ -85,6 +85,11 @@ public final class LiveTransport: RemoteTransport, Sendable {
 
     public func unpair() async { await core.unpair() }
 
+    public func registerPush(_ registration: PushRegistration) async throws {
+        guard let client = await core.client() else { throw RemoteError.notPaired }
+        try await client.registerPushToken(registration.token, env: registration.environment.rawValue)
+    }
+
     /// The client of the current pairing (tests).
     public var currentClient: RemoteClient? { get async { await core.client() } }
 

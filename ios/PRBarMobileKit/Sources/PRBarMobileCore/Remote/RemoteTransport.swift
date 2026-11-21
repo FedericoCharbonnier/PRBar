@@ -28,6 +28,24 @@ public enum TransportEvent: Equatable, Sendable {
     case presencePolicy(requirePresence: Bool)
 }
 
+/// An APNs device token and the APNs environment it belongs to (`sandbox` for development-signed builds).
+public struct PushRegistration: Equatable, Sendable {
+    public enum Environment: String, Sendable { case sandbox, production }
+
+    /// Lowercase hex, as the relay expects it.
+    public var token: String
+    public var environment: Environment
+
+    public init(token: String, environment: Environment) {
+        self.token = token
+        self.environment = environment
+    }
+
+    public init(deviceToken: Data, environment: Environment) {
+        self.init(token: deviceToken.map { String(format: "%02x", $0) }.joined(), environment: environment)
+    }
+}
+
 /// The mailbox's `home` (spec P.9), opened: its mailbox revision (separate from the live `state` revisions, which count
 /// per Mac session) and when the Mac wrote it (what "Last updated" shows; review M2).
 public struct MailboxHome: Equatable, Sendable {
@@ -66,6 +84,9 @@ public protocol RemoteTransport: AnyObject, Sendable {
     func fetchMailbox() async throws -> MailboxHome?
     /// "Unpair this iPhone" (`unpair` frame).
     func unpair() async
+    /// This iPhone's APNs token, for the relay (`apns` frame, spec P.4/P.9): the relay is the one that talks to Apple,
+    /// with the Mac's encrypted payload. Needs the relay connection (the Mac may be offline).
+    func registerPush(_ registration: PushRegistration) async throws
     var events: AsyncStream<TransportEvent> { get }
 }
 

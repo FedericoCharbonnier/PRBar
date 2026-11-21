@@ -37,6 +37,8 @@ public final class RemoteConnection {
     @ObservationIgnored private var backgroundTask: Task<Void, Never>?
     @ObservationIgnored private var topicCounts: [String: Int] = [:]
     @ObservationIgnored private var chatHandlers: [String: (String) -> Void] = [:]
+    /// This iPhone's APNs token (set when iOS hands it over); sent to the relay on every connection.
+    @ObservationIgnored public private(set) var pushRegistration: PushRegistration?
 
     public init(transport: any RemoteTransport, store: AppStore, credentials: (any CredentialWiping)?,
                 paired: Bool, macName: String?, backgroundGrace: Duration = .seconds(30),
@@ -138,6 +140,24 @@ public final class RemoteConnection {
         chatHandlers[pr] = nil
     }
 
+    // MARK: Push
+
+    /// iOS gave the app its APNs token (after the notification permission, and on every launch). The relay gets it now
+    /// if connected, and again on every connection (a token can change, and the relay may have dropped it).
+    public func setPushRegistration(_ registration: PushRegistration) async {
+        pushRegistration = registration
+        switch state {
+        case .online, .macOffline: await sendPushRegistration()
+        default: break
+        }
+    }
+
+    private func sendPushRegistration() async {
+        guard let pushRegistration else { return }
+        // Best effort: without the relay link it goes out on the next connection.
+        try? await transport.registerPush(pushRegistration)
+    }
+
     // MARK: Unpair
 
     /// "Unpair this iPhone": tells the Mac, then forgets everything locally.
@@ -180,8 +200,10 @@ public final class RemoteConnection {
             store.beginSession()
             setState(.online)
             await transport.subscribe(topics)
+            await sendPushRegistration()
         case .macOffline(let since):
             setState(.macOffline(since: since))
+            await sendPushRegistration()
             if let update = try? await transport.fetchMailbox() {
                 store.applyMailbox(update)
             }

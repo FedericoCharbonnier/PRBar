@@ -26,6 +26,7 @@ public final class FakeTransport: RemoteTransport, @unchecked Sendable {
     private var _connects = 0
     private var _disconnects = 0
     private var _unpaired = false
+    private var _pushTokens: [PushRegistration] = []
     private var nextReqId: UInt64 = 1
     private var _mailbox: MailboxHome?
     private var linkOnConnect: LinkState?
@@ -82,6 +83,7 @@ public final class FakeTransport: RemoteTransport, @unchecked Sendable {
     public var connectCount: Int { lock.withLock { _connects } }
     public var disconnectCount: Int { lock.withLock { _disconnects } }
     public var didUnpair: Bool { lock.withLock { _unpaired } }
+    public var pushTokens: [PushRegistration] { lock.withLock { _pushTokens } }
 
     // MARK: RemoteTransport
 
@@ -128,5 +130,9 @@ public final class FakeTransport: RemoteTransport, @unchecked Sendable {
 
     public func unpair() async {
         lock.withLock { _unpaired = true }
+    }
+
+    public func registerPush(_ registration: PushRegistration) async throws {
+        lock.withLock { _pushTokens.append(registration) }
     }
 }

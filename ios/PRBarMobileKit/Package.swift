@@ -8,6 +8,8 @@ let package = Package(
     platforms: [.macOS("26.0"), .iOS("26.0")],
     products: [
         .library(name: "PRBarMobileKit", targets: ["PRBarMobileCore", "PRBarMobileUI"]),
+        // The notification service extension links only the core (push decryption; no SwiftUI, small memory budget).
+        .library(name: "PRBarMobileCore", targets: ["PRBarMobileCore"]),
     ],
     dependencies: [
         .package(name: "PRBar", path: "../.."),

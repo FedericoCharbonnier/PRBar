@@ -26,16 +26,28 @@ targets:
     dependencies:
       - package: PRBarMobileKit
         product: PRBarMobileKit
+      # Embedded in PlugIns/. Decrypts pushes with the keys in the shared keychain group (spec P.9).
+      - target: PRBarMobileNotifications
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.federico.prbar.ios
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
-    # Push (aps-environment) and the notification service extension come with plan 19 Task 8, once the Team ID and
-    # the App IDs exist (spec T).
+      # One setting drives the aps-environment entitlement and the env the app tells the relay (sandbox/production).
+      configs:
+        Debug:
+          PRBAR_APS_ENVIRONMENT: development
+          PRBAR_PUSH_ENVIRONMENT: sandbox
+        Release:
+          PRBAR_APS_ENVIRONMENT: production
+          PRBAR_PUSH_ENVIRONMENT: production
+    # Signing (and so the $(AppIdentifierPrefix) of the keychain group) comes from DEVELOPMENT_TEAM in
+    # Config/Local.xcconfig (not versioned; Scripts/iphone-setup.sh --team-id writes it). Without it the app still
+    # builds for the simulator and unsigned for the device (Scripts/ios-build-check.sh).
     entitlements:
       path: PRBarMobile/Resources/PRBarMobile.entitlements
       properties:
+        aps-environment: $(PRBAR_APS_ENVIRONMENT)
         com.apple.security.application-groups: [group.com.federico.prbar.ios]
         keychain-access-groups: ["$(AppIdentifierPrefix)com.federico.prbar.ios.shared"]
     info:
@@ -49,8 +61,37 @@ targets:
         NSFaceIDUsageDescription: "PRBar uses Face ID before merging, pushing or approving."
         PRBarKeychainAccessGroup: $(AppIdentifierPrefix)com.federico.prbar.ios.shared
         PRBarAppGroup: group.com.federico.prbar.ios
+        PRBarPushEnvironment: $(PRBAR_PUSH_ENVIRONMENT)
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+  # Notification service extension (spec P.9, plan 19 Task 8): opens the HPKE envelope of each push. Links only the
+  # core of the kit (no SwiftUI) to stay well under the extension's memory limit.
+  PRBarMobileNotifications:
+    type: app-extension
+    platform: iOS
+    sources: [PRBarMobileNotifications]
+    dependencies:
+      - package: PRBarMobileKit
+        product: PRBarMobileCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.federico.prbar.ios.notifications
+    entitlements:
+      path: PRBarMobileNotifications/PRBarMobileNotifications.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.federico.prbar.ios]
+        keychain-access-groups: ["$(AppIdentifierPrefix)com.federico.prbar.ios.shared"]
+    info:
+      path: PRBarMobileNotifications/Info.plist
+      properties:
+        CFBundleDisplayName: PRBar Notifications
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        PRBarKeychainAccessGroup: $(AppIdentifierPrefix)com.federico.prbar.ios.shared
+        PRBarAppGroup: group.com.federico.prbar.ios
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.usernotifications.service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService
   PRBarMobileTests:
     type: bundle.unit-test
     platform: iOS
