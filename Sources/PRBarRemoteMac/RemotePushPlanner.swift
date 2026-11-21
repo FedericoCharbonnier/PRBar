@@ -5,9 +5,14 @@ import PRBarRemoteKit
 /// Las notificaciones de la Mac → los pushes cifrados de los iPhones (spec P.9): el mismo título y cuerpo, y a dónde
 /// lleva tocarlas (`deepLink`, spec R.3).
 public enum RemotePushPlanner {
-    public static func payloads(for notifications: [PlannedNotification], badge: Int?, now: Date) -> [PushPayload] {
+    /// Título y cuerpo pasan por `redactor` (rutas, escapes, bidi y secretos; revisión M1/L5): un título de PR ajeno
+    /// no puede reordenar lo que se ve en la pantalla bloqueada.
+    public static func payloads(for notifications: [PlannedNotification], badge: Int?, now: Date,
+                                redactor: RemoteRedactor = RemoteRedactor.standard()) -> [PushPayload] {
         notifications.map { notification in
-            PushPayload(createdAt: now, kind: notification.kind.rawValue, title: notification.title, body: notification.body,
+            PushPayload(createdAt: now, kind: notification.kind.rawValue,
+                        title: RemoteText.displayName(redactor.text(notification.title), limit: 200),
+                        body: redactor.text(notification.body),
                         threadId: notification.threadIdentifier, pr: notification.prID,
                         deepLink: deepLink(for: notification), badge: badge)
         }

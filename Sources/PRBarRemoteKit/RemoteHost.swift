@@ -652,9 +652,13 @@ public actor RemoteHost {
                     pattern: .ikpsk2, initiator: false,
                     prologue: RemotePrologue.pairing(account: config.accountId, pairing: slot.pairingId),
                     localStatic: config.keys.noise, remoteStatic: nil, psk: slot.secrets.psk)
-                guard case .join(let join) = try PairingMessage.decode(try handshake.readMessage(b)), join.isValid else {
+                guard case .join(var join) = try PairingMessage.decode(try handshake.readMessage(b)), join.isValid else {
                     throw NoiseError.malformed
                 }
+                // Lo muestra la hoja de emparejar, Settings y `prbar remote devices`: una línea sin bidi (L5).
+                join.deviceName = RemoteText.displayName(join.deviceName)
+                join.model = RemoteText.displayName(join.model)
+                guard !join.deviceName.isEmpty else { throw NoiseError.malformed }
                 let reply = try handshake.writeMessage()
                 slot.sid = sid
                 slot.join = join

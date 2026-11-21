@@ -1,4 +1,5 @@
 import Foundation
+import PRBarWire
 
 public enum PairingQRError: Error, Equatable, Sendable {
     case invalid(String)
@@ -64,8 +65,11 @@ public struct PairingQR: Equatable, Sendable {
         guard let pairing = values["p"], Self.isBase32(pairing, length: 16) else { throw fail("bad pairing id") }
         guard let k = values["k"], let secret = try? Base64URL.decode(k), secret.count == 32 else { throw fail("bad secret") }
         guard let m = values["m"], let mac = try? Base64URL.decode(m), mac.count == 32 else { throw fail("bad mac key") }
-        let name = values["n"] ?? ""
-        guard name.count <= Self.maxNameLength else { throw fail("bad name") }
+        let raw = values["n"] ?? ""
+        guard raw.count <= Self.maxNameLength else { throw fail("bad name") }
+        // Anyone can send a `prbar://pair` link: the name shown on the confirmation screen is one plain line, without
+        // bidi or invisible characters that could make it read as another Mac (review L5).
+        let name = RemoteText.displayName(raw, limit: Self.maxNameLength)
         self.init(relayHost: host, accountId: account, pairingId: pairing, secret: secret, macStatic: mac,
                   macName: name.isEmpty ? "Mac" : name)
     }

@@ -206,8 +206,10 @@ public actor RemoteClient {
             }
         }
         guard let flow = pairingFlow else { throw RemoteError.pairingCancelled }
+        let name = RemoteText.displayName(result.macName)
         let mac = PairedMac(accountId: flow.qr.accountId, deviceId: result.deviceId, relayHost: flow.qr.relayHost,
-                            macName: result.macName, macStatic: flow.qr.macStatic, macSeal: result.macSeal)
+                            macName: name.isEmpty ? flow.qr.macName : name, macStatic: flow.qr.macStatic,
+                            macSeal: result.macSeal)
         paired = mac
         keys = flow.keys
         status = .disconnected
@@ -358,7 +360,7 @@ public actor RemoteClient {
             if case .macOffline(let since) = status { throw RemoteError.macOffline(since: since) }
             throw (error as? RemoteError) ?? .handshakeFailed
         }
-        let hello = try await withCheckedThrowingContinuation { (c: CheckedContinuation<RemoteHello, Error>) in
+        var hello = try await withCheckedThrowingContinuation { (c: CheckedContinuation<RemoteHello, Error>) in
             helloWaiter = c
             waitGeneration += 1
             let generation = waitGeneration
@@ -370,6 +372,7 @@ public actor RemoteClient {
                 client.helloWaiter = nil
             }
         }
+        hello.macName = hello.macName.map { RemoteText.displayName($0) }
         macHello = hello
         if let incompatible = hello.incompatible {
             status = .incompatible(incompatible)

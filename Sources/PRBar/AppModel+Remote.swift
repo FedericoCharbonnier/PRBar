@@ -53,6 +53,11 @@ extension AppModel {
     func startRemoteAccess() {
         let service = remoteAccess
         service.actions = self
+        // Clones, worktrees y runners de la config: no salen hacia el teléfono (revisión M1).
+        service.redactionInputs = { [weak self] in
+            guard let config = self?.configStore.config else { return ([], []) }
+            return (config.remoteRedactionFolders, config.remoteRedactionHosts)
+        }
         // El feed recalcula cuando cambia algo que muestran sus tópicos (agrupado en el servicio).
         let changes: [AnyPublisher<Void, Never>] = [
             objectWillChange.map { _ in () }.eraseToAnyPublisher(),
@@ -90,8 +95,9 @@ extension AppModel {
         var last = ""
         remoteChatWatchers[key] = chat.$partialText.removeDuplicates().sink { [weak self] text in
             defer { last = text }
-            guard text.count > last.count, text.hasPrefix(last) else { return }
-            self?.remoteAccess.chatDelta(pr: prID, text: String(text.dropFirst(last.count)))
+            guard let self, text.count > last.count, text.hasPrefix(last),
+                  let delta = self.remoteAccess.chatDeltaText(previous: last, current: text) else { return }
+            self.remoteAccess.chatDelta(pr: prID, text: delta)
         }
     }
 }

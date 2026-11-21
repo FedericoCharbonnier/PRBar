@@ -75,14 +75,15 @@ public enum RemoteStateTopics {
         }
     }
 
-    /// El valor de un tópico, ya sin rutas locales (`RemoteRedaction`).
+    /// El valor de un tópico, ya sin rutas locales, escapes ni secretos (`RemoteRedactor`, revisión M1).
     public static func compute(_ topic: RemoteTopic, _ actions: any PRBarActions,
-                               system: () -> MacSystemInfo? = { nil }) async throws -> JSONValue {
+                               system: () -> MacSystemInfo? = { nil },
+                               redactor: RemoteRedactor = RemoteRedactor.standard()) async throws -> JSONValue {
         let value: JSONValue = switch topic {
         case .home: try JSONValue(encoding: try await home(actions))
         case .pr(let id): try JSONValue(encoding: try prDetail(id, actions))
         case .activity: try JSONValue(encoding: try await activity(actions, system: system()))
         }
-        return RemoteRedaction.scrub(value)
+        return redactor.scrub(value)
     }
 }

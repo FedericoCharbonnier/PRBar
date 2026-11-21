@@ -129,6 +129,10 @@ public final class RemoteAccessService: ObservableObject {
 
     /// A quién le llegan los comandos del teléfono (el `AppModel`, igual que la CLI).
     public weak var actions: (any PRBarActions)?
+    /// Las carpetas (clones, worktrees, runners) y hosts SSH de la config que no salen hacia el teléfono
+    /// (`RemoteRedactor`, revisión M1). La app lo arma desde `AppConfig`.
+    public var redactionInputs: @MainActor () -> (folders: [String], hosts: [String]) = { ([], []) }
+    private var cachedRedactor: (inputs: [String], redactor: RemoteRedactor)?
 
     private let store: any RemoteSettingsStore
     private let env: RemoteServiceEnvironment
@@ -214,7 +218,8 @@ public final class RemoteAccessService: ObservableObject {
                               })
         self.host = host
         let feed = RemoteStateFeed(host: host, actions: { [weak self] in self?.actions }, debounce: env.feedDebounce,
-                                   activityInterval: env.activityInterval)
+                                   activityInterval: env.activityInterval,
+                                   redactor: { [weak self] in self?.redactor() ?? RemoteRedactor.standard() })
         let mailbox = RemoteMailboxWriter(host: host, enabled: settings.mailboxEnabled)
         feed.onHome = { [weak mailbox] value in mailbox?.homeChanged(value) }
         self.feed = feed
@@ -371,11 +376,23 @@ public final class RemoteAccessService: ObservableObject {
         }
         guard let actions else { return .failure(CommandFailure(.invalidState, "PRBar isn’t ready yet. Try again.")) }
         let origin = CommandOrigin.phone(device: device.deviceId, mayRunRepoCode: caller.mayRunRepoCode)
+        // Ni rutas locales, ni herramientas, ni escapes o secretos hacia el teléfono (spec P.7, revisión M1): en el
+        // resultado, en el error y en cada evento (el texto del chat en streaming).
+        let redactor = redactor()
         let result = await CommandOrigin.$current.withValue(origin) {
-            await CommandDispatcher.run(command, on: actions, events: events)
+            await CommandDispatcher.run(command, on: actions, events: { events(redactor.scrub($0)) })
         }
-        // Ni rutas locales ni herramientas hacia el teléfono (spec P.7).
-        return result.map(RemoteRedaction.scrub)
+        return result.map(redactor.scrub).mapError(redactor.scrub)
+    }
+
+    /// El `RemoteRedactor` con las carpetas y hosts de la config de ahora (se rearma solo si cambiaron).
+    public func redactor() -> RemoteRedactor {
+        let inputs = redactionInputs()
+        let key = inputs.folders + ["\u{0}"] + inputs.hosts
+        if let cachedRedactor, cachedRedactor.inputs == key { return cachedRedactor.redactor }
+        let redactor = RemoteRedactor.standard(folders: inputs.folders, hosts: inputs.hosts)
+        cachedRedactor = (key, redactor)
+        return redactor
     }
 
     /// El modo de capturas: muestra un estado sin conectarse a nada.
@@ -392,7 +409,7 @@ public final class RemoteAccessService: ObservableObject {
     /// Las mismas notificaciones que la Mac, cifradas para cada iPhone que no tenga las notificaciones apagadas.
     public func push(_ notifications: [PlannedNotification], badge: Int?) {
         guard let host, !notifications.isEmpty else { return }
-        let payloads = RemotePushPlanner.payloads(for: notifications, badge: badge, now: env.clock())
+        let payloads = RemotePushPlanner.payloads(for: notifications, badge: badge, now: env.clock(), redactor: redactor())
         let targets = devices.map(\.device.deviceId)
         Task { [weak self] in
             for id in targets {
@@ -417,10 +434,21 @@ public final class RemoteAccessService: ObservableObject {
         devices = env.devices.devices
     }
 
-    /// Un chat que no inició el teléfono (p. ej. desde la Mac): a quien mire `pr:<id>`.
+    /// Un chat que no inició el teléfono (p. ej. desde la Mac): a quien mire `pr:<id>`. `text` ya viene redactado
+    /// (`chatDeltaText`).
     public func chatDelta(pr: String, text: String) {
-        guard let host else { return }
+        guard let host, !text.isEmpty else { return }
         Task { await host.sendChatDelta(pr: pr, text: text) }
+    }
+
+    /// Lo nuevo de un chat para el teléfono: redacta el texto entero (una ruta puede venir partida entre dos
+    /// pedazos) y devuelve lo que se agregó desde `previous` (también redactado), o nil si el texto cambió de otra forma.
+    public func chatDeltaText(previous: String, current: String) -> String? {
+        let redactor = redactor()
+        let before = redactor.text(previous)
+        let now = redactor.text(current)
+        guard now.count > before.count, now.hasPrefix(before) else { return nil }
+        return String(now.dropFirst(before.count))
     }
 
     /// Para los tests: escribe el buzón ahora (en la app, cada `mailboxInterval`).

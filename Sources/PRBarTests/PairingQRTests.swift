@@ -20,6 +20,11 @@ enum PairingQRTests {
             try expectEqual(try PairingQR(url: text), qr)
             try expectEqual(try PairingQR(url: sample(name: "a=b&c=d+e%20").url).macName, "a=b&c=d+e%20")
         },
+        TestCase("pairing qr: el nombre de la Mac llega en una línea, sin bidi, escapes ni invisibles (L5)") {
+            let tricky = sample(name: "Work Mac\u{202E}orcaM s’ociredeF\u{202C}\n\u{1B}[2Jx\u{200B}y")
+            try expectEqual(try PairingQR(url: tricky.url).macName, "Work MacorcaM s’ociredeF xy")
+            try expectEqual(try PairingQR(url: sample(name: "\u{202E}\u{2066}").url).macName, "Mac")
+        },
         TestCase("pairing qr: rechaza lo que no es un QR de PRBar") {
             let good = sample().url
             try rejects(good.replacingOccurrences(of: "v=1", with: "v=2"))

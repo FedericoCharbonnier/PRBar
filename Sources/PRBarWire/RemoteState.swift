@@ -143,11 +143,13 @@ public struct RunningJobInfo: Codable, Equatable, Sendable {
     }
 }
 
-/// Lo que nunca sale de la Mac hacia el teléfono (spec P.7: ni rutas locales ni herramientas). Se aplica a cada
-/// resultado y a cada tópico: las rutas quedan en su último componente (el nombre de la carpeta o del log) y la lista
-/// de herramientas, vacía. Los tipos se siguen decodificando igual.
+/// Lo que nunca sale de la Mac hacia el teléfono (spec P.7: ni rutas locales, ni herramientas, ni destinos SSH), por
+/// clave. Un campo de ruta absoluta (`logPath`, `worktree`, `path`, `clone`, `localPath`, `worktreeDir`, `dir`) queda
+/// en su último componente (una ruta relativa al repo, como la de un archivo cambiado, queda igual), `tools` vacío y
+/// `host` (la Mac remota donde corre un trabajo) como "remote". Los tipos se siguen decodificando igual. La Mac además
+/// pasa cada texto por `RemoteRedactor` (por valor: rutas dentro de mensajes, escapes, bidi, secretos; revisión M1).
 public enum RemoteRedaction {
-    static let pathKeys: Set<String> = ["logPath", "worktree", "path"]
+    static let pathKeys: Set<String> = ["logPath", "worktree", "path", "clone", "localPath", "worktreeDir", "dir"]
 
     public static func scrub(_ value: JSONValue) -> JSONValue {
         switch value {
@@ -158,7 +160,9 @@ public enum RemoteRedaction {
             for (key, field) in fields {
                 if key == "tools", case .array = field {
                     out[key] = .array([])
-                } else if pathKeys.contains(key), case .string(let text) = field {
+                } else if key == "host", case .string = field {
+                    out[key] = .string("remote")
+                } else if pathKeys.contains(key), case .string(let text) = field, text.hasPrefix("/") || text.hasPrefix("~") {
                     out[key] = .string((text as NSString).lastPathComponent)
                 } else {
                     out[key] = scrub(field)

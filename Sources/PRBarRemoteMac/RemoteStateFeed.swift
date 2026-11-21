@@ -10,6 +10,7 @@ final class RemoteStateFeed {
     private let actions: () -> (any PRBarActions)?
     private let debounce: Duration
     private let activityInterval: Duration
+    private let redactor: () -> RemoteRedactor
     /// Lo llama con cada `home` calculado (el buzón guarda el último).
     var onHome: ((JSONValue) -> Void)?
 
@@ -21,8 +22,10 @@ final class RemoteStateFeed {
     private var pendingAll = false
     private var pendingOnly: Set<RemoteTopic> = []
 
-    init(host: RemoteHost, actions: @escaping () -> (any PRBarActions)?, debounce: Duration, activityInterval: Duration) {
+    init(host: RemoteHost, actions: @escaping () -> (any PRBarActions)?, debounce: Duration, activityInterval: Duration,
+         redactor: @escaping () -> RemoteRedactor) {
         self.host = host
+        self.redactor = redactor
         self.actions = actions
         self.debounce = debounce
         self.activityInterval = activityInterval
@@ -79,11 +82,13 @@ final class RemoteStateFeed {
         var request: [RemoteTopic]? = only
         while true {
             guard let actions = actions() else { return }
+            let redactor = redactor()
             var list = request ?? topics
             if request == nil, !list.contains(.home) { list.insert(.home, at: 0) }
             for topic in list {
                 do {
-                    let value = try await RemoteStateTopics.compute(topic, actions, system: { MacSystemSampler.sample() })
+                    let value = try await RemoteStateTopics.compute(topic, actions, system: { MacSystemSampler.sample() },
+                                                                      redactor: redactor)
                     if topic == .home { onHome?(value) }
                     await host.publish(topic: topic.name, data: value)
                 } catch {

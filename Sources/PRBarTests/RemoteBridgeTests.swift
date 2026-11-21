@@ -135,6 +135,7 @@ enum RemoteBridgeTests {
         },
         TestCase("remote bridge: ni rutas locales ni herramientas llegan al teléfono") { try await bridgeRedaction() },
         TestCase("remote feed: un cambio durante el tick de activity igual recalcula home (M4)") { try await feedCoalesces() },
+        TestCase("remote pairing: los nombres de la Mac y del teléfono llegan sin bidi ni escapes (L5)") { try await pairingNames() },
         TestCase("remote feed: home al suscribirse, rev nuevo al cambiar la app, nada si no cambió; pr:<id> y activity") {
             try await feed()
         },
@@ -398,6 +399,24 @@ enum RemoteBridgeTests {
     }
 
     /// M4: un cambio de la app mientras corre el tick de `activity` (lento) igual recalcula `home` y `pr:`.
+    /// L5: el nombre que manda el teléfono llega a la hoja de emparejar y a Settings en una línea, sin bidi; el de la
+    /// Mac, igual en el teléfono.
+    @MainActor
+    static func pairingNames() async throws {
+        let h = try await ServiceHarness.make()
+        let client = h.client(name: "Fede\u{202E}enohPi\u{202C}\n\u{1B}[1mX")
+        let info = try await h.service.pairStart()
+        let relay = h.relay, account = h.account
+        try await eventually(3, "ranura") { await relay.pairingSlot(account) == info.pairing }
+        _ = try await client.startPairing(qr: try PairingQR(url: info.qr), presenceKey: h.presence.publicKey)
+        let joined = try await h.service.pairWait(pairing: info.pairing, events: { _ in })
+        try expectEqual(joined.deviceName, "FedeenohPi X")
+        _ = try await h.service.pairConfirm(pairing: info.pairing, accepted: true)
+        let mac = try await within { try await client.finishPairing() }
+        try expectEqual(h.service.devices.first?.device.name, "FedeenohPi X")
+        try expectEqual(mac.macName, "Federico’s Mac")
+    }
+
     @MainActor
     static func feedCoalesces() async throws {
         let h = try await ServiceHarness.make()
