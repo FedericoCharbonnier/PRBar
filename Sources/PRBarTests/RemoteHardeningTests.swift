@@ -127,10 +127,9 @@ enum RemoteHardeningTests {
                 devices: devices, linkFactory: h.factory, clock: h.clock.function, handler: { _, _ in .success(.ok) })
             try await restarted.connect()
             await restarted.publish(topic: "home", data: .int(42))
-            try await eventually(3, "mac online") {
-                if case .macOffline = await client.status { return false }
-                return true
-            }
+            // `.disconnected` = el teléfono ya vio la Mac irse y volver. Con solo "no offline" el sondeo podía pasar antes
+            // de que llegara el offline (status todavía `.online`) y el `sub` se iba por la sesión muerta.
+            try await eventually(3, "mac online") { await client.status == .disconnected }
             try await client.subscribe(["home"])
             let update = try await within { for await update in states { return update }; throw TestFailure(description: "sin estado") }
             try expectEqual(update.data, .int(42))
