@@ -56,6 +56,8 @@ function RespondFrame({ base, title, primaryLabel, children }: {
   base: RespondBaseProps; title: string; primaryLabel: string; children: ComponentChildren;
 }) {
   const { pr, status, progress, running, disabled, faceIdPending } = base;
+  const label = base.primaryLabel ?? primaryLabel;
+  const faceId = base.primaryFaceId !== false;
   return (
     <Screen class="screen--with-bar" label={title}>
       <NavBar
@@ -66,10 +68,18 @@ function RespondFrame({ base, title, primaryLabel, children }: {
       <DetailHeader pr={pr}>
         <StatusLine status={status} />
       </DetailHeader>
-      {progress && <ProgressCard progress={progress} />}
-      {children}
+      {base.start ? (
+        <Button size="lg" block icon="sparkles" class="start-btn" busy={base.start.busy} disabled={base.start.disabled} onClick={base.start.onClick}>
+          {base.start.label}
+        </Button>
+      ) : (
+        <>
+          {progress && <ProgressCard progress={progress} />}
+          {children}
+        </>
+      )}
       <BottomBar>
-        {running ? (
+        {base.secondaryHidden ? null : running ? (
           <Button variant="glass" size="lg" icon="stop.fill" class="bar-secondary bar-secondary--stop" disabled={disabled} onClick={base.onStop}>
             Stop
           </Button>
@@ -78,14 +88,19 @@ function RespondFrame({ base, title, primaryLabel, children }: {
             Undo
           </Button>
         )}
+        {base.onRunTests && (
+          <Button variant="glass" size="lg" icon="faceid" class="bar-secondary" label="Run tests, requires Face ID" disabled={disabled || faceIdPending} onClick={base.onRunTests}>
+            Tests
+          </Button>
+        )}
         <Button
-          icon="faceid"
+          icon={faceId ? "faceid" : undefined}
           class="bar-primary bar-primary--wide"
-          label={`${primaryLabel}, requires Face ID`}
-          disabled={running || disabled || faceIdPending}
+          label={faceId ? `${label}, requires Face ID` : label}
+          disabled={running || disabled || faceIdPending || base.primaryDisabled}
           onClick={base.onPrimary}
         >
-          {primaryLabel}
+          {label}
         </Button>
       </BottomBar>
       {faceIdPending && <FaceIdHud />}

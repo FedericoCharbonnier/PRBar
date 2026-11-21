@@ -1471,3 +1471,8 @@
 .chat__notice + .chat__time {
   margin-top: 13px;
 }
+
+/* Botón para arrancar a Claude ("Review with Claude") cuando todavía no hay nada que mostrar. */
+.start-btn {
+  margin-top: 6px;
+}

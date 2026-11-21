@@ -157,7 +157,7 @@ export function PairScan({ camera, error, onCancel, onPasteCode, paste }: PairSc
 }
 
 /** pair:confirm — antes del handshake: a qué Mac y relay se va a emparejar. */
-export function PairConfirm({ macName, relayHost, replacing, onConfirm, onCancel }: PairConfirmProps) {
+export function PairConfirm({ macName, relayHost, replacing, busy, onConfirm, onCancel }: PairConfirmProps) {
   return (
     <Screen variant="plain" class="onboard onboard--center" label={`Pair with ${macName}?`}>
       <div class="onboard__body onboard__body--center">
@@ -178,7 +178,7 @@ export function PairConfirm({ macName, relayHost, replacing, onConfirm, onCancel
         </p>
       </div>
       <div class="onboard__footer">
-        <Button size="xl" block onClick={onConfirm}>
+        <Button size="xl" block busy={busy} onClick={onConfirm}>
           {replacing ? "Replace and Pair" : "Pair"}
         </Button>
         <Button variant="plain" size="lg" block onClick={onCancel}>
