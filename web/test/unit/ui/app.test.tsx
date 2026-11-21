@@ -91,6 +91,18 @@ describe("App", () => {
     await waitFor(() => expect(screen.getByText("Your Mac is offline.")).toBeTruthy());
   });
 
+  it("punto seguro para recargar con una versión nueva: pestaña raíz, sin hojas ni comandos en curso", async () => {
+    const { shell } = shellWithFake();
+    render(<App shell={shell} />);
+    expect(shell.isSafeToReload()).toBe(true);
+    void shell.ui.confirm({ title: "Sure?", confirmLabel: "OK", cancelLabel: "Cancel" });
+    expect(shell.isSafeToReload()).toBe(false);
+    shell.ui.confirmation.value!.resolve(false);
+    expect(shell.isSafeToReload()).toBe(true);
+    shell.router.go({ kind: "pr", pr: "acme/api#322", screen: "merge" });
+    expect(shell.isSafeToReload()).toBe(false);
+  });
+
   it("un emparejamiento que falla sobre una sesión se puede cancelar desde welcome", async () => {
     const { shell } = shellWithFake();
     shell.pairingOpen.value = true;

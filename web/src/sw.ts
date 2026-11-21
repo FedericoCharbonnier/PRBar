@@ -10,7 +10,8 @@ import { fetchVerified, type PrecacheManifest } from "./sw/precache";
 //   red. Cada archivo se baja saltando la caché HTTP y se verifica contra su hash antes de guardarlo; si alguno no
 //   coincide, la instalación falla (sw/precache.ts). `index.html` sale de la caché de esta versión, así la página y el
 //   service worker van juntos.
-// - Una versión nueva queda esperando: la app la activa al próximo arranque (`prbar:activate`), nunca en medio de algo.
+// - Una versión nueva queda esperando: la app la activa (`prbar:activate`) al arrancar o al volver al primer plano en
+//   un punto seguro (app/updates.ts), nunca en medio de algo.
 // - `push`: abre el sobre con `devicePushKey` y siempre muestra una notificación; `notificationclick`: enfoca o abre la
 //   app y la lleva al link.
 
@@ -22,7 +23,7 @@ const PRECACHE: PrecacheManifest = typeof __PRBAR_PRECACHE__ === "undefined" ? {
 const CACHE = typeof __PRBAR_CACHE__ === "undefined" ? "prbar-dev" : __PRBAR_CACHE__;
 
 self.addEventListener("install", (event) => {
-  // Sin `skipWaiting`: la versión nueva espera al próximo arranque (W.1).
+  // Sin `skipWaiting`: la versión nueva espera a que la app la active en un momento seguro (W.1).
   // Primero se verifica todo y recién después se abre la caché: nada sin verificar llega a guardarse.
   event.waitUntil((async () => {
     const verified = await fetchVerified(PRECACHE, (path, init) => fetch(path, init));

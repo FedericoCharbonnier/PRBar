@@ -224,6 +224,23 @@ export class Shell {
     }
   }
 
+  /** Un buen momento para recargar con una versión nueva (updates.ts): una pestaña raíz o pair:welcome, sin hojas,
+   *  menús ni campos abiertos y sin comandos en curso. */
+  isSafeToReload(): boolean {
+    const doc = this.#env.window.document;
+    if (this.ui.confirmation.value || this.ui.openMenu.value) return false;
+    if (doc.querySelector(".sheet-layer, .menu-layer")) return false;
+    const focused = doc.activeElement;
+    if (focused && (focused.tagName === "INPUT" || focused.tagName === "TEXTAREA")) return false;
+    const active = this.active.value;
+    if (!active || this.pairingOpen.value) {
+      return this.pairing.step.value.kind === "welcome" && !this.pairing.busy.value;
+    }
+    if (active.session.runner.busy) return false;
+    const { state } = this.router.nav.value;
+    return state.stacks[state.tab].length === 1;
+  }
+
   /** Cerrar el flujo de emparejamiento abierto sobre una sesión (Cancel). */
   closePairing(): void {
     if (!this.active.value) return;

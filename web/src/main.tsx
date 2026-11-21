@@ -1,6 +1,7 @@
 import { render } from "preact";
 import { isStandalone, platformOf, type InstallPromptEvent } from "./app/install";
 import { Shell } from "./app/shell";
+import { AppUpdater, type ContainerLike } from "./app/updates";
 import { App, InstallGate } from "./ui/app";
 import { BootError } from "./ui/screens";
 import { installPressFeedback } from "./ui/motion/press";
@@ -19,26 +20,28 @@ addEventListener("beforeinstallprompt", (event) => {
   installPrompt = event as InstallPromptEvent;
 });
 
-/** Registra el service worker. Si una versión nueva quedó esperando, se activa ahora, al arrancar, antes de mostrar
- *  nada: nunca se recarga en medio de una acción (W.1). Devuelve `true` si la página se va a recargar. */
+/** Registra el service worker (updates.ts): una versión nueva que quedó esperando se activa ahora, al arrancar, antes
+ *  de mostrar nada, o después al volver al primer plano en un punto seguro. Devuelve `true` si la página se va a
+ *  recargar. */
+const updater = "serviceWorker" in navigator && MODE !== "development" ? new AppUpdater({
+  container: navigator.serviceWorker as unknown as ContainerLike,
+  now: () => Date.now(),
+  setTimeout: (fn, ms) => setTimeout(fn, ms),
+  reload: () => location.reload(),
+  onForeground: (listener) => {
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") listener();
+    });
+  },
+}) : null;
+
 async function serviceWorker(): Promise<boolean> {
-  if (!("serviceWorker" in navigator) || MODE === "development") return false;
   try {
-    const registration = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
-    if (registration.waiting && navigator.serviceWorker.controller) {
-      const changed = new Promise<void>((resolve) => {
-        navigator.serviceWorker.addEventListener("controllerchange", () => resolve(), { once: true });
-        setTimeout(resolve, 3000);
-      });
-      registration.waiting.postMessage({ type: "prbar:activate" });
-      await changed;
-      location.reload();
-      return true;
-    }
+    return (await updater?.start()) ?? false;
   } catch (error) {
     console.warn("service worker", error);
+    return false;
   }
-  return false;
 }
 
 async function start(): Promise<void> {
@@ -55,6 +58,7 @@ async function start(): Promise<void> {
   }
   installKeyboardTracking();
   const shell = new Shell({ mode: MODE, window });
+  if (updater) updater.isSafe = () => shell.isSafeToReload();
   if (MODE !== "production") shell.exposeTestHooks();
   render(<App shell={shell} />, root);
   await shell.boot();
