@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { generateEd25519, ed25519PublicKey } from "../../../src/crypto/curves";
-import { RelayClient, RelayClosedError, RelayLink, type RelayState } from "../../../src/transport/RelayClient";
+import {
+  PONG_TIMEOUT_MS, RelayClient, RelayClosedError, RelayLink, RESUME_CHECK_MS, type RelayState,
+} from "../../../src/transport/RelayClient";
 import { FakeRelay, FakeVisibility, flush, ManualClock } from "./harness";
 
 const account = "hohrh3jbgktkby7euvoae3wjze";
@@ -170,6 +172,110 @@ describe("RelayClient", () => {
     await clock.advance(30_000);
     expect(client.state.kind).toBe("ready");
     expect(relay.open.length).toBe(1);
+  });
+
+  it("un ping sin pong en 5 s da la conexión por muerta y reconecta enseguida", async () => {
+    const { relay, clock, client, states } = setup();
+    client.start();
+    await flush();
+    const first = relay.last;
+    first.dead = true;
+    states.length = 0;
+    await clock.advance(20_000);
+    expect(first.sent.at(-1)).toEqual({ t: "ping" });
+    expect(client.state.kind).toBe("ready");
+    await clock.advance(PONG_TIMEOUT_MS);
+    expect(first.closed).toBe(true);
+    // Sin pasar por "unreachable": otra conexión enseguida.
+    expect(states.map((s) => s.kind)).toEqual(["connecting", "ready"]);
+    expect(relay.last).not.toBe(first);
+  });
+
+  it("un pong a tiempo no corta", async () => {
+    const { relay, clock, client } = setup();
+    client.start();
+    await flush();
+    await clock.advance(60_000);
+    expect(client.state.kind).toBe("ready");
+    expect(relay.sockets).toHaveLength(1);
+  });
+
+  it("al volver después de un rato oculto (página congelada) comprueba la conexión: muerta, reconecta", async () => {
+    const { relay, clock, client, visibility, states } = setup();
+    client.start();
+    await flush();
+    const first = relay.last;
+    visibility.set(false);
+    // iOS congela la página: ningún timer corre (ni el de 30 s en segundo plano) y el socket muere.
+    clock.jump(5 * 60_000);
+    first.dead = true;
+    visibility.set(true);
+    expect(client.state.kind).toBe("ready");
+    expect(client.stale).toBe(true);
+    expect(first.sent.at(-1)).toEqual({ t: "ping" });
+    states.length = 0;
+    await clock.advance(PONG_TIMEOUT_MS);
+    expect(states.map((s) => s.kind)).toEqual(["connecting", "ready"]);
+    expect(client.stale).toBe(false);
+    expect(relay.open).toHaveLength(1);
+  });
+
+  it("al volver después de un rato oculto con la conexión viva: el pong la confirma y no reconecta", async () => {
+    const { relay, clock, client, visibility } = setup();
+    client.start();
+    await flush();
+    visibility.set(false);
+    clock.jump(RESUME_CHECK_MS + 1000);
+    visibility.set(true);
+    expect(client.stale).toBe(true);
+    await flush();
+    expect(client.stale).toBe(false);
+    await clock.advance(PONG_TIMEOUT_MS);
+    expect(client.state.kind).toBe("ready");
+    expect(relay.sockets).toHaveLength(1);
+  });
+
+  it("volver enseguida no manda ping extra", async () => {
+    const { relay, client, visibility } = setup();
+    client.start();
+    await flush();
+    visibility.set(false);
+    visibility.set(true);
+    expect(client.stale).toBe(false);
+    expect(relay.last.sent.filter((m) => m.t === "ping")).toHaveLength(0);
+  });
+
+  it("callado hace más de 25 s está en duda aunque no se haya ocultado", async () => {
+    const { clock, client } = setup();
+    client.start();
+    await flush();
+    clock.jump(26_000);
+    expect(client.stale).toBe(true);
+    client.probe();
+    await flush();
+    expect(client.stale).toBe(false);
+  });
+
+  it("online: reintenta ya si estaba caído; settled espera el pong", async () => {
+    const { relay, clock, client, visibility } = setup();
+    client.start();
+    await flush();
+    relay.answers = false;
+    relay.last.drop(1006);
+    await flush();
+    expect(client.state.kind).toBe("unreachable");
+    relay.answers = true;
+    visibility.wake();
+    expect(client.state.kind).toBe("connecting");
+    await flush();
+    expect(client.state.kind).toBe("ready");
+    // `settled` se resuelve con el pong de la comprobación.
+    clock.jump(30_000);
+    client.probe();
+    let settled = false;
+    void client.settled().then(() => (settled = true));
+    await flush();
+    expect(settled).toBe(true);
   });
 
   it("stop cierra y no reintenta", async () => {

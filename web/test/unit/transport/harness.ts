@@ -39,6 +39,11 @@ export class ManualClock implements Clock {
     return this.#timers.length;
   }
 
+  /** Mueve el reloj sin correr ningún timer: la página congelada en segundo plano (iOS). */
+  jump(ms: number): void {
+    this.#now += ms;
+  }
+
   /** Avanza el reloj corriendo cada timer vencido (y lo que eso desencadene). */
   async advance(ms: number): Promise<void> {
     const end = this.#now + ms;
@@ -68,6 +73,8 @@ export class FakeSocket implements WebSocketLike {
   onerror: ((event: unknown) => void) | null = null;
   role: Role | null = null;
   closed = false;
+  /** Muerto sin avisar (el teléfono durmió, cambió de red): lo que se manda se pierde y no llega nada. */
+  dead = false;
   readonly sent: RelayMessage[] = [];
 
   constructor(readonly relay: FakeRelay, readonly url: string, readonly protocols: string[]) {}
@@ -76,6 +83,7 @@ export class FakeSocket implements WebSocketLike {
     if (this.closed) throw new Error("socket closed");
     const message = decodeRelayMessage(data);
     this.sent.push(message);
+    if (this.dead) return;
     queueMicrotask(() => this.relay.receive(this, message));
   }
 
@@ -87,7 +95,7 @@ export class FakeSocket implements WebSocketLike {
 
   /** Del relay al cliente. */
   deliver(message: RelayMessage | string): void {
-    if (this.closed) return;
+    if (this.closed || this.dead) return;
     const data = typeof message === "string" ? message : encodeRelayMessage(message);
     queueMicrotask(() => this.onmessage?.({ data }));
   }
@@ -216,6 +224,18 @@ export class FakeVisibility {
   set(visible: boolean): void {
     this.#visible = visible;
     for (const listener of this.#listeners) listener(visible);
+  }
+
+  #wakeListeners = new Set<() => void>();
+
+  onWake(listener: () => void): () => void {
+    this.#wakeListeners.add(listener);
+    return () => this.#wakeListeners.delete(listener);
+  }
+
+  /** `online` o `pageshow` desde la caché de ida y vuelta. */
+  wake(): void {
+    for (const listener of this.#wakeListeners) listener();
   }
 }
 

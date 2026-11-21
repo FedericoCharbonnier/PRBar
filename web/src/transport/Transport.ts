@@ -279,6 +279,17 @@ export class LiveTransport implements Transport {
   async send(command: AppCommand, options: SendOptions = {}): Promise<PendingCommand> {
     const needsPresence = this.needsPresence(command);
     if (needsPresence && !options.authorize) throw new RemoteError("presenceRequired");
+    // Una conexión en duda (recién vuelta del segundo plano, o callada hace rato) se comprueba antes de usarla: un
+    // comando gated no espera (Face ID tiene que pedirse ya) y falla enseguida; los demás esperan el `pong` o la
+    // conexión nueva. Si no, el pedido podría irse por un WebSocket muerto y esperar el minuto entero.
+    if (this.#relay.stale) {
+      this.#relay.probe();
+      if (needsPresence) throw this.#unavailable() ?? new RemoteError("connecting");
+      await this.#relay.settled();
+    } else {
+      // Mientras sale el pedido, un `ping`: si la red cambió hace un momento, se nota en 5 s y no en 60.
+      this.#relay.probe();
+    }
     // Face ID tiene que pedirse dentro del toque: Safari no muestra el aviso de WebAuthn después de un `await`. Con la
     // sesión abierta, `authorize` corre sincrónico desde acá (sin `await` antes de `credentials.get`); sin sesión, un
     // comando gated no espera a abrirla para pedirlo: falla y la sesión se abre para el próximo toque.
@@ -410,6 +421,9 @@ export class LiveTransport implements Transport {
         if (this.#state.kind !== "incompatible") this.#setState({ kind: "disconnected" });
         return;
       case "connecting":
+        // Una conexión nueva (también la que reemplaza enseguida a una que murió sin avisar): la sesión de la
+        // anterior ya no sirve, y lo que esperaba en ella falla ya.
+        this.#dropSession(new RemoteError("relayUnreachable"));
         if (this.#state.kind !== "incompatible") this.#setState({ kind: "connecting" });
         return;
       case "ready":
