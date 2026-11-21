@@ -2,7 +2,7 @@
 export { Icon, type IconName } from "./Icon";
 export { Avatar, avatarColor, AppTile, Badge, Chip, DiffCount, HeroCircle, Screen, SeverityPill, Spinner, StatusDot } from "./basics";
 export { ActionCapsule, Button, GlassButton, GlassGroup, type ButtonVariant, type ButtonSize } from "./Button";
-export { LargeTitle, MacPill, NavBar, type NavAction } from "./NavBar";
+export { LargeTitle, MacPill, NavBar, TopBar, type NavAction } from "./NavBar";
 export { TabBar } from "./TabBar";
 export { BlockTitle, Card, ListCaption, ListRow, Section, SectionHeader, ToggleRow } from "./List";
 export { PRRow } from "./PRRow";

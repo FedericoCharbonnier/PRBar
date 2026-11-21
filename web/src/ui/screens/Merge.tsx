@@ -1,5 +1,5 @@
 import { Avatar, Button, Card, DiffCount, FaceIdHud, Icon, ListCaption, ListRow, NavBar, Screen, SegmentedControl } from "../components";
-import { Branches, DetailHeader } from "./Review";
+import { Branches, DetailHeader, shortRef } from "./Review";
 import type { MergedProps, MergeMethod, MergeProps } from "./types";
 import "./screens.css";
 
@@ -17,6 +17,7 @@ export function Merge(props: MergeProps) {
     <Screen label={pr.title}>
       <NavBar
         leading={{ icon: "chevron.left", label: "Back", onClick: props.onBack }}
+        inlineTitle={shortRef(pr)}
         trailing={[{ icon: "bubble.left.and.bubble.right", label: "Ask Claude about this PR", onClick: props.onChat }]}
       />
       <DetailHeader pr={pr}>

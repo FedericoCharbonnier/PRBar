@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { AppContext } from "../app/context";
 import type { InstallPromptEvent, Platform } from "../app/install";
 import { createChatModel } from "../app/models/chat";
@@ -7,6 +7,7 @@ import { createMergeModel } from "../app/models/merge";
 import type { PairingModel } from "../app/models/pairing";
 import { createRespondModel, type RespondMode } from "../app/models/respond";
 import { createReviewModel } from "../app/models/review";
+import { routeTitle, type StackRoute } from "../app/navstack";
 import type { ChatKind, PRScreenId } from "../app/router";
 import type { Active, Shell } from "../app/shell";
 import { Camera } from "./Camera";
@@ -15,6 +16,10 @@ import {
   Activity, Chat, Edit, FixCI, Home, Install, Merge, Merged, PairConfirm, PairPaired, PairSas, PairScan, PairWelcome,
   Respond, RespondDiff, Review, ReviewPosted, Settings,
 } from "./screens";
+import { ghost, reducedMotion } from "./motion/animate";
+import { NavHost, SoloPage } from "./nav/NavHost";
+import { PullToRefresh } from "./nav/PullToRefresh";
+import type { TabId } from "./screens/types";
 import "./app.css";
 
 // La app: la pantalla `install` fuera de la pantalla de inicio; adentro, el emparejamiento o las cuatro pestañas con
@@ -49,7 +54,13 @@ export function App({ shell }: { shell: Shell }) {
   const pairing = !active || shell.pairingOpen.value || step === "paired";
   return (
     <>
-      {pairing ? <PairingFlow shell={shell} model={shell.pairing} /> : <Paired shell={shell} active={active} />}
+      {pairing ? (
+        <SoloPage id={`pair:${step}`}>
+          <PairingFlow shell={shell} model={shell.pairing} />
+        </SoloPage>
+      ) : (
+        <Paired shell={shell} active={active} />
+      )}
       <Overlays shell={shell} />
     </>
   );
@@ -117,65 +128,79 @@ function PairingFlow({ shell, model }: { shell: Shell; model: PairingModel }) {
 // ---------- Emparejado ----------
 
 function Paired({ shell, active }: { shell: Shell; active: Active }) {
-  const route = shell.router.route.value;
+  const { router } = shell;
+  const nav = router.nav.value;
   const { ctx } = active;
-  if (route.kind === "pr") {
-    const screen = route.screen ?? defaultScreen(ctx.store, route.pr) ?? "review";
-    return <PRScreen key={`${route.pr}|${screen}|${route.chat ?? ""}`} ctx={ctx} pr={route.pr} screen={screen} chat={route.chat} />;
-  }
-  const tab = route.kind === "tab" ? route.tab : "review";
+  // Las pestañas se montan la primera vez que se eligen y después quedan (con su pila y su scroll).
+  const visited = useRef<TabId[]>([]);
+  if (!visited.current.includes(nav.state.tab)) visited.current = [...visited.current, nav.state.tab];
+  const select = (tab: TabId) => {
+    const state = router.nav.peek().state;
+    if (tab === state.tab && state.stacks[tab].length === 1) {
+      // Tocar la pestaña elegida en su raíz: arriba de todo.
+      const scroller = document.querySelector(".stack--active .page--root .page__scroll");
+      scroller?.scrollTo({ top: 0, behavior: reducedMotion() ? "auto" : "smooth" });
+      return;
+    }
+    router.tab(tab);
+  };
+  const screenOf = (route: StackRoute & { kind: "pr" }) => route.screen ?? defaultScreen(ctx.store, route.pr) ?? "review";
   return (
-    <div class="app--tabs">
-      {tab === "review" || tab === "mine" ? <HomeScreen model={active.home} tab={tab} /> : null}
-      {tab === "activity" ? <ActivityScreen active={active} /> : null}
-      {tab === "settings" ? <SettingsScreen active={active} /> : null}
-      <TabBar selected={tab} reviewBadge={active.home.badge.value} onSelect={(t) => shell.router.tab(t)} />
-    </div>
+    <NavHost
+      nav={nav}
+      tabs={visited.current}
+      titleOf={(route) => routeTitle(route, route.kind === "pr" ? screenOf(route) : undefined)}
+      onBack={() => router.back()}
+      renderRoute={(route, { visible }) => {
+        if (route.kind === "tab") {
+          return (
+            <>
+              <TabRoot active={active} tab={route.tab} visible={visible} />
+              <TabBar selected={route.tab} reviewBadge={active.home.badge.value} onSelect={select} />
+            </>
+          );
+        }
+        const screen = screenOf(route);
+        return <PRScreen key={`${route.pr}|${screen}|${route.chat ?? ""}`} ctx={ctx} pr={route.pr} screen={screen} chat={route.chat} />;
+      }}
+    />
   );
 }
 
-/** Tirar hacia abajo desde arriba de todo: `refresh` (o reintentar sin conexión). */
-function usePullToRefresh(onRefresh: () => void) {
-  useEffect(() => {
-    let start: number | null = null;
-    let pulled = 0;
-    const down = (e: TouchEvent) => {
-      start = scrollY <= 0 && e.touches.length === 1 ? e.touches[0]!.clientY : null;
-      pulled = 0;
-    };
-    const move = (e: TouchEvent) => {
-      if (start !== null) pulled = e.touches[0]!.clientY - start;
-    };
-    const up = () => {
-      if (start !== null && pulled > 80) onRefresh();
-      start = null;
-    };
-    addEventListener("touchstart", down, { passive: true });
-    addEventListener("touchmove", move, { passive: true });
-    addEventListener("touchend", up);
-    return () => {
-      removeEventListener("touchstart", down);
-      removeEventListener("touchmove", move);
-      removeEventListener("touchend", up);
-    };
-  }, [onRefresh]);
+function TabRoot({ active, tab, visible }: { active: Active; tab: TabId; visible: boolean }) {
+  switch (tab) {
+    case "review":
+    case "mine":
+      return <HomeScreen model={active.home} tab={tab} />;
+    case "activity":
+      return <ActivityScreen active={active} visible={visible} />;
+    case "settings":
+      return <SettingsScreen active={active} visible={visible} />;
+  }
 }
 
 function HomeScreen({ model, tab }: { model: HomeModel; tab: HomeTab }) {
-  usePullToRefresh(useMemo(() => () => void model.refresh(), [model]));
-  return <Home {...model.props(tab)} />;
+  const props = model.props(tab);
+  const refresh = useMemo(() => () => void model.refresh(), [model]);
+  return (
+    <>
+      <PullToRefresh refreshing={!!props.refreshing} onRefresh={refresh} />
+      <Home {...props} />
+    </>
+  );
 }
 
-function ActivityScreen({ active }: { active: Active }) {
-  useEffect(() => active.activity.open(), [active]);
+function ActivityScreen({ active, visible }: { active: Active; visible: boolean }) {
+  // Las estadísticas de la Mac se piden solo mientras la pestaña está a la vista.
+  useEffect(() => (visible ? active.activity.open() : undefined), [active, visible]);
   return <Activity {...active.activity.props.value} />;
 }
 
-function SettingsScreen({ active }: { active: Active }) {
+function SettingsScreen({ active, visible }: { active: Active; visible: boolean }) {
   const stale = active.ctx.store.isStale.value;
   useEffect(() => {
-    if (!stale) void active.settings.load();
-  }, [active, stale]);
+    if (!stale && visible) void active.settings.load();
+  }, [active, stale, visible]);
   return <Settings {...active.settings.props.value} />;
 }
 
@@ -242,6 +267,22 @@ function ChatScreen({ ctx, pr, kind }: { ctx: AppContext; pr: string; kind: Chat
 
 // ---------- Avisos ----------
 
+/** Un aviso: baja desde arriba al aparecer (CSS) y sube al irse. */
+function AlertItem({ message, onDismiss }: { message: string; onDismiss: () => void }) {
+  const ref = useRef<HTMLButtonElement>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    return () => ghost(el, () => (reducedMotion()
+      ? [{ opacity: 1 }, { opacity: 0 }]
+      : [{ opacity: 1, transform: "none" }, { opacity: 0, transform: "translate3d(0, -110%, 0)" }]), { duration: 280, easing: "ease-in" });
+  }, []);
+  return (
+    <button ref={ref} type="button" class="app-alerts__item" onClick={onDismiss}>
+      <Banner banner={{ tone: "red", icon: "exclamationmark.triangle", text: message }} />
+    </button>
+  );
+}
+
 function Overlays({ shell }: { shell: Shell }) {
   const { ui } = shell;
   const alerts = ui.alerts.value;
@@ -252,9 +293,7 @@ function Overlays({ shell }: { shell: Shell }) {
       {alerts.length > 0 && (
         <div class="app-alerts" role="alert">
           {alerts.map((a) => (
-            <button key={a.id} type="button" class="app-alerts__item" onClick={() => ui.dismissAlert(a.id)}>
-              <Banner banner={{ tone: "red", icon: "exclamationmark.triangle", text: a.message }} />
-            </button>
+            <AlertItem key={a.id} message={a.message} onDismiss={() => ui.dismissAlert(a.id)} />
           ))}
         </div>
       )}

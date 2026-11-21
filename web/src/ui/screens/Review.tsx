@@ -15,6 +15,11 @@ export const DECISIONS: Record<ReviewDecision, { label: string; icon: IconName; 
   approve: { label: "Approve", icon: "checkmark.circle", tone: "green" },
 };
 
+/** `api#317`: el título corto de la barra cuando el del PR pasó por debajo. */
+export function shortRef(pr: PRHeaderVM): string {
+  return `${pr.repoFull.split("/").pop() ?? pr.repoFull}#${pr.number}`;
+}
+
 /** Encabezado de detalle: repo mono + título grande. */
 export function DetailHeader({ pr, children }: { pr: PRHeaderVM; children?: ComponentChildren }) {
   return (
@@ -50,6 +55,7 @@ export function Review(props: ReviewProps) {
     <Screen class="screen--with-bar" label={pr.title}>
       <NavBar
         leading={{ icon: "chevron.left", label: "Back", onClick: props.onBack }}
+        inlineTitle={shortRef(pr)}
         trailing={[
           { icon: "bubble.left.and.bubble.right", label: "Chat with Claude", onClick: props.onChat },
           { icon: "ellipsis", label: "More", onClick: props.onMore },
@@ -175,10 +181,10 @@ export function ReviewPosted({ decision, message, inlineComments, postedFrom, on
   );
 }
 
-/** edit — hoja grande para editar el comentario de un hallazgo. */
+/** edit — hoja grande para editar el comentario de un hallazgo (la pantalla de atrás queda como tarjeta). */
 export function Edit({ subtitle, severity, location, excerpt, text, line, saving, onChange, onSave, onDiscard }: EditProps) {
   return (
-    <Sheet detent="full" grabber={false} label="Edit Comment" onDismiss={onDiscard}>
+    <Sheet detent="large" label="Edit Comment" onDismiss={onDiscard}>
       <div class="edit">
         <div class="edit__head">
           <Button variant="glass" size="md" class="edit__discard" onClick={onDiscard}>

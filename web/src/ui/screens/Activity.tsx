@@ -1,4 +1,4 @@
-import { Button, Card, Icon, LargeTitle, MacPill, Screen, SectionHeader, Spinner } from "../components";
+import { Button, Card, Icon, LargeTitle, MacPill, Screen, SectionHeader, Spinner, TopBar } from "../components";
 import type { ActivityProps } from "./types";
 import "./screens.css";
 
@@ -7,9 +7,9 @@ export function Activity({ mac, stats, running, month, onStop }: ActivityProps) 
   const total = month.segments.reduce((s, x) => s + x.value, 0) || 1;
   return (
     <Screen label="Activity">
-      <div class="home-top">
+      <TopBar title="Activity">
         <MacPill mac={mac} />
-      </div>
+      </TopBar>
       <LargeTitle>Activity</LargeTitle>
       <div class="stats">
         {stats.map((s) => (

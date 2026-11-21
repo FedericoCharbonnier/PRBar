@@ -60,7 +60,9 @@ describe("historias", () => {
   for (const story of stories) {
     it(`${story.id} se dibuja con los textos del diseño`, () => {
       const { container } = render(story.render());
-      expect(container.innerHTML.length).toBeGreaterThan(50);
+      // Las hojas se dibujan aparte, en #overlay-root (fuera de la pantalla, para la presentación tipo tarjeta).
+      const overlays = document.getElementById("overlay-root")?.innerHTML ?? "";
+      expect(container.innerHTML.length + overlays.length).toBeGreaterThan(50);
       const text = document.body.textContent ?? "";
       for (const s of copy[story.id] ?? []) expect(text, `${story.id}: ${s}`).toContain(s);
     });

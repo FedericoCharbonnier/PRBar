@@ -1,9 +1,56 @@
-/* Lo que agrega el shell sobre las pantallas (sin cambiar el diseño): espacio para la barra de pestañas, los avisos
-   de error arriba y la hoja de confirmación. */
+/* Lo que agrega el shell sobre las pantallas (sin cambiar el diseño): la app fija a la ventana (cada pantalla desplaza
+   su propio contenedor, así no rebota la página entera ni se ve blanco detrás), espacio para la barra de pestañas, los
+   avisos de error arriba y la hoja de confirmación. */
 
-.app--tabs .screen {
-  padding-bottom: calc(var(--safe-bottom) + 104px);
+html,
+body {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+  /* Como en una app: sin selección ni menú de "copiar/abrir" sobre los controles. */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
+
+#app {
+  position: fixed;
+  inset: 0;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* El texto que tiene sentido copiar (código, diffs, mensajes, comentarios) sí se selecciona. */
+input,
+textarea,
+.code-block,
+.log-block,
+.diff__lines,
+.bubble,
+.summary-card p,
+.finding p,
+.feedback__text,
+.description-card,
+.reply-card p,
+.chip,
+.detail-head__title,
+.sas {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
+/* Sin la demora de 300 ms ni el zoom con doble toque. */
+button,
+a,
+label,
+input,
+[role="button"] {
+  touch-action: manipulation;
+}
+
 
 .app-alerts {
   position: fixed;
@@ -18,6 +65,7 @@
 
 .app-alerts__item {
   display: block;
+  animation: alert-in 0.5s cubic-bezier(0.32, 0.72, 0, 1) backwards;
   width: 100%;
   padding: 0;
   border: 0;
@@ -51,4 +99,35 @@
   color: var(--fg2);
   font-size: 15px;
   line-height: 1.35;
+}
+
+/* Los avisos bajan desde arriba como un banner del sistema. */
+@keyframes alert-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, -120%, 0) scale(0.96);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-alerts__item {
+    animation-name: fade-in;
+    animation-duration: 0.2s;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Hoja grande abierta: la app de atrás queda como tarjeta sobre negro (motion/card.ts). */
+html.card-presenting,
+html.card-presenting body {
+  background: #000;
+}
+
+.nav-host--card {
+  border-radius: 12px;
 }

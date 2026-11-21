@@ -1,4 +1,4 @@
-import { Banner, Button, GlassButton, HeroCircle, Icon, LargeTitle, MacPill, PRRow, Screen, Section, Spinner } from "../components";
+import { Banner, Button, GlassButton, HeroCircle, Icon, LargeTitle, MacPill, PRRow, Screen, Section, Spinner, TopBar } from "../components";
 import type { HomeProps } from "./types";
 import "./screens.css";
 
@@ -8,10 +8,10 @@ export function Home({
 }: HomeProps) {
   return (
     <Screen label={title}>
-      <div class="home-top">
+      <TopBar title={title}>
         <MacPill mac={mac} />
         <GlassButton icon="line.3.horizontal.decrease" label="Filter" onClick={onFilter} iconSize={21} />
-      </div>
+      </TopBar>
       <LargeTitle>{title}</LargeTitle>
       {refreshing && (
         <div class="home-refresh" role="status" aria-label="Refreshing">

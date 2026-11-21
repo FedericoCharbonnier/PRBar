@@ -1,4 +1,4 @@
-import { AppTile, Card, LargeTitle, ListCaption, ListRow, Screen, StatusDot, ToggleRow } from "../components";
+import { AppTile, Card, LargeTitle, ListCaption, ListRow, Screen, StatusDot, ToggleRow, TopBar } from "../components";
 import type { SettingsProps } from "./types";
 import "./screens.css";
 
@@ -7,6 +7,7 @@ export function Settings(props: SettingsProps) {
   const { mac, notifications, requireFaceId, claude, version } = props;
   return (
     <Screen label="Settings">
+      <TopBar title="Settings" overlay />
       <LargeTitle>Settings</LargeTitle>
       <Card class="settings-mac">
         <div class="settings-mac__head">
