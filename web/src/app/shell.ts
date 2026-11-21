@@ -1,5 +1,4 @@
-import { batch, effect, signal } from "@preact/signals";
-import { b64urlDecode } from "../crypto/b64";
+import { batch, signal } from "@preact/signals";
 import { createPasskey } from "../presence/webauthn";
 import { Cache } from "../store/cache";
 import { KeyStore, requestPersistentStorage, type StoredPairing } from "../store/keys";
@@ -275,38 +274,5 @@ export class Shell {
       const active = this.active.value;
       if (active) void registerPush(active.session.transport).catch(() => {});
     }
-  }
-
-  /** Solo fuera de producción: lo que miran las pruebas e2e (`window.__prbar` y `data-*` en `<html>`). */
-  exposeTestHooks(): void {
-    const root = this.#env.window.document.documentElement;
-    const state = () => {
-      const active = this.active.value;
-      return {
-        ready: this.ready.value,
-        route: this.router.route.value,
-        pairing: this.pairing.step.value.kind,
-        sas: this.pairing.step.value.kind === "sas" ? this.pairing.step.value.code : null,
-        notice: this.pairing.notice.value,
-        link: active?.session.store.link.value.kind ?? "unpaired",
-        macName: active?.session.store.macName.value ?? null,
-        prs: active?.session.store.home.value?.prs.map((p) => p.id) ?? [],
-        alerts: this.ui.alerts.value.map((a) => a.message),
-      };
-    };
-    // Una suscripción de Web Push con claves de la prueba (la del navegador no anda sin red): el relay en modo test la
-    // acepta si el endpoint es el de su servicio de push falso.
-    const registerWebPush = (sub: { endpoint: string; p256dh: string; auth: string }) => {
-      this.active.value?.session.transport.registerWebPush({
-        endpoint: sub.endpoint, p256dh: b64urlDecode(sub.p256dh), auth: b64urlDecode(sub.auth),
-      });
-    };
-    (this.#env.window as unknown as { __prbar: unknown }).__prbar = { state, shell: this, registerWebPush };
-    effect(() => {
-      const s = state();
-      root.dataset["ready"] = String(s.ready);
-      root.dataset["pairing"] = s.pairing;
-      root.dataset["link"] = s.link;
-    });
   }
 }

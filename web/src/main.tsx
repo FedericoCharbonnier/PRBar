@@ -59,7 +59,8 @@ async function start(): Promise<void> {
   installKeyboardTracking();
   const shell = new Shell({ mode: MODE, window });
   if (updater) updater.isSafe = () => shell.isSafeToReload();
-  if (MODE !== "production") shell.exposeTestHooks();
+  // Las pruebas e2e: un módulo aparte que el build de producción no incluye.
+  if (MODE !== "production") (await import("./app/testHooks")).exposeTestHooks(shell, window);
   render(<App shell={shell} />, root);
   await shell.boot();
 }

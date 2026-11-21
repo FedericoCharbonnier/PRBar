@@ -2,8 +2,6 @@
 // hacen red ni guardan estado; el que las conecta (router + modelos) arma estos objetos.
 import type { ComponentChildren } from "preact";
 
-export type Tone = "accent" | "violet" | "green" | "orange" | "red" | "blue" | "neutral";
-
 /** Persona (autor, revisor). `color` es el del avatar, determinístico por login (lo calcula `avatarColor`). */
 export interface Person {
   name: string;
