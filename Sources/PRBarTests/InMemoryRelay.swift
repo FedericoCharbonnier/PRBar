@@ -69,6 +69,9 @@ actor InMemoryRelay {
     /// reciben `offline`, solo el `online` de la conexión nueva.
     func setSilentMacOffline(_ value: Bool) { silentMacOffline = value }
 
+    /// La conexión de la Mac de la cuenta, si hay una.
+    func macLink(_ acct: String) -> InMemoryRelayLink? { accounts[acct]?.mac }
+
     /// Relay malicioso: le entrega a un teléfono un mensaje inventado.
     func injectToDevice(_ acct: String, _ device: String, _ message: RelayMessage) {
         accounts[acct]?.deviceLinks[device]?.deliver(message)

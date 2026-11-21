@@ -10,6 +10,9 @@ public enum RemoteHostEvent: Equatable, Sendable {
         case connected
         /// Se cortó; reintenta en `retryIn` segundos.
         case offline(retryIn: Int)
+        /// El relay la reemplazó por otra Mac con la misma cuenta (4409): no reintenta sola, así las dos no se sacan
+        /// el lugar una a la otra para siempre.
+        case replaced
     }
 
     case status(Status)
@@ -27,6 +30,13 @@ public enum RemoteHostEvent: Equatable, Sendable {
     case rateLimited(device: String)
     /// Cambió la unión de los tópicos suscritos (el feed de la Mac calcula solo esos).
     case subscriptionsChanged(Set<String>)
+}
+
+/// Cómo terminó `RemoteHost.putMailbox`.
+public enum MailboxPutResult: Equatable, Sendable {
+    case sent
+    case tooLarge
+    case notConnected
 }
 
 /// Quién mandó un pedido: el dispositivo (como está registrado en la Mac) y si trajo una prueba de Face ID que la Mac
@@ -136,6 +146,13 @@ public actor RemoteHost {
     private var link: RelayLink?
     private var receiveTask: Task<Void, Never>?
     private var wantsConnection = false
+    /// Sube con cada `connect()`/`disconnect()`: un `openLink` o un ciclo de reconexión de antes no guarda su link.
+    private var generation = 0
+    /// Cuándo abrió el link actual: uno que se cae enseguida no reinicia el backoff (M7).
+    private var linkOpenedAt: Date?
+    /// Cortes seguidos de links que duraron menos que `stableLinkDuration`.
+    private var quickDrops = 0
+    static let stableLinkDuration: TimeInterval = 30
     private var devices: [String: PairedDevice]
     private var sessions: [String: Session] = [:]
     private var online: Set<String> = []
@@ -186,37 +203,67 @@ public actor RemoteHost {
     /// Conecta y se queda conectado (reconecta con `backoff`) hasta `disconnect()`.
     public func connect() async throws {
         wantsConnection = true
-        try await openLink()
+        generation += 1
+        quickDrops = 0
+        try await openLink(generation: generation)
     }
 
-    private func openLink() async throws {
+    /// Abre un link y lo guarda, salvo que mientras conectaba se haya llamado a `disconnect()` (o a otro `connect()`)
+    /// o se haya cancelado la tarea: ahí lo cierra y lanza `CancellationError` (nada queda abierto sin dueño; H4).
+    private func openLink(generation: Int) async throws {
         eventSink.yield(.status(.connecting))
         let link = linkFactory(.signed(account: config.accountId, client: "mac", key: config.keys.relay))
-        _ = try await link.connect()
+        do {
+            _ = try await link.connect()
+        } catch {
+            await link.close()
+            throw error
+        }
+        guard wantsConnection, generation == self.generation, self.link == nil, !Task.isCancelled else {
+            await link.close()
+            throw CancellationError()
+        }
         self.link = link
+        linkOpenedAt = clock()
         eventSink.yield(.status(.connected))
         receiveTask = Task { [weak self] in
+            var closeError: Error?
             do {
                 for try await message in link.incoming {
                     await self?.handle(message)
                 }
-            } catch {}
-            await self?.linkEnded(link)
+            } catch {
+                closeError = error
+            }
+            await self?.linkEnded(link, error: closeError)
         }
     }
 
-    private func linkEnded(_ ended: RelayLink) async {
+    private func linkEnded(_ ended: RelayLink, error: Error?) async {
         guard link === ended else { return }
         dropAll()
+        // Corta también el escritor y el ping del link (si no, quedan vivos; L4).
+        await ended.close()
         guard wantsConnection else { return }
-        var attempt = 1
-        while wantsConnection {
+        if (error as? RelayClosed)?.code == RelayCloseCode.replaced.rawValue {
+            // Otra Mac con la misma cuenta se conectó: esta da un paso al costado en vez de reconectar y sacarla.
+            wantsConnection = false
+            generation += 1
+            eventSink.yield(.status(.replaced))
+            return
+        }
+        // Un link que no duró nada no reinicia el backoff: si el relay lo corta enseguida, los reintentos se espacian.
+        let stable = linkOpenedAt.map { clock().timeIntervalSince($0) >= Self.stableLinkDuration } ?? false
+        quickDrops = stable ? 0 : quickDrops + 1
+        let current = generation
+        var attempt = 1 + quickDrops
+        while wantsConnection, generation == current {
             let delay = config.backoff(attempt)
             eventSink.yield(.status(.offline(retryIn: Int(delay.components.seconds))))
             try? await Task.sleep(for: delay)
-            guard wantsConnection, link == nil else { return }
+            guard wantsConnection, generation == current, link == nil else { return }
             do {
-                try await openLink()
+                try await openLink(generation: current)
                 return
             } catch {
                 attempt += 1
@@ -236,6 +283,7 @@ public actor RemoteHost {
 
     public func disconnect() async {
         wantsConnection = false
+        generation += 1
         let current = link
         receiveTask?.cancel()
         dropAll()
@@ -563,10 +611,12 @@ public actor RemoteHost {
     /// dejan margen. Más grande no se guarda (el teléfono igual recibe el estado en vivo).
     public static let maxMailboxBlob = 90 * 1024
 
-    /// Devuelve `false` si `data` no entra en el buzón.
+    /// Devuelve `.tooLarge` si `data` no entra en el buzón y `.notConnected` si no hay conexión (no se mandó nada: hay
+    /// que volver a escribirlo al reconectar; M8).
     @discardableResult
-    public func putMailbox(slot: String, data: Data) -> Bool {
-        guard data.count + 1024 <= Self.maxMailboxBlob else { return false }
+    public func putMailbox(slot: String, data: Data) -> MailboxPutResult {
+        guard data.count + 1024 <= Self.maxMailboxBlob else { return .tooLarge }
+        guard link != nil else { return .notConnected }
         let now = clock()
         mailboxRev = max(mailboxRev + 1, Int(now.timeIntervalSince1970 * 1000))
         let blob = MailboxBlob(slot: slot, rev: mailboxRev, createdAt: now, data: data)
@@ -574,10 +624,10 @@ public actor RemoteHost {
             guard let push = try? Curve25519.KeyAgreement.PublicKey(rawRepresentation: device.push),
                   let sealed = try? blob.seal(from: config.keys.seal, to: push, account: config.accountId,
                                               device: device.deviceId) else { continue }
-            guard sealed.count <= Self.maxMailboxBlob else { return false }
+            guard sealed.count <= Self.maxMailboxBlob else { return .tooLarge }
             send(.mboxPut(to: device.deviceId, slot: slot, b: sealed))
         }
-        return true
+        return .sent
     }
 
     /// Manda un push cifrado; devuelve el status que informa el relay (200 entregado, 410 sin suscripción).

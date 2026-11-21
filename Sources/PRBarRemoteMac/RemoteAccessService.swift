@@ -144,6 +144,11 @@ public final class RemoteAccessService: ObservableObject {
     private var pairWaiters: [UUID: CheckedContinuation<RemotePairingInfo, Error>] = [:]
     /// `retryNow` (al despertar y al volver la red) no se pisa consigo mismo (revisión L6).
     private var retrying = false
+    /// El relay cambió esta Mac por otra con la misma cuenta (4409): despertar o volver la red no reconecta (si no, las
+    /// dos se sacarían el lugar). Lo limpia volver a habilitar el acceso o reiniciar la app.
+    private var replacedByAnotherMac = false
+    public static let replacedMessage = "Another PRBar is connected to iPhone access with this account, so this Mac stepped back. "
+        + "Turn Remote Control off and on to use this Mac instead."
     private var cleanupTask: Task<Void, Never>?
     private var feed: RemoteStateFeed?
     private var mailbox: RemoteMailboxWriter?
@@ -160,6 +165,7 @@ public final class RemoteAccessService: ObservableObject {
 
     /// Al arrancar la app: conecta si está habilitado.
     public func start() {
+        replacedByAnotherMac = false
         devices = env.devices.devices
         updateKeepAwake()
         cleanUpRetiredAccounts()
@@ -186,14 +192,14 @@ public final class RemoteAccessService: ObservableObject {
         online = []
         await current?.disconnect()
         // Mientras se cortaba, otro camino pudo arrancar un host nuevo: su estado no se pisa (L6).
-        if host == nil { state = .disabled }
+        if host == nil { state = replacedByAnotherMac && settings.enabled ? .failed(Self.replacedMessage) : .disabled }
         updateKeepAwake()
     }
 
     /// Volvió la red o la Mac despertó: si no está conectado, reintenta ya (sin esperar el backoff). Una sola vez a la
     /// vez: el aviso de despertar y el de la red llegan juntos (L6).
     public func retryNow() async {
-        guard settings.enabled, !retrying else { return }
+        guard settings.enabled, !retrying, !replacedByAnotherMac else { return }
         retrying = true
         defer { retrying = false }
         if let host, await host.isConnected { return }
@@ -235,6 +241,8 @@ public final class RemoteAccessService: ObservableObject {
         eventsTask = Task { [weak self] in
             for await event in host.events {
                 guard let self else { return }
+                // Lo que avise un host que ya se reemplazó o se apagó no toca el estado (H4).
+                guard self.host === host else { return }
                 await self.handle(event)
             }
         }
@@ -244,12 +252,14 @@ public final class RemoteAccessService: ObservableObject {
             var attempt = 1
             while !Task.isCancelled {
                 do {
+                    // El estado, el feed y la reconciliación los pone el evento `.connected` del host.
                     try await host.connect()
-                    await self?.connected()
                     return
                 } catch {
+                    // Se apagó o se durmió mientras conectaba: el host de esta tarea ya no es el vigente (H4).
+                    guard !Task.isCancelled, !(error is CancellationError) else { return }
                     let delay = backoff(attempt)
-                    self?.connectFailed(error, retryIn: delay)
+                    self?.connectFailed(error, host: host, retryIn: delay)
                     try? await Task.sleep(for: delay)
                     attempt += 1
                 }
@@ -264,12 +274,6 @@ public final class RemoteAccessService: ObservableObject {
             }
         }
         updateKeepAwake()
-    }
-
-    private func connected() async {
-        state = .connected
-        await feed?.recompute()
-        await reconcileRelay()
     }
 
     /// Al conectar, el relay tiene que saber lo mismo que la Mac (revisión M5): un Revoke, un emparejamiento que no
@@ -287,8 +291,8 @@ public final class RemoteAccessService: ObservableObject {
         }
     }
 
-    private func connectFailed(_ error: Error, retryIn delay: Duration) {
-        guard host != nil else { return }
+    private func connectFailed(_ error: Error, host failed: RemoteHost, retryIn delay: Duration) {
+        guard let host, host === failed else { return }
         let reason = (error as? RelayClosed)?.reason ?? error.localizedDescription
         state = .offline(retryAt: env.clock().addingTimeInterval(Double(delay.components.seconds)), reason: reason)
     }
@@ -300,9 +304,16 @@ public final class RemoteAccessService: ObservableObject {
             case .connecting: state = .connecting
             case .connected:
                 state = .connected
+                // Lo que se escribió en el buzón sin conexión no salió: se vuelve a escribir (M8).
+                mailbox?.forceNext()
                 await feed?.recompute()
                 await reconcileRelay()
-            case .disconnected: if host == nil || !settings.enabled { state = .disabled }
+            case .disconnected: if (host == nil || !settings.enabled) && !replacedByAnotherMac { state = .disabled }
+            case .replaced:
+                AppLog.write("iPhone access: another Mac connected with this account; this one stepped back")
+                replacedByAnotherMac = true
+                await stop()
+                state = .failed(Self.replacedMessage)
             case .offline(let retryIn):
                 state = .offline(retryAt: env.clock().addingTimeInterval(TimeInterval(retryIn)), reason: "Connection lost")
                 online = []

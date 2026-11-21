@@ -446,7 +446,11 @@ enum RemoteEndToEndTests {
             try expect(second.isEmpty, "aceptó un estado viejo")
             // Lo que no entra en un marco del relay no se guarda.
             let tooBig = await h.host.putMailbox(slot: "home", data: Data(count: 200 * 1024))
-            try expect(!tooBig)
+            try expectEqual(tooBig, .tooLarge)
+            // Sin conexión no se manda nada y lo dice (M8).
+            await h.host.disconnect()
+            let offline = await h.host.putMailbox(slot: "home", data: Data("v3".utf8))
+            try expectEqual(offline, .notConnected)
         },
         TestCase("remote: el teléfono registra su suscripción de Web Push en el relay") {
             let h = try await RemoteHarness.make()

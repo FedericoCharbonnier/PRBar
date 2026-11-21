@@ -131,13 +131,18 @@ final class RemoteMailboxWriter {
     @discardableResult
     func tick() async -> Bool {
         guard enabled, let latest, latest != written else { return false }
-        guard await host.putMailbox(slot: "home", data: latest) else {
+        switch await host.putMailbox(slot: "home", data: latest) {
+        case .sent:
+            written = latest
+            return true
+        case .tooLarge:
             AppLog.write("iPhone access: the home state is too big for the relay mailbox; skipped.")
             written = latest
             return false
+        case .notConnected:
+            // Nada salió: la próxima vuelta (o el `forceNext` al reconectar) lo vuelve a intentar.
+            return false
         }
-        written = latest
-        return true
     }
 
     /// Se apagó el buzón: no hay un "borrar" en el relay, así que se pisa el slot con un estado vacío (el teléfono lo
