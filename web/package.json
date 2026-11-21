@@ -26,6 +26,7 @@
     "@playwright/test": "1.65.0",
     "@testing-library/preact": "3.2.6",
     "@types/node": "26.6.6",
+    "fake-indexeddb": "6.2.7",
     "happy-dom": "21.0.4",
     "typescript": "7.0.2",
     "vite": "8.3.6",

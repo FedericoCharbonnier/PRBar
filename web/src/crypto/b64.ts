@@ -2,7 +2,8 @@ import type { Bytes } from "./bytes";
 
 // base64url sin relleno (RFC 4648 §5), estricto como Base64URL.swift: rechaza `=`, `+`, `/`, espacios, largos
 // imposibles y bits sobrantes distintos de cero, así cada valor tiene una sola escritura (importa para ids y claves
-// que se comparan como texto). También base64 estándar con relleno, para el campo `e` del push.
+// que se comparan como texto). También base64 estándar con relleno: así codifica
+// Swift los `Data` de los tipos Codable (como `cmd` del `req`).
 
 const STD = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 const URL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
