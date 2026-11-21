@@ -34,8 +34,11 @@ export class AppStore {
   readonly activity = signal<RemoteActivity | null>(null);
   /** Lo cacheado o sin conexión se ve en gris y las acciones se apagan. */
   readonly isStale: ReadonlySignal<boolean> = computed(() => this.link.value.kind !== "online");
-  /** Reloj para las edades y cronómetros (lo avanza el shell cada segundo). */
+  /** Reloj para los cronómetros (lo avanza el shell cada segundo). Lo que muestra segundos lo lee; lo demás usa
+   *  `minute`, así las pantallas que no muestran segundos no se redibujan cada segundo. */
   readonly now: Signal<number>;
+  /** El mismo reloj, pero cambia una vez por minuto: para "2m ago", "updated just now" y las horas. */
+  readonly minute: Signal<number>;
 
   readonly #cache: Cache | null;
   readonly #clock: Clock;
@@ -50,6 +53,7 @@ export class AppStore {
     this.#cache = options.cache ?? null;
     this.#clock = options.clock ?? systemClock;
     this.now = signal(this.#clock.now());
+    this.minute = signal(this.now.peek());
     this.link.value = options.transport.state;
     this.macName.value = options.transport.macName;
     this.requirePresence.value = options.transport.presencePolicy.requirePresence;
@@ -84,7 +88,9 @@ export class AppStore {
   }
 
   tick(): void {
-    this.now.value = this.#clock.now();
+    const now = this.#clock.now();
+    this.now.value = now;
+    if (Math.floor(now / 60_000) !== Math.floor(this.minute.peek() / 60_000)) this.minute.value = now;
   }
 
   // --- Tópicos ---

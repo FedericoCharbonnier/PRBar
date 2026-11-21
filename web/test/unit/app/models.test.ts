@@ -1,3 +1,4 @@
+import { effect } from "@preact/signals";
 import { describe, expect, it } from "vitest";
 import { createActivityModel } from "../../../src/app/models/activity";
 import { createChatModel } from "../../../src/app/models/chat";
@@ -435,6 +436,31 @@ describe("settings", () => {
     await model.unpair();
     expect(unpaired).toBe(1);
     expect(app.ui.confirms[0]!.title).toBe("Unpair from Studio?");
+  });
+});
+
+describe("reloj", () => {
+  it("cada segundo cambia `now`; `minute` (y lo que muestra minutos, como Home) solo al pasar el minuto", () => {
+    const app = makeApp();
+    const home = createHomeModel(app);
+    let renders = 0;
+    const stop = effect(() => {
+      home.props("review");
+      renders++;
+    });
+    app.clock.ms = Math.ceil(NOW / 60_000) * 60_000 + 1000;
+    app.store.tick();
+    const start = renders;
+    for (let i = 0; i < 30; i++) {
+      app.clock.ms += 1000;
+      app.store.tick();
+    }
+    expect(app.store.now.value).toBe(app.clock.ms);
+    expect(renders).toBe(start);
+    app.clock.ms += 30_000;
+    app.store.tick();
+    expect(renders).toBe(start + 1);
+    stop();
   });
 });
 

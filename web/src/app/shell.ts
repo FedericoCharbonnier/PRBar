@@ -112,7 +112,15 @@ export class Shell {
     w.addEventListener("hashchange", () => this.#routeChanged());
     w.addEventListener("popstate", () => this.#routeChanged());
     w.navigator.serviceWorker?.addEventListener("message", (event: MessageEvent) => this.#serviceWorkerMessage(event.data));
-    w.setInterval(() => this.active.value?.session.store.tick(), 1000);
+    // El reloj de las pantallas: cada segundo mientras se ve la app (en segundo plano no se redibuja nada) y enseguida
+    // al volver.
+    const tick = () => this.active.value?.session.store.tick();
+    w.setInterval(() => {
+      if (w.document.visibilityState === "visible") tick();
+    }, 1000);
+    w.document.addEventListener("visibilitychange", () => {
+      if (w.document.visibilityState === "visible") tick();
+    });
     let pairing: StoredPairing | null = null;
     try {
       const storage = await this.storage();

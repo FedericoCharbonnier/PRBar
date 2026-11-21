@@ -147,7 +147,7 @@ export function defaultScreen(store: AppStore, id: string): PRScreenId | undefin
 /** La píldora de la Mac (Home, Activity). */
 export function macInfo(store: AppStore, ctx: Pick<AppContext, "locale">): MacInfo {
   const name = store.macName.value ?? "Your Mac";
-  const now = store.now.value;
+  const now = store.minute.value;
   const last = store.lastUpdated.value;
   if (store.isStale.value) {
     return { name, online: false, detail: last === null ? "Offline" : `Offline · last seen ${time(last, ctx.locale)}` };
@@ -277,7 +277,7 @@ export function createHomeModel(ctx: AppContext): HomeModel {
     props(tab) {
       const home = store.home.value;
       const stale = store.isStale.value;
-      const now = store.now.value;
+      const now = store.minute.value;
       const sections: PRSectionVM[] = homeSections(home, tab).map((s) => ({
         id: s.id,
         title: s.title,

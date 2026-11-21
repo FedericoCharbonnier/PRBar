@@ -62,7 +62,7 @@ export function createReviewModel(ctx: AppContext, pr: string): ReviewModel {
         };
       }
       const info = store.prInfo(pr);
-      const now = store.now.value;
+      const now = store.minute.value;
       const stale = store.isStale.value;
       const r = review.value;
       const vms: FindingVM[] = findings.value.map((f) => ({
