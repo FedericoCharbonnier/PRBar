@@ -303,13 +303,45 @@ public actor RemoteClient {
     // MARK: - Conexión
 
     /// Conecta con el relay y, si la Mac está online, abre la sesión (Noise KK + `hello`).
+    ///
+    /// Un llamador cancelado vuelve enseguida con `CancellationError` (no al vencer el handshake); el intento sigue
+    /// para los demás que lo esperan y termina solo (o con `disconnect()`).
     public func connect() async throws {
-        if let connecting { return try await connecting.task.value }
+        if let connecting { return try await Self.value(of: connecting.task) }
         let id = UUID()
-        let task = Task { try await self.connectOnce() }
+        // El intento se borra solo al terminar, quede quien quede esperándolo.
+        let task = Task {
+            defer { self.connectFinished(id) }
+            try await self.connectOnce()
+        }
         connecting = (id, task)
-        defer { if connecting?.id == id { connecting = nil } }
-        try await task.value
+        try await Self.value(of: task)
+    }
+
+    private func connectFinished(_ id: UUID) {
+        if connecting?.id == id { connecting = nil }
+    }
+
+    /// El resultado de `task`, o `CancellationError` apenas se cancela quien espera (sin cancelar `task`, que es
+    /// compartida).
+    private static func value(of task: Task<Void, Error>) async throws {
+        try Task.checkCancellation()
+        let gate = ResumeOnce()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
+                gate.arm(c)
+                Task {
+                    do {
+                        try await task.value
+                        gate.resume(.success(()))
+                    } catch {
+                        gate.resume(.failure(error))
+                    }
+                }
+            }
+        } onCancel: {
+            gate.resume(.failure(CancellationError()))
+        }
     }
 
     private func connectOnce() async throws {
@@ -705,5 +737,40 @@ public actor RemoteClient {
 
     private func runIsolated(_ action: @Sendable (isolated RemoteClient) -> Void) {
         action(self)
+    }
+}
+
+/// Una continuación que se retoma una sola vez, con lo primero que llegue (el resultado o la cancelación); si llega
+/// antes de armarla, se guarda.
+private final class ResumeOnce: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, Error>?
+    private var early: Result<Void, Error>?
+    private var done = false
+
+    func arm(_ c: CheckedContinuation<Void, Error>) {
+        let ready = lock.withLock { () -> Result<Void, Error>? in
+            if let early {
+                done = true
+                return early
+            }
+            continuation = c
+            return nil
+        }
+        if let ready { c.resume(with: ready) }
+    }
+
+    func resume(_ result: Result<Void, Error>) {
+        let c = lock.withLock { () -> CheckedContinuation<Void, Error>? in
+            guard !done else { return nil }
+            guard let continuation else {
+                if early == nil { early = result }
+                return nil
+            }
+            done = true
+            self.continuation = nil
+            return continuation
+        }
+        c?.resume(with: result)
     }
 }

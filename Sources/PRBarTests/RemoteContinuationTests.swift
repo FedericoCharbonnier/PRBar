@@ -56,6 +56,52 @@ enum RemoteContinuationTests {
             await client.disconnect()
             try await eventually(3, "los dos connect terminaron") { await finished.count == 2 }
         },
+        TestCase("remote continuations: un connect cancelado vuelve enseguida y el otro sigue esperando el intento") {
+            let sent = SentCounter()
+            let mac = PairedMac(accountId: "acct", deviceId: "dev", relayHost: "relay.test", macName: "Mac",
+                                macStatic: Curve25519.KeyAgreement.PrivateKey().publicKey.rawRepresentation,
+                                macSeal: Curve25519.KeyAgreement.PrivateKey().publicKey.rawRepresentation)
+            let client = RemoteClient(configuration: .init(appVersion: "1.0.0", deviceName: "iPhone", model: "iPhone",
+                                                           handshakeTimeout: .seconds(120)),
+                                      paired: mac, keys: DeviceKeys(), linkFactory: { _ in SilentRelayLink(sent: sent) })
+            let cancelled = Finished()
+            let other = Finished()
+            let first = Task {
+                do { try await client.connect() } catch is CancellationError { await cancelled.add() } catch {}
+            }
+            try await eventually(3, "handshake enviado") { sent.value >= 1 }
+            Task {
+                _ = try? await client.connect()
+                await other.add()
+            }
+            try await Task.sleep(for: .milliseconds(100))
+            first.cancel()
+            // Antes volvía recién al vencer el handshake (120 s acá).
+            try await eventually(1, "el connect cancelado volvió con CancellationError") { await cancelled.count == 1 }
+            try await Task.sleep(for: .milliseconds(200))
+            let stillWaiting = await other.count
+            try expectEqual(stillWaiting, 0)
+            try expectEqual(sent.value, 1)
+            await client.disconnect()
+            try await eventually(3, "el otro connect terminó al desconectar") { await other.count == 1 }
+        },
+        TestCase("remote continuations: un connect ya cancelado no abre nada") {
+            let sent = SentCounter()
+            let mac = PairedMac(accountId: "acct", deviceId: "dev", relayHost: "relay.test", macName: "Mac",
+                                macStatic: Curve25519.KeyAgreement.PrivateKey().publicKey.rawRepresentation,
+                                macSeal: Curve25519.KeyAgreement.PrivateKey().publicKey.rawRepresentation)
+            let client = RemoteClient(configuration: .init(appVersion: "1.0.0", deviceName: "iPhone", model: "iPhone",
+                                                           handshakeTimeout: .seconds(120)),
+                                      paired: mac, keys: DeviceKeys(), linkFactory: { _ in SilentRelayLink(sent: sent) })
+            let task = Task {
+                withUnsafeCurrentTask { $0?.cancel() }
+                do { try await client.connect() } catch is CancellationError { return true } catch {}
+                return false
+            }
+            let gotCancellation = await task.value
+            try expectEqual(gotCancellation, true)
+            try expectEqual(sent.value, 0)
+        },
         TestCase("remote continuations: dos connect a la vez contra una Mac abren una sola sesión y vuelven los dos") {
             let h = try await RemoteHarness.make()
             let client = try await h.pairedClient()
