@@ -80,14 +80,10 @@ export interface RegisterPushOptions {
 }
 
 export async function registerPush(transport: Transport, options: RegisterPushOptions = {}): Promise<boolean> {
-  const granted = typeof Notification !== "undefined" && Notification.permission === "granted";
-  if (!granted && !options.renew) return false;
+  // Sin permiso no hay suscripción (ni nada que rehacer): no se toca el `pushManager`.
+  if (typeof Notification === "undefined" || Notification.permission !== "granted") return false;
   const manager = await pushManager();
   if (!manager) return false;
-  if (!granted) {
-    await unsubscribePush(manager);
-    return false;
-  }
   return subscribePush({
     manager,
     fetch: (url, init) => fetch(url, init),
