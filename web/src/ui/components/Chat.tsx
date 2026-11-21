@@ -19,7 +19,7 @@ export function ActionCard({ title, detail, undoable, onUndo }: {
   return (
     <div class="action-card">
       <span class="action-card__icon">
-        <Icon name="pencil" size={18} />
+        <Icon name="pencil" size={20} />
       </span>
       <span class="action-card__text">
         <span class="action-card__title">{title}</span>

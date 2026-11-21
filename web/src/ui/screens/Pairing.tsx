@@ -169,7 +169,7 @@ export function PairConfirm({ macName, relayHost, replacing, onConfirm, onCancel
         </div>
         {replacing && (
           <p class="warn-card">
-            <Icon name="exclamationmark.triangle.fill" size={17} />
+            <Icon name="exclamationmark.triangle.fill" size={20} />
             This replaces your pairing with {replacing}.
           </p>
         )}
@@ -199,7 +199,7 @@ export function PairSas({ macName, code, onMismatch }: PairSasProps) {
         <p class="result__text">Check that this code matches the one on {macName}, then confirm there.</p>
         <SASCode code={code} />
         <p class="sas-note">
-          <Icon name="lock.fill" size={11} />
+          <Icon name="lock.fill" size={14} />
           Connected through an encrypted relay
         </p>
         <p class="sas-wait" role="status">
@@ -234,7 +234,7 @@ export function PairPaired({ macName, notifications, busy, onAllowNotifications,
               : "Turn on notifications to hear when a review is ready or CI fails."}
         </p>
         <p class="sas-note">
-          <Icon name="lock.fill" size={11} />
+          <Icon name="lock.fill" size={14} />
           Connected through an encrypted relay
         </p>
       </div>

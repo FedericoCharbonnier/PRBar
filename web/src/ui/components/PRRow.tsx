@@ -54,7 +54,7 @@ export function PRRow({ row, onOpen, onAction }: {
         </span>
         {row.status && (
           <span class={`pr-row__status pr-row__status--${row.status.kind}`}>
-            <Icon name={STATUS_ICON[row.status.kind]} size={row.status.kind === "agents" ? 15 : 13} />
+            <Icon name={STATUS_ICON[row.status.kind]} size={row.status.kind === "agents" ? 18 : 16} />
             {row.status.text}
           </span>
         )}

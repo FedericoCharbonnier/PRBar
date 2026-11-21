@@ -10,7 +10,7 @@ export function Chat({ context, readOnly, timestamp, items, typing, draft, place
       <NavBar leading={{ icon: "chevron.left", label: "Back", onClick: onBack }} title="Claude" titleIcon="sparkles" subtitle={context} />
       {readOnly && (
         <p class="chat__notice">
-          <Icon name="lock.fill" size={12} />
+          <Icon name="lock.fill" size={15} />
           Read-only. Claude can answer questions about this PR but won't change it.
         </p>
       )}

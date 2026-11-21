@@ -16,7 +16,7 @@ const STATUS_ICON: Record<StatusVM["kind"], IconName> = {
 function StatusLine({ status }: { status: StatusVM }) {
   return (
     <p class={`detail-status detail-status--${status.kind}`}>
-      <Icon name={STATUS_ICON[status.kind]} size={15} />
+      <Icon name={STATUS_ICON[status.kind]} size={18} />
       {status.text}
     </p>
   );
@@ -26,7 +26,7 @@ export function ProgressCard({ progress }: { progress: ProgressVM }) {
   return (
     <section class="progress-card" aria-label={progress.title}>
       <h2 class={progress.done ? "progress-card__head progress-card__head--done" : "progress-card__head"}>
-        <Icon name={progress.done ? "checkmark.circle.fill" : "sparkles"} size={progress.done ? 15 : 18} />
+        <Icon name={progress.done ? "checkmark.circle.fill" : "sparkles"} size={progress.done ? 19 : 21} />
         <span>{progress.title}</span>
         <span class="progress-card__time">{progress.elapsed}</span>
       </h2>
@@ -35,9 +35,9 @@ export function ProgressCard({ progress }: { progress: ProgressVM }) {
           <li key={s.label} class={`stage stage--${s.state}`}>
             <span class="stage__icon">
               {s.state === "current" ? (
-                <Spinner size={18} />
+                <Spinner size={22} />
               ) : (
-                <Icon name={s.state === "done" ? "checkmark.circle.fill" : "circle.dashed"} size={s.state === "done" ? 13 : 15} />
+                <Icon name={s.state === "done" ? "checkmark.circle.fill" : "circle.dashed"} size={s.state === "done" ? 18 : 20} />
               )}
             </span>
             <span class="stage__text">
@@ -124,7 +124,7 @@ export function Respond(props: RespondProps) {
       ))}
       {props.changesSummary && (
         <button type="button" class="changes-row" onClick={props.onOpenChanges}>
-          <Icon name="doc.text" size={17} />
+          <Icon name="doc.text" size={21} />
           <span>{props.changesSummary}</span>
           <Icon name="chevron.right" size={15} class="changes-row__chev" />
         </button>
@@ -140,7 +140,7 @@ export function FixCI(props: FixCIProps) {
       {props.checks.map((c) => (
         <article key={c.id} class="check">
           <h3 class="check__head">
-            <Icon name="xmark.octagon.fill" size={15} class="tone-red" />
+            <Icon name="xmark.octagon.fill" size={19} class="tone-red" />
             <span>{c.name}</span>
             <span class="check__time">{c.duration}</span>
           </h3>

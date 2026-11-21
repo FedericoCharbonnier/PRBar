@@ -68,7 +68,7 @@ export function Review(props: ReviewProps) {
       </DetailHeader>
       <section class="summary-card">
         <h2>
-          <Icon name="sparkles" size={18} />
+          <Icon name="sparkles" size={21} />
           <span>Claude's summary</span>
           <span class="summary-card__meta">{summary.meta}</span>
         </h2>
@@ -90,7 +90,7 @@ export function Review(props: ReviewProps) {
           <h3>{f.title}</h3>
           <p>{f.text}</p>
           <button type="button" class="finding__edit" disabled={disabled} onClick={() => props.onEditFinding(f.id)}>
-            <Icon name="pencil" size={15} />
+            <Icon name="pencil" size={18} />
             Edit comment
           </button>
         </article>
@@ -104,9 +104,9 @@ export function Review(props: ReviewProps) {
           disabled={disabled}
           onClick={props.onOpenDecisionMenu}
         >
-          <Icon name={d.icon} size={17} class={d.tone ? `tone-${d.tone}` : undefined} />
+          <Icon name={d.icon} size={21} class={d.tone ? `tone-${d.tone}` : undefined} />
           <span>{d.label}</span>
-          <Icon name="chevron.up.chevron.down" size={14} class="decision__chev" />
+          <Icon name="chevron.up.chevron.down" size={16} class="decision__chev" />
         </button>
         <Button
           icon="faceid"

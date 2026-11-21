@@ -15,7 +15,7 @@ export function Activity({ mac, stats, running, month, onStop }: ActivityProps) 
         {stats.map((s) => (
           <div key={s.label} class="stat">
             <span class="stat__label">
-              <Icon name={s.icon} size={14} />
+              <Icon name={s.icon} size={17} />
               {s.label}
             </span>
             <span class="stat__value">{s.value}</span>
@@ -33,7 +33,7 @@ export function Activity({ mac, stats, running, month, onStop }: ActivityProps) 
             {running.map((t) => (
               <div key={t.id} class="task">
                 <span class="task__spin">
-                  <Spinner size={17} />
+                  <Spinner size={20} />
                 </span>
                 <span class="task__text">
                   <span class="task__title">{t.title}</span>

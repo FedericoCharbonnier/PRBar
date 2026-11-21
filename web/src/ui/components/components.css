@@ -1,11 +1,12 @@
-/* Estilos de los componentes. Medidas en px = pt de iOS; los tamaños de letra se calibraron contra las capturas de
-   web/design/snapshots (la app nativa), no contra los números nominales de DESIGN.md. */
+/* Estilos de los componentes. Medidas en px = pt de iOS. Las medidas de diseño (márgenes, alturas, radios) salen de
+   web/design/snapshots; los tamaños de letra son los de iOS de DESIGN.md (las capturas se generaron en macOS, donde los
+   estilos de texto de SwiftUI son más chicos: body 13 en vez de 17, largeTitle 26 en vez de 34). */
 
 :root {
-  --t-large: 25.7px;
-  --t-row: 10.9px;
-  --t-meta: 9.9px;
-  --t-mono: 10.2px;
+  --t-large: 34px;
+  --t-row: 15px;
+  --t-meta: 13px;
+  --t-mono: 13px;
   --glass-border: rgba(0, 0, 0, 0.09);
 }
 
@@ -120,13 +121,13 @@
 .chip {
   display: inline-flex;
   align-items: center;
-  height: 18px;
+  height: 22px;
   padding: 0 6px;
   border-radius: var(--r-chip);
   background: var(--fill);
   color: var(--fg2);
   font-family: var(--font-mono);
-  font-size: var(--t-mono);
+  font-size: 12px;
   white-space: nowrap;
 }
 
@@ -139,7 +140,7 @@
   height: 22px;
   padding: 0 9px 0 8px;
   border-radius: 11px;
-  font-size: 9.8px;
+  font-size: 13px;
   font-weight: 600;
   white-space: nowrap;
 }
@@ -209,7 +210,7 @@
 
 .diffcount--mono {
   font-family: var(--font-mono);
-  font-size: var(--t-mono);
+  font-size: 12px;
 }
 
 .diffcount__add {
@@ -255,27 +256,27 @@
 .btn--sm {
   height: 32px;
   padding: 0 14px;
-  font-size: 10.6px;
+  font-size: 14px;
   font-weight: 600;
 }
 
 .btn--md {
   height: 44px;
   padding: 0 18px;
-  font-size: 10.7px;
+  font-size: 15px;
   font-weight: 600;
 }
 
 .btn--lg {
   height: 54px;
   padding: 0 22px;
-  font-size: 12.8px;
+  font-size: 17px;
 }
 
 .btn--xl {
   height: 56px;
   padding: 0 22px;
-  font-size: 12.9px;
+  font-size: 17px;
 }
 
 .btn__trailing {
@@ -360,7 +361,7 @@
   padding: 0 12px;
   border: 0;
   border-radius: 15px;
-  font-size: 13.8px;
+  font-size: 14px;
   font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
@@ -447,9 +448,9 @@
   align-items: center;
   gap: 6px;
   margin: 0;
-  font-size: 12.7px;
+  font-size: 17px;
   font-weight: 700;
-  line-height: 16px;
+  line-height: 21px;
 }
 
 .navbar__title--sub {
@@ -460,8 +461,8 @@
 .navbar__title p {
   margin: 0;
   color: var(--fg2);
-  font-size: 9.9px;
-  line-height: 15px;
+  font-size: 13px;
+  line-height: 20px;
 }
 
 .navbar__title-icon {
@@ -475,7 +476,7 @@
   font-family: var(--font-display);
   font-size: var(--t-large);
   font-weight: 700;
-  line-height: 34px;
+  line-height: 45px;
   letter-spacing: 0.1px;
 }
 
@@ -512,9 +513,9 @@
 }
 
 .mac-pill__name {
-  font-size: 13.9px;
+  font-size: 14px;
   font-weight: 600;
-  line-height: 17px;
+  line-height: 22.5px;
 }
 
 .mac-pill__detail {
@@ -522,8 +523,8 @@
   align-items: center;
   gap: 5px;
   color: var(--fg2);
-  font-size: 10px;
-  line-height: 15px;
+  font-size: 12px;
+  line-height: 20px;
   white-space: nowrap;
 }
 
@@ -619,14 +620,14 @@
 }
 
 .section-header__title {
-  font-size: 13px;
+  font-size: 17px;
   font-weight: 700;
 }
 
 .section-header__count {
   margin-left: 8px;
   color: var(--fg2);
-  font-size: 13.5px;
+  font-size: 15px;
   font-weight: 400;
 }
 
@@ -649,19 +650,19 @@
 
 .block-title h2 {
   margin: 0;
-  font-size: 14.3px;
+  font-size: 20px;
   font-weight: 700;
 }
 
 .block-title span {
   color: var(--fg2);
-  font-size: 9.8px;
+  font-size: 13px;
 }
 
 .list-caption {
   margin: 27px 16px 8px;
   color: var(--fg2);
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 400;
   letter-spacing: 0.3px;
   text-transform: uppercase;
@@ -678,7 +679,7 @@
   border: 0;
   background: none;
   color: var(--fg);
-  font-size: 11px;
+  font-size: 15px;
   text-align: left;
 }
 
@@ -811,7 +812,7 @@
   overflow: hidden;
   font-size: var(--t-row);
   font-weight: 600;
-  line-height: 14px;
+  line-height: 20px;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   line-clamp: 2;
@@ -820,7 +821,7 @@
 .pr-row__age {
   flex: none;
   color: var(--fg2);
-  font-size: 9.7px;
+  font-size: 13px;
 }
 
 .pr-row__meta {
@@ -828,7 +829,7 @@
   margin-top: 2px;
   color: var(--fg2);
   font-size: var(--t-meta);
-  line-height: 16px;
+  line-height: 18px;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
@@ -837,9 +838,9 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 9.9px;
+  font-size: 13px;
   font-weight: 500;
-  line-height: 17px;
+  line-height: 18px;
 }
 
 .pr-row__status--agents {
@@ -966,7 +967,7 @@
   border-radius: 7px;
   background: transparent;
   color: var(--fg);
-  font-size: 9.6px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
 }
@@ -1079,7 +1080,7 @@
   border: 0;
   background: none;
   color: var(--fg);
-  font-size: 13px;
+  font-size: 17px;
   text-align: left;
   cursor: pointer;
 }
@@ -1127,7 +1128,7 @@
   border-radius: 28px;
   background: var(--hud);
   color: var(--fg);
-  font-size: 11px;
+  font-size: 15px;
   font-weight: 500;
   text-align: center;
   -webkit-backdrop-filter: blur(30px);
@@ -1146,7 +1147,7 @@
   border-radius: 18px;
   background: var(--fill);
   color: var(--fg2);
-  font-size: 11px;
+  font-size: 15px;
 }
 
 .banner--orange {
@@ -1167,7 +1168,7 @@
   border: 0;
   background: none;
   color: var(--accentfg);
-  font-size: 11px;
+  font-size: 15px;
   font-weight: 600;
   cursor: pointer;
 }
@@ -1188,14 +1189,14 @@
 
 .empty__title {
   margin: 0;
-  font-size: 13px;
+  font-size: 17px;
   font-weight: 600;
 }
 
 .empty__message {
   margin: 0 0 8px;
   color: var(--fg2);
-  font-size: 11px;
+  font-size: 15px;
 }
 
 .sas {
@@ -1281,7 +1282,7 @@
   display: flex;
   flex-direction: column;
   padding: 10px 12px;
-  font-size: 10.2px;
+  font-size: 11.5px;
   line-height: 1.6;
 }
 
@@ -1333,7 +1334,7 @@
   display: inline-block;
   min-width: 100%;
   font-family: var(--font-mono);
-  font-size: var(--t-mono);
+  font-size: 11.5px;
   line-height: 21px;
 }
 
@@ -1400,8 +1401,8 @@
   margin: 0;
   padding: 9.5px 14px;
   border-radius: 20px;
-  font-size: 12.9px;
-  line-height: 16px;
+  font-size: 17px;
+  line-height: 22px;
   overflow-wrap: anywhere;
 }
 
@@ -1450,20 +1451,20 @@
 }
 
 .action-card__title {
-  font-size: 10.9px;
+  font-size: 15px;
   font-weight: 600;
-  line-height: 14px;
+  line-height: 18.5px;
 }
 
 .action-card__detail {
   color: var(--fg2);
-  font-size: 9.9px;
+  font-size: 13px;
 }
 
 .action-card__undo {
   margin-left: 8px;
   padding: 0 14px;
-  font-size: 10.6px;
+  font-size: 15px;
 }
 
 .typing {
@@ -1472,7 +1473,7 @@
   gap: 8px;
   margin-top: 10px;
   color: var(--fg2);
-  font-size: 9.7px;
+  font-size: 13px;
 }
 
 .typing__dots {
@@ -1533,7 +1534,7 @@
   background: none;
   color: var(--fg);
   font: inherit;
-  font-size: 12.9px;
+  font-size: 17px;
 }
 
 .composer__input::placeholder {
