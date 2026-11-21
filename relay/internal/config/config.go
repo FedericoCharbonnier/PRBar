@@ -27,6 +27,10 @@ type Config struct {
 	TestMode            bool
 	WebPushTestEndpoint string
 
+	// ClearSiteData: el relay manda `Clear-Site-Data: "cache"` con `/sw.js` (RELAY_CLEAR_SITE_DATA=1). Solo para
+	// recuperarse de un compromiso del VPS (ver README); se apaga después.
+	ClearSiteData bool
+
 	// TrustedProxies: solo de estas redes se acepta X-Forwarded-For (la red de Docker de Traefik).
 	TrustedProxies []netip.Prefix
 }
@@ -48,6 +52,8 @@ func Load(getenv func(string) string) (Config, error) {
 		PublicHost:  get("RELAY_PUBLIC_HOST", ""),
 		EnrollToken: get("RELAY_ENROLL_TOKEN", ""),
 		TestMode:    get("RELAY_TEST_MODE", "") == "1",
+
+		ClearSiteData: get("RELAY_CLEAR_SITE_DATA", "") == "1",
 	}
 	if c.PublicHost == "" {
 		return Config{}, errors.New("RELAY_PUBLIC_HOST is required")

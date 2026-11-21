@@ -3,24 +3,32 @@ import { handlePush, openFromNotification } from "./push/handler";
 import { fetchVapidKey } from "./push/subscribe";
 import { KeyStore } from "./store/keys";
 import { SeenIds } from "./store/seen";
+import { fetchVerified, type PrecacheManifest } from "./sw/precache";
 
 // Service worker (spec W.1 y W.6). Se compila aparte como `/sw.js` (IIFE, sin hash, se revalida siempre).
-// - Precarga el shell (la lista la pone el build en `__PRBAR_PRECACHE__`) para abrir sin red. Los assets con hash son
-//   inmutables; `index.html` sale de la caché de esta versión, así la página y el service worker van juntos.
+// - Precarga el shell (la lista y el SHA-256 de cada archivo los pone el build en `__PRBAR_PRECACHE__`) para abrir sin
+//   red. Cada archivo se baja saltando la caché HTTP y se verifica contra su hash antes de guardarlo; si alguno no
+//   coincide, la instalación falla (sw/precache.ts). `index.html` sale de la caché de esta versión, así la página y el
+//   service worker van juntos.
 // - Una versión nueva queda esperando: la app la activa al próximo arranque (`prbar:activate`), nunca en medio de algo.
 // - `push`: abre el sobre con `devicePushKey` y siempre muestra una notificación; `notificationclick`: enfoca o abre la
 //   app y la lleva al link.
 
 declare const self: ServiceWorkerGlobalScope;
-declare const __PRBAR_PRECACHE__: string[];
+declare const __PRBAR_PRECACHE__: PrecacheManifest;
 declare const __PRBAR_CACHE__: string;
 
-const PRECACHE: string[] = typeof __PRBAR_PRECACHE__ === "undefined" ? [] : __PRBAR_PRECACHE__;
+const PRECACHE: PrecacheManifest = typeof __PRBAR_PRECACHE__ === "undefined" ? {} : __PRBAR_PRECACHE__;
 const CACHE = typeof __PRBAR_CACHE__ === "undefined" ? "prbar-dev" : __PRBAR_CACHE__;
 
 self.addEventListener("install", (event) => {
   // Sin `skipWaiting`: la versión nueva espera al próximo arranque (W.1).
-  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(PRECACHE)));
+  // Primero se verifica todo y recién después se abre la caché: nada sin verificar llega a guardarse.
+  event.waitUntil((async () => {
+    const verified = await fetchVerified(PRECACHE, (path, init) => fetch(path, init));
+    const cache = await caches.open(CACHE);
+    for (const [path, response] of verified) await cache.put(path, response);
+  })());
 });
 
 self.addEventListener("activate", (event) => {
@@ -50,7 +58,7 @@ self.addEventListener("fetch", (event) => {
     })());
     return;
   }
-  if (!PRECACHE.includes(url.pathname)) return;
+  if (!Object.hasOwn(PRECACHE, url.pathname)) return;
   event.respondWith((async () => (await caches.match(url.pathname, { cacheName: CACHE })) ?? fetch(request))());
 });
 

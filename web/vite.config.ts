@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { build, type Plugin, type ResolvedConfig } from "vite";
 import { defineConfig } from "vitest/config";
+import { addIntegrity } from "./vite/integrity.ts";
 
 // La app se sirve desde el relay con una CSP estricta (spec W.7): nada en línea (scripts, estilos ni data: de assets),
 // assets con hash bajo `assets/` (inmutables) y el service worker en `/sw.js` sin hash (se revalida siempre).
@@ -24,9 +25,12 @@ function publicFiles(dir: string): string[] {
   return out;
 }
 
-/** El service worker se compila aparte (un solo archivo IIFE, sin imports compartidos con la página) con la lista de
- *  lo que hay que precargar: el `index.html`, los assets con hash de este build y los archivos de `public/`. El nombre
- *  de la caché sale de un hash de esa lista y del contenido de `public/` (otra versión = otra caché). */
+/** El service worker se compila aparte (un solo archivo IIFE, sin imports compartidos con la página) con lo que hay que
+ *  precargar: el `index.html`, los assets con hash de este build y los archivos de `public/`, cada uno con el SHA-256
+ *  de su contenido (el service worker lo verifica al instalar; sw/precache.ts). Antes, el `index.html` construido
+ *  recibe SRI en sus scripts y hojas de estilo (vite/integrity.ts). El nombre de la caché sale de esos hashes y de la
+ *  versión de package.json (otra versión = otro `sw.js` = otra caché; subirla fuerza una reinstalación, ver
+ *  relay/README.md). */
 function serviceWorker(): Plugin {
   let config: ResolvedConfig;
   let files: string[] = [];
@@ -40,15 +44,21 @@ function serviceWorker(): Plugin {
       files = Object.keys(bundle).map((name) => `/${name}`);
     },
     async closeBundle() {
+      const outDir = resolve(config.root, config.build.outDir);
+      const sha256 = (path: string) => createHash("sha256").update(readFileSync(join(outDir, path))).digest("base64");
+      // SRI en el `index.html` ya escrito (antes de hashearlo para el service worker).
+      const indexPath = join(outDir, "index.html");
+      writeFileSync(indexPath, addIntegrity(readFileSync(indexPath, "utf8"), sha256));
+
       const publicDir = config.publicDir;
       const extra = publicDir ? publicFiles(publicDir) : [];
       // `index.html` lo escribe Vite después de este `generateBundle`: se agrega a mano.
-      const precache = [...new Set(["/index.html", ...files, ...extra])].filter((f) => f !== "/sw.js").sort();
-      const hash = createHash("sha256");
-      for (const file of precache) hash.update(file).update("\0");
-      for (const file of extra) hash.update(readFileSync(join(publicDir, file)));
-      // El `index.html` cambia con cada build que cambia los assets, pero también por sí solo.
-      hash.update(readFileSync(resolve(config.root, config.build.outDir, "index.html")));
+      const paths = [...new Set(["/index.html", ...files, ...extra])].filter((f) => f !== "/sw.js").sort();
+      const precache: Record<string, string> = {};
+      for (const path of paths) precache[path] = sha256(path);
+      const version = JSON.parse(readFileSync(resolve(config.root, "package.json"), "utf8")).version as string;
+      const hash = createHash("sha256").update(version).update("\0");
+      for (const path of paths) hash.update(path).update("\0").update(precache[path]!).update("\0");
       const cache = `prbar-${hash.digest("hex").slice(0, 16)}`;
       await build({
         configFile: false,

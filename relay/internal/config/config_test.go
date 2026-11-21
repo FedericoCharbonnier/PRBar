@@ -23,6 +23,25 @@ func TestLoadDefaults(t *testing.T) {
 	if len(c.TrustedProxies) != 3 {
 		t.Fatalf("proxies: %v", c.TrustedProxies)
 	}
+	if c.ClearSiteData {
+		t.Fatal("ClearSiteData on by default")
+	}
+}
+
+func TestClearSiteData(t *testing.T) {
+	for value, want := range map[string]bool{"1": true, "0": false, "": false, "yes": false} {
+		c, err := Load(env(map[string]string{
+			"RELAY_PUBLIC_HOST":     "relay.example.org",
+			"RELAY_ENROLL_TOKEN":    "0123456789abcdef0123456789abcdef",
+			"RELAY_CLEAR_SITE_DATA": value,
+		}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.ClearSiteData != want {
+			t.Errorf("RELAY_CLEAR_SITE_DATA=%q: %v", value, c.ClearSiteData)
+		}
+	}
 }
 
 func TestLoadRejectsShortTokenAndMissingHost(t *testing.T) {

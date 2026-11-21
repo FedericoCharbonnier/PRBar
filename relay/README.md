@@ -60,6 +60,7 @@ push service's own status otherwise.
 | `RELAY_TRUSTED_PROXIES` | Docker private ranges | `X-Forwarded-For` (last hop only) is trusted only from these |
 | `VAPID_PRIVATE_KEY` | — | The P-256 scalar `d`, 32 bytes in base64url without padding. Without it the relay starts with pushes disabled. `deploy/deploy.sh` generates it on the server the first time |
 | `VAPID_SUBJECT` | `https://<RELAY_PUBLIC_HOST>` | `mailto:…` or `https://…` contact for the push services |
+| `RELAY_CLEAR_SITE_DATA` | — | `1`: `/sw.js` responses carry `Clear-Site-Data: "cache"`. Only while recovering from a server compromise (below); turn it off afterwards |
 | `RELAY_TEST_MODE` | — | `1`: tests only. Also allows `Origin` `http://127.0.0.1:<any>` and `http://localhost:<any>` |
 | `WEBPUSH_TEST_ENDPOINT` | — | Only with `RELAY_TEST_MODE=1`: an extra allowed endpoint prefix (`http` allowed) for the e2e fake push service |
 
@@ -79,6 +80,32 @@ connection (a client that doesn't read is cut with 4429), 10 WebSocket upgrades 
 works without node; the Dockerfile builds `web/` (`npm ci && npm run build` in a `node:24` stage) and copies
 `web/dist` in before `go build`. For local runs, copy `web/dist/*` into `internal/web/dist/` (and restore the
 placeholder afterwards: `git checkout relay/internal/web/dist`).
+
+How the phone protects itself from a stale or tampered copy: `/sw.js` is never cached (`no-cache`, and browsers
+always check the service worker script with the server), so it is the trust anchor. The build writes into it the
+SHA-256 of every file the service worker precaches; on install it downloads each one bypassing the HTTP cache,
+checks it, and refuses to install if any of them doesn't match. The built `index.html` carries Subresource Integrity
+hashes for its script and stylesheet.
+
+### Recovering from a server compromise
+
+Whoever controlled the server could have served a modified app, and the `assets/` files are cached by the phones for a
+year (`immutable`). To get every phone back to a clean app:
+
+1. Secure the server (or replace it) and deploy a **clean build** from a trusted checkout. Bump `version` in
+   `web/package.json` first: it goes into `sw.js`, so the phones see a new service worker even if the app's files
+   didn't change (a byte-identical `sw.js` isn't reinstalled).
+2. Set `RELAY_CLEAR_SITE_DATA=1` in `/root/stack/env/prbar-relay.env` and restart the relay. The next time each phone
+   opens PRBar and checks for a new version, the `/sw.js` response tells it to clear its HTTP cache (`"cache"` only:
+   pairing keys and settings stay). The new service worker downloads and verifies every file and, once active, deletes
+   the old caches.
+3. Open PRBar on every phone twice (the new version activates at the next launch), then remove the variable and
+   restart the relay again.
+4. On the Mac, **Reset iPhone Access…** (`prbar remote reset`) and pair the phones again: a compromised relay may have
+   kept data it shouldn't.
+
+If a phone still behaves oddly, delete PRBar from its Home Screen, clear its website data (Settings › Apps › Safari ›
+Advanced › Website Data) and install and pair it again.
 
 ## Testing
 

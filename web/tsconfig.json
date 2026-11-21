@@ -16,7 +16,8 @@
     "isolatedModules": true,
     "resolveJsonModule": true,
     "skipLibCheck": true,
-    "noEmit": true
+    "noEmit": true,
+    "allowImportingTsExtensions": true
   },
-  "include": ["src", "test", "vite.config.ts", "vite.stories.config.ts", "playwright.config.ts", "playwright.stories.config.ts"]
+  "include": ["src", "test", "vite", "vite.config.ts", "vite.stories.config.ts", "playwright.config.ts", "playwright.stories.config.ts"]
 }

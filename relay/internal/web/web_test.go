@@ -122,6 +122,31 @@ func TestRevalidation(t *testing.T) {
 	}
 }
 
+// Clear-Site-Data solo con RELAY_CLEAR_SITE_DATA=1 y solo en /sw.js (también en el 304 de la revalidación).
+func TestClearSiteData(t *testing.T) {
+	off, _ := newHandler(testFS(), host)
+	for _, path := range []string{"/", "/sw.js", "/assets/index-abc123.js"} {
+		if got := get(t, off, path).Header.Get("Clear-Site-Data"); got != "" {
+			t.Errorf("off, %s: %q", path, got)
+		}
+	}
+	on, _ := newHandler(testFS(), host)
+	on.clearSiteData = true
+	sw := get(t, on, "/sw.js")
+	if got := sw.Header.Get("Clear-Site-Data"); got != `"cache"` {
+		t.Fatalf("on, /sw.js: %q", got)
+	}
+	if got := get(t, on, "/sw.js", "If-None-Match", sw.Header.Get("ETag")); got.StatusCode != http.StatusNotModified ||
+		got.Header.Get("Clear-Site-Data") != `"cache"` {
+		t.Fatalf("on, /sw.js 304: %d %q", got.StatusCode, got.Header.Get("Clear-Site-Data"))
+	}
+	for _, path := range []string{"/", "/index.html", "/manifest.webmanifest", "/assets/index-abc123.js", "/nope"} {
+		if got := get(t, on, path).Header.Get("Clear-Site-Data"); got != "" {
+			t.Errorf("on, %s: %q", path, got)
+		}
+	}
+}
+
 func TestHead(t *testing.T) {
 	h, _ := newHandler(testFS(), host)
 	req := httptest.NewRequest(http.MethodHead, "/", nil)
@@ -146,7 +171,7 @@ func TestNeedsIndexAndHost(t *testing.T) {
 
 // El binario siempre trae algo en dist (el placeholder del repo o la web construida por el Dockerfile).
 func TestEmbeddedBuild(t *testing.T) {
-	h, err := New(host)
+	h, err := New(host, false)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -55,7 +55,7 @@ func run(log *slog.Logger) error {
 	}
 
 	// La web app del teléfono, embebida (spec W.7).
-	app, err := web.New(cfg.PublicHost)
+	app, err := web.New(cfg.PublicHost, cfg.ClearSiteData)
 	if err != nil {
 		return err
 	}
@@ -76,7 +76,8 @@ func run(log *slog.Logger) error {
 
 	errs := make(chan error, 1)
 	go func() { errs <- server.ListenAndServe() }()
-	log.Info("listening", "addr", cfg.Listen, "push", pusher != nil, "testMode", cfg.TestMode)
+	log.Info("listening", "addr", cfg.Listen, "push", pusher != nil, "testMode", cfg.TestMode,
+		"clearSiteData", cfg.ClearSiteData)
 	select {
 	case err := <-errs:
 		if !errors.Is(err, http.ErrServerClosed) {

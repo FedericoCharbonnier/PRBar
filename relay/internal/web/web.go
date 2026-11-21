@@ -58,15 +58,24 @@ type file struct {
 type Handler struct {
 	files   map[string]file
 	headers map[string]string
+	// clearSiteData: `/sw.js` sale con `Clear-Site-Data: "cache"` (RELAY_CLEAR_SITE_DATA=1). Es para después de un
+	// compromiso del VPS: con un build limpio desplegado, borra en cada teléfono la caché HTTP y la del service worker
+	// que pudo haber sembrado una versión maliciosa. Se apaga una vez que los teléfonos abrieron la app.
+	clearSiteData bool
 }
 
 // New arma el handler con la web embebida. publicHost es el host del relay (va en `connect-src` de la CSP).
-func New(publicHost string) (*Handler, error) {
+func New(publicHost string, clearSiteData bool) (*Handler, error) {
 	sub, err := fs.Sub(dist, "dist")
 	if err != nil {
 		return nil, err
 	}
-	return newHandler(sub, publicHost)
+	h, err := newHandler(sub, publicHost)
+	if err != nil {
+		return nil, err
+	}
+	h.clearSiteData = clearSiteData
+	return h, nil
 }
 
 func validHost(host string) bool {
@@ -161,5 +170,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	header.Set("Content-Type", f.contentType)
 	header.Set("Cache-Control", f.cache)
 	header.Set("ETag", f.etag)
+	if h.clearSiteData && name == "sw.js" {
+		header.Set("Clear-Site-Data", `"cache"`)
+	}
 	http.ServeContent(w, r, name, time.Time{}, bytes.NewReader(f.data))
 }

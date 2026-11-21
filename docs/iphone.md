@@ -140,6 +140,13 @@ misconfigured proxy, the server's logs and backups, and the push services. This 
 App Store app; keep the server's access (ssh keys, the account that hosts it) tight. The page is served with a strict
 Content Security Policy (only its own code, no third-party scripts).
 
+The app on the phone only installs a new version if every file matches the hashes in its service worker, which is
+always checked with the server, so a tampered file left in the phone's cache doesn't come back once the server is
+clean. **If the server was compromised:** deploy a clean build with a new version number, turn on
+`RELAY_CLEAR_SITE_DATA=1` (the phones clear their cached copies of the app, not their pairing), open PRBar on each
+phone twice, turn the variable off again, and use **Reset iPhone Access…** on the Mac. The steps are in
+`relay/README.md` ("Recovering from a server compromise").
+
 Frames are **not compressed** before encryption: a PR list mixes private data with titles anyone can write, and
 compressed sizes would leak it. What the phone receives never includes local paths (your home folder, clones, worktree
 and temporary folders, anywhere in a message, test output or chat), tool paths or SSH hosts from the Mac, terminal
