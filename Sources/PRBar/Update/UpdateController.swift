@@ -105,9 +105,12 @@ final class UpdateController: ObservableObject {
             installed: installedVersion, settings: settings, notifications: configStore.config.notifications,
             manual: manual, now: Date()
         )
-        save { updates in
-            updates.lastCheckAt = report.settings.lastCheckAt
-            updates.notifiedVersion = report.settings.notifiedVersion
+        // Un chequeo automático no guarda sobre una config que no se pudo leer (pisaría el archivo del usuario).
+        if manual || configStore.savesAutomatically {
+            save { updates in
+                updates.lastCheckAt = report.settings.lastCheckAt
+                updates.notifiedVersion = report.settings.notifiedVersion
+            }
         }
         if case .failed = report.outcome {} else { available = report.offered }
         if let notification = report.notification { notifications?.deliver([notification]) }

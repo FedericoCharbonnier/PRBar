@@ -43,15 +43,32 @@ enum ConfigTests {
             try expectEqual(reloadedConfig, storedConfig)
             try expectEqual(reloadedConfig.refreshIntervalMinutes, 5)
         },
-        TestCase("config: archivo corrupto → defaults, error visible y backup") {
-            let url = try temporaryDirectory().appendingPathComponent("config.json")
+        TestCase("config: archivo corrupto → defaults, error visible y una copia con fecha que nunca se pisa") { @MainActor in
+            let dir = try temporaryDirectory()
+            let url = dir.appendingPathComponent("config.json")
             try Data("{ no es json".utf8).write(to: url)
-            let store = await ConfigStore(fileURL: url)
-            let config = await store.config
-            let loadError = await store.loadError
-            try expectEqual(config, AppConfig())
-            try expect(loadError != nil)
-            try expect(FileManager.default.fileExists(atPath: url.appendingPathExtension("bak").path))
+            var now = Date(timeIntervalSince1970: 1_800_000_000)
+            let store = ConfigStore(fileURL: url, now: { now })
+            try expectEqual(store.config, AppConfig())
+            let loadError = try store.loadError.unwrap("loadError")
+            let copies = { try FileManager.default.contentsOfDirectory(atPath: dir.path).filter { $0.hasPrefix("config.json.broken-") }.sorted() }
+            try expectEqual(try copies().count, 1)
+            try expect(loadError.contains(try copies()[0]), loadError)
+            // El archivo del usuario sigue ahí (nada lo pisa sin que el usuario cambie algo).
+            try expectEqual(try String(contentsOf: url, encoding: .utf8), "{ no es json")
+            try expect(!store.savesAutomatically, "un guardado automático pisaría el archivo roto")
+            // Otro arranque con el mismo archivo: ya tiene su copia, no hace otra.
+            now = now.addingTimeInterval(60)
+            _ = ConfigStore(fileURL: url, now: { now })
+            try expectEqual(try copies().count, 1)
+            // Otro archivo roto en el mismo segundo que una copia existente: copia nueva, la anterior queda igual.
+            now = now.addingTimeInterval(-60)
+            try Data("{ otro roto".utf8).write(to: url)
+            _ = ConfigStore(fileURL: url, now: { now })
+            let names = try copies()
+            try expectEqual(names.count, 2)
+            let contents = try Set(names.map { try String(contentsOf: dir.appendingPathComponent($0), encoding: .utf8) })
+            try expectEqual(contents, ["{ no es json", "{ otro roto"])
         },
         TestCase("config: activar y desactivar cuentas") {
             var config = AppConfig()

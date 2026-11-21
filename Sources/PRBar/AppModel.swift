@@ -62,7 +62,8 @@ struct AppModelServices {
         let keychain = KeychainStore()
         // Sin provider guardado: el conector de Claude, salvo que ya haya un token de usuario (solo atributos, así
         // abrir la app no pide permiso al Llavero).
-        if !configStore.config.slack.providerChosen {
+        // No con una config que no se pudo leer: guardar los defaults pisaría el archivo del usuario.
+        if !configStore.config.slack.providerChosen && configStore.savesAutomatically {
             let hasToken = (try? keychain.exists(SlackAnnouncer.tokenKey)) ?? false
             do {
                 try configStore.update { $0.resolveDefaultSlackProvider(hasUserToken: hasToken) }
