@@ -89,6 +89,9 @@ public actor RemoteClient {
 
     private var link: RelayLink?
     private var receiveTask: Task<Void, Never>?
+    /// La conexión en curso: un `connect()` concurrente (la reconexión de la app y un comando a la vez) espera esta en
+    /// vez de abrir otra sesión que pise el handshake de la primera (una continuación perdida cuelga para siempre).
+    private var connecting: (id: UUID, task: Task<Void, Error>)?
     private var channel: SecureChannel?
     private var handshake: (sid: String, state: NoiseHandshake, waiter: CheckedContinuation<Void, Error>)?
     private var helloWaiter: CheckedContinuation<RemoteHello, Error>?
@@ -160,6 +163,12 @@ public actor RemoteClient {
             throw RemoteError.pairingExpired
         }
         let sid = RemoteSID.new()
+        if let old = pairingFlow {
+            // Otro `startPairing()` llegó mientras este conectaba: se suelta el suyo sin dejar esperas colgadas.
+            failPairing(.pairingCancelled)
+            old.receiveTask?.cancel()
+            Task { await old.link.close() }
+        }
         pairingFlow = PairingFlow(link: link, qr: qr, keys: keys, sid: sid)
         pairingFlow?.receiveTask = Task { [weak self] in
             do {
@@ -177,6 +186,8 @@ public actor RemoteClient {
                                    push: keys.push.publicKey.rawRepresentation, presence: presenceKey)
             try link.send(.send(to: "mac", sid: sid, b: try handshake.writeMessage(payload: try PairingMessage.join(join).encoded())))
             let reply = try await withCheckedThrowingContinuation { (c: CheckedContinuation<Data, Error>) in
+                guard pairingFlow?.sid == sid else { return c.resume(throwing: RemoteError.pairingCancelled) }
+                pairingFlow?.handshakeWaiter?.resume(throwing: RemoteError.pairingCancelled)
                 pairingFlow?.handshakeWaiter = c
                 scheduleTimeout { client in
                     // Solo si sigue esperando este handshake (un timeout viejo no pisa nada).
@@ -201,10 +212,13 @@ public actor RemoteClient {
     public func finishPairing() async throws -> PairedMac {
         guard pairingFlow?.transport != nil else { throw RemoteError.pairingCancelled }
         let result = try await withCheckedThrowingContinuation { (c: CheckedContinuation<PairingResult, Error>) in
+            guard pairingFlow != nil else { return c.resume(throwing: RemoteError.pairingCancelled) }
             if let outcome = pairingFlow?.outcome {
                 c.resume(with: outcome.mapError { $0 as Error })
                 return
             }
+            // Un segundo `finishPairing()` a la vez reemplaza al primero, que vuelve con `pairingCancelled`.
+            pairingFlow?.resultWaiter?.resume(throwing: RemoteError.pairingCancelled)
             pairingFlow?.resultWaiter = c
             // La ranura dura 5 min; después la Mac o el relay la cierran. Esto es solo una red de seguridad.
             let sid = pairingFlow?.sid
@@ -290,6 +304,15 @@ public actor RemoteClient {
 
     /// Conecta con el relay y, si la Mac está online, abre la sesión (Noise KK + `hello`).
     public func connect() async throws {
+        if let connecting { return try await connecting.task.value }
+        let id = UUID()
+        let task = Task { try await self.connectOnce() }
+        connecting = (id, task)
+        defer { if connecting?.id == id { connecting = nil } }
+        try await task.value
+    }
+
+    private func connectOnce() async throws {
         guard let paired, let keys else { throw RemoteError.notPaired }
         if link != nil, channel != nil { return }
         status = .connecting
@@ -347,6 +370,8 @@ public actor RemoteClient {
         let first = try state.writeMessage()
         do {
             try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
+                // Nunca se pisa una espera: la que hubiera se falla antes (cada continuación se retoma una vez).
+                handshake?.waiter.resume(throwing: RemoteError.sessionClosed)
                 handshake = (sid, state, c)
                 do {
                     try link.send(.send(to: "mac", sid: sid, b: first))
@@ -368,7 +393,11 @@ public actor RemoteClient {
             if case .macOffline(let since) = status { throw RemoteError.macOffline(since: since) }
             throw (error as? RemoteError) ?? .handshakeFailed
         }
+        // La sesión pudo morir mientras se retomaba el handshake (la Mac reconectó, `bye`): no se espera un `hello`
+        // que nunca va a salir.
+        guard channel?.sid == sid else { throw RemoteError.sessionClosed }
         var hello = try await withCheckedThrowingContinuation { (c: CheckedContinuation<RemoteHello, Error>) in
+            helloWaiter?.resume(throwing: RemoteError.sessionClosed)
             helloWaiter = c
             waitGeneration += 1
             let generation = waitGeneration
