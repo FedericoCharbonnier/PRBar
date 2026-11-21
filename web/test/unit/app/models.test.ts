@@ -57,6 +57,12 @@ describe("home", () => {
     expect(app.nav.last).toEqual({ kind: "pr", pr: "acme/api#322", screen: "merge" });
     home.open("acme/web-app#488");
     expect(app.nav.last).toEqual({ kind: "pr", pr: "acme/web-app#488", screen: "fixci" });
+    const data = topicJSON("home");
+    data.ci = [];
+    app.transport.setTopic("home", data);
+    home.open("acme/web-app#488");
+    expect(app.ui.opened).toEqual(["https://github.com/acme/web-app/pull/488"]);
+    app.transport.setTopic("home", topicJSON("home"));
     await home.action("acme/web-app#488");
     expect(sentNames(app)).toEqual(["ciFix"]);
     await home.refresh();

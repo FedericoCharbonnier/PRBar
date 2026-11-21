@@ -120,7 +120,7 @@ describe("router", () => {
   it("apila con pushState y vuelve con back", () => {
     const entries: { state: unknown; url: string }[] = [{ state: null, url: "#/home" }];
     let index = 0;
-    const location = { get hash() { return entries[index]!.url; }, origin: "https://relay.example.com" };
+    const location = { get hash() { return entries[index]!.url; }, host: "relay.example.com" };
     const history = {
       get state() { return entries[index]!.state; },
       pushState(state: unknown, _: string, url?: string) { entries.splice(index + 1); entries.push({ state, url: url! }); index++; },

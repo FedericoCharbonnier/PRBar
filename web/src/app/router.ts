@@ -115,7 +115,8 @@ export interface HistoryLike {
 
 export interface LocationLike {
   readonly hash: string;
-  readonly origin: string;
+  /** `host[:puerto]` de la página. */
+  readonly host: string;
 }
 
 /** El router de la app: una signal con la ruta actual, `go`/`replace`/`back` sobre `history`. Cada entrada propia
@@ -143,7 +144,9 @@ export class Router {
 
   /** Lee la ruta de `location.hash` (al arrancar y en `hashchange`/`popstate`). */
   sync(): void {
-    this.#route.value = parseRoute(this.#location.hash, this.#location.origin);
+    // El link de emparejamiento se arma con el host de esta página: `parsePairingURL` exige que sea el del relay del
+    // QR (`r`), así un link no puede mandar a otro relay. Siempre `https://` (el texto que imprime la Mac).
+    this.#route.value = parseRoute(this.#location.hash, `https://${this.#location.host}`);
   }
 
   get depth(): number {

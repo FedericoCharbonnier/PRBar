@@ -236,7 +236,11 @@ export function createHomeModel(ctx: AppContext): HomeModel {
       setTimeout(() => (retrying.value = false), 1500);
     },
     open(id) {
-      go(id, defaultScreen(store, id));
+      const screen = defaultScreen(store, id);
+      const url = store.prInfo(id)?.url;
+      // Un PR sin nada que hacer acá (Waiting for Review): se abre en GitHub.
+      if (!screen && url) ctx.ui.openURL(url);
+      else go(id, screen);
     },
     async action(id) {
       if (store.isStale.value) return;
