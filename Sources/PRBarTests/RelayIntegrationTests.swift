@@ -85,7 +85,7 @@ enum RelayIntegrationTests {
                 })
             try await host.connect()
             // Emparejar.
-            let presence = SoftwareWebAuthnAuthenticator(rpId: rpIdOf(relay.host))
+            let presence = SoftwareWebAuthnAuthenticator(rpId: rpIdOf(relay.host), origin: "https://\(relay.host)")
             let client = RemoteClient(configuration: .init(appVersion: "1.2.0", deviceName: "iPhone", model: "iPhone",
                                                            handshakeTimeout: .seconds(5)),
                                       linkFactory: factory)

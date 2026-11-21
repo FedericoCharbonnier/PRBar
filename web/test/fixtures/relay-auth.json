@@ -1,0 +1,26 @@
+[
+  {
+    "acct" : "hohrh3jbgktkby7euvoae3wjze",
+    "client" : "fmh7nna7zna2bylvvuaupg6fnm",
+    "host" : "prbar.example.org",
+    "message" : "505242617252656c6179417574682076310a70726261722e6578616d706c652e6f72670a686f687268336a62676b746b6279376575766f616533776a7a650a666d68376e6e61377a6e613262796c7676756175706736666e6d0a62197e470dc2afd874dcb1cedbf562e5aca895d9bd659cbcabbc4e36c2264334",
+    "nonce" : "62197e470dc2afd874dcb1cedbf562e5aca895d9bd659cbcabbc4e36c2264334",
+    "nonceB64url" : "Yhl-Rw3Cr9h03LHO2_Vi5ayoldm9ZZy8q7xONsImQzQ",
+    "privateKey" : "14c55f25e3281f61a3d34555da2add2585c2772b366d7acc9ce83bd14789a85b",
+    "publicKey" : "f31c80d6f17d09ef13e378950e403c2e0fc1b407fdc71d0b3f10bb0cc4b98d57",
+    "sig" : "5d4bf0ef41580cc3afb448952f10483152d5266cb895ccbd2373502bb34bd5b76a40ccc8a26ebc9aede6f6f64034fc36f7e5bd2e192cda9fd8d6737d3b83410c",
+    "sigB64url" : "XUvw70FYDMOvtEiVLxBIMVLVJmy4lcy9I3NQK7NL1bdqQMzIom68mu3m9vZANPw29-W9Lhks2p_Y1nN9O4NBDA"
+  },
+  {
+    "acct" : "hohrh3jbgktkby7euvoae3wjze",
+    "client" : "mac",
+    "host" : "prbar.example.org",
+    "message" : "505242617252656c6179417574682076310a70726261722e6578616d706c652e6f72670a686f687268336a62676b746b6279376575766f616533776a7a650a6d61630a62197e470dc2afd874dcb1cedbf562e5aca895d9bd659cbcabbc4e36c2264334",
+    "nonce" : "62197e470dc2afd874dcb1cedbf562e5aca895d9bd659cbcabbc4e36c2264334",
+    "nonceB64url" : "Yhl-Rw3Cr9h03LHO2_Vi5ayoldm9ZZy8q7xONsImQzQ",
+    "privateKey" : "9c7b8ebf7fbdd7d0c2a470f30a444c9f35e6a2e113cf41b039ddf0fbbe52b8fe",
+    "publicKey" : "f571c2fef79b7d5b9fe5b1d1b85bc096674426b8f179db3bbe0c9980772eb8ad",
+    "sig" : "8e2bc94253e86b837424bb76bc4cabacf761a454f8878cb43e9aba4c9fb14ce56d7ed0e4a99f54a3478ea4240d3b145f313061071e3dd64e17fed507f85b310e",
+    "sigB64url" : "jivJQlPoa4N0JLt2vEyrrPdhpFT4h4y0Ppq6TJ-xTOVtftDkqZ9Uo0eOpCQNOxRfMTBhBx491k4X_tUH-FsxDg"
+  }
+]

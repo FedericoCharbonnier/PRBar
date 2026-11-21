@@ -87,8 +87,21 @@ public final class FixtureActions: PRBarActions {
     }
     public func listPRs(list: PRListFilter?, account: String?, tab: PopoverTab?) throws -> [PRInfo] { prs }
     public func resolvePR(_ pr: String) throws -> PRLink { PRLink(pr: pr, url: Self.url(pr)) }
-    public func historyList(repo: String?, kind: HistoryKind?, limit: Int?, search: String?) -> [HistoryEntryInfo] { [] }
-    public func historyShow(id: String) throws -> HistoryDetail { throw missing("history") }
+    public static let historyId = UUID(uuidString: "3C9A7E52-1D4B-4F0A-9B7E-6A2F1C8D5E40")!
+    private var historyEntry: HistoryEntryInfo {
+        HistoryEntryInfo(id: Self.historyId, kind: .review, pr: Self.reviewPR, repo: "acme/api", number: 317,
+                         title: "Refresh expired sessions without logging users out", status: "ready",
+                         startedAt: Self.t0.addingTimeInterval(-3_600), finishedAt: Self.t0.addingTimeInterval(-3_300),
+                         usage: ClaudeUsage(runs: 1, costUSD: 0.42))
+    }
+    public func historyList(repo: String?, kind: HistoryKind?, limit: Int?, search: String?) -> [HistoryEntryInfo] {
+        HistoryEntryInfo.listing([historyEntry], repo: repo, kind: kind, limit: limit, search: search)
+    }
+    public func historyShow(id: String) throws -> HistoryDetail {
+        guard id.lowercased() == Self.historyId.uuidString.lowercased() else { throw missing("history \(id)") }
+        return HistoryDetail(entry: historyEntry, prURL: Self.url(Self.reviewPR), summary: "Sessions refresh in the background.",
+                             findings: findings, canOpen: true)
+    }
     public func historyReopen(id: String) throws { throw missing("history") }
     public func refresh() async { record("refresh") }
     public func open(pr: String, target: OpenTarget) throws -> PRLink { PRLink(pr: pr, url: Self.url(pr)) }
@@ -122,15 +135,55 @@ public final class FixtureActions: PRBarActions {
     public func reviewDismiss(pr: String) throws { record("reviewDismiss \(pr)") }
 
     // MARK: RespondActions
-    private func respond(_ pr: String) throws -> RespondInfo { throw CommandFailure(.notFound, "No Respond for \(pr).") }
+    /// Fix CI de `ciPR`: lo arranca `ciFix` y queda listo para pushear (con su diff) enseguida.
+    public private(set) var ciFixStarted = false
+    public private(set) var pushed: [String] = []
+    private func respond(_ pr: String) throws -> RespondInfo {
+        guard pr == Self.ciPR, ciFixStarted else { throw CommandFailure(.notFound, "No Respond for \(pr).") }
+        let check = CICheckFailure(id: "c1", name: "test (ubuntu-latest)", conclusion: "failure", appName: "GitHub Actions",
+                                   detailsURL: URL(string: "https://github.com/acme/web-app/actions/runs/1"), hasLog: true,
+                                   durationSeconds: 84, logExcerpt: ["FAIL src/jobs/report.test.ts", "Expected 2, got 3"])
+        let item = RespondItemInfo(number: 1, id: "c1", reviewer: "GitHub Actions", location: "src/jobs/report.ts:41",
+                                   outdated: false, thread: ["test (ubuntu-latest) failed"],
+                                   assessment: "The queue name changed but the test still uses the old one.",
+                                   suggested: "Use the new queue name in the test.", implement: true,
+                                   fixPlan: "Update the queue name in report.test.ts.", reply: false, replyText: "")
+        let done = pushed.contains(pr)
+        return RespondInfo(pr: pr, phase: done ? "pushed" : "readyToPush", runningTests: false,
+                           title: "Move report jobs to the new queue", account: "diego", headRef: "feature/488",
+                           items: [item], fixes: 1, replies: 0,
+                           commits: [CommitDTO(item: "c1", status: "committed", sha: "4e1d0b7", summary: "Use the new queue name")],
+                           diffStat: "1 file changed, 2 insertions(+), 2 deletions(-)", sensitiveChanges: [],
+                           tests: TestInfo(command: "npm test", passed: true, outputTail: "Tests: 42 passed"), pushed: done,
+                           pendingReplies: 0, testCommand: "npm test", pushBlockedByTests: false, mode: .ciFix,
+                           ciChecks: [check], usage: ClaudeUsage(runs: 1, costUSD: 0.31))
+    }
     public func respondStart(pr: String, wait: Bool, events: CommandEventSink) async throws -> RespondInfo { try respond(pr) }
     public func respondShow(pr: String) throws -> RespondInfo { try respond(pr) }
     public func respondSelect(pr: String, items: [String], change: RespondSelectionChange) throws -> RespondInfo { try respond(pr) }
     public func respondReset(pr: String) throws -> RespondInfo { try respond(pr) }
     public func respondImplement(pr: String, wait: Bool, events: CommandEventSink) async throws -> RespondInfo { try respond(pr) }
     public func respondTest(pr: String, wait: Bool, events: CommandEventSink) async throws -> RespondInfo { try respond(pr) }
-    public func respondDiff(pr: String) throws -> RespondDiff { throw missing("diff") }
-    public func respondPush(pr: String, wait: Bool, events: CommandEventSink) async throws -> RespondInfo { try respond(pr) }
+    public func respondDiff(pr: String) throws -> RespondDiff {
+        _ = try respond(pr)
+        let diff = """
+        diff --git a/src/jobs/report.test.ts b/src/jobs/report.test.ts
+        --- a/src/jobs/report.test.ts
+        +++ b/src/jobs/report.test.ts
+        @@ -39,4 +39,4 @@
+        -  const queue = "reports";
+        +  const queue = "reports-v2";
+        """
+        return RespondDiff(pr: pr, diffStat: "1 file changed, 2 insertions(+), 2 deletions(-)", diff: diff,
+                           truncated: false, sensitiveChanges: [])
+    }
+    public func respondPush(pr: String, wait: Bool, events: CommandEventSink) async throws -> RespondInfo {
+        _ = try respond(pr)
+        record("respondPush \(pr)")
+        pushed.append(pr)
+        changed()
+        return try respond(pr)
+    }
     public func respondPushAnyway(pr: String, wait: Bool, events: CommandEventSink) async throws -> RespondInfo { try respond(pr) }
     public func respondReplyOnly(pr: String, wait: Bool, events: CommandEventSink) async throws -> RespondInfo { try respond(pr) }
     public func respondCancel(pr: String) throws { record("respondCancel \(pr)") }
@@ -277,7 +330,14 @@ public final class FixtureActions: PRBarActions {
         [CIListEntry(pr: Self.ciPR, title: "Move report jobs to the new queue", url: Self.url(Self.ciPR), account: "diego",
                      phase: nil, respondInProgress: false, unavailableReason: nil, failedChecks: 2)]
     }
-    public func ciFix(pr: String, wait: Bool, events: CommandEventSink) async throws -> RespondInfo { try respond(pr) }
+    public func ciFix(pr: String, wait: Bool, events: CommandEventSink) async throws -> RespondInfo {
+        guard pr == Self.ciPR else { throw CommandFailure(.notFound, "\(pr) has no failed checks.") }
+        record("ciFix \(pr)")
+        events(.progress(message: "Fixing CI…"))
+        ciFixStarted = true
+        changed()
+        return try respond(pr)
+    }
     public func usage(month: String?) throws -> UsageInfo {
         let review = ClaudeUsage(runs: 3, costUSD: 1.20)
         return UsageInfo(month: UsageMonth(month: "2026-11", usage: review, byKind: ["review": review]), tasks: [])
@@ -297,8 +357,14 @@ public final class FixtureActions: PRBarActions {
     public func remoteRevoke(device: String) async throws -> RemoteDeviceInfo { throw missing("remote") }
     public func remoteSetKeepAwake(enabled: Bool) throws -> RemoteStatusInfo { throw missing("remote") }
     public func remoteReset() async throws -> RemoteStatusInfo { throw missing("remote") }
+    /// "Require Face ID" desde el teléfono: la Mac simulada (`prbar-remote-fixture serve`) se lo pasa a su
+    /// `RemoteAccessService`, como `AppModel`. Sin eso, una respuesta de muestra.
+    public var onSetPresence: ((_ device: String, _ enabled: Bool) async throws -> RemoteDeviceInfo)?
     public func remoteSetPresenceRequirement(device: String, enabled: Bool) async throws -> RemoteDeviceInfo {
-        record("remoteSetPresenceRequirement \(enabled)"); throw missing("remote")
+        record("remoteSetPresenceRequirement \(enabled)")
+        if let onSetPresence { return try await onSetPresence(device, enabled) }
+        return RemoteDeviceInfo(id: device, name: "Federico’s iPhone", model: "iPhone", pairedAt: Self.t0, lastSeen: Self.t0,
+                                online: true, requirePresence: enabled, notifications: true)
     }
     public func remoteSetMailbox(enabled: Bool) async throws -> RemoteStatusInfo { throw missing("remote") }
 }

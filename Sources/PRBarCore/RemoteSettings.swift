@@ -57,7 +57,7 @@ public struct RemoteSettings: Codable, Hashable, Sendable {
     }
 
     /// `host`, `host:puerto`, `https://host[:puerto][/]` o `wss://…` → `host[:puerto]` en minúsculas; nil si no es un
-    /// nombre de host válido. Nunca `http://` ni rutas, usuarios o consultas. Una IP literal solo en tests.
+    /// nombre de host válido. Nunca `http://` ni rutas, usuarios o consultas. Una IP literal o `localhost` solo en tests.
     public static func normalizedRelayHost(_ input: String, allowIPForTests: Bool = false) -> String? {
         var text = input.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         for scheme in ["https://", "wss://"] where text.hasPrefix(scheme) { text.removeFirst(scheme.count) }
@@ -72,6 +72,8 @@ public struct RemoteSettings: Codable, Hashable, Sendable {
         let labels = host.split(separator: ".", omittingEmptySubsequences: false)
         let isIP = labels.count == 4 && labels.allSatisfy { UInt8($0) != nil }
         if isIP { return allowIPForTests ? text : nil }
+        // `localhost` también solo en tests: es el rpId de las passkeys del e2e de la web (una IP no puede serlo).
+        if host == "localhost" { return allowIPForTests ? text : nil }
         guard host.count <= 253, labels.count >= 2, labels.allSatisfy({ label in
             (1...63).contains(label.count) && label.first != "-" && label.last != "-"
                 && label.allSatisfy { ("a"..."z").contains($0) || ("0"..."9").contains($0) || $0 == "-" }

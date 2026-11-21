@@ -41,6 +41,8 @@ enum RemoteSettingsTests {
                 try expectEqual(RemoteSettings.normalizedRelayHost(bad), nil)
             }
             try expectEqual(RemoteSettings.normalizedRelayHost("127.0.0.1:9000", allowIPForTests: true), "127.0.0.1:9000")
+            try expectEqual(RemoteSettings.normalizedRelayHost("localhost:9000"), nil)
+            try expectEqual(RemoteSettings.normalizedRelayHost("localhost:9000", allowIPForTests: true), "localhost:9000")
         },
         TestCase("remote settings: la web app vive en https://<host del relay>/") {
             try expectEqual(RemoteSettings.webAppURL(relayHost: "prbar.example.com")?.absoluteString,

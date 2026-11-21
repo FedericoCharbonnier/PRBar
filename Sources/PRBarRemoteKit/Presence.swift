@@ -140,8 +140,11 @@ public struct SoftwareWebAuthnAuthenticator: WebAuthnAuthenticator {
     /// El orden de las claves es el de los navegadores (y no importa: la Mac lo parsea).
     public static func clientDataJSON(type: String = "webauthn.get", challenge: Data, origin: String,
                                       crossOrigin: Bool = false) -> Data {
+        // Como un navegador: sin escapar `/` (`https://…`).
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .withoutEscapingSlashes
         func quoted(_ text: String) -> String {
-            String(decoding: (try? JSONEncoder().encode(text)) ?? Data("\"\"".utf8), as: UTF8.self)
+            String(decoding: (try? encoder.encode(text)) ?? Data("\"\"".utf8), as: UTF8.self)
         }
         return Data(("{\"type\":\(quoted(type)),\"challenge\":\(quoted(Base64URL.encode(challenge))),"
             + "\"origin\":\(quoted(origin)),\"crossOrigin\":\(crossOrigin)}").utf8)

@@ -93,3 +93,29 @@ enum RemoteSID {
         sid.utf8.count == 16 && sid.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
     }
 }
+
+/// Los mensajes de emparejamiento tal cual viajan, para los vectores de la web (`prbar-remote-fixture vectors`) y los
+/// tests. Solo arma bytes: no cambia nada del protocolo.
+@_spi(Testing)
+public enum PairingWire {
+    public static func join(deviceName: String, model: String, relayKey: Data, push: Data,
+                            presence: PresenceCredential?) throws -> Data {
+        try PairingMessage.join(PairingJoin(deviceName: deviceName, model: model, relayKey: relayKey, push: push,
+                                            presence: presence)).encoded()
+    }
+
+    public static func result(deviceId: String, macName: String, macSeal: Data, relayHost: String) throws -> Data {
+        try PairingMessage.result(PairingResult(deviceId: deviceId, macName: macName, macSeal: macSeal,
+                                                relayHost: relayHost)).encoded()
+    }
+
+    public static func confirm() throws -> Data { try PairingMessage.confirm.encoded() }
+    public static func ack() throws -> Data { try PairingMessage.ack.encoded() }
+    public static func cancelled() throws -> Data { try PairingMessage.cancelled.encoded() }
+
+    /// `true` si la Mac aceptaría `data` como primer mensaje (un `join` válido).
+    public static func isValidJoin(_ data: Data) -> Bool {
+        guard case .join(let join) = try? PairingMessage.decode(data) else { return false }
+        return join.isValid
+    }
+}

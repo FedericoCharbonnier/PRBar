@@ -1,0 +1,18 @@
+[
+  {
+    "code" : "899366",
+    "handshakeHash" : "33dcf972bad8e402f36169be37148ecf1d6dea5b6c8bfd9cead39ab281aae1d0"
+  },
+  {
+    "code" : "745502",
+    "handshakeHash" : "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  {
+    "code" : "108040",
+    "handshakeHash" : "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  {
+    "code" : "681863",
+    "handshakeHash" : "9d0ba56b073a0b86ca02588b5477c84d034601222662f01a2c17b7d9c97c2acc"
+  }
+]

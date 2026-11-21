@@ -52,7 +52,7 @@ enum RemoteMacIntegrationTests {
         try await eventually(10, "connected") { await service.state == .connected }
 
         // Emparejar con el QR y el código.
-        let presence = SoftwareWebAuthnAuthenticator(rpId: rpIdOf(relay.host))
+        let presence = SoftwareWebAuthnAuthenticator(rpId: rpIdOf(relay.host), origin: "https://\(relay.host)")
         let client = RemoteClient(configuration: .init(appVersion: "1.3.0", deviceName: "Integration iPhone",
                                                        model: "iPhone 17 Pro", handshakeTimeout: .seconds(5),
                                                        requestTimeout: .seconds(20)),
@@ -121,7 +121,7 @@ enum RemoteSmokeTests {
                 return
             }
             let qr = try PairingQR(url: link)
-            let presence = SoftwareWebAuthnAuthenticator(rpId: rpIdOf(qr.relayHost))
+            let presence = SoftwareWebAuthnAuthenticator(rpId: rpIdOf(qr.relayHost), origin: "https://\(qr.relayHost)")
             let client = RemoteClient(
                 configuration: .init(appVersion: "smoke", deviceName: "Simulated iPhone", model: "PRBarTests"),
                 linkFactory: WebSocketRelayLink.factory(host: qr.relayHost))
