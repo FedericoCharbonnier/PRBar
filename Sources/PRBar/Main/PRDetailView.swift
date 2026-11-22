@@ -29,13 +29,9 @@ struct PRDetailView: View {
         self.ownsToolbar = ownsToolbar
     }
 
-    var body: some View {
-        content
-            .onAppear { model.detailAppeared(prID) }
-            // El modo foco no se apaga acá: al elegir otro PR, su `onChange(initial:)` lo pone según ese PR (el orden
-            // entre el `onDisappear` de uno y el `onAppear` del otro no está garantizado).
-            .onDisappear { model.detailDisappeared(prID) }
-    }
+    /// El modo foco no se apaga al irse: al elegir otro PR, su `onChange(initial:)` lo pone según ese PR (el orden entre
+    /// el `onDisappear` de uno y el `onAppear` del otro no está garantizado).
+    var body: some View { content }
 
     /// Claude trabaja en Respond o Fix CI del PR que se ve (spec M.1 "Modo foco").
     private func claudeWorking(_ tab: PRTab) -> Bool {
@@ -173,14 +169,21 @@ private struct PRDetailCommands: ViewModifier {
             .modifier(TabCommand(index: 1, tabs: tabs, selected: tab) { state.choose($0, for: prID) })
             .modifier(TabCommand(index: 2, tabs: tabs, selected: tab) { state.choose($0, for: prID) })
             .modifier(TabCommand(index: 3, tabs: tabs, selected: tab) { state.choose($0, for: prID) })
-            .windowCommand(.stopClaude, enabled: canStop) { stop() }
-            .windowCommand(.undoClaude, enabled: undoChat != nil) {
-                if let chat = undoChat { ChatUndo.perform(chat) }
+            // `WindowCommandModifier` registra la acción cuando cambia `enabled`: la pestaña se busca al ejecutarla (de
+            // Respond a Fix CI `enabled` puede no cambiar y quedaría la de antes).
+            .windowCommand(.stopClaude, enabled: canStop(tab)) { stop(currentTab) }
+            .windowCommand(.undoClaude, enabled: undoChat(tab) != nil) {
+                if let chat = undoChat(currentTab) { ChatUndo.perform(chat) }
             }
     }
 
+    /// La pestaña que se ve ahora (`tab` es la del último render).
+    private var currentTab: PRTab {
+        model.tabContext(prID: prID).map { state.nav.tab(for: prID, context: $0) } ?? tab
+    }
+
     /// Claude trabaja en la pestaña que se ve (la review, o el Respond / Fix CI; no mientras pushea).
-    private var canStop: Bool {
+    private func canStop(_ tab: PRTab) -> Bool {
         switch tab {
         case .review, .details: reviews.phases[prID]?.isActive == true
         case .respond, .fixCI: respond.phases[prID]?.isActive == true && respond.phases[prID] != .pushing
@@ -189,7 +192,8 @@ private struct PRDetailCommands: ViewModifier {
     }
 
     /// Pregunta lo mismo que el Stop / Cancel de cada pane.
-    private func stop() {
+    private func stop(_ tab: PRTab) {
+        guard canStop(tab) else { return }
         switch tab {
         case .review, .details:
             ConfirmAlert.present(title: "Cancel this review?", message: "Claude stops and what it did so far is lost.",
@@ -206,7 +210,7 @@ private struct PRDetailCommands: ViewModifier {
 
     /// El chat de la pestaña con un cambio de Claude para deshacer (Review: el de la review lista; Respond / Fix CI: el
     /// de su análisis). Merge no deshace (su chat es de solo lectura).
-    private var undoChat: ChatCoordinator? {
+    private func undoChat(_ tab: PRTab) -> ChatCoordinator? {
         let draftID: UUID?
         switch tab {
         case .review, .details:

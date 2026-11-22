@@ -122,6 +122,9 @@ final class WindowPresenter: NSObject, NSWindowDelegate {
         bringToFront(id, window)
     }
 
+    /// Si la ventana `id` está abierta (aunque esté minimizada o detrás de otra).
+    func isOpen(id: String) -> Bool { windows[id] != nil }
+
     /// Cierra la ventana `id` (si está abierta). Se olvida su contenido: la próxima vez se arma de cero.
     func close(id: String) {
         windows[id]?.close()

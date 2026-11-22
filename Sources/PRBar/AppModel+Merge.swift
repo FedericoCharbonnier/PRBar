@@ -57,7 +57,7 @@ extension AppModel {
         for (prID, session) in mergeSessions {
             if let item = snapshot.items.first(where: { $0.id == prID }) {
                 session.window.noteHead(item.pr.headOid)
-            } else if shownPRDetails[prID, default: 0] == 0, merges.phases[prID]?.isActive != true {
+            } else if !isDetailShown(prID), merges.phases[prID]?.isActive != true {
                 endMergeSession(prID)
             }
         }
@@ -99,13 +99,13 @@ extension AppModel {
 
     // MARK: Detalle
 
-    /// Un detalle de PR (pestañas de la ventana principal o de una ventana de PR) apareció o se fue: mientras se ve,
-    /// su sesión de merge no termina aunque el PR salga de la lista.
-    func detailAppeared(_ prID: String) { shownPRDetails[prID, default: 0] += 1 }
-
-    func detailDisappeared(_ prID: String) {
-        shownPRDetails[prID] = max(shownPRDetails[prID, default: 0] - 1, 0)
-        if shownPRDetails[prID] == 0 { shownPRDetails[prID] = nil }
+    /// El detalle del PR se ve: su ventana de PR está abierta, o la principal lo tiene elegido en una sección. Mientras
+    /// tanto su sesión de merge no termina aunque el PR salga de la lista. Sale de `WindowPresenter` y del lugar de la
+    /// ventana principal, no de `onAppear` / `onDisappear` (que no siempre llegan al cerrar una ventana).
+    func isDetailShown(_ prID: String) -> Bool {
+        let windows = WindowPresenter.shared
+        if windows.isOpen(id: Self.prWindowID(prID)) { return true }
+        return windows.isOpen(id: Self.mainWindowID) && main.nav.section != nil && main.nav.place.prID == prID
     }
 
     /// "Merge…" de la fila y del menú contextual, la notificación y `prbar open --merge`: la pestaña Merge del PR
