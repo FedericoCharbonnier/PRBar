@@ -20,6 +20,22 @@ func rejects(_ arguments: [String]) -> Bool {
 enum CLIParsingTests {
     static var cases: [TestCase] {
         [
+            TestCase("cli parse: --json no saltea efectos; quit y update --cancel no abren la app (L14, L15)") {
+                try expect(rejects(["open", "api#3", "--copy", "--json"]))
+                try expect(rejects(["history", "show", "abcd", "--open-log", "--json"]))
+                try expect(rejects(["history", "show", "abcd", "--reveal-log", "--json"]))
+                try expect(!rejects(["history", "show", "abcd", "--json"]))
+                func launches(_ arguments: [String]) throws -> Bool {
+                    guard let command = try PRBarCommand.parseAsRoot(arguments) as? any RemoteCommand else {
+                        throw TestFailure(description: "\(arguments) no es remoto")
+                    }
+                    return command.launchesApp
+                }
+                try expect(!(try launches(["app", "quit"])))
+                try expect(!(try launches(["update", "--cancel"])))
+                try expect(try launches(["update", "--check"]))
+                try expect(try launches(["status"]))
+            },
             TestCase("cli parse: ci y usage (specs K y O)") {
                 try expectEqual(try parsed(["ci"]), .ciList)
                 try expectEqual(try parsed(["ci", "fix", "api#3", "--wait"]), .ciFix(pr: "api#3", wait: true))

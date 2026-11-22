@@ -316,6 +316,11 @@ public struct RespondPipeline: RespondPipelineRunning {
         }
         try Task.checkCancellation()
         let (worktree, startHeadOid) = try await prepareWorktree(request, headRef: feedback.headRefName)
+        // Cancelado justo cuando terminaba de armarlo: nadie va a recibir el draft, así que el worktree se borra acá (L1).
+        if Task.isCancelled {
+            await Task.detached { [self] in await removeWorktree(worktree) }.value
+            throw CancellationError()
+        }
         guard startHeadOid == head else {
             await Task.detached { [self] in await removeWorktree(worktree) }.value
             throw PRBarError.respond("The PR got new commits while PRBar was reading its CI (now at \(startHeadOid.prefix(7))). Try Fix CI again.")

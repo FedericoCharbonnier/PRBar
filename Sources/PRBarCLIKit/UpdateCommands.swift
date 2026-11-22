@@ -43,6 +43,8 @@ struct UpdateCommand: RemoteCommand {
     }
 
     var cancelCommand: AppCommand? { installs ? .updateCancel : nil }
+    /// `--cancel` sin la app corriendo no tiene nada que cancelar: no la abre (L15).
+    var launchesApp: Bool { !cancel }
 
     func render(_ result: JSONValue, _ output: Output) throws {
         if cancel { return output.line("Canceled the update.") }

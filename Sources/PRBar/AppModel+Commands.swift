@@ -710,7 +710,21 @@ extension AppModel: CIFixUsageActions {
         guard PopoverTabs.isMine(item) else {
             throw CommandFailure(.invalidState, "\(id) isn’t your PR: Fix CI is only for your own PRs.")
         }
-        guard item.pr.ciState == .failure else {
+        // Un Fix CI que quedó en `ready` (no pudo arrancar solo): lo mismo que el botón "Fix CI" de la ventana, sin
+        // volver a bajar los logs ni preparar otro worktree (L12).
+        if case .ready(let draft)? = respond.phases[id], draft.isCIFix {
+            if let jobsBlockedReason { throw CommandFailure(.invalidState, jobsBlockedReason) }
+            guard respond.implementCI(prID: id) else {
+                throw CommandFailure(.invalidState, "Couldn’t start Fix CI for \(id): something else is running on it. Try again in a moment.")
+            }
+            guard wait else { return respondInfo(id) }
+            try await waitForRespond(id, events: events)
+            return respondInfo(id)
+        }
+        // Como "Fix CI Again" en la ventana: una corrida de Fix CI abierta se puede repetir aunque el CI ya no figure
+        // como fallido en el último refresco.
+        let hasCIRun = respond.mode(of: id) == .ciFix && respond.phases[id] != nil
+        guard item.pr.ciState == .failure || hasCIRun else {
             throw CommandFailure(.invalidState, "\(id)’s CI isn’t failing (as of the last refresh). Run `prbar refresh` if it just failed.")
         }
         if let reason = respondSlotConflictReason(id, starting: .ciFix) {

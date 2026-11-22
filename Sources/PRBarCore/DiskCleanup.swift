@@ -179,7 +179,9 @@ public struct DiskCleanupExecutor: Sendable {
                     continue
                 }
                 let resolver = WorktreeResolver(runner: runner, gitPath: gitPath, environment: gitEnvironment)
-                await resolver.cleanup(ResolvedWorktree(path: path, origin: .dedicated, localPath: clone, ref: nil))
+                // También su ref `refs/prbar/respond-…` (si no, fija los objetos hasta el próximo arranque).
+                await resolver.cleanup(ResolvedWorktree(path: path, origin: .dedicated, localPath: clone,
+                                                        ref: WorktreeResolver.respondRef(forWorktreePath: path)))
             case .updaterBuild, .updaterStaging:
                 guard CanonicalPath.isDirectory(path), updaterDirectories.contains(where: { CanonicalPath.of($0.path) == path }) else {
                     result.skipped.append("\(candidate.title): not the updater’s folder")

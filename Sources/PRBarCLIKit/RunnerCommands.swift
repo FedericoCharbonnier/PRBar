@@ -98,6 +98,11 @@ struct RunnersRemove: RemoteCommand {
     static let configuration = CommandConfiguration(commandName: "remove", abstract: "Remove an SSH host (repos using it go back to Default).")
     @Argument(help: "The runner’s name.") var name: String
     @OptionGroup var global: GlobalOptions
+    /// Lo mismo que pregunta Settings (L13); en scripts no pregunta.
+    var confirmationPolicy: ConfirmationPolicy { .interactiveOnly }
+    func confirmation(_ connection: AppConnection, _ output: Output) throws -> String? {
+        "Remove \(name)? Repos that run on it go back to Default. PRBar’s folder on the host isn’t deleted."
+    }
     func appCommand(confirmed: Bool) -> AppCommand { .runnerRemove(name: name) }
     func render(_ result: JSONValue, _ output: Output) throws { output.line("Removed \(name). Its folder on the host was left as is.") }
 }

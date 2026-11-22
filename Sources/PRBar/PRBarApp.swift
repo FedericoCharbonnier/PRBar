@@ -31,6 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.statusItem = statusItem
         WindowPresenter.shared.installMainMenu()
         model.showPopover = { [weak statusItem] in statusItem?.show() ?? false }
+        model.closePopover = { [weak statusItem] in statusItem?.close() }
     }
 
     /// ⌘Q (menu, popover, Dock) while jobs are running asks first: quitting cancels them. `prbar app quit`, the

@@ -163,7 +163,8 @@ public actor RemoteHost {
     /// Handshakes que todavía no probaron estar vivos: la sesión pasa a `sessions` cuando su primer marco descifra
     /// (un primer mensaje de KK repetido por el relay no tira la sesión viva, L2).
     private var pendingSessions: [String: Session] = [:]
-    private var deviceListWaiters: [CheckedContinuation<[RelayDeviceEntry], Error>] = []
+    /// Por pedido: el plazo de uno no hace fallar a los que llegaron después (L5).
+    private var deviceListWaiters: [UUID: CheckedContinuation<[RelayDeviceEntry], Error>] = [:]
     private var requestBuckets: [String: TokenBucket] = [:]
     private var handshakeBuckets: [String: TokenBucket] = [:]
 
@@ -322,8 +323,8 @@ public actor RemoteHost {
             eventSink.yield(.deviceOnline(device, state == "online"))
         case .devices(let items?):
             let waiters = deviceListWaiters
-            deviceListWaiters = []
-            waiters.forEach { $0.resume(returning: items) }
+            deviceListWaiters = [:]
+            waiters.values.forEach { $0.resume(returning: items) }
         case .pushResult(let id, let status, _):
             pushWaiters.removeValue(forKey: id)?.resume(returning: status)
         case .pairClose(let pairingId):
@@ -659,20 +660,22 @@ public actor RemoteHost {
     /// Los dispositivos que el relay tiene para esta cuenta (para reconciliar con los de la Mac al conectar, M5).
     public func relayDevices(timeout: Duration = .seconds(10)) async throws -> [RelayDeviceEntry] {
         guard link != nil else { throw RelayClosed(code: nil, reason: "Not connected") }
+        let token = UUID()
         return try await withCheckedThrowingContinuation { continuation in
-            deviceListWaiters.append(continuation)
+            deviceListWaiters[token] = continuation
             send(.devices(items: nil))
             Task {
                 try? await Task.sleep(for: timeout)
-                self.failDeviceListWaiters()
+                self.deviceListWaiters.removeValue(forKey: token)?
+                    .resume(throwing: RelayClosed(code: nil, reason: "No answer from the relay"))
             }
         }
     }
 
     private func failDeviceListWaiters() {
         let waiters = deviceListWaiters
-        deviceListWaiters = []
-        waiters.forEach { $0.resume(throwing: RelayClosed(code: nil, reason: "No answer from the relay")) }
+        deviceListWaiters = [:]
+        waiters.values.forEach { $0.resume(throwing: RelayClosed(code: nil, reason: "No answer from the relay")) }
     }
 
     /// Da de baja en el relay un dispositivo que la Mac ya no tiene (un Revoke o un Reset hechos sin conexión, M5).

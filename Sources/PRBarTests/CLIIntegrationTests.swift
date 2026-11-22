@@ -326,6 +326,17 @@ enum CLIIntegrationTests {
         let asked = try await runCLI(["cleanup", "--older-than", "30d"], socket: harness.url, interactive: true)
         try expectEqual(asked.code, 0)
         try expect(harness.fake.calls.contains("cleanup 30 confirmed=true paths=/w/a,/w/b"), "\(harness.fake.calls)")
+        // Sin terminal ni --yes: sale con 4 sin imprimir la tabla de lo que no va a borrar (L17).
+        let script = try await runCLI(["cleanup"], socket: harness.url)
+        try expectEqual(script.code, 4)
+        try expect(!script.out.contains("Delete"), script.out)
+        // `runners remove` pregunta en la terminal como Settings; "no" no borra (L13).
+        let declined = try await runCLI(["runners", "remove", "devbox"], socket: harness.url, interactive: true, answer: false)
+        try expectEqual(declined.code, CLIExit.cancelled)
+        try expect(!harness.fake.calls.contains("runnerRemove devbox"), "\(harness.fake.calls)")
+        let removed = try await runCLI(["runners", "remove", "devbox"], socket: harness.url)
+        try expectEqual(removed.code, 0)
+        try expect(harness.fake.calls.contains("runnerRemove devbox"), "\(harness.fake.calls)")
     }
 
     @MainActor

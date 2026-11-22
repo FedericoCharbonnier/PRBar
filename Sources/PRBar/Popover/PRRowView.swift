@@ -190,7 +190,8 @@ struct PRRowView: View {
             case .failed?:
                 Button("Review with Claude", action: actions.retry)
             case let phase? where phase.isActive:
-                Button("Cancel Review", action: actions.cancel)
+                // Pregunta lo mismo que la pastilla (`CancellablePill`).
+                Button("Cancel Review") { confirmCancel("review", "Cancel Review", actions.cancel) }
             case .ready?, .published?:
                 Button("View Review", action: actions.open)
             default:
@@ -201,7 +202,8 @@ struct PRRowView: View {
             Divider()
             if hasCIFix {
                 if respond.phases[item.id]?.isActive == true {
-                    Button("Cancel Fix CI", action: ciFixActions.cancel).disabled(respond.phases[item.id] == .pushing)
+                    Button("Cancel Fix CI") { confirmCancel("CI fix", "Cancel CI Fix", ciFixActions.cancel) }
+                        .disabled(respond.phases[item.id] == .pushing)
                 }
                 Button("View Fix CI", action: ciFixActions.open).disabled(respond.records[item.id] == nil)
             } else {
@@ -214,7 +216,7 @@ struct PRRowView: View {
             let actions = respondActions
             let phase = respond.phases[item.id]
             if phase?.isActive == true {
-                Button("Cancel", action: actions.cancel)
+                Button("Cancel") { confirmCancel("response", "Cancel Response", actions.cancel) }
                     .disabled(phase == .pushing)
             } else {
                 Button("Respond with Claude", action: actions.retry)
@@ -255,6 +257,14 @@ struct PRRowView: View {
         }
         if let shownPlacement { parts.append(shownPlacement) }
         return parts.joined(separator: ", ")
+    }
+
+    /// Lo mismo que pregunta la pastilla al cancelar (`CancellablePill`), desde el menú contextual (L10).
+    private func confirmCancel(_ job: String, _ action: String, _ cancel: @escaping () -> Void) {
+        if model.confirmFromPopover(title: "Cancel this \(job)?", message: "Claude stops and what it did so far is lost.",
+                                    action: action) {
+            cancel()
+        }
     }
 
     private var respondActions: RespondButtonActions {

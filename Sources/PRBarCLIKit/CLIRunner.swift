@@ -35,6 +35,8 @@ public protocol RemoteCommand: ParsableCommand {
     var cancelCommand: AppCommand? { get }
     /// Lo que se manda si el usuario contesta que no a la pregunta (`remote pair`: cerrar la ranura).
     var declinedCommand: AppCommand? { get }
+    /// `false`: si la app no está corriendo, falla (exit 3) en vez de abrirla (`app quit`, `update --cancel`).
+    var launchesApp: Bool { get }
     func render(_ result: JSONValue, _ output: Output) throws
     /// Un exit code distinto de 0 que depende del resultado (`update --check`: 10 si hay versión nueva). Vale igual
     /// con `--json`.
@@ -47,6 +49,7 @@ extension RemoteCommand {
     public var confirmationPolicy: ConfirmationPolicy { .always }
     public var cancelCommand: AppCommand? { nil }
     public var declinedCommand: AppCommand? { nil }
+    public var launchesApp: Bool { true }
     public func render(_ result: JSONValue, _ output: Output) throws { output.line("Done.") }
     public func exitCode(for result: JSONValue) throws -> Int32 { CLIExit.ok }
 
@@ -96,7 +99,7 @@ public enum CLIRunner {
         let output = Output(terminal: environment.terminal, json: command.global.json, out: environment.out,
                             err: environment.err)
         do {
-            let connection = try environment.connect()
+            let connection = try command.launchesApp ? environment.connect() : environment.reconnect()
             defer { connection.close() }
             try command.prepare(connection, output)
             var confirmed = command.global.yes

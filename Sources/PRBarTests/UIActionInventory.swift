@@ -53,7 +53,7 @@ enum UIActionInventory {
         .init("Components/WindowCommands.swift", "Component:WindowAccessor", "-", 1, .viewOnly("finds the window a View menu command acts on")),
         .init("Components/WindowCommands.swift", "Component:WindowCommandModifier", "-", 1, .viewOnly("registers a window’s View menu commands (Show Chat, Refresh)")),
         // PRBar Activity (plan 13, spec I)
-        .init("Activity/ActivityWindow.swift", "Button", "Stop", 2, .cli(["review cancel", "respond cancel", "chat", "rules chat", "update"])),   // por tarea; el de update deshabilitado
+        .init("Activity/ActivityWindow.swift", "Button", "Stop", 2, .cli(["review cancel", "respond cancel", "ci cancel", "chat", "rules chat", "update"])),   // por tarea; el de update deshabilitado
         .init("Activity/ActivityWindow.swift", "Button", "Refresh", 1, .cli(["resources"])),
         .init("Activity/ActivityWindow.swift", "Toggle", "Also delete history and logs older than", 1, .cli(["cleanup"])),   // --older-than
         .init("Activity/ActivityWindow.swift", "Stepper", #"\(olderThanDays) days"#, 1, .cli(["cleanup"])),
@@ -353,7 +353,7 @@ enum UIActionInventory {
         .init("AppModel+Updates.swift", "Component:UpdateWindow", "-", 1, .cli(["update"])),
         .init("AppModel.swift", "Component:ReviewWindow", "-", 1, .viewOnly("window plumbing (unsaved state, close)")),
         // Descartar trabajo sin pushear (Dismiss, Analyze Again / Fix CI Again): la CLI pregunta lo mismo.
-        .init("AppModel.swift", "ConfirmAlert", "-", 2, .cli(["respond dismiss", "ci dismiss"])),   // --yes
+        .init("AppModel.swift", "ConfirmAlert", "-", 1, .cli(["respond dismiss", "ci dismiss"])),   // --yes
         .init("AppModel.swift", "Component:RespondWindow", "-", 1, .viewOnly("window plumbing (unsaved state, close)")),
         .init("Popover/PRRowView.swift", "Component:ReviewButtonActions", "-", 2,
               .cli(["review start", "review cancel", "open", "review dismiss"])),

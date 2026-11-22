@@ -111,6 +111,8 @@ struct OpenCommand: RemoteCommand {
 
     func validate() throws {
         if copy && target != .browser { throw ValidationError("--copy only copies the PR’s link.") }
+        // Con --json no se llama a `render`, donde se copia (L14).
+        if copy && global.json { throw ValidationError("--copy doesn’t go with --json.") }
     }
 
     func appCommand(confirmed: Bool) -> AppCommand { copy ? .resolvePR(pr: pr) : .open(pr: pr, target: target.target) }
@@ -159,6 +161,11 @@ struct HistoryShow: RemoteCommand {
     @Flag(help: "Open Claude’s log of the run (Show Log).") var openLog = false
     @Flag(help: "Show Claude’s log in Finder.") var revealLog = false
     @OptionGroup var global: GlobalOptions
+
+    func validate() throws {
+        // Con --json no se llama a `render`, donde se abre el log (L14): `logPath` va en el JSON.
+        if (openLog || revealLog) && global.json { throw ValidationError("--open-log and --reveal-log don’t go with --json.") }
+    }
 
     func appCommand(confirmed: Bool) -> AppCommand { .historyShow(id: id) }
 
@@ -222,6 +229,10 @@ struct AppStart: LocalCommand {
         } catch let unavailable as AppUnavailable {
             FileHandle.standardError.write(Data("Error: \(unavailable.message)\n".utf8))
             throw ExitCode(CLIExit.appUnavailable)
+        } catch let failure as CommandFailure {
+            // Otra versión del protocolo o un socket de otro usuario: el mismo exit code que el resto (L16).
+            FileHandle.standardError.write(Data("Error: \(failure.message)\n".utf8))
+            throw ExitCode(CLIExit.code(for: failure))
         }
     }
 }
@@ -230,6 +241,8 @@ struct AppQuit: RemoteCommand {
     static let configuration = CommandConfiguration(commandName: "quit", abstract: "Quit PRBar (⌘Q).")
     @OptionGroup var global: GlobalOptions
 
+    /// Sin la app corriendo no hay nada que cerrar: no la abre (L15).
+    var launchesApp: Bool { false }
     func appCommand(confirmed: Bool) -> AppCommand { .quit }
     func render(_ result: JSONValue, _ output: Output) throws { output.line("PRBar is quitting.") }
 }

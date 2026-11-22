@@ -442,7 +442,8 @@ public final class RemoteAccessService: ObservableObject {
 
     // MARK: - Pushes (spec P.9)
 
-    /// Las mismas notificaciones que la Mac, cifradas para cada iPhone que no tenga las notificaciones apagadas.
+    /// Las mismas notificaciones que la Mac, cifradas para cada iPhone emparejado (el relay contesta 410 si ese
+    /// iPhone no tiene una suscripción de Web Push).
     public func push(_ notifications: [PlannedNotification], badge: Int?) {
         guard let host, !notifications.isEmpty else { return }
         let payloads = RemotePushPlanner.payloads(for: notifications, badge: badge, now: env.clock(), redactor: redactor())
@@ -514,10 +515,12 @@ public final class RemoteAccessService: ObservableObject {
     }
 
     public func deviceInfo(_ stored: StoredDevice) -> RemoteDeviceInfo {
-        RemoteDeviceInfo(id: stored.device.deviceId, name: stored.device.name, model: stored.device.model,
-                         pairedAt: stored.device.pairedAt, lastSeen: stored.lastSeen,
-                         online: online.contains(stored.device.deviceId),
-                         requirePresence: stored.device.requirePresence, notifications: !stored.notificationsOff)
+        var info = RemoteDeviceInfo(id: stored.device.deviceId, name: stored.device.name, model: stored.device.model,
+                                    pairedAt: stored.device.pairedAt, lastSeen: stored.lastSeen,
+                                    online: online.contains(stored.device.deviceId),
+                                    requirePresence: stored.device.requirePresence, notifications: !stored.notificationsOff)
+        info.faceIDSetUp = stored.device.presence != nil
+        return info
     }
 
     public func status() -> RemoteStatusInfo {

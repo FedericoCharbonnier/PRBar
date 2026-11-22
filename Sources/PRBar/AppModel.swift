@@ -84,6 +84,9 @@ struct AppModelServices {
     }
 }
 
+/// Cierra el panel del ícono (`AppModel.closePopover`).
+typealias PopoverCloser = @MainActor () -> Void
+
 @MainActor
 final class AppModel: ObservableObject {
     let configStore: ConfigStore
@@ -205,6 +208,8 @@ final class AppModel: ObservableObject {
     let popoverTab: PopoverTabState
     /// Abre el panel de la barra de menú (`StatusItemController.show`); `false` si no pudo. Lo pone `AppDelegate`.
     var showPopover: (() -> Bool)?
+    /// Cierra el panel (lo asigna `AppDelegate`): una alerta desde el panel lo cierra antes (`confirmFromPopover`).
+    var closePopover: PopoverCloser?
     /// La fila elegida con ↑/↓ en el popover.
     let popoverRows = PopoverRowSelection()
     /// Claude's usage, one entry per run (spec O). Written from any thread by `ClaudeUsageCenter`'s observer.
@@ -218,7 +223,8 @@ final class AppModel: ObservableObject {
     let remoteEnvironment: RemoteServiceEnvironment
     /// Avisos de cambios para el feed del iPhone y los chats que miran los teléfonos (AppModel+Remote).
     var remoteObservers: [AnyCancellable] = []
-    var remoteChatWatchers: [ObjectIdentifier: AnyCancellable] = [:]
+    /// Por id de la sesión del chat (no por la dirección del objeto, que se puede reusar; L8). Se borra al descartarlo.
+    var remoteChatWatchers: [UUID: AnyCancellable] = [:]
     var remoteSystem: RemoteSystemObservers?
 
     @Published private(set) var tools = ResolvedTools()
@@ -897,6 +903,7 @@ final class AppModel: ObservableObject {
     func discardChat(draftID: UUID) {
         retiringChats = retiringChats.filter { $0.value.isRunning }
         guard let chat = chats.removeValue(forKey: draftID) else { return }
+        remoteChatWatchers[chat.session.id] = nil
         if chat.isRunning { retiringChats[draftID] = chat }
         chat.discard()
     }
@@ -1049,14 +1056,24 @@ final class AppModel: ObservableObject {
         respond.cancel(prID: prID)
     }
 
-    /// "Dismiss" de la fila o la ventana: con trabajo sin pushear pregunta antes de borrarlo (M11).
+    /// "Dismiss" de la fila: con trabajo sin pushear pregunta antes de borrarlo (M11).
     func confirmDismissRespond(prID: String) {
         guard respond.unpushedWork.contains(prID) else { return dismissRespond(prID: prID) }
-        ConfirmAlert.present(title: RespondDiscardCopy.title,
-                             message: RespondDiscardCopy.message(worktree: respond.records[prID]?.draft.worktree.path),
-                             action: "Discard") { [weak self] in
-            self?.dismissRespond(prID: prID)
+        if confirmFromPopover(title: RespondDiscardCopy.title,
+                              message: RespondDiscardCopy.message(worktree: respond.records[prID]?.draft.worktree.path),
+                              action: "Discard") {
+            dismissRespond(prID: prID)
         }
+    }
+
+    /// Una confirmación pedida desde el panel (que está a nivel de menú y taparía la alerta, y se cierra con cualquier
+    /// clic afuera): se cierra el panel y la alerta va al frente, en el Space del usuario, como la de salir.
+    func confirmFromPopover(title: String, message: String, action: String) -> Bool {
+        closePopover?()
+        NSApp.activate()
+        let alert = ConfirmAlert.make(title: title, message: message, action: action)
+        alert.window.collectionBehavior.insert([.moveToActiveSpace, .fullScreenAuxiliary])
+        return ConfirmAlert.confirmed(alert.runModal())
     }
 
     /// "Analyze Again" / "Fix CI Again" con trabajo sin pushear: pregunta, lo descarta y vuelve a empezar.

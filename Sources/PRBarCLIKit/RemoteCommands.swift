@@ -43,7 +43,8 @@ enum RemoteRender {
         output.table(["ID", "Name", "Model", "Paired", "Last seen", "Face ID", "Notifications"], devices.map { device in
             [String(device.id.prefix(8)), device.name, device.model, Render.date(device.pairedAt),
              device.online ? "online" : device.lastSeen.map(Render.age) ?? "—",
-             device.requirePresence ? "required" : "off", device.notifications ? "on" : "off"]
+             device.faceIDSetUp == false ? "not set up" : device.requirePresence ? "required" : "off",
+             device.notifications ? "on" : "off"]
         })
     }
 }
@@ -144,7 +145,10 @@ struct RemotePair: RemoteCommand {
 
     func render(_ result: JSONValue, _ output: Output) throws {
         let paired: RemotePairResult = try result.decode()
-        if let device = paired.device {
+        if let device = paired.device, device.faceIDSetUp == false {
+            // Lo mismo que Settings: sin passkey, lo que pide Face ID queda bloqueado (L7).
+            output.line(output.paint("Paired \(device.name).", .green) + " It can now see your PRs. Face ID isn’t set up on it, so merge, push, approve and tests are blocked: pair it again to set it up.")
+        } else if let device = paired.device {
             output.line(output.paint("Paired \(device.name).", .green) + " It can now see your PRs and act for you; merge, push, approve and tests need Face ID.")
         } else {
             output.line("Pairing canceled.")

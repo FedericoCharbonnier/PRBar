@@ -1075,6 +1075,8 @@ public struct RemoteDeviceInfo: Codable, Equatable, Sendable {
     public var requirePresence: Bool
     /// `false` si el relay dijo que la suscripción de Web Push ya no sirve.
     public var notifications: Bool
+    /// `false`: se emparejó sin passkey, así que lo que pide Face ID queda bloqueado (W.4.6). nil = una app vieja.
+    public var faceIDSetUp: Bool?
 
     public init(id: String, name: String, model: String, pairedAt: Date, lastSeen: Date?, online: Bool,
                 requirePresence: Bool, notifications: Bool) {

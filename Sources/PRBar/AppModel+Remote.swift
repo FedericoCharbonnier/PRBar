@@ -90,7 +90,7 @@ extension AppModel {
 
     /// Un chat que corre en la Mac: sus pedazos van a los teléfonos que miran `pr:<id>` (`chatDelta`, spec P.6).
     func watchChatForPhones(_ chat: ChatCoordinator, prID: String) {
-        let key = ObjectIdentifier(chat)
+        let key = chat.session.id
         guard remoteChatWatchers[key] == nil else { return }
         var last = ""
         remoteChatWatchers[key] = chat.$partialText.removeDuplicates().sink { [weak self] text in
