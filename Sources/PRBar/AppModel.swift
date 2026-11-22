@@ -315,8 +315,8 @@ final class AppModel: ObservableObject {
         startCommandServer()
         startRemoteAccess()
         WindowPresenter.shared.openSettings = { [weak self] in self?.openSettings() }
-        WindowPresenter.shared.openHistory = { [weak self] in self?.openHistory() }
-        WindowPresenter.shared.openActivity = { [weak self] in self?.openActivityWindow() }
+        WindowPresenter.shared.navigate = { [weak self] in self?.navigate(to: $0) }
+        WindowPresenter.shared.openMainWindow = { [weak self] in self?.openMainWindow() }
         WindowPresenter.shared.checkForUpdates = { [weak self] in self?.checkForUpdatesFromMenu() }
         WindowPresenter.shared.availableUpdate = { [weak self] in self?.updates.available?.version.description }
         WindowPresenter.shared.alwaysShowInDock = { [weak self] in self?.configStore.config.alwaysShowInDock ?? false }
@@ -816,6 +816,9 @@ final class AppModel: ObservableObject {
     }
 
     /// The Review window's coordinator. The conversation and the edits come from history (they're saved on each turn).
+    /// El chat de un draft si ya existe (sin crearlo): el ⌘Z de la pestaña.
+    func existingChat(draftID: UUID) -> ChatCoordinator? { chats[draftID] }
+
     func reviewChat(for draft: ReviewDraft) -> ChatCoordinator {
         if let chat = chats[draft.id] { return chat }
         let stored = history.record(id: draft.id)?.draft ?? draft

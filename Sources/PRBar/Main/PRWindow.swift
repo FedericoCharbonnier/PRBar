@@ -31,6 +31,9 @@ struct PRWindow: View {
             }
         }
         .frame(minWidth: Self.minSize.width, minHeight: Self.minSize.height)
+        .windowCommand(.openOnGitHub) {
+            if let url = model.currentItem(prID)?.pr.url ?? PRReference.githubURL(prID: prID) { NSWorkspace.shared.open(url) }
+        }
     }
 
     private var tab: PRTab? {

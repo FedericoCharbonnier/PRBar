@@ -47,10 +47,10 @@ struct CloseConfirmation {
 final class WindowPresenter: NSObject, NSWindowDelegate {
     static let shared = WindowPresenter()
 
-    /// Acciones del menú de la app ("Settings…" ⌘,, "History" ⌘Y, "PRBar Activity"). Las asigna `AppModel`.
+    /// Acciones del menú de la app ("Settings…" ⌘,, ⌘0–4). Las asigna `AppModel`.
     var openSettings: (() -> Void)?
-    var openHistory: (() -> Void)?
-    var openActivity: (() -> Void)?
+    var navigate: ((MainDestination) -> Void)?
+    var openMainWindow: (() -> Void)?
     var checkForUpdates: (() -> Void)?
     var availableUpdate: (() -> String?)?
     /// "Always show in Dock" (Settings › General; lo asigna `AppModel`).
@@ -64,8 +64,8 @@ final class WindowPresenter: NSObject, NSWindowDelegate {
     private var unsavedChanges: Set<String> = []
     private lazy var mainMenu = AppMenu.build(AppMenu.Actions(
         openSettings: { [weak self] in self?.openSettings?() },
-        openHistory: { [weak self] in self?.openHistory?() },
-        openActivity: { [weak self] in self?.openActivity?() },
+        navigate: { [weak self] in self?.navigate?($0) },
+        openMainWindow: { [weak self] in self?.openMainWindow?() },
         checkForUpdates: { [weak self] in self?.checkForUpdates?() },
         availableUpdate: { [weak self] in self?.availableUpdate?() }
     ))

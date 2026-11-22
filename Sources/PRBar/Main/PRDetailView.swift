@@ -50,6 +50,7 @@ struct PRDetailView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 // Modo foco (spec M.1): mientras Claude trabaja en Respond o Fix CI del PR que se ve.
                 .onChange(of: claudeWorking(tab), initial: true) { _, working in detail.focus.setClaudeWorking(working) }
+                .modifier(PRDetailCommands(model: model, state: state, prID: prID, context: context, tab: tab))
                 // View › Show Chat in the menu bar.
                 .windowCommand(.toggleChat, enabled: model.chatEnabled, isOn: detail.focus.chatShown && model.chatEnabled) {
                     detail.focus.toggleChat()
@@ -141,6 +142,98 @@ struct ChatInspectorModifier: ViewModifier {
             }
         } else {
             content
+        }
+    }
+}
+
+/// Lo que el menú de la app hace sobre el PR en pantalla (spec M.6): ⌥⌘1–3 (sus pestañas), ⌘. (detener a Claude) y
+/// ⌘Z fuera de un texto (deshacer el último cambio de Claude del chat de la pestaña).
+private struct PRDetailCommands: ViewModifier {
+    @ObservedObject var model: AppModel
+    @ObservedObject var state: MainWindowState
+    @ObservedObject var reviews: ReviewQueue
+    @ObservedObject var respond: RespondQueue
+    let prID: String
+    let context: PRTabContext
+    let tab: PRTab
+
+    init(model: AppModel, state: MainWindowState, prID: String, context: PRTabContext, tab: PRTab) {
+        self.model = model
+        self.state = state
+        reviews = model.reviews
+        respond = model.respond
+        self.prID = prID
+        self.context = context
+        self.tab = tab
+    }
+
+    func body(content: Content) -> some View {
+        let tabs = PRTabs.tabs(context)
+        content
+            .modifier(TabCommand(index: 1, tabs: tabs, selected: tab) { state.choose($0, for: prID) })
+            .modifier(TabCommand(index: 2, tabs: tabs, selected: tab) { state.choose($0, for: prID) })
+            .modifier(TabCommand(index: 3, tabs: tabs, selected: tab) { state.choose($0, for: prID) })
+            .windowCommand(.stopClaude, enabled: canStop) { stop() }
+            .windowCommand(.undoClaude, enabled: undoChat != nil) {
+                if let chat = undoChat { ChatUndo.perform(chat) }
+            }
+    }
+
+    /// Claude trabaja en la pestaña que se ve (la review, o el Respond / Fix CI; no mientras pushea).
+    private var canStop: Bool {
+        switch tab {
+        case .review, .details: reviews.phases[prID]?.isActive == true
+        case .respond, .fixCI: respond.phases[prID]?.isActive == true && respond.phases[prID] != .pushing
+        case .merge: false
+        }
+    }
+
+    /// Pregunta lo mismo que el Stop / Cancel de cada pane.
+    private func stop() {
+        switch tab {
+        case .review, .details:
+            ConfirmAlert.present(title: "Cancel this review?", message: "Claude stops and what it did so far is lost.",
+                                 action: "Cancel Review") { model.cancelReview(prID: prID) }
+        case .respond, .fixCI:
+            let isCI = tab == .fixCI
+            ConfirmAlert.present(title: isCI ? "Stop fixing the CI?" : "Stop this response?",
+                                 message: "Claude stops. Commits already made stay unpushed in PRBar’s worktree.",
+                                 action: "Stop") { model.cancelRespond(prID: prID) }
+        case .merge:
+            break
+        }
+    }
+
+    /// El chat de la pestaña con un cambio de Claude para deshacer (Review: el de la review lista; Respond / Fix CI: el
+    /// de su análisis). Merge no deshace (su chat es de solo lectura).
+    private var undoChat: ChatCoordinator? {
+        let draftID: UUID?
+        switch tab {
+        case .review, .details:
+            if case .ready(let draft)? = reviews.phases[prID] { draftID = draft.id } else { draftID = nil }
+        case .respond, .fixCI:
+            draftID = respond.records[prID]?.draft.id
+        case .merge:
+            draftID = nil
+        }
+        guard let draftID, let chat = model.existingChat(draftID: draftID),
+              chat.session.undoableMessageID != nil, chat.canUndo else { return nil }
+        return chat
+    }
+}
+
+/// ⌥⌘`index`: la pestaña `index` del PR, con su nombre en el menú.
+private struct TabCommand: ViewModifier {
+    let index: Int
+    let tabs: [PRTabItem]
+    let selected: PRTab
+    let choose: (PRTab) -> Void
+
+    func body(content: Content) -> some View {
+        let item = tabs.indices.contains(index - 1) ? tabs[index - 1] : nil
+        content.windowCommand(.tab(index), enabled: item?.isEnabled == true, isOn: item?.tab == selected,
+                              title: item?.tab.title) {
+            if let item, item.isEnabled { choose(item.tab) }
         }
     }
 }

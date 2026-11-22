@@ -37,6 +37,14 @@ struct MainWindow: View {
         .navigationTitle(title)
         .navigationSubtitle(subtitle)
         .toolbar { toolbar }
+        // View › Back (⌘[) y Pull Request › Open in New Window (⇧⌘O) / Open on GitHub.
+        .windowCommand(.back, enabled: state.nav.back.canGoBack) { state.goBack() }
+        .windowCommand(.openInNewWindow, enabled: selectedPRID != nil) {
+            if let prID = selectedPRID { model.openPRWindow(prID: prID) }
+        }
+        .windowCommand(.openOnGitHub, enabled: selectedPRURL != nil) {
+            if let url = selectedPRURL { NSWorkspace.shared.open(url) }
+        }
         .sheet(item: $state.updateSheet) { mode in
             UpdateSheet(updates: model.updates, mode: mode) { state.updateSheet = nil }
         }

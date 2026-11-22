@@ -272,7 +272,7 @@ struct AppSettings: RemoteCommand {
 }
 
 struct AppHistory: RemoteCommand {
-    static let configuration = CommandConfiguration(commandName: "history", abstract: "Open the History window (⌘Y), optionally on a record.")
+    static let configuration = CommandConfiguration(commandName: "history", abstract: "Open History in PRBar's window (⌘3), optionally on a record.")
     @Argument(help: "A record’s id.") var id: String?
     @OptionGroup var global: GlobalOptions
 

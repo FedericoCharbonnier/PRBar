@@ -32,7 +32,7 @@ enum UIActionInventory {
         .init("AppMenu.swift", "MenuItem", "Hide PRBar", 1, .viewOnly("hides the app’s windows")),
         .init("AppMenu.swift", "MenuItem", "Hide Others", 1, .viewOnly("hides other apps")),
         .init("AppMenu.swift", "MenuItem", "Show All", 1, .viewOnly("shows other apps")),
-        .init("AppMenu.swift", "MenuItem", "Undo", 1, .viewOnly("text editing")),
+        .init("AppMenu.swift", "MenuItem", "Undo", 1, .viewOnly("text editing")),   // también /undo del chat
         .init("AppMenu.swift", "MenuItem", "Redo", 1, .viewOnly("text editing")),
         .init("AppMenu.swift", "MenuItem", "Cut", 1, .viewOnly("text editing")),
         .init("AppMenu.swift", "MenuItem", "Copy", 1, .viewOnly("text editing")),
@@ -43,10 +43,22 @@ enum UIActionInventory {
         .init("AppMenu.swift", "MenuItem", "Zoom", 1, .viewOnly("window management")),
         .init("AppMenu.swift", "MenuItem", "Bring All to Front", 1, .viewOnly("window management")),
         .init("AppMenu.swift", "MenuItem", "Enter Full Screen", 1, .viewOnly("window management")),
-        .init("AppMenu.swift", "MenuItem", "Show Chat", 1, .cli(["chat"])),   // ⇧⌘C, the toolbar's Chat button
+        .init("AppMenu.swift", "MenuItem", "Show Chat", 1, .cli(["chat"])),   // ⌥⌘I, the toolbar's Chat button
         .init("AppMenu.swift", "MenuItem", "Refresh", 1, .cli(["merge", "refresh"])),   // ⌘R: the Merge window (--preview) or the PR list
-        .init("AppMenu.swift", "ClosureMenuItem", "History", 1, .cli(["app history"])),   // ⌘Y
-        .init("AppMenu.swift", "ClosureMenuItem", "PRBar Activity", 1, .cli(["resources"])),
+        // ⌘1–4 (To Review · My PRs · History · Activity, built in a loop) and Window › PRBar (⌘0).
+        .init("AppMenu.swift", "ClosureMenuItem", "-", 1, .viewOnly("navigation in the main window")),
+        .init("AppMenu.swift", "ClosureMenuItem", "PRBar", 1, .viewOnly("opens the main window")),
+        .init("AppMenu.swift", "MenuItem", "Show Sidebar", 1, .viewOnly("navigation in the main window")),
+        .init("AppMenu.swift", "MenuItem", "Back", 1, .viewOnly("navigation in the main window")),
+        .init("AppMenu.swift", "MenuItem", "Find", 1, .viewOnly("filters the list")),
+        .init("AppMenu.swift", "MenuItem", "Open in New Window", 1, .viewOnly("opens the PR in its own window")),
+        .init("AppMenu.swift", "MenuItem", "Open on GitHub", 1, .cli(["open"])),
+        .init("AppMenu.swift", "MenuItem", "Tab \\(index)", 1, .viewOnly("navigation in the main window")),   // ⌥⌘1–3
+        .init("AppMenu.swift", "MenuItem", "Merge…", 1, .cli(["merge"])),
+        .init("AppMenu.swift", "MenuItem", "Stop Claude", 1, .cli(["review cancel", "respond cancel", "ci cancel"])),
+        .init("Main/PRDetailView.swift", "Component:TabCommand", "-", 3, .viewOnly("navigation in the main window")),   // ⌥⌘1–3
+        .init("Main/PRDetailView.swift", "ConfirmAlert", "Cancel this review?", 1, .cli(["review cancel"])),   // ⌘.
+        .init("Main/PRDetailView.swift", "ConfirmAlert", "Stop fixing the CI?", 1, .cli(["respond cancel", "ci cancel"])),   // or "Stop this response?"
         .init("AppMenu.swift", "ClosureMenuItem", "Keyboard Shortcuts", 1, .viewOnly("lists the shortcuts")),
         .init("AppMenu.swift", "ClosureMenuItem", "Show Log", 1, .cli(["app logs"])),
         .init("Components/InspectorWindowSizing.swift", "Component:WindowAccessor", "-", 1, .viewOnly("finds the window to widen when the chat opens")),

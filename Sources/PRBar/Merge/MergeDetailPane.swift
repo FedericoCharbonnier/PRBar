@@ -56,6 +56,8 @@ struct MergeDetailPane: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         // La primera vez carga el resumen; al volver a la pestaña lo refresca con el head fijo.
         .task(id: prID) { await model.loadMergeDetail(prID: prID) }
+        // Pull Request › Merge… (⇧⌘M) en la pestaña Merge.
+        .windowCommand(.merge, enabled: mode == .merge && canMerge) { model.mergeFromWindow(prID: prID) }
         // View › Refresh (⌘R) mientras se ve la pestaña.
         .windowCommand(.refresh, enabled: !(window.isLoading || isFinished)) {
             Task { await model.refreshMergeWindow(prID: prID) }
@@ -274,6 +276,8 @@ struct MergeDetailPane: View {
         }
     }
 
+    private var canMerge: Bool { !busy && model.mergeWindowProblem(prID: prID) == nil }
+
     private var busy: Bool {
         switch phase {
         case .merging?, .merged?: true
@@ -317,8 +321,8 @@ struct MergeDetailPane: View {
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
-        .keyboardShortcut("m", modifiers: [.command, .shift])
-        .disabled(busy || model.mergeWindowProblem(prID: prID) != nil)
+        // ⇧⌘M es del menú Pull Request › Merge… (lo registra `body`): con los dos, el del menú gana.
+        .disabled(!canMerge)
         .help("\(methodBinding.wrappedValue.actionTitle) (⇧⌘M)")
     }
 }

@@ -2443,6 +2443,13 @@ Spec M.6.
   optionally on a record."`. Comentarios de `WindowPresenter` que nombran ⌘Y. Paridad UI (ítems nuevos de `AppMenu`:
   navegación → `.viewOnly`; Merge… → `.cli(["merge"])`; Stop Claude → `.cli(["review cancel", "respond cancel", "ci
   cancel"])`; Undo → `.viewOnly("text editing")` como hoy, con el comentario `// también /undo del chat`).
+  **Hecho (implementación):** `WindowCommand` suma también `.openOnGitHub` (el ítem del menú Pull Request; lo
+  registran `MainWindow` y `PRWindow`). Las pestañas son ítems con `tag` 1…3 y un solo selector (`selectTab(_:)`); el
+  handler lleva `title` (nombre de la pestaña) e `isOn` (marca la elegida). Los registros de ⌥⌘1–3, ⌘. y ⌘Z viven en
+  `PRDetailCommands` (privado de `PRDetailView.swift`); ⌘Z usa `AppModel.existingChat(draftID:)` (no crea chats). ⌘.
+  pregunta igual que el Stop/Cancel de cada pane; los botones Stop conservan su ⌘. (el menú, si está habilitado, lo
+  atiende antes). El botón de Merge perdió su `keyboardShortcut` (⇧⌘M es del menú). La validación de Undo usa el
+  `undoManager` del first responder.
 - [ ] **Step 6:** `swift run PRBarTests atajos`, `"paridad UI"`, suite. **Commit** `"Add the main window's menus and
   shortcuts"`.
 
