@@ -1,0 +1,122 @@
+import Foundation
+import PRBarCore
+
+private func context(mine: Bool, feedback: Bool = false, ci: Bool = false, task: RespondMode? = nil) -> PRTabContext {
+    PRTabContext(isMine: mine, hasFeedback: feedback, ciFailing: ci, respondTask: task)
+}
+
+private func sectionOf(_ prID: String) -> MainSection? {
+    prID.hasPrefix("me/") ? .myPRs : (prID.hasPrefix("o/") ? .toReview : nil)
+}
+
+enum MainNavigationTests {
+    static let cases: [TestCase] = [
+        TestCase("navegación: PR ajeno tiene Review y Details y empieza en Review") {
+            let c = context(mine: false)
+            try expectEqual(PRTabs.tabs(c).map(\.tab), [.review, .details])
+            try expect(PRTabs.tabs(c).allSatisfy(\.isEnabled))
+            try expectEqual(PRTabs.initial(c), .review)
+        },
+        TestCase("navegación: PR propio — cambios pedidos → Respond; CI roto → Fix CI; si no, Merge") {
+            try expectEqual(PRTabs.tabs(context(mine: true)).map(\.tab), [.merge, .respond, .fixCI])
+            try expectEqual(PRTabs.initial(context(mine: true, feedback: true, ci: true)), .respond)
+            try expectEqual(PRTabs.initial(context(mine: true, ci: true)), .fixCI)
+            try expectEqual(PRTabs.initial(context(mine: true)), .merge)
+            // Sin feedback ni CI roto pero con una tarea abierta: la de la tarea.
+            try expectEqual(PRTabs.initial(context(mine: true, task: .ciFix)), .fixCI)
+            try expectEqual(PRTabs.initial(context(mine: true, task: .feedback)), .respond)
+        },
+        TestCase("navegación: Respond y Fix CI deshabilitadas sin nada que hacer, salvo con tarea") {
+            let idle = PRTabs.tabs(context(mine: true))
+            try expectEqual(idle.map(\.isEnabled), [true, false, false])
+            let withTask = PRTabs.tabs(context(mine: true, task: .feedback))
+            try expectEqual(withTask.map(\.isEnabled), [true, true, false])
+            let ciTask = PRTabs.tabs(context(mine: true, task: .ciFix))
+            try expectEqual(ciTask.map(\.isEnabled), [true, false, true])
+        },
+        TestCase("navegación: la pestaña recordada vale si está habilitada; si no, la inicial") {
+            try expectEqual(PRTabs.resolve(remembered: .fixCI, context: context(mine: true, ci: true)), .fixCI)
+            try expectEqual(PRTabs.resolve(remembered: .respond, context: context(mine: true)), .merge)
+            try expectEqual(PRTabs.resolve(remembered: .merge, context: context(mine: false)), .review)
+            try expectEqual(PRTabs.resolve(remembered: nil, context: context(mine: false)), .review)
+        },
+        TestCase("navegación: ⌥⌘N es la N-ésima pestaña, si está habilitada") {
+            try expectEqual(PRTabs.tab(atShortcut: 2, context(mine: false)), .details)
+            try expectEqual(PRTabs.tab(atShortcut: 3, context(mine: false)), nil)
+            try expectEqual(PRTabs.tab(atShortcut: 2, context(mine: true)), nil)   // Respond deshabilitada
+            try expectEqual(PRTabs.tab(atShortcut: 3, context(mine: true, ci: true)), .fixCI)
+        },
+        TestCase("navegación: el contexto sale del PR clasificado") {
+            let mine = ClassifiedPR(pr: makePR(number: 3, author: "me", ci: .failure), category: .myFeedback, account: "me")
+            try expectEqual(PRTabContext(item: mine, respondTask: nil),
+                            context(mine: true, feedback: true, ci: true))
+            let other = ClassifiedPR(pr: makePR(number: 4, author: "ana"), category: .toReview, account: "me")
+            try expectEqual(PRTabContext(item: other, respondTask: nil), context(mine: false))
+        },
+        TestCase("navegación: go(to:) elige la sección del PR, recuerda la pestaña pedida y empuja el lugar anterior") {
+            var nav = MainNavigationState()
+            try expectEqual(nav.place, .start)
+            nav.go(to: .pr(prID: "me/r#3", tab: .fixCI), sectionOf: sectionOf)
+            try expectEqual(nav.place, MainPlace(sidebar: .section(.myPRs), prID: "me/r#3"))
+            try expectEqual(nav.rememberedTabs["me/r#3"], .fixCI)
+            try expectEqual(nav.back.places, [.start])
+            // Un PR que no está en el snapshot queda en la sección de ahora.
+            nav.go(to: .pr(prID: "x/gone#9", tab: nil), sectionOf: sectionOf)
+            try expectEqual(nav.place.sidebar, .section(.myPRs))
+            nav.go(to: .history(recordID: nil), sectionOf: sectionOf)
+            nav.go(to: .activity, sectionOf: sectionOf)
+            try expectEqual(nav.back.places.count, 4)
+            // Ir adonde ya se está no empuja nada.
+            nav.go(to: .activity, sectionOf: sectionOf)
+            try expectEqual(nav.back.places.count, 4)
+        },
+        TestCase("navegación: Back vuelve al lugar anterior y guarda como mucho 20") {
+            var nav = MainNavigationState()
+            for i in 0..<25 { nav.go(to: i.isMultiple(of: 2) ? .activity : .history(recordID: nil), sectionOf: sectionOf) }
+            try expectEqual(nav.back.places.count, BackStack.limit)
+            try expectEqual(nav.place.sidebar, .activity)   // i = 24
+            nav.goBack()
+            try expectEqual(nav.place.sidebar, .history)    // i = 23
+            try expectEqual(nav.back.places.count, BackStack.limit - 1)
+            var fresh = MainNavigationState()
+            fresh.goBack()
+            try expectEqual(fresh.place, .start)
+        },
+        TestCase("navegación: elegir en la lista no va a Back; ⌘1/⌘2 vuelven al PR elegido de cada sección") {
+            var nav = MainNavigationState()
+            nav.select(prID: "o/r#1")
+            try expect(!nav.back.canGoBack)
+            nav.go(to: .list(.myPRs), sectionOf: sectionOf)
+            try expectEqual(nav.place, MainPlace(sidebar: .section(.myPRs), prID: nil))
+            nav.select(prID: "me/r#3")
+            nav.go(to: .list(.toReview), sectionOf: sectionOf)
+            try expectEqual(nav.place.prID, "o/r#1")
+            nav.go(to: .list(.myPRs), sectionOf: sectionOf)
+            try expectEqual(nav.place.prID, "me/r#3")
+        },
+        TestCase("navegación: la pestaña elegida se recuerda por PR") {
+            var nav = MainNavigationState()
+            nav.choose(.details, for: "o/r#1")
+            try expectEqual(nav.tab(for: "o/r#1", context: context(mine: false)), .details)
+            try expectEqual(nav.tab(for: "o/r#2", context: context(mine: false)), .review)
+            try expect(!nav.back.canGoBack)
+        },
+        TestCase("navegación: History con registro y Back dentro de History") {
+            var nav = MainNavigationState()
+            let id = UUID()
+            nav.go(to: .history(recordID: id), sectionOf: sectionOf)
+            try expectEqual(nav.place, MainPlace(sidebar: .history, historyRecordID: id))
+            nav.select(historyRecord: nil)
+            try expectEqual(nav.place.historyRecordID, nil)
+            // ⌘3 estando en History conserva el registro elegido.
+            nav.select(historyRecord: id)
+            nav.go(to: .history(recordID: nil), sectionOf: sectionOf)
+            try expectEqual(nav.place.historyRecordID, id)
+        },
+        TestCase("navegación: el ancho de la lista es el 32 % entre 280 y 340") {
+            try expect(abs(MainLayout.listWidth(windowWidth: 1000) - 320) < 0.001)
+            try expectEqual(MainLayout.listWidth(windowWidth: 600), 280)
+            try expectEqual(MainLayout.listWidth(windowWidth: 1280), 340)
+        },
+    ]
+}
