@@ -43,7 +43,7 @@ struct PRRowAccessory: View {
         case .myFeedback:
             HStack(spacing: 6) {
                 if offersFixCI {
-                    FixCIButton(unavailableReason: model.ciFixUnavailableReason(item)) { model.startCIFix(item) }
+                    FixCIButton(unavailableReason: model.ciFixUnavailableReason(item), start: actions.ciFix.start)
                 }
                 RespondButton(
                     phase: respond.phases[item.id], runningTests: respond.runningTests.contains(item.id),
@@ -57,7 +57,7 @@ struct PRRowAccessory: View {
             MergeButton(phase: merges.phases[item.id], availability: model.mergeOptions(item).availability, actions: actions.merge)
         default:
             if offersFixCI {
-                FixCIButton(unavailableReason: model.ciFixUnavailableReason(item)) { model.startCIFix(item) }
+                FixCIButton(unavailableReason: model.ciFixUnavailableReason(item), start: actions.ciFix.start)
             } else {
                 EmptyView()
             }

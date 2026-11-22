@@ -25,13 +25,18 @@ struct PopoverView: View {
                     .padding(.horizontal, 12)
                     .padding(.bottom, 8)
             }
+            if showsTabs {
+                ClaudeStrip(model: model, reviews: model.reviews, respond: model.respond)
+            }
             Divider().padding(.bottom, 4)
             content
-            // El pie de recursos, debajo del contenido y visible en las dos pestañas (spec I).
+            // El pie (spec M.3): recursos (abre Activity), el aviso de actualización y los ítems de la app.
+            Divider()
             if showsTabs {
-                Divider()
-                ResourceFooter(monitor: model.resources) { model.openActivityWindow() }
+                ResourceFooter(monitor: model.resources, monthCost: monthCost) { model.openActivityWindow() }
             }
+            UpdateNotice(updates: model.updates) { model.openUpdateWindow() }
+            PopoverFooterMenu(model: model)
         }
         .frame(width: Theme.popoverWidth)
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { totalHeight = $0 }
@@ -58,13 +63,16 @@ struct PopoverView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            // The full "Update" capsule if it fits next to the title and subtitle; else its icon-only form; else the
-            // subtitle gives way (truncates).
-            ViewThatFits(in: .horizontal) {
-                titleAndUpdate(compactUpdate: false)
-                titleAndUpdate(compactUpdate: true)
-                titleAndUpdate(compactUpdate: true, truncatesSubtitle: true)
+            HStack(alignment: .firstTextBaseline, spacing: 7) {
+                Text("PRBar").font(.headline).foregroundStyle(.primary).fixedSize()
+                TimelineView(.periodic(from: .now, by: 30)) { _ in
+                    Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
             }
+            Spacer(minLength: 0)
+            IconButton(systemImage: "macwindow", help: "Open PRBar window (⌘0)", size: 13) { model.openMainWindow() }
             TimelineView(.periodic(from: .now, by: 30)) { context in
                 let limitedUntil = rateLimitedUntil(at: context.date)
                 IconButton(
@@ -77,48 +85,13 @@ struct PopoverView: View {
                 .keyboardShortcut("r", modifiers: .command)
                 .disabled(prStore.isRefreshing || limitedUntil != nil)
             }
-            Menu {
-                // Provisorio (plan 21): hasta que la cabecera tenga su botón (Task 12).
-                Button("Open PRBar Window") { model.openMainWindow() }
-                Button("History…") { model.openHistory() }
-                    .keyboardShortcut("y", modifiers: .command)
-                Button("Settings…") { model.openSettings() }
-                    .keyboardShortcut(",", modifiers: .command)
-                Divider()
-                Button("Quit PRBar") { NSApp.terminate(nil) }
-                    .keyboardShortcut("q", modifiers: .command)
-            } label: {
-                Image(systemName: "gearshape").font(.system(size: 13, weight: .medium))
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .frame(width: 22, height: 22)
-            .hoverHighlight(cornerRadius: Theme.Radius.button)
-            .help("More options")
-            .accessibilityLabel("More options")
+            IconButton(systemImage: "gearshape", help: "Settings (⌘,)", size: 13) { model.openSettings() }
         }
         .foregroundStyle(.secondary)
         .padding(.leading, 14)
         .padding(.trailing, 8)
         .padding(.vertical, 9)
         .background { keyboardShortcuts }
-    }
-
-    /// "PRBar  updated 2 min ago" and, when a new version is offered or installing, the Update button at the right.
-    private func titleAndUpdate(compactUpdate: Bool, truncatesSubtitle: Bool = false) -> some View {
-        HStack(spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 7) {
-                Text("PRBar").font(.headline).foregroundStyle(.primary).fixedSize()
-                TimelineView(.periodic(from: .now, by: 30)) { _ in
-                    Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .fixedSize(horizontal: !truncatesSubtitle, vertical: false)
-                }
-            }
-            Spacer(minLength: 0)
-            UpdateButton(updates: model.updates, compact: compactUpdate) { model.openUpdateWindow() }
-        }
     }
 
     /// El control solo tiene sentido con la lista de PRs (decisión H.4.6): no con "Set Up an Account", "GitHub CLI
@@ -146,33 +119,32 @@ struct PopoverView: View {
         .help("⌘1 To Review · ⌘2 My PRs")
     }
 
-    /// Los atajos del menú ⚙︎ también tienen que andar con el menú cerrado: un `Menu` solo atiende los de sus
-    /// ítems mientras está abierto, así que se repiten en botones invisibles.
+    /// ⌘1/⌘2 cambian de pestaña sin un control propio: botones invisibles (⌘0, ⌘, y ⌘Q son de los ítems del pie).
+    @ViewBuilder
     private var keyboardShortcuts: some View {
-        ZStack {
-            Button("History…") { model.openHistory() }
-                .keyboardShortcut("y", modifiers: .command)
-            Button("Settings…") { model.openSettings() }
-                .keyboardShortcut(",", modifiers: .command)
-            Button("Quit PRBar") { NSApp.terminate(nil) }
-                .keyboardShortcut("q", modifiers: .command)
-            // ⌘1/⌘2 solo cuando se ve el control (decisión H.4.6): sin él no hay pestañas que cambiar.
-            if showsTabs {
+        // Solo cuando se ve el control (decisión H.4.6): sin él no hay pestañas que cambiar.
+        if showsTabs {
+            ZStack {
                 Button("To Review") { tabs.selected = .toReview }
                     .keyboardShortcut("1", modifiers: .command)
                 Button("My PRs") { tabs.selected = .mine }
                     .keyboardShortcut("2", modifiers: .command)
             }
+            .opacity(0)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
         }
-        .opacity(0)
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
     }
 
     /// Hora de reintento si GitHub nos limitó y todavía no pasó; `nil` si se puede refrescar.
     private func rateLimitedUntil(at now: Date) -> Date? {
         guard let until = prStore.snapshot?.rateLimitedUntil, until > now else { return nil }
         return until
+    }
+
+    /// Lo que costó Claude este mes (el pie de recursos).
+    private var monthCost: String {
+        UsageFormat.cost(model.usageLedger.month(UsageSummary.monthKey(Date())).usage)
     }
 
     private var subtitle: String {
@@ -299,5 +271,99 @@ struct PopoverView: View {
                     .onHover { inside in if inside { rows.select(item.id) } }
             }
         }
+    }
+}
+
+/// "Claude · N running · M ready ›" debajo del selector (spec M.3): lleva al primer PR con tarea, en su pestaña.
+private struct ClaudeStrip: View {
+    let model: AppModel
+    @ObservedObject var reviews: ReviewQueue
+    @ObservedObject var respond: RespondQueue
+
+    var body: some View {
+        let rows = model.claudeTaskRows()
+        if let text = ClaudeTasksSidebar.popoverStrip(rows), let first = rows.first {
+            Button {
+                model.navigate(to: .pr(prID: first.prID, tab: first.tab))
+            } label: {
+                HStack(spacing: 6) {
+                    if rows.contains(where: \.isRunning) {
+                        ProgressView().controlSize(.mini).tint(Theme.violet)
+                    } else {
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.green)
+                    }
+                    Text(text).foregroundStyle(.primary).lineLimit(1)
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
+                }
+                .font(.subheadline.weight(.medium))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(RoundedRectangle(cornerRadius: Theme.Radius.row).fill(Theme.violet.opacity(0.12)))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 12)
+            .padding(.bottom, 8)
+            .help("Open \(ClaudeTasksSidebar.shortName(first.prID)) in PRBar")
+            .accessibilityLabel(text)
+            .accessibilityHint("Opens the first PR with a Claude task in PRBar")
+        }
+    }
+}
+
+/// El aviso de actualización del pie (spec M.3): "PRBar X available" y el botón Update (abre la hoja de Update).
+private struct UpdateNotice: View {
+    @ObservedObject var updates: UpdateController
+    let open: () -> Void
+
+    var body: some View {
+        if let version = updates.available?.version.description {
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.down.circle.fill").foregroundStyle(Theme.accent)
+                Text(updates.isInstalling ? "Installing PRBar \(version)…" : "PRBar \(version) available")
+                    .font(.subheadline)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                UpdateButton(updates: updates, open: open)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 7)
+            Divider()
+        }
+    }
+}
+
+/// Open PRBar ⌘0 · Settings… ⌘, · Quit PRBar ⌘Q, como ítems de menú al pie del popover (spec M.3; Quit por pedido
+/// del usuario: la app no tiene Dock mientras no hay ventanas).
+private struct PopoverFooterMenu: View {
+    let model: AppModel
+
+    var body: some View {
+        VStack(spacing: 0) {
+            item("Open PRBar", "⌘0", key: "0") { model.openMainWindow() }
+            item("Settings…", "⌘,", key: ",") { model.openSettings() }
+            item("Quit PRBar", "⌘Q", key: "q") { NSApp.terminate(nil) }
+        }
+        .padding(.vertical, 5)
+    }
+
+    private func item(_ title: String, _ shortcut: String, key: KeyEquivalent, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack {
+                Text(title).foregroundStyle(.primary)
+                Spacer(minLength: 8)
+                Text(shortcut).foregroundStyle(.secondary)
+            }
+            .font(.system(size: 13))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .hoverHighlight(cornerRadius: Theme.Radius.row)
+        .padding(.horizontal, 6)
+        .keyboardShortcut(key, modifiers: .command)
+        .accessibilityLabel(title)
     }
 }

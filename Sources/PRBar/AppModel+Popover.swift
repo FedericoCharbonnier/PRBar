@@ -26,43 +26,56 @@ extension AppModel {
         if visible { popoverTab.popoverDidOpen() } else { popoverTab.popoverDidClose() }
     }
 
-    /// Return on the row selected with the arrow keys: what clicking the row does (the PR on GitHub).
+    /// Return on the row selected with the arrow keys: what clicking the row does (the PR in the main window).
     func openPRFromPopover(_ prID: String) {
-        guard let url = prStore.snapshot?.items.first(where: { $0.id == prID })?.pr.url else { return }
-        NSWorkspace.shared.open(url)
+        navigate(to: .pr(prID: prID, tab: nil))
     }
 
-    /// Lo que hacen el pill y el menú contextual de una fila (popover y ventana principal).
+    /// Lo que hacen el pill y el menú contextual de una fila (popover y ventana principal). Abrir lleva a la pestaña de
+    /// la acción; empezar algo además la abre (spec M.3). En la ventana principal navegar al mismo PR no hace nada.
     func rowActions(_ item: ClassifiedPR) -> PRRowActions {
         let respond = self.respond
-        // Con fixes hechos (o commits que dejó una implementación) no se vuelve a analizar: la ventana reintenta la
+        let prID = item.id
+        // Con fixes hechos (o commits que dejó una implementación) no se vuelve a analizar: la pestaña reintenta la
         // publicación, o pregunta antes de descartarlos.
-        let hasWork = { respond.records[item.id]?.result != nil || respond.unpushedWork.contains(item.id) }
+        let hasWork = { respond.records[prID]?.result != nil || respond.unpushedWork.contains(prID) }
+        let startReview = { [weak self] in
+            self?.startReview(item)
+            self?.navigate(to: .pr(prID: prID, tab: .review))
+        }
+        let startRespond = { [weak self] in
+            self?.startRespond(item)
+            self?.navigate(to: .pr(prID: prID, tab: .respond))
+        }
+        let startCIFix = { [weak self] in
+            self?.startCIFix(item)
+            self?.navigate(to: .pr(prID: prID, tab: .fixCI))
+        }
         return PRRowActions(
             review: ReviewButtonActions(
-                start: { [weak self] in self?.startReview(item) },
-                cancel: { [weak self] in self?.cancelReview(prID: item.id) },
-                open: { [weak self] in self?.openReview(prID: item.id) },
-                retry: { [weak self] in self?.startReview(item) },
-                dismiss: { [weak self] in self?.dismissReview(prID: item.id) }
+                start: startReview,
+                cancel: { [weak self] in self?.cancelReview(prID: prID) },
+                open: { [weak self] in self?.openReview(prID: prID) },
+                retry: startReview,
+                dismiss: { [weak self] in self?.dismissReview(prID: prID) }
             ),
             respond: RespondButtonActions(
-                start: { [weak self] in self?.startRespond(item) },
-                cancel: { [weak self] in self?.cancelRespond(prID: item.id) },
-                open: { [weak self] in self?.openRespond(prID: item.id) },
-                retry: { [weak self] in hasWork() ? self?.openRespond(prID: item.id) : self?.startRespond(item) },
-                dismiss: { [weak self] in self?.confirmDismissRespond(prID: item.id) }
+                start: startRespond,
+                cancel: { [weak self] in self?.cancelRespond(prID: prID) },
+                open: { [weak self] in self?.openRespond(prID: prID) },
+                retry: { [weak self] in hasWork() ? self?.openRespond(prID: prID) : startRespond() },
+                dismiss: { [weak self] in self?.confirmDismissRespond(prID: prID) }
             ),
             ciFix: RespondButtonActions(
-                start: { [weak self] in self?.startCIFix(item) },
-                cancel: { [weak self] in self?.cancelRespond(prID: item.id) },
-                open: { [weak self] in self?.openRespond(prID: item.id) },
-                retry: { [weak self] in hasWork() ? self?.openRespond(prID: item.id) : self?.startCIFix(item) },
-                dismiss: { [weak self] in self?.confirmDismissRespond(prID: item.id) }
+                start: startCIFix,
+                cancel: { [weak self] in self?.cancelRespond(prID: prID) },
+                open: { [weak self] in self?.openRespond(prID: prID) },
+                retry: { [weak self] in hasWork() ? self?.openRespond(prID: prID) : startCIFix() },
+                dismiss: { [weak self] in self?.confirmDismissRespond(prID: prID) }
             ),
             merge: MergeButtonActions(
                 open: { [weak self] in self?.requestMerge(item) },
-                dismiss: { [weak self] in self?.dismissMergeError(prID: item.id) }
+                dismiss: { [weak self] in self?.dismissMergeError(prID: prID) }
             )
         )
     }

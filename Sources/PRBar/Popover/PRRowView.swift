@@ -26,13 +26,13 @@ struct PRRowView: View {
     }
 
     var body: some View {
-        // La fila es un `Button` real que abre el PR. Los botones Review y Responder no pueden ir adentro (serían
+        // La fila es un `Button` real que abre el PR en la ventana principal (spec M.3). Los botones Review y Responder no pueden ir adentro (serían
         // botones anidados): se dibujan encima, en el lugar que les reserva una copia oculta dentro de la fila.
-        Button { NSWorkspace.shared.open(pr.url) } label: { rowContent }
+        Button { model.navigate(to: .pr(prID: item.id, tab: nil)) } label: { rowContent }
             .buttonStyle(.plain)
             .accessibilityLabel(accessibilityLabel)
             .accessibilityAddTraits(isSelected ? [.isLink, .isSelected] : .isLink)
-            .accessibilityHint("Opens the PR on GitHub")
+            .accessibilityHint("Opens the PR in PRBar")
             .overlayPreferenceValue(AccessoryAnchorKey.self) { anchor in
                 GeometryReader { proxy in
                     if let anchor {
@@ -169,7 +169,7 @@ struct PRRowView: View {
                 }
                 Button("View Fix CI", action: actions.ciFix.open).disabled(respond.records[item.id] == nil)
             } else {
-                Button("Fix CI with Claude") { model.startCIFix(item) }
+                Button("Fix CI with Claude", action: actions.ciFix.start)
                     .disabled(model.ciFixUnavailableReason(item) != nil)
             }
         }
