@@ -110,7 +110,7 @@ public actor RemoteClient {
     /// Pedazos de chats que no inició este teléfono (`chatDelta`, spec P.6).
     public nonisolated let chatDeltas: AsyncStream<RemoteChatDelta>
     private let chatSink: AsyncStream<RemoteChatDelta>.Continuation
-    /// Cada cambio de `status` (la app del iPhone lo muestra y reconecta con esto).
+    /// Cada cambio de `status` (los tests lo miran para reconectar).
     public nonisolated let statusUpdates: AsyncStream<RemoteClientStatus>
     private let statusSink: AsyncStream<RemoteClientStatus>.Continuation
     /// Cada `presencePolicy` de la Mac, también a mitad de sesión (la Mac prendió o apagó Face ID para este teléfono,

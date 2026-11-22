@@ -126,20 +126,5 @@ enum WireTests {
             try expectEqual(randomBytes(32).count, 32)
             try expect(randomBytes(32) != randomBytes(32))
         },
-        TestCase("wire: PRBarWire y PRBarRemoteKit no usan APIs solo de macOS") {
-            let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            let forbidden = ["import AppKit", "import IOKit", "import Darwin", "Process(", "NSWorkspace", "getpeereid"]
-            for target in ["PRBarWire", "PRBarRemoteKit"] {
-                let dir = root.appendingPathComponent(target)
-                let files = try FileManager.default.contentsOfDirectory(atPath: dir.path).filter { $0.hasSuffix(".swift") }
-                try expect(!files.isEmpty, "\(target) sin archivos")
-                for file in files {
-                    let text = try String(contentsOf: dir.appendingPathComponent(file), encoding: .utf8)
-                    for word in forbidden where text.contains(word) {
-                        throw TestFailure(description: "\(target)/\(file) usa \(word): tiene que compilar para iOS")
-                    }
-                }
-            }
-        },
     ]
 }

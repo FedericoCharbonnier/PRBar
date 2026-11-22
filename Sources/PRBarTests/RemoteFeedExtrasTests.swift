@@ -4,8 +4,7 @@ import PRBarCore
 import PRBarRemoteKit
 import PRBarRemoteMac
 
-/// Lo que el iPhone muestra y ningún comando necesitaba (spec R.7), y lo que `RemoteClient` le da a la app del iPhone
-/// para mostrar el estado de la conexión.
+/// Lo que el iPhone muestra y ningún comando necesitaba (spec R.7), y el estado de la conexión de `RemoteClient`.
 enum RemoteFeedExtrasTests {
     static let cases: [TestCase] = [
         TestCase("feed extras: resumen de tests de Jest, pytest, XCTest, cargo, Mocha y Swift Testing") {

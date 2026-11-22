@@ -2,8 +2,9 @@ import CryptoKit
 import Foundation
 
 // Las claves y lo que cada lado recuerda del otro (spec P.2). Sin almacenamiento: la Mac las guarda en el llavero y en
-// `devices.json` (Plan 18), el teléfono en su llavero compartido con la extensión (Plan 19). En JSON, cada clave va
-// como `rawRepresentation` en base64url.
+// `devices.json` (Plan 18); el teléfono es la web app (`web/`), que tiene su propia implementación. Las de teléfono de
+// acá (`DeviceKeys`, `PairedMac`) solo las usan los tests y la Mac simulada. En JSON, cada clave va como
+// `rawRepresentation` en base64url.
 
 private func encodeKey<K: CodingKey>(_ data: Data, _ container: inout KeyedEncodingContainer<K>, _ key: K) throws {
     try container.encode(Base64URL.encode(data), forKey: key)
@@ -47,7 +48,7 @@ public struct MacKeys: Codable, Sendable {
 public struct DeviceKeys: Codable, Sendable {
     public var relay: Curve25519.Signing.PrivateKey
     public var noise: Curve25519.KeyAgreement.PrivateKey
-    /// Destinatario HPKE: la extensión de notificaciones la necesita para descifrar.
+    /// Destinatario HPKE de los pushes cifrados.
     public var push: Curve25519.KeyAgreement.PrivateKey
 
     public init(relay: Curve25519.Signing.PrivateKey = .init(), noise: Curve25519.KeyAgreement.PrivateKey = .init(),

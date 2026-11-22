@@ -215,7 +215,7 @@ public struct PushIdentifiers: Sendable {
         key = Self.derive(try macSeal.sharedSecretFromKeyAgreement(with: devicePush))
     }
 
-    /// Lado teléfono (la extensión de notificaciones no lo necesita; la app sí para agrupar).
+    /// Lado teléfono (lo usan los tests y la Mac simulada; la web app tiene el suyo).
     public init(devicePush: Curve25519.KeyAgreement.PrivateKey, macSeal: Curve25519.KeyAgreement.PublicKey) throws {
         key = Self.derive(try devicePush.sharedSecretFromKeyAgreement(with: macSeal))
     }

@@ -3,17 +3,12 @@ import PackageDescription
 
 let package = Package(
     name: "PRBar",
-    platforms: [.macOS(.v14), .iOS("26.0")],
+    platforms: [.macOS(.v14)],
     products: [
         .executable(name: "PRBar", targets: ["PRBar"]),
         // Se instala como `prbar` (Contents/Helpers/prbar): un producto `prbar` chocaría con `PRBar` en .build/
         // porque APFS no distingue mayúsculas.
         .executable(name: "PRBarCLI", targets: ["PRBarCLI"]),
-        // La app de iOS (Plan 19) consume este producto como paquete local.
-        .library(name: "PRBarRemoteKit", targets: ["PRBarRemoteKit"]),
-        // The Mac side plus a fixture dispatcher: the iPhone's end-to-end test (macOS only) runs a real
-        // `RemoteAccessService` with it through the local relay.
-        .library(name: "PRBarRemoteFixtures", targets: ["PRBarRemoteFixtures", "PRBarRemoteMac", "PRBarCore"]),
         // Los vectores cruzados de la web app y una Mac simulada para su e2e (spec web W.9).
         .executable(name: "prbar-remote-fixture", targets: ["PRBarRemoteFixtureServer"]),
     ],
@@ -22,9 +17,9 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-argument-parser.git", exact: "1.6.2"),
     ],
     targets: [
-        // Los tipos `Codable` del protocolo de comandos: solo Foundation, compilan también para iOS.
+        // Los tipos `Codable` del protocolo de comandos: solo Foundation (los comparten la app, la CLI y el lado remoto).
         .target(name: "PRBarWire"),
-        // Cifrado, framing, protocolo del relay y las máquinas de estado remotas (spec P): también para iOS.
+        // Cifrado, framing, protocolo del relay y las máquinas de estado remotas (spec P).
         .target(name: "PRBarRemoteKit", dependencies: ["PRBarWire"]),
         .target(name: "PRBarCore", dependencies: ["PRBarWire"]),
         // El lado Mac del acceso desde el iPhone (spec Q): claves, dispositivos, el servicio, el puente a

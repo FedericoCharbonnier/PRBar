@@ -60,7 +60,7 @@ public protocol RelayLink: AnyObject, Sendable {
 
 public typealias RelayLinkFactory = @Sendable (RelayCredential) -> RelayLink
 
-/// Cliente de WebSocket con `URLSessionWebSocketTask` (macOS e iOS). Subprotocolo `prbar-relay.v1`; solo `wss://`
+/// Cliente de WebSocket con `URLSessionWebSocketTask`. Subprotocolo `prbar-relay.v1`; solo `wss://`
 /// salvo `allowInsecureTransportForTests`.
 public final class WebSocketRelayLink: RelayLink, @unchecked Sendable {
     public static let subprotocol = "prbar-relay.v1"
