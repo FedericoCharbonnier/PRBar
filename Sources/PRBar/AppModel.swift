@@ -208,10 +208,10 @@ final class AppModel: ObservableObject {
     /// Descarta las fases de merge de los PRs que ya no están en cada snapshot nuevo (spec F.8.10), aunque el refresco
     /// de después del merge no haya podido correr.
     private var mergePruneObserver: AnyCancellable?
+    /// Con cada snapshot, el PR de la ventana principal pasa a su sección (`MainWindowState.reconcile`).
+    private var mainSectionObserver: AnyCancellable?
     /// Una sesión de merge por PR (ventana, chat y registro del historial; spec G, `AppModel+Merge`).
     var mergeSessions: [String: MergeSession] = [:]
-    /// Cuántos detalles de cada PR se ven ahora (`detailAppeared`): su sesión de merge no termina mientras tanto.
-    var shownPRDetails: [String: Int] = [:]
     /// Los merges hechos desde PRBar y sus chats (spec G.4).
     let mergeHistory: MergeHistory
     /// La pestaña elegida del popover (spec H).
@@ -304,6 +304,9 @@ final class AppModel: ObservableObject {
         mergePruneObserver = prStore.$snapshot.dropFirst().compactMap { $0 }.sink { [weak self] snapshot in
             self?.merges.prune(keeping: Set(snapshot.items.map(\.id)))
             self?.updateMergeSessions(snapshot)
+        }
+        mainSectionObserver = prStore.$snapshot.compactMap { $0 }.sink { [weak self] snapshot in
+            self?.main.reconcile(with: snapshot)
         }
         guard startsServices else { return }
         // Every `claude -p` of the app goes to the ledger (spec O.4.2).

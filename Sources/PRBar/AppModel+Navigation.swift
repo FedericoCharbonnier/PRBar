@@ -8,16 +8,22 @@ extension AppModel {
     /// La abre o enfoca, cierra el popover, elige sección, PR y pestaña, y empuja el lugar anterior a Back. Lo que pide
     /// un iPhone nunca navega ni roba el foco.
     func navigate(to destination: MainDestination) {
-        guard !CommandOrigin.current.isPhone else {
-            AppLog.write("Ignored a navigation requested from an iPhone.")
-            return
-        }
+        guard !Self.ignoresPhoneRequest("a navigation") else { return }
         main.go(to: destination, snapshot: prStore.snapshot)
         openMainWindow()
     }
 
+    /// Lo que pide un iPhone nunca abre ventanas en la Mac (ni navega ni roba el foco): cada camino que abre una lo
+    /// pregunta primero.
+    static func ignoresPhoneRequest(_ what: String) -> Bool {
+        guard CommandOrigin.current.isPhone else { return false }
+        AppLog.write("Ignored \(what) requested from an iPhone.")
+        return true
+    }
+
     /// ⌘0, "Open PRBar", el Dock: abre o enfoca la ventana sin moverse.
     func openMainWindow() {
+        guard !Self.ignoresPhoneRequest("opening the main window") else { return }
         closePopover?()
         WindowPresenter.shared.show(
             id: Self.mainWindowID, title: "PRBar", size: Theme.MainLayout.defaultSize,
@@ -34,6 +40,7 @@ extension AppModel {
     /// ⇧⌘O, doble clic en una fila, el botón de la toolbar (spec M.2). Una por PR; si ya hay, al frente. Se agrupan
     /// como pestañas nativas entre ellas (`PRBar.pr`).
     func openPRWindow(prID: String, tab: PRTab? = nil) {
+        guard !Self.ignoresPhoneRequest("opening a PR window") else { return }
         closePopover?()
         if let tab { main.choose(tab, for: prID) }
         WindowPresenter.shared.show(
@@ -92,9 +99,10 @@ extension AppModel {
             openUpdateWindow()
         case .url(let url):
             NSWorkspace.shared.open(url)
-        case .destination(.pr(let prID, let tab)) where currentItem(prID) == nil:
+        case .destination(.pr(let prID, let tab)) where prStore.snapshot != nil && currentItem(prID) == nil:
             // El PR ya no está (se mergeó o cerró): Respond / Fix CI → su registro en History; Merge → GitHub; una
-            // review lista → la pestaña igual (la review sigue en la cola).
+            // review lista → la pestaña igual (la review sigue en la cola). Sin snapshot todavía (la app recién abrió
+            // desde la notificación) no se sabe: va a la pestaña, que se llena cuando llegan los datos.
             if tab == .respond || tab == .fixCI, respond.records[prID] == nil {
                 openHistory(selecting: respondHistory.all().first { $0.draft.prID == prID }?.id)
             } else if tab == .merge, let url = PRReference.githubURL(prID: prID) {

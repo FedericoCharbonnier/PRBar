@@ -27,13 +27,26 @@ final class MainWindowState: ObservableObject {
     /// `navigate(to:)`: mueve la ventana y empuja el lugar anterior a Back. Cambiar de sección limpia la búsqueda.
     func go(to destination: MainDestination, snapshot: Snapshot?) {
         let before = nav.place.sidebar
-        nav.go(to: destination) { prID in snapshot?.items.first { $0.id == prID }.map(MainList.mainSection(of:)) }
+        let destination = destination.canonicalized(among: snapshot?.items.map(\.id) ?? [])
+        nav.go(to: destination) { prID in Self.section(of: prID, in: snapshot) }
         if nav.place.sidebar != before { search = "" }
         // Un registro pedido (notificación, `prbar app history <id>`) tiene que verse: sin filtro ni búsqueda.
         if case .history(let recordID?) = destination, !history.matchesFilters(recordID, historyFilter, query: search) {
             historyFilter = .all
             search = ""
         }
+    }
+
+    /// Con cada snapshot: el PR elegido pasa a su sección si quedó en otra (se navegó antes de tener datos).
+    func reconcile(with snapshot: Snapshot) {
+        let ids = snapshot.items.map(\.id)
+        var next = nav
+        next.reconcile(ids: ids) { prID in Self.section(of: prID, in: snapshot) }
+        if next != nav { nav = next }
+    }
+
+    private static func section(of prID: String, in snapshot: Snapshot?) -> MainSection? {
+        snapshot?.items.first { $0.id == prID }.map(MainList.mainSection(of:))
     }
 
     func select(prID: String?) { nav.select(prID: prID) }

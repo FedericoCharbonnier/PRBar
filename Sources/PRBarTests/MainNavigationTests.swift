@@ -113,6 +113,50 @@ enum MainNavigationTests {
             nav.go(to: .history(recordID: nil), sectionOf: sectionOf)
             try expectEqual(nav.place.historyRecordID, id)
         },
+        TestCase("navegación: un PR elegido antes del primer snapshot pasa a su sección cuando llega") {
+            var nav = MainNavigationState()
+            // Sin snapshot todavía: cae en la sección de ahora (To Review).
+            nav.go(to: .pr(prID: "me/r#3", tab: .fixCI), sectionOf: { _ in nil })
+            try expectEqual(nav.place, MainPlace(sidebar: .section(.toReview), prID: "me/r#3"))
+            let back = nav.back
+            nav.reconcile(ids: ["me/r#3", "o/r#1"], sectionOf: sectionOf)
+            try expectEqual(nav.place, MainPlace(sidebar: .section(.myPRs), prID: "me/r#3"))
+            try expectEqual(nav.back, back)   // no empuja nada
+            // ⌘1 no vuelve al PR que estaba mal puesto; ⌘2 sí lo tiene.
+            nav.go(to: .list(.toReview), sectionOf: sectionOf)
+            try expectEqual(nav.place.prID, nil)
+            nav.go(to: .list(.myPRs), sectionOf: sectionOf)
+            try expectEqual(nav.place.prID, "me/r#3")
+        },
+        TestCase("navegación: reconcile no mueve un PR que ya está en su sección, que no está o fuera de una sección") {
+            var nav = MainNavigationState()
+            nav.go(to: .pr(prID: "o/r#1", tab: nil), sectionOf: sectionOf)
+            let before = nav
+            nav.reconcile(ids: ["o/r#1"], sectionOf: sectionOf)
+            try expectEqual(nav, before)
+            nav.go(to: .pr(prID: "x/gone#9", tab: nil), sectionOf: sectionOf)
+            let gone = nav
+            nav.reconcile(ids: ["o/r#1"], sectionOf: sectionOf)
+            try expectEqual(nav, gone)
+            nav.go(to: .activity, sectionOf: sectionOf)
+            let activity = nav
+            nav.reconcile(ids: ["o/r#1"], sectionOf: sectionOf)
+            try expectEqual(nav, activity)
+        },
+        TestCase("navegación: el id de un link prbar:// se busca sin distinguir mayúsculas") {
+            let ids = ["Acme/API#12", "o/r#1"]
+            try expectEqual(MainDestination.pr(prID: "acme/api#12", tab: .merge).canonicalized(among: ids),
+                            .pr(prID: "Acme/API#12", tab: .merge))
+            try expectEqual(MainDestination.pr(prID: "acme/api#13", tab: nil).canonicalized(among: ids),
+                            .pr(prID: "acme/api#13", tab: nil))
+            try expectEqual(MainDestination.activity.canonicalized(among: ids), .activity)
+            // Llegó antes del snapshot: reconcile le pone el id del snapshot y le pasa la pestaña recordada.
+            var nav = MainNavigationState()
+            nav.go(to: .pr(prID: "ME/R#3", tab: .merge), sectionOf: { _ in nil })
+            nav.reconcile(ids: ["me/r#3"], sectionOf: sectionOf)
+            try expectEqual(nav.place, MainPlace(sidebar: .section(.myPRs), prID: "me/r#3"))
+            try expectEqual(nav.rememberedTabs, ["me/r#3": .merge])
+        },
         TestCase("navegación: el ancho de la lista es el 32 % entre 280 y 340") {
             try expect(abs(MainLayout.listWidth(windowWidth: 1000) - 320) < 0.001)
             try expectEqual(MainLayout.listWidth(windowWidth: 600), 280)

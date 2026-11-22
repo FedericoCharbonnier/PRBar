@@ -39,6 +39,13 @@ public enum MainDestination: Hashable, Sendable {
     case pr(prID: String, tab: PRTab?)
     case history(recordID: UUID?)
     case activity
+
+    /// El mismo destino con el id del PR como está en `ids` (sin distinguir mayúsculas: un link `prbar://` puede venir
+    /// escrito a mano). Si no está, queda como vino.
+    public func canonicalized(among ids: [String]) -> MainDestination {
+        guard case .pr(let prID, let tab) = self else { return self }
+        return .pr(prID: MainNavigationState.canonicalPRID(prID, among: ids), tab: tab)
+    }
 }
 
 /// Lo elegido en la barra lateral.
@@ -178,6 +185,27 @@ public struct MainNavigationState: Equatable, Sendable {
         case .activity:
             move(to: MainPlace(sidebar: .activity))
         }
+    }
+
+    /// Con cada snapshot (`sectionOf` y `ids` son los suyos): el PR elegido toma el id del snapshot y, si quedó en otra
+    /// sección (p. ej. se navegó antes del primer snapshot y cayó en To Review), pasa a la suya. No empuja nada a Back.
+    public mutating func reconcile(ids: [String], sectionOf: (String) -> MainSection?) {
+        guard let current = section, let prID = place.prID else { return }
+        let id = Self.canonicalPRID(prID, among: ids)
+        guard let target = sectionOf(id), target != current || id != prID else { return }
+        if id != prID, let tab = rememberedTabs.removeValue(forKey: prID), rememberedTabs[id] == nil {
+            rememberedTabs[id] = tab
+        }
+        if selectedPRs[current] == prID { selectedPRs[current] = nil }
+        place = MainPlace(sidebar: .section(target), prID: id)
+        selectedPRs[target] = id
+    }
+
+    /// `owner/repo#N` como está en `ids`, sin distinguir mayúsculas; si no está, el mismo.
+    public static func canonicalPRID(_ prID: String, among ids: [String]) -> String {
+        guard let reference = PRReference.parse(prID), case .full = reference,
+              case .success(let id) = reference.resolve(among: ids) else { return prID }
+        return id
     }
 
     public mutating func select(prID: String?) {
