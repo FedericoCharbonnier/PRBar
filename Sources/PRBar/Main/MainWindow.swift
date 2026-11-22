@@ -86,6 +86,12 @@ struct MainWindow: View {
                 .disabled(!state.nav.back.canGoBack)
                 .help("Back (⌘[)")
         }
+        // Las pestañas del PR elegido, centradas (spec M.1).
+        ToolbarItem(placement: .principal) {
+            if let (prID, context, tab) = selectedTabs {
+                PRDetailToolbar.tabBar(model: model, state: state, prID: prID, context: context, tab: tab)
+            }
+        }
         ToolbarItemGroup(placement: .primaryAction) {
             if prStore.isRefreshing {
                 ProgressView().controlSize(.small).frame(width: 28)
@@ -101,7 +107,18 @@ struct MainWindow: View {
             } label: { Label("Open on GitHub", systemImage: "arrow.up.right.square") }
                 .disabled(selectedPRURL == nil)
                 .help("Open on GitHub")
+            if selectedTabs != nil && model.chatEnabled {
+                PRDetailToolbar.chatButton(detail: detail)
+            }
         }
+        // La búsqueda (170 pt, "Search ⌘F") va a la derecha de este grupo: la suma la Task 18.
+    }
+
+    /// El PR elegido en To Review / My PRs con sus pestañas (nil si no hay o ya no está).
+    private var selectedTabs: (String, PRTabContext, PRTab)? {
+        guard case .section = state.nav.place.sidebar, let prID = state.nav.place.prID,
+              let context = model.tabContext(prID: prID) else { return nil }
+        return (prID, context, state.nav.tab(for: prID, context: context))
     }
 
     private var selectedPRURL: URL? {

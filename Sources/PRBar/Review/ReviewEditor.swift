@@ -146,7 +146,7 @@ struct ReviewEditor: View {
                 .padding(.top, 2)
                 .padding(.bottom, 14)
             }
-            .safeAreaInset(edge: .bottom, spacing: 0) { footer }
+            footer
         }
     }
 
@@ -286,8 +286,7 @@ struct ReviewEditor: View {
         .padding(.horizontal, 20)
         .padding(.top, 12)
         .padding(.bottom, 14)
-        .background(.bar)
-        .overlay(alignment: .top) { Divider() }
+        .windowBar()
     }
 
     /// Sin hallazgos elegidos ni comentario general, Comentar y Pedir cambios no publicarían nada.

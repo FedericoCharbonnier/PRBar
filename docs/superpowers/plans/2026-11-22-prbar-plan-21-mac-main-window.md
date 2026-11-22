@@ -2472,6 +2472,11 @@ en `PRBarURLTests`.
 - [ ] **Step 1:** `MainWindow`: `.searchable(text: $state.search, placement: .toolbar, prompt: "Search ⌘F")` solo en las
   secciones de PRs y en History (en Activity, sin campo). Ancho: `Theme.MainLayout.searchWidth` (si `.searchable` no
   deja fijarlo, aceptar el del sistema y anotarlo en M.9).
+  **Nota (pulido después de la Task 7):** la toolbar de la ventana principal ya está en el orden del spec: Back ·
+  título · pestañas del PR **centradas** (`.principal`, las pone `MainWindow` con `PRDetailToolbar.tabBar`, no
+  `PRDetailView`) · grupo Refresh / Open in New Window / Open on GitHub / Chat (`.primaryAction`). El campo de búsqueda
+  va **a la derecha de ese grupo** (hay un comentario en `MainWindow.toolbar` marcando el lugar); verificar con la
+  captura que las pestañas siguen centradas al sumarlo.
 - [ ] **Step 2:** `PRListPane` pasa `query: state.search` a `MainList.items`; con búsqueda, las secciones con resultados
   se muestran desplegadas aunque estén plegadas y, sin resultados, "No Results" (como History). `HistoryListPane`
   filtra con `ListSearch` (Task 9). ⌘F: el `find` de `WindowCommandCenter` (Task 16) enfoca el campo.

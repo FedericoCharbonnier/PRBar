@@ -45,17 +45,15 @@ struct PRDetailView: View {
                     detail.focus.toggleChat()
                 }
                 .toolbar {
-                    ToolbarItem(placement: .principal) {
-                        PRTabBar(tabs: PRTabs.tabs(context), selected: tab,
-                                 indicator: { ClaudeTasksSidebar.indicator(prID: prID, tab: $0, rows: model.claudeTaskRows()) },
-                                 choose: { state.choose($0, for: prID) })
-                    }
-                    if model.chatEnabled {
-                        ToolbarItem(placement: .primaryAction) {
-                            Button { detail.focus.toggleChat() } label: {
-                                Label("Chat", systemImage: "bubble.left.and.bubble.right")
+                    // En la ventana principal las pone `MainWindow` (en orden: pestañas al centro, después los botones).
+                    if hostsInspector {
+                        ToolbarItem(placement: .principal) {
+                            PRDetailToolbar.tabBar(model: model, state: state, prID: prID, context: context, tab: tab)
+                        }
+                        if model.chatEnabled {
+                            ToolbarItem(placement: .primaryAction) {
+                                PRDetailToolbar.chatButton(detail: detail)
                             }
-                            .help(detail.focus.chatShown ? "Hide Chat (⌥⌘I)" : "Show Chat (⌥⌘I)")
                         }
                     }
                 }
@@ -80,6 +78,23 @@ struct PRDetailView: View {
         case .respond, .fixCI:
             LegacyPaneButton(title: "Open Respond Window") { model.openRespond(prID: prID) }
         }
+    }
+}
+
+/// Las piezas del detalle que van en la toolbar: las pestañas y el botón del chat.
+@MainActor
+enum PRDetailToolbar {
+    static func tabBar(model: AppModel, state: MainWindowState, prID: String, context: PRTabContext, tab: PRTab) -> some View {
+        PRTabBar(tabs: PRTabs.tabs(context), selected: tab,
+                 indicator: { ClaudeTasksSidebar.indicator(prID: prID, tab: $0, rows: model.claudeTaskRows()) },
+                 choose: { state.choose($0, for: prID) })
+    }
+
+    static func chatButton(detail: PRDetailState) -> some View {
+        Button { detail.focus.toggleChat() } label: {
+            Label("Chat", systemImage: "bubble.left.and.bubble.right")
+        }
+        .help(detail.focus.chatShown ? "Hide Chat (⌥⌘I)" : "Show Chat (⌥⌘I)")
     }
 }
 

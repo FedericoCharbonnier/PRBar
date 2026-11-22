@@ -29,6 +29,16 @@ public enum MainListSection: String, CaseIterable, Identifiable, Sendable {
 
     /// Plegada al abrir y atenuada (como en el popover).
     public var isQuiet: Bool { self == .otherToReview || self == .waitingForReview }
+
+    /// Sus PRs piden una acción y suman al contador de la barra lateral (y al de la pestaña del popover y al badge de la
+    /// barra de menú, que cuentan lo mismo): To Review y Updated Since My Review; With Feedback y Ready to Merge.
+    /// Other, CI Failing y Waiting for Review no suman.
+    public var needsAction: Bool {
+        switch self {
+        case .toReview, .updatedSinceMyReview, .withFeedback, .readyToMerge: true
+        case .otherToReview, .ciFailing, .waitingForReview: false
+        }
+    }
 }
 
 public enum MainList {
@@ -56,9 +66,12 @@ public enum MainList {
         snapshot.items.filter { self.section(of: $0) == section && ListSearch.matches($0.pr, query: query) }
     }
 
-    /// El contador de la barra lateral: el mismo que el de la pestaña del popover. nil sin datos.
+    /// El contador de la barra lateral: los PRs de las secciones que piden acción (`needsAction`), el mismo número
+    /// que la pestaña del popover. nil sin datos.
     public static func count(_ section: MainSection, in snapshot: Snapshot?) -> Int? {
-        snapshot.map { PopoverTabs.count(section == .toReview ? .toReview : .mine, in: $0) }
+        snapshot.map { snapshot in
+            sections(section).filter(\.needsAction).reduce(0) { $0 + items($1, in: snapshot).count }
+        }
     }
 
     public static func initiallyCollapsed(_ section: MainListSection, itemCount: Int) -> Bool {

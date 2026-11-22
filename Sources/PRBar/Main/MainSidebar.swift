@@ -27,10 +27,8 @@ struct MainSidebar: View {
             }
             claudeGroup
             Section {
-                Label("History", systemImage: "clock.arrow.circlepath")
-                    .tag(SidebarItem.history)
-                Label("Activity", systemImage: "gauge")
-                    .tag(SidebarItem.activity)
+                row("History", icon: "clock.arrow.circlepath", item: .history)
+                row("Activity", icon: "gauge", item: .activity)
             }
         }
         .listStyle(.sidebar)
@@ -55,9 +53,26 @@ struct MainSidebar: View {
     }
 
     private func sectionRow(_ section: MainSection, icon: String) -> some View {
-        Label(section.title, systemImage: icon)
-            .badge(MainList.count(section, in: prStore.snapshot) ?? 0)
-            .tag(SidebarItem.section(section))
+        let count = MainList.count(section, in: prStore.snapshot) ?? 0
+        return label(section.title, icon: icon, item: .section(section))
+            .badge(count)
+            .help(count == 1 ? "1 PR needs your action" : "\(count) PRs need your action")
+            .tag(SidebarItem.section(section))   // el tag, lo último: si no, la `List` no marca la fila elegida
+    }
+
+    /// Una fila de navegación: el ícono en el acento (como el boceto, también con la ventana inactiva) y la elegida en
+    /// negrita.
+    private func row(_ title: String, icon: String, item: SidebarItem) -> some View {
+        label(title, icon: icon, item: item).tag(item)
+    }
+
+    private func label(_ title: String, icon: String, item: SidebarItem) -> some View {
+        let selected = state.nav.place.sidebar == item
+        return Label {
+            Text(title).fontWeight(selected ? .semibold : .regular)
+        } icon: {
+            Image(systemName: icon).foregroundStyle(Theme.accent)
+        }
     }
 
     // MARK: Claude

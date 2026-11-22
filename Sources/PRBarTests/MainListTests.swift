@@ -37,6 +37,17 @@ enum MainListTests {
             try expectEqual(MainList.count(.myPRs, in: snapshot), 2)
             try expectEqual(MainList.count(.myPRs, in: nil), nil)
         },
+        TestCase("lista: contador = PRs que piden acción (To Review + Updated Since My Review; With Feedback + Ready to Merge)") {
+            try expectEqual(MainListSection.allCases.filter(\.needsAction),
+                            [.toReview, .updatedSinceMyReview, .withFeedback, .readyToMerge])
+            // Other, CI Failing y Waiting for Review no suman (como el badge de la barra de menú).
+            let more = Snapshot(items: snapshot.items + [item(.toReview, number: 8), item(.other, number: 9)], fetchedAt: t0)
+            try expectEqual(MainList.count(.toReview, in: more), 3)
+            try expectEqual(MainList.count(.toReview, in: more),
+                            MainList.items(.toReview, in: more).count + MainList.items(.updatedSinceMyReview, in: more).count)
+            try expectEqual(MainList.count(.toReview, in: more), PopoverTabs.count(.toReview, in: more))
+            try expectEqual(MainList.count(.myPRs, in: more), PopoverTabs.count(.mine, in: more))
+        },
         TestCase("lista: vacías y calladas empiezan plegadas; borradores ocultos") {
             try expect(MainList.initiallyCollapsed(.toReview, itemCount: 0))
             try expect(!MainList.initiallyCollapsed(.toReview, itemCount: 2))

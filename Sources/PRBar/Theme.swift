@@ -80,6 +80,13 @@ extension View {
     func cardBorder(cornerRadius: CGFloat = Theme.Radius.card, opacity: Double = 0.1) -> some View {
         modifier(CardBorder(cornerRadius: cornerRadius, opacity: opacity))
     }
+
+    /// La barra inferior de un pane (Post Review, Push…): fondo opaco de ventana con un separador arriba. Va debajo del
+    /// `ScrollView` en un `VStack` (no en `safeAreaInset`): el contenido termina arriba de la barra, no por debajo.
+    func windowBar() -> some View {
+        background(Color(nsColor: .windowBackgroundColor))
+            .overlay(alignment: .top) { Divider() }
+    }
 }
 
 extension Color {
