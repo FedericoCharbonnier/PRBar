@@ -6,19 +6,8 @@ import UserNotifications
 /// con `swift run` no hay bundle id y se registra en el log en vez de fallar.
 @MainActor
 final class NotificationDelivery: NSObject, UNUserNotificationCenterDelegate {
-    /// Click en una notificación de review terminada: recibe el PR y, si la review falló, el id de su registro
-    /// en el historial (lo asigna `AppModel`).
-    var onOpenReview: ((String, UUID?) -> Void)?
-    /// Click en una notificación de "Responder": recibe el PR (lo asigna `AppModel`).
-    var onOpenRespond: ((String) -> Void)?
-    /// Click en la notificación de una versión nueva (lo asigna `AppModel`).
-    var onOpenUpdate: (() -> Void)?
-    /// Click en "is ready to merge": abre la ventana de Merge del PR (lo asigna `AppModel`).
-    var onOpenMerge: ((String) -> Void)?
-    /// Clic en una notificación de un PR (antes de su acción): elige la pestaña del popover (spec H.1).
-    var onSelectPR: ((String) -> Void)?
-    /// Click en el aviso de disco (spec I): abre la ventana PRBar Activity.
-    var onOpenActivity: (() -> Void)?
+    /// Clic en una notificación (o en su botón "Open"): a dónde lleva (spec M.4; lo asigna `AppModel`).
+    var onOpen: ((NotificationTarget) -> Void)?
 
     private nonisolated static let categoryID = "PR"
     private nonisolated static let openActionID = "open"
@@ -89,26 +78,11 @@ final class NotificationDelivery: NSObject, UNUserNotificationCenterDelegate {
             completionHandler()
             return
         }
-        let userInfo = response.notification.request.content.userInfo
-        if userInfo["activity"] != nil {
-            Task { @MainActor in self.onOpenActivity?() }
-            completionHandler()
-            return
+        let info = response.notification.request.content.userInfo.reduce(into: [String: String]()) {
+            if let key = $1.key as? String, let value = $1.value as? String { $0[key] = value }
         }
-        if let prID = userInfo["prID"] as? String {
-            Task { @MainActor in self.onSelectPR?(prID) }
-        }
-        if userInfo["updateVersion"] is String {
-            Task { @MainActor in self.onOpenUpdate?() }
-        } else if let prID = userInfo["mergePRID"] as? String {
-            Task { @MainActor in self.onOpenMerge?(prID) }
-        } else if let prID = userInfo["respondPRID"] as? String {
-            Task { @MainActor in self.onOpenRespond?(prID) }
-        } else if let prID = userInfo["reviewPRID"] as? String {
-            let recordID = (userInfo["reviewRecordID"] as? String).flatMap(UUID.init(uuidString:))
-            Task { @MainActor in self.onOpenReview?(prID, recordID) }
-        } else if let string = userInfo["url"] as? String, let url = URL(string: string) {
-            DispatchQueue.main.async { NSWorkspace.shared.open(url) }
+        if let target = NotificationRoute.target(userInfo: info) {
+            Task { @MainActor in self.onOpen?(target) }
         }
         completionHandler()
     }

@@ -88,59 +88,23 @@ public protocol PopoverTabStore: AnyObject {
 extension UserDefaults: PopoverTabStore {}
 
 /// La pestaña elegida del popover; se recuerda entre aperturas y reinicios (clave `popoverTab`). La cambian el
-/// control segmentado, ⌘1/⌘2 y `prbar app popover --tab`. El clic en una notificación de un PR la cambia solo para
-/// la próxima apertura (`selectForNextOpening`, spec H.4.7): al cerrarse el popover vuelve la guardada.
+/// control segmentado, ⌘1/⌘2 y `prbar app popover --tab`. (El clic en una notificación ya no la toca: abre el PR en
+/// la ventana principal, spec M.4.)
 @MainActor
 public final class PopoverTabState: ObservableObject {
     public nonisolated static let defaultsKey = "popoverTab"
 
     private let store: (any PopoverTabStore)?
-    /// La que eligió el usuario (la guardada).
-    private var saved: PopoverTab
-    /// `selected` es temporal (la puso una notificación) y todavía no se mostró / ya se está mostrando.
-    private var transient: (shown: Bool, active: Bool) = (false, false)
-    private var isOpen = false
-    private var settingTransiently = false
 
     @Published public var selected: PopoverTab {
-        didSet {
-            guard !settingTransiently else { return }
-            saved = selected
-            transient = (false, false)
-            store?.set(selected.rawValue, forKey: Self.defaultsKey)
-        }
+        didSet { store?.set(selected.rawValue, forKey: Self.defaultsKey) }
     }
 
     /// `store == nil`: se recuerda solo en memoria (el modo de capturas, que no escribe fuera de su carpeta).
     public init(store: (any PopoverTabStore)? = UserDefaults.standard) {
         self.store = store
         let initial = store?.string(forKey: Self.defaultsKey).flatMap(PopoverTab.init(rawValue:)) ?? .toReview
-        saved = initial
         selected = initial
-    }
-
-    /// Muestra `tab` en la próxima apertura (o ya, si el popover está abierto) sin guardarla.
-    public func selectForNextOpening(_ tab: PopoverTab) {
-        setSilently(tab)
-        transient = (shown: isOpen, active: true)
-    }
-
-    public func popoverDidOpen() {
-        isOpen = true
-        if transient.active { transient.shown = true }
-    }
-
-    public func popoverDidClose() {
-        isOpen = false
-        guard transient.active, transient.shown else { return }
-        transient = (false, false)
-        setSilently(saved)
-    }
-
-    private func setSilently(_ tab: PopoverTab) {
-        settingTransiently = true
-        selected = tab
-        settingTransiently = false
     }
 }
 

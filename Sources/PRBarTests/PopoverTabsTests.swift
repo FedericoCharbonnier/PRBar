@@ -148,50 +148,6 @@ enum PopoverTabsTests {
                 try expectEqual(PopoverTabState(store: defaults).selected, .mine)
             }
         },
-        TestCase("popover tabs: el clic en una notificación elige la pestaña solo para la próxima apertura") {
-            try await MainActor.run {
-                let store = MemoryTabStore()
-                let state = PopoverTabState(store: store)
-                state.selected = .toReview
-                state.selectForNextOpening(.mine)
-                try expectEqual(state.selected, .mine)
-                try expectEqual(store.values["popoverTab"], "to-review")
-                // Un cierre sin haberse abierto (la ventana oculta avisa cambios) no la deshace.
-                state.popoverDidClose()
-                try expectEqual(state.selected, .mine)
-                state.popoverDidOpen()
-                try expectEqual(state.selected, .mine)
-                state.popoverDidClose()
-                try expectEqual(state.selected, .toReview)
-                try expectEqual(store.values["popoverTab"], "to-review")
-                state.popoverDidOpen()
-                state.popoverDidClose()
-                try expectEqual(state.selected, .toReview)
-            }
-        },
-        TestCase("popover tabs: si el usuario cambia de pestaña después de la notificación, esa se guarda") {
-            try await MainActor.run {
-                let store = MemoryTabStore()
-                let state = PopoverTabState(store: store)
-                state.selectForNextOpening(.mine)
-                state.popoverDidOpen()
-                state.selected = .toReview
-                state.selected = .mine
-                state.popoverDidClose()
-                try expectEqual(state.selected, .mine)
-                try expectEqual(store.values["popoverTab"], "mine")
-            }
-        },
-        TestCase("popover tabs: con el popover abierto la notificación cambia la pestaña hasta que se cierra") {
-            try await MainActor.run {
-                let state = PopoverTabState(store: MemoryTabStore())
-                state.popoverDidOpen()
-                state.selectForNextOpening(.mine)
-                try expectEqual(state.selected, .mine)
-                state.popoverDidClose()
-                try expectEqual(state.selected, .toReview)
-            }
-        },
         TestCase("popover tabs: sin UserDefaults la pestaña se recuerda solo en memoria") {
             try await MainActor.run {
                 let state = PopoverTabState(store: nil)

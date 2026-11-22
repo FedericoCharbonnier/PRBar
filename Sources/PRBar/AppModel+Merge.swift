@@ -93,6 +93,7 @@ extension AppModel {
         session.record.status = status
         session.record.errorMessage = error
         session.record.finishedAt = date
+        session.record.requestedOnPhone = phoneMerges.contains(item.id) ? true : nil
         saveMergeRecord(session)
     }
 
@@ -132,15 +133,6 @@ extension AppModel {
         rebuildMergeChatIfOutdated(session)
         if firstLoad, let shown = session.window.shownHead, let listed = currentItem(session.prID)?.pr.headOid, listed != shown {
             await prStore.refreshNow()
-        }
-    }
-
-    /// Click en "is ready to merge": la ventana si el PR sigue en la lista; si no, el PR en el navegador.
-    func openMergeFromNotification(prID: String) {
-        if let item = currentItem(prID) {
-            requestMerge(item)
-        } else if let url = PRReference.githubURL(prID: prID) {
-            NSWorkspace.shared.open(url)
         }
     }
 
@@ -249,6 +241,7 @@ extension AppModel {
         } else {
             precheck = .noLongerOpen
         }
+        if CommandOrigin.current.isPhone { phoneMerges.insert(item.id) } else { phoneMerges.remove(item.id) }
         let result = await postings.track { await merges.merge(item, method: method, precheck: precheck) }
         if case .failure(let error) = result, MergeFlow.recordsAttempt(error) {
             recordMergeAttempt(item, method: method, status: .failed, error: error.localizedDescription, at: Date())

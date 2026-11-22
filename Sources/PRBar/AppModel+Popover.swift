@@ -12,18 +12,10 @@ extension AppModel {
         return PopoverInfo(tab: popoverTab.selected, shown: shown)
     }
 
-    /// Clic en la notificación de un PR: la próxima vez que se abra el popover está en la pestaña de ese PR, sin
-    /// pisar la que eligió el usuario (spec H.4.7).
-    func selectTab(forNotificationPR prID: String) {
-        guard let item = prStore.snapshot?.items.first(where: { $0.id == prID }) else { return }
-        popoverTab.selectForNextOpening(PopoverTabs.tab(of: item))
-    }
-
-    /// Lo llama `StatusItemController` al abrir y cerrar el panel: avisa a `PopoverTabState` y al `ResourceMonitor`,
-    /// que muestrea solo mientras se ve (spec I).
+    /// Lo llama `StatusItemController` al abrir y cerrar el panel: avisa al `ResourceMonitor`, que muestrea solo
+    /// mientras se ve (spec I).
     func popoverVisibilityChanged(_ visible: Bool) {
         resources.setVisible("popover", visible)
-        if visible { popoverTab.popoverDidOpen() } else { popoverTab.popoverDidClose() }
     }
 
     /// Return on the row selected with the arrow keys: what clicking the row does (the PR in the main window).

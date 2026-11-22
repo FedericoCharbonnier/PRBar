@@ -67,4 +67,26 @@ extension AppModel {
         }
         if let tab = action.tab { navigate(to: .pr(prID: prID, tab: tab)) }
     }
+
+    /// Clic en una notificación (spec M.4): cada una abre el PR en la pestaña de su acción.
+    func openNotificationTarget(_ target: NotificationTarget) {
+        switch target {
+        case .updateSheet:
+            openUpdateWindow()
+        case .url(let url):
+            NSWorkspace.shared.open(url)
+        case .destination(.pr(let prID, let tab)) where currentItem(prID) == nil:
+            // El PR ya no está (se mergeó o cerró): Respond / Fix CI → su registro en History; Merge → GitHub; una
+            // review lista → la pestaña igual (la review sigue en la cola).
+            if tab == .respond || tab == .fixCI, respond.records[prID] == nil {
+                openHistory(selecting: respondHistory.all().first { $0.draft.prID == prID }?.id)
+            } else if tab == .merge, let url = PRReference.githubURL(prID: prID) {
+                NSWorkspace.shared.open(url)
+            } else {
+                navigate(to: .pr(prID: prID, tab: tab))
+            }
+        case .destination(let destination):
+            navigate(to: destination)
+        }
+    }
 }

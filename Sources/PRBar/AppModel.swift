@@ -187,6 +187,8 @@ final class AppModel: ObservableObject {
     private(set) var orphanCleanup: Task<Void, Never>?
     /// Cuándo se pidió cada review (por prID) y si la pidió un iPhone: el `ReviewRecord` y el grupo Claude.
     @Published private(set) var reviewRuns: [String: ClaudeRunInfo] = [:]
+    /// Los PRs cuyo último merge lo pidió un iPhone (el registro de History lleva el ícono, spec M.4).
+    var phoneMerges: Set<String> = []
     /// La ventana principal (spec M.1): sobrevive a cerrarla con ⌘W.
     let main = MainWindowState()
     /// Cuándo empezó y terminó cada etapa (Analyzing · Implementing · Running tests) del Respond / Fix CI de cada PR: la
@@ -321,12 +323,7 @@ final class AppModel: ObservableObject {
             guard let self else { return }
             Task { await self.prStore.refresh() }
         }
-        notifications?.onOpenReview = { [weak self] prID, recordID in self?.openFromNotification(prID: prID, recordID: recordID) }
-        notifications?.onOpenRespond = { [weak self] prID in self?.openRespondFromNotification(prID: prID) }
-        notifications?.onOpenUpdate = { [weak self] in self?.openUpdateWindow() }
-        notifications?.onSelectPR = { [weak self] prID in self?.selectTab(forNotificationPR: prID) }
-        notifications?.onOpenActivity = { [weak self] in self?.openActivityWindow() }
-        notifications?.onOpenMerge = { [weak self] prID in self?.openMergeFromNotification(prID: prID) }
+        notifications?.onOpen = { [weak self] target in self?.openNotificationTarget(target) }
         // Al salir se cancela todo (`cancelEverythingForQuit`; `AppDelegate` además espera a que terminen los procesos
         // y mata los que no). Los worktrees que queden los borra la limpieza de huérfanos del próximo arranque, salvo
         // los que tienen trabajo sin pushear.
@@ -780,17 +777,6 @@ final class AppModel: ObservableObject {
         return current.pr.headOid != draft.headOid
     }
 
-    /// Click en la notificación de un review terminado: si sigue listo (o publicado) abre su ventana de Review;
-    /// si falló, el Historial con ese registro elegido.
-    func openFromNotification(prID: String, recordID: UUID?) {
-        switch reviews.phases[prID] {
-        case .ready?, .published?:
-            openReview(prID: prID)
-        default:
-            if let recordID { openHistory(selecting: recordID) }
-        }
-    }
-
     /// History en la ventana principal (spec M.4); con `selecting`, ese registro elegido.
     func openHistory(selecting recordID: UUID? = nil) {
         navigate(to: .history(recordID: recordID))
@@ -1158,15 +1144,6 @@ final class AppModel: ObservableObject {
     /// Abre el Respond o el Fix CI del PR en su pestaña de la ventana principal (spec M.4).
     func openRespond(prID: String) {
         navigate(to: .pr(prID: prID, tab: respond.mode(of: prID) == .ciFix ? .fixCI : .respond))
-    }
-
-    /// Click en una notificación de Responder: la ventana si el PR sigue en curso; si no, el Historial.
-    func openRespondFromNotification(prID: String) {
-        if respond.records[prID] != nil {
-            openRespond(prID: prID)
-        } else {
-            openHistory(selecting: respondHistory.all().first { $0.draft.prID == prID }?.id)
-        }
     }
 
     /// Cada etapa terminada de `RespondQueue`: recarga el historial, avisa y, si se publicó, refresca los PRs.
