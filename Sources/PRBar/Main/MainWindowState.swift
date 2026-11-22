@@ -21,12 +21,19 @@ final class MainWindowState: ObservableObject {
     @Published var updateSheet: UpdateWindowMode?
     @Published var historyFilter: HistoryFilter = .all
     let detail = PRDetailState()
+    /// Los registros de History (lista y detalle).
+    let history = HistoryEntries()
 
     /// `navigate(to:)`: mueve la ventana y empuja el lugar anterior a Back. Cambiar de sección limpia la búsqueda.
     func go(to destination: MainDestination, snapshot: Snapshot?) {
         let before = nav.place.sidebar
         nav.go(to: destination) { prID in snapshot?.items.first { $0.id == prID }.map(MainList.mainSection(of:)) }
         if nav.place.sidebar != before { search = "" }
+        // Un registro pedido (notificación, `prbar app history <id>`) tiene que verse: sin filtro ni búsqueda.
+        if case .history(let recordID?) = destination, !history.matchesFilters(recordID, historyFilter, query: search) {
+            historyFilter = .all
+            search = ""
+        }
     }
 
     func select(prID: String?) { nav.select(prID: prID) }

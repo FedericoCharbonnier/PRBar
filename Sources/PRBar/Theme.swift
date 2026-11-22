@@ -87,6 +87,14 @@ extension View {
         background(Color(nsColor: .windowBackgroundColor))
             .overlay(alignment: .top) { Divider() }
     }
+
+    /// Pone `bar` (una `windowBar()`) debajo de la vista, no encima de su scroll.
+    func bottomBar<Bar: View>(@ViewBuilder _ bar: () -> Bar) -> some View {
+        VStack(spacing: 0) {
+            self
+            bar()
+        }
+    }
 }
 
 extension Color {

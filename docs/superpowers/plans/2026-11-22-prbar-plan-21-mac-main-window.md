@@ -2114,6 +2114,13 @@ Layout: spec M.1 "History"; boceto `MacHistory.dc.html`.
 - [ ] **Step 3:** `HistorySearch.matches` pasa a `ListSearch.matches(fields: [record.title, record.repo.fullName,
   "\(record.repo.name)#\(record.number)"], number: record.number, query:)` (el campo de búsqueda llega en la Task 18;
   hasta entonces `query` es `state.search`, vacío).
+  **Hecho (implementación):** los registros viven en `HistoryEntries` (`MainWindowState.history`, lo leen lista,
+  detalle y el subtítulo "N records"; se recarga con `historyRevision`). `HistoryEntry.matches(_ filter:)` y
+  `matches(query:)` (con `ListSearch`). Las pestañas de la toolbar son `HistoryFilterBar` (en `PRTabBar.swift`, el mismo
+  aspecto que las del PR: un `Picker` segmentado en la toolbar no mostraba la elegida en las capturas). El `Picker` de
+  repo se fue (decisión para M.9: la búsqueda lo cubre). La barra inferior es `HistoryDetailBar` (View Claude Log ·
+  Open on GitHub + la acción del registro; Merge también la tiene). `navigate(to: .history(recordID:))` con un registro
+  que el filtro o la búsqueda esconden los limpia. Sin registro elegido, la lista elige el primero.
 - [ ] **Step 4:** Capturas `history`, `history-ci-fix` → `main-history` (con un registro elegido) y
   `main-history-ci-fix`. Paridad UI. **Commit** `"Move History into the main window"`.
 

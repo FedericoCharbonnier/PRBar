@@ -39,6 +39,7 @@ struct MergeHistoryDetailView: View {
             .padding(.vertical, 16)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .bottomBar { HistoryDetailBar(logURL: logURL, prURL: record.url) { EmptyView() } }
     }
 
     /// "Squash and Merge · abc1234 · Nov 19, 10:00".

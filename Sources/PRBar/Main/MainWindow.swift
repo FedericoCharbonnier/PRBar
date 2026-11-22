@@ -52,8 +52,13 @@ struct MainWindow: View {
             }
             .animation(.easeInOut(duration: 0.2), value: detail.focus.isFocused)
         case .history:
-            Text("History")   // Task 9
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            HStack(spacing: 0) {
+                HistoryListPane(model: model, state: state)
+                    .frame(width: MainLayout.listWidth(windowWidth: windowWidth))
+                Divider()
+                HistoryDetailPane(model: model, state: state)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         case .activity:
             Text("Activity")   // Task 10
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -91,6 +96,9 @@ struct MainWindow: View {
         ToolbarItem(placement: .principal) {
             if let (prID, context, tab) = selectedTabs {
                 PRDetailToolbar.tabBar(model: model, state: state, prID: prID, context: context, tab: tab)
+            } else if state.nav.place.sidebar == .history {
+                // All · Reviews · Responds · Merges (spec M.1 "History").
+                HistoryFilterBar(selection: $state.historyFilter)
             }
         }
         ToolbarItemGroup(placement: .primaryAction) {
@@ -139,6 +147,10 @@ struct MainWindow: View {
 
     /// "8 PRs · updated 2 min ago", "updating…", "offline" (como el popover).
     private var subtitle: String {
+        if state.nav.place.sidebar == .history {
+            let count = state.history.all.count
+            return count == 1 ? "1 record" : "\(count) records"
+        }
         guard case .section(let section) = state.nav.place.sidebar else { return "" }
         if prStore.isRefreshing { return "updating…" }
         guard let snapshot = prStore.snapshot else { return "no data" }

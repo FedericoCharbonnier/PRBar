@@ -44,7 +44,7 @@ struct HistoryDetailView: View {
             .padding(.vertical, 16)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) { footer }
+        .bottomBar { footer }
     }
 
     private var header: some View {
@@ -141,28 +141,15 @@ struct HistoryDetailView: View {
     }
 
     private var footer: some View {
-        HStack(spacing: 8) {
-            Spacer()
-            Button {
-                if !NSWorkspace.shared.open(logURL) {
-                    NSWorkspace.shared.activateFileViewerSelecting([logURL])
-                }
-            } label: {
-                Label("Show Claude Log", systemImage: "terminal")
-            }
-            .disabled(!FileManager.default.fileExists(atPath: logURL.path))
+        HistoryDetailBar(logURL: logURL, prURL: draft.url) {
             if let url = record.reviewURL {
-                ExternalLink("View on GitHub", destination: url)
+                ExternalLink("View Review", destination: url)
             }
             if canReopen {
                 Button("Open to Post", action: reopen)
                     .buttonStyle(.borderedProminent)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(.bar)
-        .overlay(alignment: .top) { Divider() }
     }
 }
 

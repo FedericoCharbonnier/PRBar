@@ -346,35 +346,18 @@ private final class SnapshotSession {
         try await window("main-details", title: "PRBar", size: Theme.MainLayout.defaultSize) { MainWindow(model: model) }
     }
 
+    /// History in the main window: the newest record selected, then the Fix CI one (its checks, commit and Claude's
+    /// estimated cost; specs K and O).
     private func history() async throws {
         let model = try makeModel("history", snapshot: fixtures.snapshot)
         for record in fixtures.historyReviews { try model.history.save(record) }
         let responds = fixtures.historyResponds
         for record in responds { try model.respondHistory.save(record) }
-        for appearance in options.appearances {
-            let controller = NSHostingController(rootView: HistoryWindow(model: model).environment(\.controlActiveState, .key))
-            controller.sceneBridgingOptions = [.toolbars, .title]
-            let window = SnapshotRenderer.makeWindow(
-                controller: controller, size: NSSize(width: 900, height: 600),
-                style: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], title: "History",
-                toolbarStyle: .unified, appearance: SnapshotRenderer.appearance(appearance)
-            )
-            await SnapshotRenderer.settle(window, seconds: 1)
-            try write(SnapshotRenderer.capture(window, includeFrame: true, cornerRadius: 16), "history", appearance)
-        }
-        // The Fix CI entry selected: its checks, commit and Claude's estimated cost (specs K and O).
-        for appearance in options.appearances {
-            model.requestHistorySelection(responds[0].id)
-            let controller = NSHostingController(rootView: HistoryWindow(model: model).environment(\.controlActiveState, .key))
-            controller.sceneBridgingOptions = [.toolbars, .title]
-            let window = SnapshotRenderer.makeWindow(
-                controller: controller, size: NSSize(width: 900, height: 600),
-                style: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], title: "History",
-                toolbarStyle: .unified, appearance: SnapshotRenderer.appearance(appearance)
-            )
-            await SnapshotRenderer.settle(window, seconds: 1)
-            try write(SnapshotRenderer.capture(window, includeFrame: true, cornerRadius: 16), "history-ci-fix", appearance)
-        }
+        model.main.history.reload(model)
+        model.main.go(to: .history(recordID: model.main.history.all.first?.id), snapshot: model.prStore.snapshot)
+        try await window("main-history", title: "PRBar", size: Theme.MainLayout.defaultSize) { MainWindow(model: model) }
+        model.main.go(to: .history(recordID: responds[0].id), snapshot: model.prStore.snapshot)
+        try await window("main-history-ci-fix", title: "PRBar", size: Theme.MainLayout.defaultSize) { MainWindow(model: model) }
     }
 
     private func settings() async throws {

@@ -79,7 +79,7 @@ enum UIActionInventory {
         .init("Main/PRListPane.swift", "Component:MessageView", "-", 3, .cli(["app settings", "refresh"])),   // Open Settings, Try Again
         .init("Main/PRListPane.swift", "Component:MessageView", "checkmark.seal", 1, .viewOnly("the list’s empty state, no action")),
         .init("Main/PRDetailView.swift", "Component:PRTabBar", "-", 1, .viewOnly("navigation in the main window")),
-        .init("Main/PRTabBar.swift", "Button", "-", 1, .viewOnly("navigation in the main window")),   // a tab
+        .init("Main/PRTabBar.swift", "Button", "-", 2, .viewOnly("navigation in the main window")),   // a PR tab, a History tab (`prbar history --kind`)
         .init("Main/PRDetailView.swift", "Button", "-", 1, .cli(["chat"])),   // Chat (toggles the inspector)
         .init("Main/PRDetailView.swift", "Button", "Open on GitHub", 1, .cli(["open"])),   // a PR that's no longer in the list
         .init("Main/PRDetailView.swift", "Component:MessageView", "questionmark.folder", 1, .viewOnly("a message; its action is a Button in this file")),
@@ -256,21 +256,18 @@ enum UIActionInventory {
         .init("Respond/RespondItemCard.swift", "Button", "-", 1, .viewOnly("expands the thread; `prbar respond show --full` prints it")),
         .init("Respond/RespondItemCard.swift", "ExternalLink", "View on GitHub", 1, .cli(["respond show"])),
         // Historial
-        .init("Review/HistoryWindow.swift", "ListSelection", "-", 1, .cli(["history show"])),
-        .init("Review/HistoryWindow.swift", "Picker", "Repo", 1, .cli(["history list"])),
-        .init("Review/HistoryWindow.swift", "searchable", "Search by title, repo, or number", 1, .cli(["history list"])),
-        .init("Review/HistoryWindow.swift", "Button", "Open PR on GitHub", 3, .cli(["open"])),
-        .init("Review/HistoryWindow.swift", "Button", "Copy PR Link", 3, .cli(["open"])),
-        .init("Review/HistoryWindow.swift", "Button", "View Review on GitHub", 1, .cli(["open"])),
-        .init("Review/HistoryWindow.swift", "Button", "Show Claude Log in Finder", 1, .cli(["history show"])),
-        .init("Review/HistoryWindow.swift", "Button", "Show Log in Finder", 2, .cli(["history show"])),
-        .init("Review/HistoryWindow.swift", "Button", "Open to Post", 1, .cli(["history reopen"])),
-        .init("Review/HistoryWindow.swift", "Button", "Show Response", 1, .cli(["open"])),
-        .init("Review/HistoryDetailView.swift", "Button", "-", 1, .cli(["history show"])),
+        .init("Review/HistoryPane.swift", "ListSelection", "-", 1, .cli(["history show"])),
+        .init("Review/HistoryPane.swift", "Button", "-", 2, .cli(["history show", "open"])),   // View Claude Log, Open on GitHub (the detail's bar)
+        .init("Review/HistoryPane.swift", "Button", "Open PR on GitHub", 3, .cli(["open"])),
+        .init("Review/HistoryPane.swift", "Button", "Copy PR Link", 3, .cli(["open"])),
+        .init("Review/HistoryPane.swift", "Button", "View Review on GitHub", 1, .cli(["open"])),
+        .init("Review/HistoryPane.swift", "Button", "Show Claude Log in Finder", 1, .cli(["history show"])),
+        .init("Review/HistoryPane.swift", "Button", "Show Log in Finder", 2, .cli(["history show"])),
+        .init("Review/HistoryPane.swift", "Button", "Open to Post", 1, .cli(["history reopen"])),
+        .init("Review/HistoryPane.swift", "Button", "Show Response", 1, .cli(["open"])),
         .init("Review/HistoryDetailView.swift", "Button", "Open to Post", 1, .cli(["history reopen"])),
-        .init("Review/HistoryDetailView.swift", "ExternalLink", "View on GitHub", 1, .cli(["open"])),
-        .init("Respond/RespondHistoryDetailView.swift", "Button", "-", 1, .cli(["history show"])),
-        .init("Respond/RespondHistoryDetailView.swift", "Button", "Show Response", 1, .cli(["open"])),
+        .init("Review/HistoryDetailView.swift", "ExternalLink", "View Review", 1, .cli(["open"])),
+        .init("Respond/RespondHistoryDetailView.swift", "Button", "Show Fix CI", 1, .cli(["open"])),   // or "Show Response"
         // Settings › General
         .init("Settings/GeneralTab.swift", "Picker", "Refresh every", 1, .cli(["config set"])),
         .init("Settings/GeneralTab.swift", "Toggle", "Open at login", 1, .cli(["config set"])),
@@ -423,9 +420,10 @@ enum UIActionInventory {
         .init("Chat/ChatPanel.swift", "ConfirmAlert", "Undo Claude’s changes?", 1, .cli(["chat"])),   // --undo --yes
         .init("Chat/ChatPanel.swift", "onKeyPress", "-", 1, .cli(["chat"])),   // ↩ sends
         .init("Components/SearchablePickerPopover.swift", "Component:PickerContent", "-", 1, .viewOnly(generic)),
-        .init("Review/HistoryWindow.swift", "Component:HistoryDetailView", "-", 1, .cli(["history reopen"])),
-        .init("Review/HistoryWindow.swift", "Component:RespondHistoryDetailView", "-", 1, .cli(["open"])),
-        .init("Review/HistoryWindow.swift", "Component:MessageView", "-", 1, .viewOnly("an empty-state message without an action")),
+        .init("Review/HistoryPane.swift", "Component:HistoryDetailView", "-", 1, .cli(["history reopen"])),
+        .init("Review/HistoryPane.swift", "Component:RespondHistoryDetailView", "-", 1, .cli(["open"])),
+        .init("Review/HistoryPane.swift", "Component:MessageView", "-", 1, .viewOnly("an empty-state message without an action")),
+        .init("Review/HistoryPane.swift", "Component:MessageView", "clock.arrow.circlepath", 1, .viewOnly("an empty-state message without an action")),
         .init("Settings/ClaudeTab.swift", "Component:CategoryChip", "-", 1, .cli(["claude review set"])),   // --category
         .init("Settings/ClaudeTab.swift", "Component:ClaudeStageRow", "Review", 1, .cli(["claude stage", "claude prompt edit"])),
         .init("Settings/ClaudeTab.swift", "Component:ClaudeStageRow", "Filter", 1, .cli(["claude stage", "claude prompt edit"])),

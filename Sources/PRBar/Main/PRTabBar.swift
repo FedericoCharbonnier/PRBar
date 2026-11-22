@@ -58,6 +58,33 @@ struct PRTabBar: View {
     }
 }
 
+/// Las pestañas de History en la toolbar (All · Reviews · Responds · Merges), con el mismo aspecto que las del PR.
+struct HistoryFilterBar: View {
+    @Binding var selection: HistoryFilter
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(HistoryFilter.allCases) { filter in
+                let isSelected = filter == selection
+                Button { selection = filter } label: {
+                    Text(filter.title)
+                        .fixedSize()
+                        .font(.callout.weight(isSelected ? .semibold : .regular))
+                        .foregroundStyle(isSelected ? Color.white : Color(nsColor: .labelColor))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 4)
+                        .background(Capsule().fill(isSelected ? Theme.accent : .clear))
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
+            }
+        }
+        .padding(3)
+        .modifier(GlassCapsule())
+    }
+}
+
 /// La cápsula de vidrio del boceto: Liquid Glass en macOS 26, material antes.
 struct GlassCapsule: ViewModifier {
     func body(content: Content) -> some View {

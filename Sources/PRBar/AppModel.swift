@@ -245,9 +245,6 @@ final class AppModel: ObservableObject {
     @Published private(set) var notificationsDenied = false
     /// Sube cada vez que cambia el historial de reviews (para recargar la ventana de Historial).
     @Published var historyRevision = 0
-    /// Registro que la ventana de Historial tiene que elegir al abrirse (p. ej. desde la notificación de un
-    /// review que falló). La ventana lo consume con `consumeHistorySelection()`.
-    @Published private(set) var historySelectionRequest: UUID?
     /// Reviews publicados desde la ventana o la CLI, por id de draft: una ventana abierta pasa a "publicado".
     @Published private(set) var publishedReviews: [UUID: PublishedReview] = [:]
 
@@ -777,15 +774,6 @@ final class AppModel: ObservableObject {
         return PublishedReview(url: url, action: record.action, submission: submission, commentCount: texts.count, publishedAt: now)
     }
 
-    /// The record the History window selects when it appears (snapshot mode; `openHistory(selecting:)` in the app).
-    func requestHistorySelection(_ recordID: UUID) { historySelectionRequest = recordID }
-
-    /// Devuelve (y borra) el registro que pidió elegir `openHistory(selecting:)`.
-    func consumeHistorySelection() -> UUID? {
-        defer { historySelectionRequest = nil }
-        return historySelectionRequest
-    }
-
     /// `true` si el PR recibió commits después de la review (según el último snapshot).
     func isOutdated(_ draft: ReviewDraft) -> Bool {
         guard let current = prStore.snapshot?.items.first(where: { $0.id == draft.prID }) else { return false }
@@ -803,16 +791,9 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Abre la ventana de Historial; con `selecting`, elige ese registro.
+    /// History en la ventana principal (spec M.4); con `selecting`, ese registro elegido.
     func openHistory(selecting recordID: UUID? = nil) {
-        if let recordID { historySelectionRequest = recordID }
-        WindowPresenter.shared.show(
-            id: "history", title: "History", size: HistoryWindow.size, options: WindowOptions(
-                autosaveName: "HistoryWindow", tabbingIdentifier: "PRBar.history", bridgesToolbar: true, toolbarStyle: .unified
-            )
-        ) {
-            HistoryWindow(model: self)
-        }
+        navigate(to: .history(recordID: recordID))
     }
 
     /// "Abrir para publicar" desde el historial: vuelve a dejar el draft listo y abre su ventana de Review.
