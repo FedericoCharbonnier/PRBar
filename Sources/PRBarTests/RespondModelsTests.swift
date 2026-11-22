@@ -87,6 +87,16 @@ enum RespondModelsTests {
             try expectEqual(decoded, draft)
             try expectEqual(decoded.items[0].id, "thread:x")
         },
+        TestCase("respond models: RespondRecord requestedOnPhone; un registro viejo sin la clave da nil") {
+            let phone = RespondRecord(draft: draftStub, startedAt: t0, requestedOnPhone: true)
+            let data = try JSONCoding.encoder.encode(phone)
+            try expectEqual(try JSONCoding.decoder.decode(RespondRecord.self, from: data), phone)
+            var object = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+            object["requestedOnPhone"] = nil
+            let old = try JSONCoding.decoder.decode(RespondRecord.self, from: JSONSerialization.data(withJSONObject: object))
+            try expectEqual(old.requestedOnPhone, nil)
+            try expectEqual(RespondRecord(draft: draftStub, startedAt: t0).requestedOnPhone, nil)
+        },
         TestCase("respond models: the draft keeps its language and old drafts without one decode as English") {
             let draft = RespondDraft(
                 prID: "o/r#1", repo: RepoRef(owner: "o", name: "r"), number: 1, title: "PR", url: URL(string: "https://github.com/o/r/pull/1")!,

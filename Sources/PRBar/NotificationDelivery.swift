@@ -69,15 +69,7 @@ final class NotificationDelivery: NSObject, UNUserNotificationCenterDelegate {
             content.body = notification.body
             content.sound = .default
             content.threadIdentifier = notification.threadIdentifier
-            var userInfo: [String: String] = [:]
-            if let url = notification.url { userInfo["url"] = url.absoluteString }
-            if let prID = notification.reviewPRID { userInfo["reviewPRID"] = prID }
-            if let recordID = notification.reviewRecordID { userInfo["reviewRecordID"] = recordID.uuidString }
-            if let prID = notification.respondPRID { userInfo["respondPRID"] = prID }
-            if let version = notification.updateVersion { userInfo["updateVersion"] = version }
-            if let prID = notification.prID { userInfo["prID"] = prID }
-            if let prID = notification.mergePRID { userInfo["mergePRID"] = prID }
-            if notification.kind == .diskUsage { userInfo["activity"] = "1" }
+            let userInfo = NotificationRoute.userInfo(notification)
             content.userInfo = userInfo
             if !userInfo.isEmpty { content.categoryIdentifier = Self.categoryID }
             let request = UNNotificationRequest(identifier: notification.identifier, content: content, trigger: nil)

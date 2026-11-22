@@ -54,10 +54,13 @@ public struct RespondRecord: Codable, Equatable, Sendable, Identifiable {
     public var chat: ChatSession?
     /// Claude's usage for the analysis and the fixes (spec O; the chat keeps its own). Nil in older history files.
     public var usage: ClaudeUsage?
+    /// La pidió un iPhone (spec M.4); nil = desde la Mac o un registro viejo.
+    public var requestedOnPhone: Bool?
 
     public init(draft: RespondDraft, selections: [String: RespondSelection] = [:], result: RespondResult? = nil,
                 posted: [String: PostedReply] = [:], pushed: Bool = false, startedAt: Date, finishedAt: Date? = nil,
-                errorMessage: String? = nil, chat: ChatSession? = nil, usage: ClaudeUsage? = nil) {
+                errorMessage: String? = nil, chat: ChatSession? = nil, usage: ClaudeUsage? = nil,
+                requestedOnPhone: Bool? = nil) {
         self.draft = draft
         self.selections = selections
         self.result = result
@@ -68,10 +71,11 @@ public struct RespondRecord: Codable, Equatable, Sendable, Identifiable {
         self.errorMessage = errorMessage
         self.chat = chat
         self.usage = usage
+        self.requestedOnPhone = requestedOnPhone
     }
 
     private enum CodingKeys: String, CodingKey {
-        case draft, selections, result, posted, pushed, startedAt, finishedAt, errorMessage, chat, usage
+        case draft, selections, result, posted, pushed, startedAt, finishedAt, errorMessage, chat, usage, requestedOnPhone
     }
 
     /// The run and its chat (spec O.4.4); nil if neither has data (older history files).
@@ -90,6 +94,7 @@ public struct RespondRecord: Codable, Equatable, Sendable, Identifiable {
         errorMessage = try c.decodeIfPresent(String.self, forKey: .errorMessage)
         chat = (try? c.decodeIfPresent(ChatSession.self, forKey: .chat)) ?? nil
         usage = (try? c.decodeIfPresent(ClaudeUsage.self, forKey: .usage)) ?? nil
+        requestedOnPhone = try c.decodeIfPresent(Bool.self, forKey: .requestedOnPhone)
     }
 }
 

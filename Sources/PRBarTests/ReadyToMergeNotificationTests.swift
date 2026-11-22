@@ -26,6 +26,7 @@ enum ReadyToMergeNotificationTests {
             try expectEqual(planned[0].identifier, "readyToMerge:o/r#7")
             // El click abre la ventana de Merge (spec G.1).
             try expectEqual(planned[0].mergePRID, "o/r#7")
+            try expectEqual(planned[0].tab, .merge)
         },
         TestCase("ready notif: ya aprobado que pasa de feedback a listo → readyToMerge") {
             let planned = NotificationPlanner.plan(
@@ -42,6 +43,7 @@ enum ReadyToMergeNotificationTests {
             try expectEqual(planned.map(\.kind), [.myPRApprovedOrCIFailed])
             try expectEqual(planned[0].title, "Your PR Was Approved")
             try expectEqual(planned[0].mergePRID, nil)
+            try expectEqual(planned[0].tab, .merge)
         },
         TestCase("ready notif: si sigue listo no repite; un CI que falla igual avisa") {
             let ready = snap(mine(.readyToMerge, decision: .approved))

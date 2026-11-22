@@ -30,11 +30,13 @@ public struct PlannedNotification: Equatable, Sendable {
     /// Identificador estable: una notificación nueva del mismo evento y PR reemplaza a la anterior en vez de
     /// apilarse.
     public let identifier: String
+    /// La pestaña del PR que abre el clic (spec M.4); nil en las que no son de un PR.
+    public let tab: PRTab?
 
     public init(
         kind: NotificationKind, title: String, body: String, url: URL?, reviewPRID: String? = nil,
         reviewRecordID: UUID? = nil, respondPRID: String? = nil, prID: String? = nil, event: String? = nil,
-        updateVersion: String? = nil, mergePRID: String? = nil
+        updateVersion: String? = nil, mergePRID: String? = nil, tab: PRTab? = nil
     ) {
         self.kind = kind
         self.title = title
@@ -46,6 +48,7 @@ public struct PlannedNotification: Equatable, Sendable {
         self.prID = prID ?? reviewPRID ?? respondPRID
         self.updateVersion = updateVersion
         self.mergePRID = mergePRID
+        self.tab = tab
         identifier = [kind.rawValue, event, self.prID ?? "group"].compactMap { $0 }.joined(separator: ":")
     }
 
@@ -90,13 +93,14 @@ public enum NotificationPlanner {
                 if settings.isOn(.readyToMerge), isNewlyReadyToMerge(item, old: old) {
                     planned.append(PlannedNotification(
                         kind: .readyToMerge, title: "\(pr.repo.fullName)#\(pr.number) is ready to merge", body: pr.title,
-                        url: pr.url, prID: item.id, mergePRID: item.id
+                        url: pr.url, prID: item.id, mergePRID: item.id, tab: .merge
                     ))
                     notifiedReady = true
                 }
             } else if item.category.countsForBadge, old?.category != item.category,
                       let kind = kind(for: item.category), settings.isOn(kind) {
-                planned.append(PlannedNotification(kind: kind, title: title(for: kind), body: body, url: pr.url, prID: item.id))
+                planned.append(PlannedNotification(kind: kind, title: title(for: kind), body: body, url: pr.url, prID: item.id,
+                                                   tab: tab(for: kind)))
             }
 
             let isMine = pr.author.lowercased() == item.account.lowercased()
@@ -105,13 +109,13 @@ public enum NotificationPlanner {
                 if !notifiedReady && old.pr.reviewDecision != .approved && pr.reviewDecision == .approved {
                     planned.append(PlannedNotification(
                         kind: .myPRApprovedOrCIFailed, title: "Your PR Was Approved", body: body, url: pr.url,
-                        prID: item.id, event: "approved"
+                        prID: item.id, event: "approved", tab: .merge
                     ))
                 }
                 if old.pr.ciState != .failure && pr.ciState == .failure {
                     planned.append(PlannedNotification(
                         kind: .myPRApprovedOrCIFailed, title: "CI Failed on Your PR", body: body, url: pr.url,
-                        prID: item.id, event: "ciFailed"
+                        prID: item.id, event: "ciFailed", tab: .fixCI
                     ))
                 }
             }
@@ -136,6 +140,16 @@ public enum NotificationPlanner {
         case .myFeedback: .myPRFeedback
         case .other: nil
         case .readyToMerge: .readyToMerge
+        }
+    }
+
+    /// La pestaña que abre el clic en un aviso del snapshot (spec M.4).
+    private static func tab(for kind: NotificationKind) -> PRTab? {
+        switch kind {
+        case .newToReview, .reviewedPRUpdated: .review
+        case .myPRFeedback: .respond
+        case .readyToMerge: .merge
+        default: nil
         }
     }
 
@@ -192,7 +206,8 @@ extension NotificationPlanner {
         let body = keptCount.map { "\(repo.name)#\(number): \($0) comment\($0 == 1 ? "" : "s") to choose from" }
             ?? "\(repo.name)#\(number): the review failed. Open PRBar to see the log."
         return PlannedNotification(kind: .reviewFinished, title: keptCount == nil ? "Review Failed" : "Review Ready",
-                                   body: body, url: nil, reviewPRID: prID, reviewRecordID: keptCount == nil ? recordID : nil)
+                                   body: body, url: nil, reviewPRID: prID, reviewRecordID: keptCount == nil ? recordID : nil,
+                                   tab: .review)
     }
 
     /// Hitos de "Responder" que se avisan (con el mismo interruptor que las reviews terminadas).
@@ -218,6 +233,11 @@ extension NotificationPlanner {
         guard settings.isOn(.reviewFinished) else { return nil }
         let ref = "\(repo.name)#\(number)"
         let title: String, body: String, key: String
+        let tab: PRTab
+        switch event {
+        case .analysisReady, .fixesReady, .published, .failed: tab = .respond
+        case .ciFixReady, .ciFixPushed, .ciFixFailed, .ciFixNotPushed: tab = .fixCI
+        }
         switch event {
         case .analysisReady(let count):
             (title, key) = ("Analysis Ready", "analysis")
@@ -245,7 +265,8 @@ extension NotificationPlanner {
             (title, key) = ("CI Fix Not Pushed", "ci-not-pushed")
             body = "\(ref): the failing checks pass now. Push Anyway if you still want the fix."
         }
-        return PlannedNotification(kind: .reviewFinished, title: title, body: body, url: nil, respondPRID: prID, event: "respond-\(key)")
+        return PlannedNotification(kind: .reviewFinished, title: title, body: body, url: nil, respondPRID: prID, event: "respond-\(key)",
+                                   tab: tab)
     }
 }
 

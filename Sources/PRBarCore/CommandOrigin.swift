@@ -12,6 +12,9 @@ public enum CommandOrigin: Equatable, Sendable {
 
     @TaskLocal public static var current: CommandOrigin = .mac
 
+    /// The request came from a paired iPhone (its jobs show the iPhone icon in the main window, spec M.4).
+    public var isPhone: Bool { if case .phone = self { true } else { false } }
+
     /// Whether what runs now may execute code from the repository (tests, push hooks).
     public static var mayRunRepoCode: Bool {
         switch current {

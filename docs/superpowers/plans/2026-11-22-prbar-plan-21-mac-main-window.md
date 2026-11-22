@@ -1387,18 +1387,14 @@ enum NotificationRouteTests {
                             .url(URL(string: "https://github.com/acme/web/pull/1")!))
             try expectEqual(NotificationRoute.target(userInfo: [:]), nil)
         },
-        TestCase("notificación → destino: las del snapshot llevan su pestaña") {
-            // Usar el mismo armado de snapshots anterior/actual de NotificationPlannerTests (helper de ese archivo).
-            // Nuevo PR para revisar → .review; feedback en un PR mío → .respond; listo para mergear → .merge;
-            // CI roto en un PR mío → .fixCI; aprobado → .merge.
-        },
     ]
 }
 ```
 
-El tercer caso se escribe en `NotificationPlannerTests.swift` (que ya arma snapshots `previous`/`current`): sumar una
-aserción `notification.tab == …` a cada caso existente de `plan(previous:current:settings:)` que crea esas
-notificaciones, en vez de duplicar el armado.
+Las del snapshot (nuevo PR para revisar → `.review`; feedback en un PR mío → `.respond`; listo para mergear →
+`.merge`; CI roto en un PR mío → `.fixCI`; aprobado → `.merge`) se prueban en `NotificationPlannerTests.swift` y
+`ReadyToMergeNotificationTests.swift` (que ya arman snapshots `previous`/`current`): una aserción `tab == …` en cada
+caso existente que crea esas notificaciones, en vez de duplicar el armado.
 
 Origen iPhone (en `RespondQueueTests.swift`, con sus helpers):
 - `"respond queue: guarda cuándo empezó la corrida y si la pidió un iPhone"`: `CommandOrigin.$current.withValue(.phone(device:

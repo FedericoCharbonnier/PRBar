@@ -63,6 +63,15 @@ enum MergeHistoryTests {
             try expectEqual(decoded.chat, nil)
             try expectEqual(decoded.title, "")
         },
+        TestCase("merge history: requestedOnPhone; un registro viejo sin la clave da nil") {
+            var phone = record(1, startedAt: t0)
+            phone.requestedOnPhone = true
+            let decoded = try JSONCoding.decoder.decode(MergeRecord.self, from: JSONCoding.encoder.encode(phone))
+            try expectEqual(decoded, phone)
+            try expectEqual(record(2, startedAt: t0).requestedOnPhone, nil)
+            let json = #"{"id":"\#(UUID().uuidString)","prID":"o/r#1","account":"me","repo":{"owner":"o","name":"r"},"number":1,"url":"https://github.com/o/r/pull/1","startedAt":"2026-11-19T10:00:00Z"}"#
+            try expectEqual(try JSONCoding.decoder.decode(MergeRecord.self, from: Data(json.utf8)).requestedOnPhone, nil)
+        },
         TestCase("merge history: el registro de un PR del snapshot") {
             let item = ClassifiedPR(pr: makePR(number: 9, author: "me"), category: .readyToMerge, account: "me")
             let made = MergeRecord(item: item, startedAt: t0)

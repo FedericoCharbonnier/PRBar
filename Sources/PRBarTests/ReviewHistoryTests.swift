@@ -28,6 +28,16 @@ enum ReviewHistoryTests {
             try expectEqual(history.all(), [saved])
             try expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent("\(saved.id.uuidString).json").path))
         },
+        TestCase("history: requestedOnPhone; un registro viejo sin la clave da nil") {
+            var phone = record(1, started: 1_000)
+            phone.requestedOnPhone = true
+            let data = try JSONCoding.encoder.encode(phone)
+            try expectEqual(try JSONCoding.decoder.decode(ReviewRecord.self, from: data), phone)
+            var object = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+            object["requestedOnPhone"] = nil
+            let old = try JSONCoding.decoder.decode(ReviewRecord.self, from: JSONSerialization.data(withJSONObject: object))
+            try expectEqual(old.requestedOnPhone, nil)
+        },
         TestCase("history: all() ordena del más nuevo al más viejo") {
             let history = ReviewHistory(directory: try temporaryDirectory())
             let old = record(1, started: 1_000)

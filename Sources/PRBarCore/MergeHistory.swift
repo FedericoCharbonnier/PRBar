@@ -26,10 +26,13 @@ public struct MergeRecord: Codable, Equatable, Identifiable, Sendable {
     public var status: Status
     public var errorMessage: String?
     public var chat: ChatSession?
+    /// La pidió un iPhone (spec M.4); nil = desde la Mac o un registro viejo.
+    public var requestedOnPhone: Bool?
 
     public init(id: UUID = UUID(), prID: String, account: String, repo: RepoRef, number: Int, title: String, url: URL,
                 method: MergeMethod? = nil, headOid: String? = nil, startedAt: Date, finishedAt: Date? = nil,
-                status: Status = .open, errorMessage: String? = nil, chat: ChatSession? = nil) {
+                status: Status = .open, errorMessage: String? = nil, chat: ChatSession? = nil,
+                requestedOnPhone: Bool? = nil) {
         self.id = id
         self.prID = prID
         self.account = account
@@ -44,6 +47,7 @@ public struct MergeRecord: Codable, Equatable, Identifiable, Sendable {
         self.status = status
         self.errorMessage = errorMessage
         self.chat = chat
+        self.requestedOnPhone = requestedOnPhone
     }
 
     /// El registro de una sesión nueva del PR `item`.
@@ -54,6 +58,7 @@ public struct MergeRecord: Codable, Equatable, Identifiable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case id, prID, account, repo, number, title, url, method, headOid, startedAt, finishedAt, status, errorMessage, chat
+        case requestedOnPhone
     }
 
     /// Tolerante: un estado o un método desconocidos, o un chat ilegible, no pierden el registro.
@@ -73,6 +78,7 @@ public struct MergeRecord: Codable, Equatable, Identifiable, Sendable {
         status = (try? c.decodeIfPresent(Status.self, forKey: .status)) ?? .open
         errorMessage = (try? c.decodeIfPresent(String.self, forKey: .errorMessage)) ?? nil
         chat = (try? c.decodeIfPresent(ChatSession.self, forKey: .chat)) ?? nil
+        requestedOnPhone = (try? c.decodeIfPresent(Bool.self, forKey: .requestedOnPhone)) ?? nil
     }
 }
 

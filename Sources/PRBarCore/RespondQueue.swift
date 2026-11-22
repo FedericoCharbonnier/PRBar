@@ -34,6 +34,8 @@ public final class RespondQueue: ObservableObject {
     /// PRs whose implementation was canceled with commits or changes left in the worktree (`RespondCancellation`), or
     /// failed (it may have committed some fixes), until `dismiss`.
     @Published public private(set) var leftWork: Set<String> = []
+    /// Cuándo empezó la corrida de cada PR y si la pidió un iPhone (grupo Claude de la ventana principal, spec M.4).
+    @Published public private(set) var runs: [String: ClaudeRunInfo] = [:]
     /// Set only while `onEvent` hears the `readyToPush` of a push the CI stopped (the checks pass now).
     private var reportingCIBlock: String?
     public func isReportingCIBlock(_ prID: String) -> Bool { reportingCIBlock == prID }
@@ -136,6 +138,9 @@ public final class RespondQueue: ObservableObject {
         let request = RespondRequest(item: item, localPath: localPath, worktreeDir: worktreeDir, mode: mode)
         let draftID = UUID()
         let startedAt = Date()
+        // El puente remoto llama dentro de `CommandOrigin.$current.withValue`; se lee acá, antes del job.
+        let onPhone = CommandOrigin.current.isPhone
+        runs[prID] = ClaudeRunInfo(startedAt: startedAt, requestedOnPhone: onPhone)
         let pipeline = self.pipeline
         start(prID, kind: .analyze, phase: .queued, onStart: .preparing, work: { [weak self] jobID in
             do {
@@ -151,7 +156,8 @@ public final class RespondQueue: ObservableObject {
             switch result {
             case .success(let draft):
                 let record = RespondRecord(draft: draft, startedAt: startedAt,
-                                           usage: self.jobUsage[prID].flatMap { $0.runs > 0 ? $0 : nil })
+                                           usage: self.jobUsage[prID].flatMap { $0.runs > 0 ? $0 : nil },
+                                           requestedOnPhone: onPhone ? true : nil)
                 self.records[prID] = record
                 self.save(record)
                 self.finish(prID, .ready(draft))
@@ -167,7 +173,8 @@ public final class RespondQueue: ObservableObject {
                 self.records[prID] = nil
                 self.save(RespondRecord(draft: empty, startedAt: startedAt, finishedAt: Date(),
                                         errorMessage: error.localizedDescription,
-                                        usage: self.jobUsage[prID].flatMap { $0.runs > 0 ? $0 : nil }))
+                                        usage: self.jobUsage[prID].flatMap { $0.runs > 0 ? $0 : nil },
+                                        requestedOnPhone: onPhone ? true : nil))
                 self.finish(prID, .failed(error.localizedDescription, logURL: self.existingLog(draftID)))
             }
         })
@@ -372,6 +379,7 @@ public final class RespondQueue: ObservableObject {
         pushBlockedByCI[prID] = nil
         modes[prID] = nil
         phases[prID] = nil
+        runs[prID] = nil
         leftWork.remove(prID)
         if let record = records[prID] { cleanupWorktree(record.draft) }
         records[prID] = nil

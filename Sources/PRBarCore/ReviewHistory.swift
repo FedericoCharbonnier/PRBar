@@ -16,11 +16,13 @@ public struct ReviewRecord: Codable, Equatable, Sendable, Identifiable {
     public var action: Action
     public var reviewURL: URL?
     public var kind: String = "review"   // "respond" en el Plan 3
+    /// La pidió un iPhone (spec M.4); nil = desde la Mac o un registro viejo.
+    public var requestedOnPhone: Bool?
 
     public init(
         draft: ReviewDraft, startedAt: Date, finishedAt: Date? = nil, status: Status, errorMessage: String? = nil,
         published: [String: String] = [:], generalComment: String? = nil, action: Action = .none,
-        reviewURL: URL? = nil, kind: String = "review"
+        reviewURL: URL? = nil, kind: String = "review", requestedOnPhone: Bool? = nil
     ) {
         self.draft = draft
         self.startedAt = startedAt
@@ -32,6 +34,7 @@ public struct ReviewRecord: Codable, Equatable, Sendable, Identifiable {
         self.action = action
         self.reviewURL = reviewURL
         self.kind = kind
+        self.requestedOnPhone = requestedOnPhone
     }
 }
 

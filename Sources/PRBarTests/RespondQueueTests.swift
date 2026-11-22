@@ -307,6 +307,32 @@ enum RespondQueueTests {
             try expectEqual(h.queue.phases[prID(1)], nil)
             try expectEqual(h.history.all().count, 1)
         },
+        TestCase("respond queue: guarda cuándo empezó la corrida y si la pidió un iPhone") { @MainActor in
+            try expect(CommandOrigin.phone(device: "d", mayRunRepoCode: true).isPhone && !CommandOrigin.mac.isPhone)
+            let h = try Harness()
+            let phone = CommandOrigin.phone(device: "d1", mayRunRepoCode: false)
+            let before = Date()
+            CommandOrigin.$current.withValue(phone) {
+                h.queue.analyze(classified(7), localPath: "/repos/r", worktreeDir: nil)
+            }
+            let run = try expectSome(h.queue.runs[prID(7)])
+            try expect(run.requestedOnPhone)
+            try expect(run.startedAt >= before && run.startedAt <= Date())
+            try await h.events.wait(for: [.started("analyze:\(prID(7))")])
+            h.pipeline.completeAnalysis(7)
+            try await h.events.wait(for: reached(7, "ready"))
+            try expectEqual(h.queue.records[prID(7)]?.requestedOnPhone, true)
+            try expectEqual(try h.saved(7).requestedOnPhone, true)
+            // Desde la Mac: false en la corrida y nil en el registro.
+            h.queue.analyze(classified(8), localPath: "/repos/r", worktreeDir: nil)
+            try expectEqual(h.queue.runs[prID(8)]?.requestedOnPhone, false)
+            try await h.events.wait(for: [.started("analyze:\(prID(8))")])
+            h.pipeline.completeAnalysis(8)
+            try await h.events.wait(for: reached(8, "ready"))
+            try expectEqual(h.queue.records[prID(8)]?.requestedOnPhone, nil)
+            h.queue.dismiss(prID: prID(7))
+            try expectEqual(h.queue.runs[prID(7)], nil)
+        },
         TestCase("respond queue: dismiss limpia el worktree; un fallo lo deja para revisarlo") { @MainActor in
             let h = try Harness()
             try await h.toReady(1)

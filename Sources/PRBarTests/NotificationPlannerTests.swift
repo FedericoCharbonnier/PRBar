@@ -20,6 +20,7 @@ enum NotificationPlannerTests {
             try expectEqual(planned[0].title, "New PR to Review")
             try expectEqual(planned[0].body, "r#7 · juan: PR 7")
             try expectEqual(planned[0].url?.absoluteString, "https://github.com/o/r/pull/7")
+            try expectEqual(planned[0].tab, .review)
         },
         TestCase("notif: identificador estable e hilo por PR") {
             let previous = snap(item(makePR(number: 7, author: "me", decision: .reviewRequired), .other))
@@ -61,7 +62,9 @@ enum NotificationPlannerTests {
         TestCase("notif: cambio a actualizado y a feedback") {
             let previous = snap(item(makePR(number: 1), .other), item(makePR(number: 2, author: "me"), .other))
             let current = snap(item(makePR(number: 1), .updatedSinceMyReview), item(makePR(number: 2, author: "me"), .myFeedback))
-            try expectEqual(NotificationPlanner.plan(previous: previous, current: current, settings: NotificationSettings()).map(\.kind), [.reviewedPRUpdated, .myPRFeedback])
+            let planned = NotificationPlanner.plan(previous: previous, current: current, settings: NotificationSettings())
+            try expectEqual(planned.map(\.kind), [.reviewedPRUpdated, .myPRFeedback])
+            try expectEqual(planned.map(\.tab), [.review, .respond])
         },
         TestCase("notif: respeta el toggle por tipo y el general") {
             var settings = NotificationSettings()
@@ -76,6 +79,7 @@ enum NotificationPlannerTests {
             let current = snap(item(makePR(number: 1, author: "me", ci: .failure, decision: .approved), .other))
             let planned = NotificationPlanner.plan(previous: previous, current: current, settings: NotificationSettings())
             try expectEqual(planned.map(\.title), ["Your PR Was Approved", "CI Failed on Your PR"])
+            try expectEqual(planned.map(\.tab), [.merge, .fixCI])
         },
         TestCase("notif: CI de PRs ajenos no notifica") {
             let previous = snap(item(makePR(ci: .pending), .other))
@@ -88,6 +92,7 @@ enum NotificationPlannerTests {
             try expectEqual(planned.count, 1)
             try expectEqual(planned[0].title, "7 new PRs to review")
             try expectEqual(planned[0].url, nil)
+            try expectEqual(planned[0].tab, nil)
         },
         TestCase("notif: review listo con éxito") {
             let planned = NotificationPlanner.reviewFinished(
@@ -97,6 +102,7 @@ enum NotificationPlannerTests {
             try expectEqual(planned?.body, "r#7: 3 comments to choose from")
             try expectEqual(planned?.reviewPRID, "o/r#7")
             try expectEqual(planned?.url, nil)
+            try expectEqual(planned?.tab, .review)
         },
         TestCase("notif: review listo con un solo comentario va en singular") {
             let planned = NotificationPlanner.reviewFinished(
@@ -136,6 +142,7 @@ enum NotificationPlannerTests {
             try expectEqual(analysis?.title, "Analysis Ready")
             try expectEqual(analysis?.body, "r#7: 3 comments")
             try expectEqual(analysis?.respondPRID, "o/r#7")
+            try expectEqual(analysis?.tab, .respond)
             try expectEqual(analysis?.reviewPRID, nil)
             try expectEqual(analysis?.identifier, "reviewFinished:respond-analysis:o/r#7")
             try expectEqual(analysis?.threadIdentifier, "o/r#7")
