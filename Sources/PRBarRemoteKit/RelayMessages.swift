@@ -58,6 +58,10 @@ public enum RelayMessage: Equatable, Sendable {
     case deviceRemove(device: String)
     /// Pedido de la Mac (sin `items`) y respuesta del relay (con `items`).
     case devices(items: [RelayDeviceEntry]?)
+    /// La Mac retira su propia cuenta (cuentas, dispositivos, suscripciones y buzones); el relay contesta
+    /// `account.deleted` y cierra con 1000.
+    case accountDelete
+    case accountDeleted
     /// Un pedido rechazado sin cerrar la conexión (p. ej. un teléfono que manda a otro teléfono).
     case error(reason: String)
     case ping
@@ -84,6 +88,8 @@ public enum RelayMessage: Equatable, Sendable {
         case .deviceAdd: "device.add"
         case .deviceRemove: "device.remove"
         case .devices: "devices"
+        case .accountDelete: "account.delete"
+        case .accountDeleted: "account.deleted"
         case .error: "error"
         case .ping: "ping"
         case .pong: "pong"
@@ -159,6 +165,8 @@ extension RelayMessage: Codable {
         case "device.add": self = .deviceAdd(device: try string(.device), relayKey: try bytes(.relayKey))
         case "device.remove": self = .deviceRemove(device: try string(.device))
         case "devices": self = .devices(items: try c.decodeIfPresent([RelayDeviceEntry].self, forKey: .items))
+        case "account.delete": self = .accountDelete
+        case "account.deleted": self = .accountDeleted
         case "error": self = .error(reason: try string(.reason))
         case "ping": self = .ping
         case "pong": self = .pong
@@ -234,7 +242,7 @@ extension RelayMessage: Codable {
             try c.encodeIfPresent(items, forKey: .items)
         case .error(let reason):
             try c.encode(reason, forKey: .reason)
-        case .mboxGet, .ping, .pong, .unknown:
+        case .mboxGet, .accountDelete, .accountDeleted, .ping, .pong, .unknown:
             break
         }
     }

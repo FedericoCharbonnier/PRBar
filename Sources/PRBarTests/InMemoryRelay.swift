@@ -35,6 +35,9 @@ actor InMemoryRelay {
     /// Relay comprometido: no obedece `device.remove`.
     var ignoreDeviceRemoval = false
     var silentMacOffline = false
+    /// Cómo contesta `account.delete`: lo borra (el relay de ahora), `forbidden` (un relay viejo) o `internal`.
+    enum AccountDeleteMode { case delete, unsupported, failing }
+    var accountDeleteMode = AccountDeleteMode.delete
     var pushStatus = 200
     /// Relay comprometido: deja pasar solo los primeros N mensajes del teléfono que empareja (p. ej. sin el acuse).
     var pairForwardLimit: Int?
@@ -68,6 +71,8 @@ actor InMemoryRelay {
     /// Como el hub de Go cuando la Mac se vuelve a registrar con la conexión vieja todavía abierta: los teléfonos no
     /// reciben `offline`, solo el `online` de la conexión nueva.
     func setSilentMacOffline(_ value: Bool) { silentMacOffline = value }
+    func setAccountDeleteMode(_ value: AccountDeleteMode) { accountDeleteMode = value }
+    func hasAccount(_ account: String) -> Bool { accounts[account] != nil }
 
     /// La conexión de la Mac de la cuenta, si hay una.
     func macLink(_ acct: String) -> InMemoryRelayLink? { accounts[acct]?.mac }
@@ -283,6 +288,17 @@ actor InMemoryRelay {
         case .devices:
             let items = (accounts[acct]?.devices.keys.sorted() ?? []).map { RelayDeviceEntry(id: $0, lastSeen: now) }
             link.deliver(.devices(items: items))
+        case .accountDelete:
+            switch accountDeleteMode {
+            case .unsupported: return link.deliver(.error(reason: "forbidden"))
+            case .failing: return link.deliver(.error(reason: "internal"))
+            case .delete: break
+            }
+            guard let account = accounts.removeValue(forKey: acct) else { return }
+            account.deviceLinks.values.forEach { $0.closeByRelay(code: 4403, reason: "account deleted") }
+            account.slot?.link?.closeByRelay(code: 4401, reason: "account deleted")
+            link.deliver(.accountDeleted)
+            link.closeByRelay(code: 1000, reason: "account deleted")
         default:
             link.deliver(.error(reason: "forbidden"))
         }

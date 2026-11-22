@@ -686,9 +686,9 @@ public final class RemoteAccessService: ObservableObject {
 
     /// "Reset iPhone Access…" (spec P.12): da de baja a todos, borra las claves y la cuenta. Para volver a usarlo hay
     /// que habilitarlo con el token y emparejar de nuevo.
-    /// La cuenta vieja del relay no se puede borrar (el relay no tiene esa operación): antes de olvidar sus claves se
-    /// guarda su clave de relay como "retirada" y `cleanUpRetiredAccounts` da de baja todos sus iPhones en el relay (y
-    /// sus buzones) en cuanto puede, con o sin conexión ahora (revisión M5). Después la olvida.
+    /// Antes de olvidar las claves se guarda la clave de relay de la cuenta vieja como "retirada" y
+    /// `cleanUpRetiredAccounts` la borra del relay (`account.delete`: cuenta, iPhones, suscripciones y buzones) en
+    /// cuanto puede, con o sin conexión ahora (revisión M5). Después la olvida.
     public func reset() async throws -> RemoteStatusInfo {
         if let host {
             for device in devices { await host.revoke(device.device.deviceId) }
@@ -709,8 +709,8 @@ public final class RemoteAccessService: ObservableObject {
         return status()
     }
 
-    /// Da de baja en el relay los iPhones de las cuentas retiradas y las olvida. Si no llega al relay, queda para el
-    /// próximo arranque o la próxima vez que se habilite.
+    /// Borra del relay las cuentas retiradas y las olvida. Si no llega al relay (o el relay no pudo borrarla), queda
+    /// para el próximo arranque o la próxima vez que se habilite.
     public func cleanUpRetiredAccounts() {
         guard cleanupTask == nil, !env.keys.retiredAccounts().isEmpty else { return }
         let env = env
@@ -718,7 +718,7 @@ public final class RemoteAccessService: ObservableObject {
             for retired in env.keys.retiredAccounts() {
                 if await Self.cleanUp(retired, env: env) {
                     try? env.keys.forgetRetired(retired)
-                    AppLog.write("iPhone access: the old relay account \(retired.accountId.prefix(4)) has no iPhones left")
+                    AppLog.write("iPhone access: the old relay account \(retired.accountId.prefix(4)) is gone")
                 }
             }
             self?.cleanupTask = nil
@@ -730,31 +730,67 @@ public final class RemoteAccessService: ObservableObject {
         await cleanupTask?.value
     }
 
-    /// Entra como la Mac de la cuenta retirada, da de baja cada dispositivo que el relay tiene y vuelve a pedir la lista
-    /// para confirmar que quedó vacía (el relay procesa en orden).
+    /// Cuánto espera cada respuesta del relay durante la limpieza.
+    nonisolated static let cleanupTimeout: Duration = .seconds(15)
+
+    /// Entra como la Mac de la cuenta retirada y le pide al relay que la borre (`account.delete`). `true` si ya no
+    /// queda nada (y se puede olvidar la clave); `false` para reintentar más tarde. Un relay viejo sin
+    /// `account.delete` contesta `forbidden`: ahí se dan de baja sus dispositivos uno por uno, como antes.
     nonisolated static func cleanUp(_ retired: RemoteKeyStore.RetiredAccount, env: RemoteServiceEnvironment) async -> Bool {
         guard let key = retired.signingKey else { return true }
         let link = env.linkFactory(retired.relayHost)(.signed(account: retired.accountId, client: "mac", key: key))
         defer { Task { await link.close() } }
         do {
             _ = try await link.connect()
-            @Sendable func list() async throws -> [RelayDeviceEntry] {
-                try link.send(.devices(items: nil))
-                for try await message in link.incoming {
-                    if case .devices(let items?) = message { return items }
-                }
-                throw RelayClosed(code: nil, reason: "Closed")
+            try link.send(.accountDelete)
+            switch try await withThrowingTimeout(cleanupTimeout, { try await accountDeleteAnswer(link) }) {
+            case .deleted: return true
+            case .unsupported: return try await removeDevices(link)
+            case .failed: return false
             }
-            let listed = try await withThrowingTimeout(.seconds(15)) { try await list() }
-            for entry in listed { try link.send(.deviceRemove(device: entry.id)) }
-            let after = try await withThrowingTimeout(.seconds(15)) { try await list() }
-            return after.isEmpty
         } catch let closed as RelayClosed where closed.code == RelayCloseCode.unauthorized.rawValue {
             // El relay ya no conoce la cuenta: no queda nada que limpiar.
             return true
         } catch {
             return false
         }
+    }
+
+    enum AccountDeleteAnswer: Sendable { case deleted, unsupported, failed }
+
+    /// La respuesta a `account.delete`: `account.deleted` (o el cierre 1000 que lo sigue), `forbidden` (relay viejo) u
+    /// otro error (`internal`: no borró nada).
+    nonisolated static func accountDeleteAnswer(_ link: RelayLink) async throws -> AccountDeleteAnswer {
+        do {
+            for try await message in link.incoming {
+                switch message {
+                case .accountDeleted: return .deleted
+                case .error("forbidden"): return .unsupported
+                case .error: return .failed
+                default: continue
+                }
+            }
+        } catch let closed as RelayClosed where closed.code == 1000 {
+            // `account.deleted` se pudo perder con el cierre; el relay solo cierra así a la Mac después de borrarla.
+            return .deleted
+        }
+        throw RelayClosed(code: nil, reason: "Closed")
+    }
+
+    /// Lo de antes de `account.delete`: da de baja cada dispositivo que el relay tiene y vuelve a pedir la lista para
+    /// confirmar que quedó vacía (el relay procesa en orden). La cuenta, vacía, queda en ese relay.
+    nonisolated static func removeDevices(_ link: RelayLink) async throws -> Bool {
+        @Sendable func list() async throws -> [RelayDeviceEntry] {
+            try link.send(.devices(items: nil))
+            for try await message in link.incoming {
+                if case .devices(let items?) = message { return items }
+            }
+            throw RelayClosed(code: nil, reason: "Closed")
+        }
+        let listed = try await withThrowingTimeout(cleanupTimeout) { try await list() }
+        for entry in listed { try link.send(.deviceRemove(device: entry.id)) }
+        let after = try await withThrowingTimeout(cleanupTimeout) { try await list() }
+        return after.isEmpty
     }
 
     public func setPresenceRequirement(_ query: String, enabled: Bool) async throws -> RemoteDeviceInfo {

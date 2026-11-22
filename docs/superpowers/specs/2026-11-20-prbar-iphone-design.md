@@ -134,6 +134,7 @@ Después, **solo ruteo**:
 | `{"t":"apns","token":"<hex>","env":"sandbox"\|"production"}` | teléfono | Guarda/actualiza su token. |
 | `{"t":"pair.open","pairing":"<id>","authKey":"<b64url 32B>","expires":<unix>}` / `{"t":"pair.close","pairing":…}` | solo Mac | Abre/cierra la ranura de emparejamiento (en memoria, ≤ 5 min, una por cuenta). |
 | `{"t":"device.add","device":"<id>","relayKey":"<b64url>"}` / `{"t":"device.remove","device":…}` / `{"t":"devices"}` | solo Mac | Alta/baja (la baja cierra su conexión con 4403, borra token y buzón) / lista `{id, lastSeen}`. |
+| `{"t":"account.delete"}` | solo Mac | Borra la cuenta, sus dispositivos, suscripciones y buzones; cierra los teléfonos con 4403, contesta `{"t":"account.deleted"}` y cierra a la Mac con 1000. Si falla: `{"t":"error","reason":"internal"}` (no borró nada). |
 | `{"t":"ping"}` → `{"t":"pong"}` | todos | Cada 20 s (además del ping de WebSocket). |
 
 Códigos de cierre: 4401 no autorizado · 4403 dispositivo dado de baja · 4408 sin `auth` a tiempo · 4409 reemplazado (el
@@ -500,10 +501,10 @@ Una revisión de `PRBarRemoteMac`, los cambios de RemoteKit, los comandos `remot
 - **M4 — feed.** Los pedidos que llegan mientras se calcula se juntan (unión de tópicos; uno completo gana).
 - **M5 — lo hecho sin conexión.** Al conectar, la Mac pide `devices` al relay y da de baja los que no tiene (Revoke sin
   conexión o con el acceso apagado, un `device.remove` perdido, un emparejamiento que no terminó); con el buzón apagado
-  pisa los slots. El relay no tiene "borrar cuenta": Reset guarda la clave de relay de la cuenta vieja como
-  **retirada** (llavero, `mac-relay-retired`), entra con ella, da de baja todos sus dispositivos (con eso el relay borra
-  sus buzones), confirma con otra lista vacía y recién ahí la olvida; si no llega, reintenta en el próximo arranque.
-  La cuenta vacía sigue ocupando un lugar en `RELAY_MAX_ACCOUNTS` (abierto: un `account.delete` en el relay).
+  pisa los slots. Reset guarda la clave de relay de la cuenta vieja como **retirada** (llavero, `mac-relay-retired`),
+  entra con ella y manda `account.delete`; con `account.deleted` (o el cierre 1000) la olvida. Si el relay contesta
+  `internal` o no llega, reintenta en el próximo arranque. Un relay viejo contesta `forbidden`: ahí da de baja todos
+  sus dispositivos uno por uno, confirma con otra lista vacía y la olvida (la cuenta vacía queda en ese relay).
 - **Bajos.** L1: la salida de los tests pasa por `RemoteRedactor` (M1). L2: `RemoteClient.presencePolicyUpdates`; el
   cambio de Face ID hecho en la Mac llega a mitad de sesión. L3: Cancel durante la espera del acuse cierra la ranura en
   el host (`cancelPairing`, deshace el alta en el relay y el acuse tardío no encuentra nada); cancelar una espera de
@@ -514,7 +515,7 @@ Una revisión de `PRBarRemoteMac`, los cambios de RemoteKit, los comandos `remot
   `SystemKeychain` actualiza en el lugar (`SecItemUpdate`, agrega solo si falta); `retryNow` no se pisa consigo mismo y
   `stop()` no marca "disabled" un host nuevo; el host SSH de un trabajo no sale de la Mac.
 - **Abierto**: un corte de red con una ranura de emparejamiento abierta la cancela (la ranura del relay también se pierde
-  con la conexión); borrar cuentas en el relay (M5).
+  con la conexión).
 
 ---
 

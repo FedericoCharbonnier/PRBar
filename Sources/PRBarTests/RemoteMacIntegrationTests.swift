@@ -16,7 +16,75 @@ enum RemoteMacIntegrationTests {
             }
             try await run(binary: binary)
         },
+        TestCase("remote mac integration: Reset borra la cuenta vieja del relay (4401, 4403)") {
+            guard let binary = ProcessInfo.processInfo.environment["PRBAR_RELAY_BIN"] else {
+                print("    skipped: PRBAR_RELAY_BIN not set")
+                return
+            }
+            try await resetDeletesAccount(binary: binary)
+        },
     ]
+
+    @MainActor
+    static func resetDeletesAccount(binary: String) async throws {
+        let relay = try RelayIntegrationTests.RelayProcess(binary: binary)
+        defer { relay.stop() }
+        try await relay.waitUntilHealthy()
+        let settings = MemoryRemoteSettings()
+        let secrets = FakeSecrets()
+        let env = RemoteServiceEnvironment(
+            keys: RemoteKeyStore(secrets: secrets),
+            devices: RemoteDeviceStore(directory: try temporaryDirectory().appendingPathComponent("remote")),
+            enroller: URLSessionRelayEnroller(allowInsecureForTests: true),
+            linkFactory: { host in WebSocketRelayLink.factory(host: host, allowInsecureTransportForTests: true) },
+            macName: "Integration Mac", appVersion: "1.3.0",
+            tune: { config in
+                config.backoff = { _ in .milliseconds(200) }
+            },
+            connectBackoff: { _ in .milliseconds(200) }, mailboxInterval: .seconds(3600),
+            feedDebounce: .milliseconds(50), allowInsecureForTests: true)
+        let service = RemoteAccessService(settings: settings, environment: env)
+        let actions = FakeActions()
+        service.actions = actions
+        defer { withExtendedLifetime(actions) {} }
+        defer { Task { await service.stop() } }
+        _ = try await service.enable(relay: relay.host, enrollToken: relay.token)
+        try await eventually(10, "connected") { await service.state == .connected }
+
+        let presence = SoftwareWebAuthnAuthenticator(rpId: rpIdOf(relay.host), origin: "https://\(relay.host)")
+        let client = RemoteClient(configuration: .init(appVersion: "1.3.0", deviceName: "Integration iPhone",
+                                                       model: "iPhone 17 Pro", handshakeTimeout: .seconds(5),
+                                                       requestTimeout: .seconds(20)),
+                                  linkFactory: WebSocketRelayLink.factory(host: relay.host, allowInsecureTransportForTests: true))
+        let info = try await service.pairStart()
+        let qr = try PairingQR(url: info.qr, allowInsecure: true)
+        _ = try await client.startPairing(qr: qr, presence: presence.credential)
+        _ = try await service.pairWait(pairing: info.pairing, events: { _ in })
+        _ = try await service.pairConfirm(pairing: info.pairing, accepted: true)
+        _ = try await within(10) { try await client.finishPairing() }
+        try await client.connect()
+
+        let oldAccount = try expectSome(settings.remoteSettings.accountId)
+        let oldKey = try expectSome(RemoteKeyStore(secrets: secrets).loadExisting()?.relay)
+        // Con el acceso apagado, Reset no da de baja a nadie por la sesión: es `account.delete` el que corta al teléfono.
+        _ = try await service.disable()
+        _ = try await service.reset()
+        await service.waitForCleanup()
+        try expect(RemoteKeyStore(secrets: secrets).retiredAccounts().isEmpty, "la cuenta retirada quedó guardada")
+        try await eventually(10, "iPhone cortado con 4403") {
+            await client.lastRelayCloseCode == RelayCloseCode.deviceRemoved.rawValue
+        }
+        // La clave de la cuenta borrada ya no entra.
+        let link = WebSocketRelayLink(host: relay.host, credential: .signed(account: oldAccount, client: "mac", key: oldKey),
+                                      allowInsecureTransportForTests: true)
+        do {
+            _ = try await link.connect()
+            await link.close()
+            throw TestFailure(description: "la cuenta borrada todavía entra al relay")
+        } catch let closed as RelayClosed {
+            try expectEqual(closed.code, RelayCloseCode.unauthorized.rawValue)
+        }
+    }
 
     @MainActor
     static func run(binary: String) async throws {

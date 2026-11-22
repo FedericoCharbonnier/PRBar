@@ -7,6 +7,7 @@ import PRBarRemoteMac
 /// Revisión del iPhone M5 (lo que se hizo sin conexión llega al relay), L3 (Cancel durante el acuse), L4 (cuenta
 /// inválida al inscribirse) y L6 (despertar y red a la vez).
 enum RemoteReconcileTests {
+
     struct BadEnroller: RelayEnrolling {
         func enroll(host: String, token: String, macRelayKey: Data) async throws -> String { "NOT-BASE32!" }
     }
@@ -72,22 +73,68 @@ enum RemoteReconcileTests {
             try expect(keys.retiredAccounts().isEmpty, "la clave vieja quedó guardada")
             try expectEqual(h.settings.remoteSettings.accountId, nil)
         },
-        TestCase("remote reconcile: si el relay no contesta, la cuenta retirada queda para el próximo arranque (M5)") { @MainActor in
+        TestCase("remote reconcile: si el relay no pudo borrar la cuenta (internal), queda para el próximo arranque (M5)") { @MainActor in
             let h = try await ServiceHarness.make()
             let one = try await h.pair()
             let id = await one.paired!.deviceId
             let oldAccount = h.account
-            await h.relay.setIgnoreDeviceRemoval(true)
+            await h.relay.setAccountDeleteMode(.failing)
             _ = try await h.service.reset()
             await h.service.waitForCleanup()
             let keys = RemoteKeyStore(secrets: h.secrets)
             try expectEqual(keys.retiredAccounts().map(\.accountId), [oldAccount])
-            await h.relay.setIgnoreDeviceRemoval(false)
+            let kept = await h.relay.hasAccount(oldAccount)
+            try expect(kept)
+            await h.relay.setAccountDeleteMode(.delete)
             h.service.start()
             await h.service.waitForCleanup()
             let there = await h.relay.hasDevice(oldAccount, id)
             try expect(!there)
+            let gone = await !h.relay.hasAccount(oldAccount)
+            try expect(gone, "la cuenta sigue en el relay")
             try expect(keys.retiredAccounts().isEmpty)
+        },
+        TestCase("remote reconcile: Reset borra la cuenta vieja del relay y cierra sus iPhones con 4403") { @MainActor in
+            let h = try await ServiceHarness.make()
+            let one = try await h.pair()
+            try await one.connect()
+            let oldAccount = h.account
+            let oldKey = try expectSome(RemoteKeyStore(secrets: h.secrets).loadExisting()?.relay)
+            // Sin conexión, Reset no da de baja a nadie por la sesión: es `account.delete` el que corta al teléfono.
+            _ = try await h.service.disable()
+            _ = try await h.service.reset()
+            await h.service.waitForCleanup()
+            let gone = await !h.relay.hasAccount(oldAccount)
+            try expect(gone, "la cuenta sigue en el relay")
+            try await eventually(3, "iPhone cortado con 4403") {
+                await one.lastRelayCloseCode == RelayCloseCode.deviceRemoved.rawValue
+            }
+            try expect(RemoteKeyStore(secrets: h.secrets).retiredAccounts().isEmpty)
+            // La clave vieja ya no entra (4401).
+            let link = h.relay.factory()(.signed(account: oldAccount, client: "mac", key: oldKey))
+            do {
+                _ = try await link.connect()
+                throw TestFailure(description: "la cuenta borrada todavía entra")
+            } catch let closed as RelayClosed {
+                try expectEqual(closed.code, RelayCloseCode.unauthorized.rawValue)
+            }
+        },
+        TestCase("remote reconcile: un relay viejo sin account.delete (forbidden) da de baja los iPhones uno por uno y la olvida") { @MainActor in
+            let h = try await ServiceHarness.make()
+            let one = try await h.pair()
+            let two = try await h.pair(name: "Work iPhone")
+            let ids = [await one.paired!.deviceId, await two.paired!.deviceId]
+            let oldAccount = h.account
+            await h.relay.setAccountDeleteMode(.unsupported)
+            _ = try await h.service.reset()
+            await h.service.waitForCleanup()
+            for id in ids {
+                let there = await h.relay.hasDevice(oldAccount, id)
+                try expect(!there, "\(id) sigue en el relay")
+            }
+            let kept = await h.relay.hasAccount(oldAccount)
+            try expect(kept, "un relay viejo no borra la cuenta")
+            try expect(RemoteKeyStore(secrets: h.secrets).retiredAccounts().isEmpty, "la clave vieja quedó guardada")
         },
         TestCase("remote pairing: Cancel durante la espera del acuse cierra la ranura y no guarda nada (L3)") { @MainActor in
             let h = try await ServiceHarness.make()

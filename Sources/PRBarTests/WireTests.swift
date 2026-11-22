@@ -42,6 +42,8 @@ enum WireTests {
         (.devices(items: nil), #"{"t":"devices"}"#),
         (.devices(items: [RelayDeviceEntry(id: "dev1", lastSeen: 1_800_000_000)]),
          #"{"items":[{"id":"dev1","lastSeen":1800000000}],"t":"devices"}"#),
+        (.accountDelete, #"{"t":"account.delete"}"#),
+        (.accountDeleted, #"{"t":"account.deleted"}"#),
         (.error(reason: "forbidden"), #"{"reason":"forbidden","t":"error"}"#),
         (.ping, #"{"t":"ping"}"#),
         (.pong, #"{"t":"pong"}"#),
