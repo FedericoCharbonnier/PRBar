@@ -3,7 +3,9 @@
 #   1. chequea gh, la rama main limpia y al día con origin, y que el tag no exista;
 #   2. arma las notas con los commits desde el tag anterior y las abre en $EDITOR (vacías = cancelar);
 #   3. sube la versión (CFBundleShortVersionString, CFBundleVersion + 1 y PRBarCore.version);
-#   4. corre `swift build` (PRBar y PRBarCLI) y `swift run PRBarTests` (si fallan, revierte el cambio de versión);
+#   4. arma PRBar.app igual que el actualizador (`Scripts/bundle.sh --output`: release y `--force-resolved-versions`),
+#      prueba lo que armó (la firma, la versión del bundle y `prbar --version`), corre `swift run PRBarTests` y chequea
+#      que el build no haya cambiado nada más (p. ej. `Package.resolved`). Si algo falla, revierte el cambio de versión;
 #   5. commitea "Release vX.Y.Z", crea el tag anotado vX.Y.Z, pushea los dos y crea el GitHub Release.
 # Uso: Scripts/release.sh [--dry-run] <X.Y.Z>
 #   --dry-run  corre los chequeos (los que fallan solo avisan), el build y los tests, muestra las notas y lista los
@@ -92,8 +94,10 @@ fail() {
 
 NOTES="$(mktemp -t prbar-release-notes)"
 BUMPED=0
+BUILD_OUT=""
 cleanup() {
     rm -f "$NOTES"
+    if [[ -n "$BUILD_OUT" ]]; then rm -rf "$BUILD_OUT"; fi
     if (( BUMPED )); then
         git checkout -- "$PLIST" "$CORE"
         echo "release: the version change was reverted; nothing was committed." >&2
@@ -154,25 +158,57 @@ if ! grep -q '[^[:space:]]' "$NOTES"; then
 fi
 
 step "Setting the version to $VERSION (build $NEXT_BUILD)"
+# Antes de tocar nada: si falla a mitad de camino, la salida revierte lo que se haya cambiado.
+if (( ! DRY_RUN )); then BUMPED=1; fi
 run /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$PLIST"
 run /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $NEXT_BUILD" "$PLIST"
 run sed -i '' -E "s/(static let version = \")[^\"]*(\")/\\1$VERSION\\2/" "$CORE"
 if (( ! DRY_RUN )); then
-    BUMPED=1
     grep -q "static let version = \"$VERSION\"" "$CORE" || fail "couldn't update $CORE."
 fi
+BUILT_VERSION="$VERSION"
+if (( DRY_RUN )); then BUILT_VERSION="$CURRENT"; fi
 
-step "Building and testing"
-# Por producto: `swift build` a secas también compila los plugins de swift-argument-parser, que no enlazan con
-# algunas Command Line Tools (PackagePlugin desparejo), y no los usamos.
-swift build --product PRBar
-swift build --product PRBarCLI
+step "Building PRBar.app the way the in-app updater does"
+# Lo mismo que corre `UpdateInstaller` en cada Mac: release y exactamente lo de Package.resolved. Si esto no compila,
+# ninguna actualización compilaría.
+BUILD_OUT="$(mktemp -d -t prbar-release-build)"
+bash Scripts/bundle.sh --output "$BUILD_OUT"
+APP="$BUILD_OUT/PRBar.app"
+
+step "Checking the built app"
+codesign --verify --strict "$APP/Contents/Helpers/prbar" || fail "the built prbar isn't signed correctly."
+codesign --verify --deep --strict "$APP" || fail "the built PRBar.app isn't signed correctly."
+[[ -x "$APP/Contents/MacOS/PRBar" ]] || fail "the built PRBar.app has no executable."
+APP_VERSION="$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Contents/Info.plist")"
+[[ "$APP_VERSION" == "$BUILT_VERSION" ]] || fail "the built PRBar.app says $APP_VERSION, expected $BUILT_VERSION."
+CLI_VERSION="$("$APP/Contents/Helpers/prbar" --version 2>&1 || true)"
+[[ "$CLI_VERSION" == "$BUILT_VERSION" ]] || fail "the built prbar --version says \"$CLI_VERSION\", expected $BUILT_VERSION."
+"$APP/Contents/Helpers/prbar" --help >/dev/null || fail "the built prbar --help failed."
+# Fuera del bundle, `--version` es la de PRBarCore: la que quedó compilada.
+RELEASE_BIN="$(swift build -c release --force-resolved-versions --show-bin-path)"
+CORE_VERSION="$("$RELEASE_BIN/PRBarCLI" --version 2>&1 || true)"
+[[ "$CORE_VERSION" == "$BUILT_VERSION" ]] || fail "the release build of PRBarCore says \"$CORE_VERSION\", expected $BUILT_VERSION."
+echo "PRBar.app $APP_VERSION and prbar $CLI_VERSION look right."
+
+step "Testing"
 swift run PRBarTests
+
+step "Checking that the build changed nothing else"
+# P. ej. un Package.resolved que se resolvió de nuevo: no se commitearía y el tag no compilaría igual en otra Mac.
+OTHER_CHANGES="$(git status --porcelain --untracked-files=no | grep -v -e " $PLIST\$" -e " $CORE\$" || true)"
+[[ -z "$OTHER_CHANGES" ]] || fail "building changed files that wouldn't be released: $OTHER_CHANGES"
 
 step "Committing and tagging"
 run git commit --quiet -m "Release $TAG" -- "$PLIST" "$CORE"
 BUMPED=0
-run git tag -a "$TAG" -m "PRBar $VERSION"
+if ! run git tag -a "$TAG" -m "PRBar $VERSION"; then
+    echo "release: tagging failed. The commit \"Release $TAG\" is only local: fix the problem and run" >&2
+    echo "  git tag -a $TAG -m \"PRBar $VERSION\" && git push --atomic origin $BRANCH $TAG" >&2
+    echo "  gh release create $TAG --repo $REPO --title \"PRBar $VERSION\" --verify-tag" >&2
+    echo "or drop it with: git reset --hard HEAD~1" >&2
+    exit 1
+fi
 
 step "Pushing $BRANCH and $TAG"
 if ! run git push --atomic origin "$BRANCH" "$TAG"; then

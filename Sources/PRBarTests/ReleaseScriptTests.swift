@@ -1,9 +1,10 @@
 import Foundation
 import PRBarCore
 
-/// `Scripts/release.sh` de verdad, pero en un repo descartable: `work` (clon con `Scripts/release.sh`,
-/// `Resources/Info.plist` en 1.0.0 y `PRBarCore.swift`) con un `origin` bare, y `gh`/`swift` falsos en el PATH que
-/// anotan cómo los llamaron en `calls.log`. Nunca toca el repo de PRBar ni GitHub.
+/// `Scripts/release.sh` de verdad, pero en un repo descartable: `work` (clon con `Scripts/release.sh`, un
+/// `Scripts/bundle.sh` falso que arma un PRBar.app mínimo firmado ad-hoc, `Resources/Info.plist` en 1.0.0,
+/// `PRBarCore.swift` y un `Package.resolved`) con un `origin` bare, y `gh`/`swift` falsos en el PATH que anotan cómo
+/// los llamaron en `calls.log`. Nunca toca el repo de PRBar ni GitHub.
 struct ReleaseSandbox {
     let base: URL
     var origin: URL { base.appendingPathComponent("origin.git", isDirectory: true) }
@@ -23,8 +24,28 @@ struct ReleaseSandbox {
         }
         try fileManager.copyItem(at: repoRoot.appendingPathComponent("Scripts/release.sh"),
                                  to: work.appendingPathComponent("Scripts/release.sh"))
-        let plist: [String: Any] = ["CFBundleShortVersionString": "1.0.0", "CFBundleVersion": "1"]
+        let plist: [String: Any] = ["CFBundleShortVersionString": "1.0.0", "CFBundleVersion": "1",
+                                    "CFBundleExecutable": "PRBar", "CFBundleIdentifier": "invalid.prbar.release-tests"]
         try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0).write(to: sandbox.plist)
+        try Data("{}\n".utf8).write(to: work.appendingPathComponent("Package.resolved"))
+        let log = sandbox.callsLog.path
+        // Lo que arma el bundle.sh de verdad, en chico: la versión de `prbar --version` sale del Info.plist del bundle.
+        // Con `STUB_DIRTY=1` además cambia Package.resolved (como un build que resolvió otras versiones).
+        try stub(work.appendingPathComponent("Scripts"), "bundle.sh", """
+            set -euo pipefail
+            echo "bundle $*" >> '\(log)'
+            [[ "$1" == "--output" ]]
+            app="$2/PRBar.app"
+            mkdir -p "$app/Contents/MacOS" "$app/Contents/Helpers"
+            cp Resources/Info.plist "$app/Contents/Info.plist"
+            printf '#!/bin/bash\\nexit 0\\n' > "$app/Contents/MacOS/PRBar"
+            version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)"
+            printf '#!/bin/bash\\n[[ "$1" == --version ]] && echo %s\\nexit 0\\n' "$version" > "$app/Contents/Helpers/prbar"
+            chmod +x "$app/Contents/MacOS/PRBar" "$app/Contents/Helpers/prbar"
+            codesign --force --sign - "$app/Contents/Helpers/prbar" 2>/dev/null
+            codesign --force --sign - "$app" 2>/dev/null
+            if [[ "${STUB_DIRTY:-0}" == 1 ]]; then echo '{"changed": true}' > Package.resolved; fi
+            """)
         try Data("public enum PRBarCore {\n    public static let version = \"1.0.0\"\n}\n".utf8)
             .write(to: work.appendingPathComponent("Sources/PRBarCore/PRBarCore.swift"))
         try TempGitRepo.run(work, ["add", "-A"])
@@ -38,7 +59,7 @@ struct ReleaseSandbox {
         try TempGitRepo.run(work, ["fetch", "-q", "origin"])
 
         try fileManager.createDirectory(at: sandbox.stubs, withIntermediateDirectories: true)
-        let log = sandbox.callsLog.path
+        try fileManager.createDirectory(at: sandbox.stubs.appendingPathComponent("bin"), withIntermediateDirectories: true)
         try stub(sandbox.stubs, "gh", """
             echo "gh $*" >> '\(log)'
             case "$1 $2" in
@@ -47,7 +68,14 @@ struct ReleaseSandbox {
                 "release create") exit "${GH_RELEASE_STATUS:-0}" ;;
             esac
             """)
-        try stub(sandbox.stubs, "swift", "echo \"swift $*\" >> '\(log)'")
+        try stub(sandbox.stubs, "swift", """
+            echo "swift $*" >> '\(log)'
+            case " $* " in *" --show-bin-path "*) echo '\(sandbox.stubs.path)/bin' ;; esac
+            """)
+        // Fuera del bundle, `--version` es la de PRBarCore (la que quedó en el archivo).
+        try stub(sandbox.stubs.appendingPathComponent("bin"), "PRBarCLI", """
+            [[ "$1" == --version ]] && sed -n 's/.*static let version = "\\(.*\\)".*/\\1/p' Sources/PRBarCore/PRBarCore.swift
+            """)
         return sandbox
     }
 
@@ -124,9 +152,12 @@ enum ReleaseScriptTests {
             try expect(result.stdout.contains("would run: git push"), result.stdout)
             try expect(result.stdout.contains("would run: gh release create"), result.stdout)
             let calls = sandbox.calls()
-            try expect(calls.contains("swift build --product PRBar"), "\(calls)")
-            try expect(calls.contains("swift build --product PRBarCLI"), "\(calls)")
+            // Arma la app como el actualizador (bundle.sh --output), no un build de debug.
+            try expect(calls.contains { $0.hasPrefix("bundle --output ") }, "\(calls)")
+            try expect(calls.contains("swift build -c release --force-resolved-versions --show-bin-path"), "\(calls)")
+            try expect(!calls.contains("swift build --product PRBar"), "\(calls)")
             try expect(calls.contains("swift run PRBarTests"), "\(calls)")
+            try expect(result.stdout.contains("PRBar.app 1.0.0 and prbar 1.0.0 look right."), result.stdout)
             try expect(!calls.contains { $0.hasPrefix("gh release") }, "\(calls)")
         },
         TestCase("release.sh --dry-run (repo descartable): al día con origin no avisa de más") {
@@ -137,6 +168,29 @@ enum ReleaseScriptTests {
             try expectEqual(result.status, 0)
             try expectEqual(try sandbox.state(), before)
             try expect(!result.stderr.contains("a real release would stop here"), result.stderr)
+        },
+        TestCase("release.sh (repo descartable): si el build cambia otro archivo (Package.resolved) no publica y revierte") {
+            let sandbox = try ReleaseSandbox.make()
+            defer { sandbox.remove() }
+            let head = try TempGitRepo.run(sandbox.work, ["rev-parse", "HEAD"])
+            let result = try sandbox.run(["1.1.0"], extraEnvironment: ["STUB_DIRTY": "1"])
+            try expectEqual(result.status, 1)
+            try expect(result.stderr.contains("building changed files that wouldn't be released"), result.stderr)
+            try expect(result.stderr.contains("Package.resolved"), result.stderr)
+            try expect(result.stderr.contains("the version change was reverted"), result.stderr)
+            try expectEqual(try TempGitRepo.run(sandbox.work, ["rev-parse", "HEAD"]), head)
+            try expect(try TempGitRepo.run(sandbox.work, ["tag", "--list"]).contains("v1.1.0") == false)
+            let plist = String(decoding: try Data(contentsOf: sandbox.plist), as: UTF8.self)
+            try expect(plist.contains("<string>1.0.0</string>"), plist)
+        },
+        TestCase("release.sh (repo descartable): publica lo que armó y probó como el actualizador") {
+            let sandbox = try ReleaseSandbox.make()
+            defer { sandbox.remove() }
+            let result = try sandbox.run(["1.1.0"])
+            try expectEqual(result.status, 0)
+            try expect(result.stdout.contains("PRBar.app 1.1.0 and prbar 1.1.0 look right."), result.stdout)
+            let tags = try TempGitRepo.run(sandbox.origin, ["tag", "--list"])
+            try expect(tags.contains("v1.1.0"), tags)
         },
         TestCase("release.sh (repo descartable): si gh release create falla después del push, dice cómo seguir") {
             let sandbox = try ReleaseSandbox.make()
