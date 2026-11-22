@@ -101,7 +101,7 @@ func TestDevicesTokensAndRemoval(t *testing.T) {
 	}
 }
 
-func TestMailboxSlotsSizeAndTTL(t *testing.T) {
+func TestMailboxSlotsAndTTL(t *testing.T) {
 	clock := &fakeClock{t: time.Unix(1_800_000_000, 0)}
 	s := open(t, filepath.Join(t.TempDir(), "relay.db"), clock)
 	defer s.Close()
@@ -120,9 +120,6 @@ func TestMailboxSlotsSizeAndTTL(t *testing.T) {
 	}
 	if err := s.PutMailbox("a1", "d1", "s1", []byte("new")); err != nil {
 		t.Fatalf("replace: %v", err)
-	}
-	if err := s.PutMailbox("a1", "d1", "s2", make([]byte, MaxMailboxBlob+1)); !errors.Is(err, ErrBlobTooLarge) {
-		t.Fatalf("size: %v", err)
 	}
 	items, _ := s.Mailbox("a1", "d1")
 	if len(items) != 4 || items[0].Slot != "s1" || string(items[0].Blob) != "new" {
@@ -160,5 +157,61 @@ func TestReopenKeepsEverything(t *testing.T) {
 	}
 	if items, _ := s.Mailbox("a1", "d1"); len(items) != 1 {
 		t.Fatal("mailbox lost")
+	}
+}
+
+func TestDeleteAndIdleAccounts(t *testing.T) {
+	clock := &fakeClock{t: time.Unix(1_800_000_000, 0)}
+	s, err := Open(filepath.Join(t.TempDir(), "relay.db"), 4, clock.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	// Ids de largo fijo, como los reales.
+	a1, a2 := "aaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbbbb"
+	_ = s.CreateAccount(a1, []byte("k1"))
+	_ = s.CreateAccount(a2, []byte("k2"))
+	_ = s.AddDevice(a1, "d1", []byte("key"))
+	_ = s.AddDevice(a2, "d1", []byte("key"))
+
+	clock.t = clock.t.Add(20 * 24 * time.Hour)
+	if err := s.TouchAccount(a2); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.TouchAccount("nope"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("touch missing: %v", err)
+	}
+	clock.t = clock.t.Add(15 * 24 * time.Hour)
+	idle, err := s.IdleAccounts(clock.t.Add(-30 * 24 * time.Hour))
+	if err != nil || len(idle) != 1 || idle[0] != a1 {
+		t.Fatalf("idle: %v %v", idle, err)
+	}
+
+	_ = s.PutMailbox(a1, "d1", "home", []byte("x"))
+	_ = s.PutMailbox(a2, "d1", "home", []byte("y"))
+	if err := s.DeleteAccount(a1); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := s.Account(a1); ok {
+		t.Fatal("account still there")
+	}
+	if list, _ := s.Devices(a1); len(list) != 0 {
+		t.Fatalf("devices left: %v", list)
+	}
+	if items, _ := s.Mailbox(a1, "d1"); len(items) != 0 {
+		t.Fatalf("mailbox left: %v", items)
+	}
+	// La otra cuenta queda intacta, y se libera el lugar.
+	if items, _ := s.Mailbox(a2, "d1"); len(items) != 1 {
+		t.Fatalf("other mailbox: %v", items)
+	}
+	if n, _ := s.AccountCount(); n != 1 {
+		t.Fatalf("count: %d", n)
+	}
+	if err := s.DeleteAccount(a1); err != nil {
+		t.Fatalf("delete twice: %v", err)
+	}
+	if err := s.Ping(); err != nil {
+		t.Fatal(err)
 	}
 }

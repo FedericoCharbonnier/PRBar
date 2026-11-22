@@ -18,7 +18,14 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
 echo "==> web (build:e2e)"
-(cd web && { [[ -d node_modules ]] || npm ci; } && npm run build:e2e >/dev/null)
+# npm ci solo si cambió package-lock.json desde la última instalación (el hash queda en node_modules).
+lock_hash=$(shasum -a 256 web/package-lock.json | cut -d' ' -f1)
+stamp=web/node_modules/.prbar-lock-sha256
+if [[ ! -d web/node_modules || "$(cat "$stamp" 2>/dev/null)" != "$lock_hash" ]]; then
+    (cd web && npm ci)
+    echo "$lock_hash" > "$stamp"
+fi
+(cd web && npm run build:e2e >/dev/null)
 
 echo "==> relay (con la web embebida, en $tmp)"
 rsync -a --exclude internal/web/dist relay/ "$tmp/relay/"

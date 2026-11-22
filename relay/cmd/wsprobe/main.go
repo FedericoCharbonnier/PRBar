@@ -1,6 +1,7 @@
 // wsprobe prueba que una conexión de WebSocket larga sobreviva al proxy (spec V.2): se inscribe una sola vez con el
 // token (guarda la cuenta y la clave en -state), se autentica como Mac y se queda -duration con un ping cada
-// -interval. Si el proxy corta, dice a los cuántos segundos.
+// -interval. Si el proxy corta, dice a los cuántos segundos. Con -delete borra su cuenta del relay (libera uno de los
+// RELAY_MAX_ACCOUNTS) y su archivo de estado.
 package main
 
 import (
@@ -31,12 +32,13 @@ func main() {
 	duration := flag.Duration("duration", 5*time.Minute, "how long to stay connected")
 	interval := flag.Duration("interval", 20*time.Second, "ping interval")
 	insecure := flag.Bool("insecure", false, "use ws:// and http:// (local tests)")
+	deleteAccount := flag.Bool("delete", false, "delete the probe's relay account and its state file, then exit")
 	flag.Parse()
 	if *host == "" {
 		fmt.Fprintln(os.Stderr, "usage: wsprobe -host HOST [-enroll-token-file FILE]")
 		os.Exit(2)
 	}
-	if err := probe(*host, *tokenFile, *statePath, *duration, *interval, *insecure); err != nil {
+	if err := probe(*host, *tokenFile, *statePath, *duration, *interval, *insecure, *deleteAccount); err != nil {
 		fmt.Fprintln(os.Stderr, "wsprobe:", err)
 		os.Exit(1)
 	}
@@ -82,10 +84,14 @@ func loadOrEnroll(base, tokenFile, path string) (state, error) {
 	return s, os.WriteFile(path, raw, 0o600)
 }
 
-func probe(host, tokenFile, statePath string, duration, interval time.Duration, insecure bool) error {
+func probe(host, tokenFile, statePath string, duration, interval time.Duration, insecure, deleteAccount bool) error {
 	scheme, wsScheme := "https", "wss"
 	if insecure {
 		scheme, wsScheme = "http", "ws"
+	}
+	if deleteAccount {
+		// Sin estado no hay cuenta que borrar (y no se inscribe una nueva para eso).
+		tokenFile = ""
 	}
 	s, err := loadOrEnroll(scheme+"://"+host, tokenFile, statePath)
 	if err != nil {
@@ -128,6 +134,27 @@ func probe(host, tokenFile, statePath string, duration, interval time.Duration, 
 	}
 	if ready, err := read(); err != nil || ready["t"] != "ready" {
 		return fmt.Errorf("not ready: %v %v", ready, err)
+	}
+	if deleteAccount {
+		if err := ws.Write(ctx, websocket.MessageText, []byte(`{"t":"account.delete"}`)); err != nil {
+			return err
+		}
+		for {
+			f, err := read()
+			if err != nil {
+				return fmt.Errorf("no account.deleted: %w", err)
+			}
+			switch f["t"] {
+			case "account.deleted":
+				if err := os.Remove(statePath); err != nil {
+					return err
+				}
+				fmt.Printf("deleted account %s… and %s\n", s.Account[:4], statePath)
+				return nil
+			case "error":
+				return fmt.Errorf("relay refused: %v", f["reason"])
+			}
+		}
 	}
 	fmt.Printf("connected; staying %s with a ping every %s\n", duration, interval)
 	started := time.Now()

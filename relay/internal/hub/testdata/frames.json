@@ -20,6 +20,8 @@
  "{\"device\":\"dev1\",\"relayKey\":\"BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc\",\"t\":\"device.add\"}",
  "{\"device\":\"dev1\",\"t\":\"device.remove\"}",
  "{\"t\":\"devices\"}",
+ "{\"t\":\"account.delete\"}",
+ "{\"t\":\"account.deleted\"}",
  "{\"items\":[{\"id\":\"dev1\",\"lastSeen\":1800000000}],\"t\":\"devices\"}",
  "{\"reason\":\"forbidden\",\"t\":\"error\"}",
  "{\"t\":\"ping\"}",

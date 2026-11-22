@@ -8,8 +8,8 @@ PRBAR_RELAY_SERVER=root@<vps> Scripts/iphone-setup.sh --install-mac    # PRBar d
 Scripts/iphone-setup.sh                                                # todo en [x]
 ```
 
-La suite automática (`cd web && npm test && npm run e2e`, `go test ./...`, `swift run PRBarTests`) no reemplaza esto:
-Face ID real, Web Push de Apple y el almacenamiento de iOS solo se prueban en el teléfono.
+La suite automática (`cd web && npm test`, `Scripts/web-e2e.sh`, `cd relay && go test ./...`, `swift run PRBarTests`) no
+reemplaza esto: Face ID real, Web Push de Apple y el almacenamiento de iOS solo se prueban en el teléfono.
 
 ## A. Instalar
 - [ ] Settings › iPhone en la Mac muestra "Open PRBar on your phone" con el QR y `https://<relay host>/`; con la hoja

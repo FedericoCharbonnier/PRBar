@@ -14,7 +14,7 @@ func TestLoadDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Listen != ":8080" || c.DataDir != "/data" || c.MaxAccounts != 4 {
+	if c.Listen != ":8080" || c.DataDir != "/data" || c.MaxAccounts != 4 || c.AccountIdleDays != 30 {
 		t.Fatalf("defaults: %+v", c)
 	}
 	if c.PushConfigured() || c.TestMode || c.WebPushTestEndpoint != "" || c.VAPIDSubject != "https://relay.example.org" {
@@ -87,5 +87,27 @@ func TestWebPushTestEndpointOnlyInTestMode(t *testing.T) {
 	c, err = Load(env(values))
 	if err != nil || c.WebPushTestEndpoint != "http://127.0.0.1:1/push/" {
 		t.Fatalf("test endpoint in test mode: %+v %v", c, err)
+	}
+}
+
+func TestAccountIdleDays(t *testing.T) {
+	for value, want := range map[string]int{"0": 0, "7": 7, " 90 ": 90} {
+		c, err := Load(env(map[string]string{
+			"RELAY_PUBLIC_HOST":       "relay.example.org",
+			"RELAY_ENROLL_TOKEN":      "0123456789abcdef0123456789abcdef",
+			"RELAY_ACCOUNT_IDLE_DAYS": value,
+		}))
+		if err != nil || c.AccountIdleDays != want {
+			t.Fatalf("%q: %d %v", value, c.AccountIdleDays, err)
+		}
+	}
+	for _, value := range []string{"-1", "x", "4000"} {
+		if _, err := Load(env(map[string]string{
+			"RELAY_PUBLIC_HOST":       "relay.example.org",
+			"RELAY_ENROLL_TOKEN":      "0123456789abcdef0123456789abcdef",
+			"RELAY_ACCOUNT_IDLE_DAYS": value,
+		})); err == nil {
+			t.Fatalf("%q accepted", value)
+		}
 	}
 }

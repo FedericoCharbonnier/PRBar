@@ -1,6 +1,6 @@
 // Package store guarda lo poco que el relay necesita recordar (spec P.10), en bbolt:
 //
-//	accounts: accountId → {macRelayKey, createdAt}
+//	accounts: accountId → {macRelayKey, createdAt, macSeen}
 //	devices:  accountId/deviceId → {relayKey, webPush?, lastSeen}
 //	mailbox:  accountId/deviceId/slot → {blob, at} (TTL 7 días)
 //
@@ -27,7 +27,6 @@ var (
 const (
 	MaxDevicesPerAccount = 10
 	MaxMailboxSlots      = 4
-	MaxMailboxBlob       = 512 * 1024
 	MailboxTTL           = 7 * 24 * time.Hour
 )
 
@@ -36,14 +35,23 @@ var (
 	ErrTooManyDevices  = errors.New("store: device limit reached")
 	ErrNotFound        = errors.New("store: not found")
 	ErrMailboxFull     = errors.New("store: mailbox slot limit reached")
-	ErrBlobTooLarge    = errors.New("store: mailbox blob too large")
 	ErrExists          = errors.New("store: already exists")
 )
 
-// Account es una Mac inscrita.
+// Account es una Mac inscrita. MacSeen es la última vez que la Mac estuvo conectada (cero en cuentas de antes de
+// este campo: cuenta CreatedAt).
 type Account struct {
 	MacRelayKey []byte    `json:"macRelayKey"`
 	CreatedAt   time.Time `json:"createdAt"`
+	MacSeen     time.Time `json:"macSeen,omitempty"`
+}
+
+// lastSeen: la última señal de vida de la Mac de la cuenta.
+func (a Account) lastSeen() time.Time {
+	if a.MacSeen.After(a.CreatedAt) {
+		return a.MacSeen
+	}
+	return a.CreatedAt
 }
 
 // Device es un teléfono dado de alta por su Mac. Los campos de APNs de versiones anteriores se ignoran al leer.
@@ -173,6 +181,66 @@ func (s *Store) Account(id string) (Account, bool, error) {
 	return account, ok, err
 }
 
+// TouchAccount anota que la Mac de la cuenta está (o estuvo hasta ahora) conectada.
+func (s *Store) TouchAccount(id string) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(bucketAccounts)
+		account, ok, err := get[Account](b, []byte(id))
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return ErrNotFound
+		}
+		account.MacSeen = s.now().UTC()
+		return put(b, []byte(id), account)
+	})
+}
+
+// DeleteAccount borra la cuenta con sus dispositivos (suscripciones de push incluidas) y su buzón. Una cuenta que ya
+// no existe no es un error.
+func (s *Store) DeleteAccount(id string) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		if err := tx.Bucket(bucketAccounts).Delete([]byte(id)); err != nil {
+			return err
+		}
+		// Los ids tienen largo fijo: el prefijo "id/" no puede tocar otra cuenta.
+		prefix := []byte(id + "/")
+		if err := deletePrefix(tx.Bucket(bucketDevices), prefix); err != nil {
+			return err
+		}
+		return deletePrefix(tx.Bucket(bucketMailbox), prefix)
+	})
+}
+
+// IdleAccounts lista las cuentas cuya Mac no se conecta desde antes de cutoff.
+func (s *Store) IdleAccounts(cutoff time.Time) ([]string, error) {
+	var out []string
+	err := s.db.View(func(tx *bolt.Tx) error {
+		return tx.Bucket(bucketAccounts).ForEach(func(k, v []byte) error {
+			var account Account
+			if err := json.Unmarshal(v, &account); err != nil {
+				return err
+			}
+			if account.lastSeen().Before(cutoff) {
+				out = append(out, string(k))
+			}
+			return nil
+		})
+	})
+	return out, err
+}
+
+// Ping comprueba que la base responde (para /healthz).
+func (s *Store) Ping() error {
+	return s.db.View(func(tx *bolt.Tx) error {
+		if tx.Bucket(bucketAccounts) == nil {
+			return errors.New("store: accounts bucket missing")
+		}
+		return nil
+	})
+}
+
 // AddDevice da de alta (o reemplaza la clave de) un dispositivo.
 func (s *Store) AddDevice(acct, dev string, relayKey []byte) error {
 	return s.db.Update(func(tx *bolt.Tx) error {
@@ -286,11 +354,8 @@ func (s *Store) Touch(acct, dev string) error {
 	return s.updateDevice(acct, dev, func(d *Device) { d.LastSeen = s.now().UTC() })
 }
 
-// PutMailbox guarda (reemplaza) el blob de una ranura.
+// PutMailbox guarda (reemplaza) el blob de una ranura. El tamaño lo acota el tope de marco del hub (128 KiB).
 func (s *Store) PutMailbox(acct, dev, slot string, blob []byte) error {
-	if len(blob) > MaxMailboxBlob {
-		return ErrBlobTooLarge
-	}
 	return s.db.Update(func(tx *bolt.Tx) error {
 		if tx.Bucket(bucketDevices).Get(deviceKey(acct, dev)) == nil {
 			return ErrNotFound

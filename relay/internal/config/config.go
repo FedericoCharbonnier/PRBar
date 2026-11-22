@@ -17,6 +17,8 @@ type Config struct {
 	PublicHost  string
 	EnrollToken string
 	MaxAccounts int
+	// AccountIdleDays: una cuenta cuya Mac no se conecta hace más de estos días se borra (0: nunca).
+	AccountIdleDays int
 
 	// VAPIDPrivateKey: el escalar d (32 bytes) de la clave VAPID P-256. Sin ella los pushes quedan apagados.
 	VAPIDPrivateKey []byte
@@ -74,6 +76,11 @@ func Load(getenv func(string) string) (Config, error) {
 		return Config{}, errors.New("RELAY_MAX_ACCOUNTS must be a number between 1 and 100")
 	}
 	c.MaxAccounts = maxAccounts
+	idleDays, err := strconv.Atoi(get("RELAY_ACCOUNT_IDLE_DAYS", "30"))
+	if err != nil || idleDays < 0 || idleDays > 3650 {
+		return Config{}, errors.New("RELAY_ACCOUNT_IDLE_DAYS must be a number between 0 (never) and 3650")
+	}
+	c.AccountIdleDays = idleDays
 	if c.TestMode {
 		c.WebPushTestEndpoint = get("WEBPUSH_TEST_ENDPOINT", "")
 	}
