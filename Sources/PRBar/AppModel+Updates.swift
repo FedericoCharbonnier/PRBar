@@ -7,6 +7,7 @@ extension AppModel {
     /// Sin `mode`, la versión que se ofrece; si no hay ninguna (p. ej. se salteó después de la notificación), abre
     /// Settings, donde está "Check for Updates".
     func openUpdateWindow(_ mode: UpdateWindowMode? = nil) {
+        guard !Self.ignoresPhoneRequest("opening the Update sheet") else { return }
         guard let mode = mode ?? updates.available.map({ UpdateWindowMode.available($0) }) else {
             openSettings()
             return
