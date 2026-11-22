@@ -449,6 +449,30 @@ enum RespondQueueTests {
             h.queue.dismiss(prID: prID(1))
             try expectEqual(h.queue.unpushedWork, [])
         },
+        TestCase("respond queue: analizar de nuevo borra el worktree anterior; con trabajo sin pushear no arranca (M5)") { @MainActor in
+            let h = try Harness()
+            try await h.toReady(1)
+            let first = try h.draft(1)
+            // Desde ready: el worktree viejo se borra y arranca otro análisis.
+            try expect(h.queue.analyze(classified(1), localPath: "/repos/r", worktreeDir: nil))
+            try await waitUntil { h.pipeline.cleanups == [first.id] }
+            try await h.events.wait(for: [.started("analyze:\(prID(1))")])
+            h.pipeline.completeAnalysis(1)
+            try await waitUntil { h.queue.phases[prID(1)]?.name == "ready" }
+            let second = try h.draft(1)
+            // Una implementación que falló puede haber dejado commits: no se reemplaza sin descartarla.
+            h.queue.implement(prID: prID(1), selections: bothSelected)
+            try await h.events.wait(for: [.started("implement:\(prID(1))")])
+            h.pipeline.completeImplementation(prID(1), .failure(Boom()))
+            try await waitUntil { h.queue.phases[prID(1)]?.name == "failed" }
+            try expectEqual(h.queue.unpushedWork, [prID(1)])
+            try expect(!h.queue.analyze(classified(1), localPath: "/repos/r", worktreeDir: nil))
+            await h.settle()
+            try expectEqual(h.pipeline.cleanups, [first.id])
+            h.queue.dismiss(prID: prID(1))
+            try await waitUntil { h.pipeline.cleanups == [first.id, second.id] }
+            try expect(h.queue.analyze(classified(1), localPath: "/repos/r", worktreeDir: nil))
+        },
         TestCase("respond queue: cancelar implementing sin commits vuelve a ready") { @MainActor in
             let h = try Harness()
             try await h.toReady(1)

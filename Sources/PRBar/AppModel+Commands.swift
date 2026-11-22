@@ -420,6 +420,7 @@ extension AppModel: RespondActions {
                            pushBlockedByTests: respondPushGate(prID: prID).isTestsFailed)
         info.pushBlockedByCI = respond.pushBlockedByCI[prID]
         info.mode = respond.mode(of: prID)
+        info.unpushedWork = respond.unpushedWork.contains(prID) ? true : nil
         return info
     }
 
@@ -508,6 +509,9 @@ extension AppModel: RespondActions {
         }
         if case .failed? = phase, respond.records[item.id]?.result != nil {
             throw CommandFailure(.invalidState, "\(item.id) already has fixes: retry with `prbar respond push \(item.id)`.")
+        }
+        if respond.unpushedWork.contains(item.id) {
+            throw CommandFailure(.invalidState, "\(item.id) has changes that weren’t pushed in PRBar’s worktree: check them, then dismiss them (`prbar respond dismiss \(item.id)`) before analyzing again.")
         }
         startRespond(item)
         guard wait else { return respondInfo(item.id) }

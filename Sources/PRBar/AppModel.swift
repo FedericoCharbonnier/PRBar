@@ -185,6 +185,8 @@ final class AppModel: ObservableObject {
     /// Cuándo se pidió cada review (por prID), para el `ReviewRecord`.
     private var reviewStarts: [String: Date] = [:]
     private var terminationObserver: NSObjectProtocol?
+    /// Chats discarded while a turn was running, until it ends (`discardChat`).
+    private var retiringChats: [UUID: ChatCoordinator] = [:]
     /// El socket de `prbar` (spec C.2); `nil` en el modo de capturas o si no se pudo abrir.
     var commandServer: CommandServer?
     /// Re-renders the views that use `jobsBlockedReason` when an update starts or ends.
@@ -887,12 +889,16 @@ final class AppModel: ObservableObject {
 
     /// Los chats (Review o Respond) con un turno corriendo o en cola: cuentan como trabajos al actualizar (spec D.3).
     var runningChats: [ChatCoordinator] {
-        (Array(chats.values) + mergeSessions.values.compactMap(\.chat)).filter(\.isRunning)
+        (Array(chats.values) + mergeSessions.values.compactMap(\.chat) + retiringChats.values).filter(\.isRunning)
     }
 
-    /// The chat's worktree goes away with its review or respond (spec B.5).
-    private func discardChat(draftID: UUID) {
-        chats.removeValue(forKey: draftID)?.discardWorkspace()
+    /// The chat's worktree goes away with its review or respond (spec B.5). A running turn is stopped first (M9); until
+    /// it really ends the chat stays in `retiringChats`, so quitting, updating and Activity still see it.
+    func discardChat(draftID: UUID) {
+        retiringChats = retiringChats.filter { $0.value.isRunning }
+        guard let chat = chats.removeValue(forKey: draftID) else { return }
+        if chat.isRunning { retiringChats[draftID] = chat }
+        chat.discard()
     }
 
     /// The Respond window's coordinator: the decisions start as saved (or Claude's), and the conversation comes from
@@ -1027,16 +1033,46 @@ final class AppModel: ObservableObject {
     }
 
     /// Analiza el feedback sin resolver del PR (spec §14). Un registro anterior terminado (listo, publicado o
-    /// fallido) se reemplaza; uno con fixes sin pushear no (la cola lo ignora).
+    /// fallido) se reemplaza, con su worktree y su chat; uno con trabajo sin pushear no (la cola lo ignora).
     func startRespond(_ item: ClassifiedPR) {
         guard respondUnavailableReason(item) == nil, respondSlotConflictReason(item.id, starting: .feedback) == nil else { return }
         let localPath = localPath(for: item)
         let worktreeDir = repoConfig(account: item.account, repo: item.pr.repo)?.worktreeDir
-        respond.analyze(item, localPath: localPath, worktreeDir: worktreeDir)
+        let previous = respond.records[item.id]?.draft
+        // La corrida anterior se reemplaza: su chat se va con su worktree (M5).
+        if respond.analyze(item, localPath: localPath, worktreeDir: worktreeDir), let previous {
+            discardChat(draftID: previous.id)
+        }
     }
 
     func cancelRespond(prID: String) {
         respond.cancel(prID: prID)
+    }
+
+    /// "Dismiss" de la fila o la ventana: con trabajo sin pushear pregunta antes de borrarlo (M11).
+    func confirmDismissRespond(prID: String) {
+        guard respond.unpushedWork.contains(prID) else { return dismissRespond(prID: prID) }
+        ConfirmAlert.present(title: RespondDiscardCopy.title,
+                             message: RespondDiscardCopy.message(worktree: respond.records[prID]?.draft.worktree.path),
+                             action: "Discard") { [weak self] in
+            self?.dismissRespond(prID: prID)
+        }
+    }
+
+    /// "Analyze Again" / "Fix CI Again" con trabajo sin pushear: pregunta, lo descarta y vuelve a empezar.
+    func discardAndRestartRespond(_ item: ClassifiedPR, mode: RespondMode) {
+        let restart = { [weak self] in
+            guard let self else { return }
+            if self.respond.unpushedWork.contains(item.id) {
+                if let draft = self.respond.records[item.id]?.draft { self.discardChat(draftID: draft.id) }
+                self.respond.dismiss(prID: item.id)
+            }
+            if mode == .ciFix { self.startCIFix(item) } else { self.startRespond(item) }
+        }
+        guard respond.unpushedWork.contains(item.id) else { return restart() }
+        ConfirmAlert.present(title: RespondDiscardCopy.title,
+                             message: RespondDiscardCopy.message(worktree: respond.records[item.id]?.draft.worktree.path),
+                             action: "Discard and Start Over", perform: restart)
     }
 
     func dismissRespond(prID: String) {

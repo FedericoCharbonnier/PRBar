@@ -220,12 +220,13 @@ struct RespondWindow: View {
                         if canAct {
                             queue.implementCI(prID: prID)
                         } else if let item = currentItem {
-                            model.startCIFix(item)
+                            model.discardAndRestartRespond(item, mode: .ciFix)
                         }
                     }
                         .buttonStyle(.borderedProminent)
                         .keyboardShortcut(.return, modifiers: .command)
-                        .disabled((!canAct && currentItem.map(model.ciFixUnavailableReason) != .some(nil)) || chat.isRunning
+                        .disabled((!canAct && currentItem.map { model.ciFixUnavailableReason($0, ignoringUnpushed: true) } != .some(nil))
+                                  || chat.isRunning
                                   || model.jobsBlockedReason != nil)
                         .help(model.jobsBlockedReason ?? "Claude fixes the code; you review the diff before pushing")
                 }
@@ -337,7 +338,7 @@ struct RespondWindow: View {
 
     private func reanalyze() {
         guard let item = currentItem else { return }
-        model.startRespond(item)
+        model.discardAndRestartRespond(item, mode: .feedback)
     }
 
     // MARK: Etapa: implementando

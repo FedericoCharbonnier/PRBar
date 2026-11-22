@@ -31,8 +31,8 @@ public final class RespondQueue: ObservableObject {
     /// Fix CI: PRs whose push PRBar stopped because the failing checks pass now (spec K.6.6), with the reason. The
     /// window offers "Push Anyway".
     @Published public private(set) var pushBlockedByCI: [String: String] = [:]
-    /// PRs whose implementation was canceled or failed leaving commits or changes in the worktree
-    /// (`RespondCancellation`), until `dismiss` or a new run.
+    /// PRs whose implementation was canceled with commits or changes left in the worktree (`RespondCancellation`), or
+    /// failed (it may have committed some fixes), until `dismiss`.
     @Published public private(set) var leftWork: Set<String> = []
     /// Set only while `onEvent` hears the `readyToPush` of a push the CI stopped (the checks pass now).
     private var reportingCIBlock: String?
@@ -113,19 +113,26 @@ public final class RespondQueue: ObservableObject {
     }
 
     /// → queued → preparing → analyzing → ready | failed. Se ignora si el PR tiene un job, o está en
-    /// `implementing`/`readyToPush`/`pushing` (hay fixes sin publicar).
+    /// `implementing`/`readyToPush`/`pushing`, o la corrida anterior dejó trabajo sin pushear (`unpushedWork`: hay que
+    /// descartarla antes). La corrida anterior (lista o fallida) se reemplaza: su worktree se borra como con `dismiss`.
+    /// Devuelve si arrancó.
     /// `localPath == nil`: solo un repo que corre en un host (el análisis arma su worktree allá).
     /// `mode == .ciFix` (spec K): reads the failing checks and, once the worktree is ready, implements the fix on its own.
-    public func analyze(_ item: ClassifiedPR, localPath: String?, worktreeDir: String?, mode: RespondMode = .feedback) {
+    @discardableResult
+    public func analyze(_ item: ClassifiedPR, localPath: String?, worktreeDir: String?, mode: RespondMode = .feedback) -> Bool {
         let prID = item.id
         switch phases[prID] {
         case nil, .ready?, .failed?, .done?: break
-        default: return
+        default: return false
         }
-        guard canStart(prID), openRunConflict(prID: prID, starting: mode) == nil else { return }
+        guard canStart(prID), openRunConflict(prID: prID, starting: mode) == nil, !unpushedWork.contains(prID) else { return false }
+        // El worktree de la corrida anterior (la de `done` ya se borró) no se vuelve a usar (M5).
+        if let old = records[prID] {
+            if case .done? = phases[prID] {} else { cleanupWorktree(old.draft) }
+            records[prID] = nil
+        }
         modes[prID] = mode
         pushBlockedByCI[prID] = nil
-        leftWork.remove(prID)
         let request = RespondRequest(item: item, localPath: localPath, worktreeDir: worktreeDir, mode: mode)
         let draftID = UUID()
         let startedAt = Date()
@@ -164,6 +171,7 @@ public final class RespondQueue: ObservableObject {
                 self.finish(prID, .failed(error.localizedDescription, logURL: self.existingLog(draftID)))
             }
         })
+        return true
     }
 
     /// Fix CI: implements its only item with the default selection (never a reply).
@@ -216,7 +224,7 @@ public final class RespondQueue: ObservableObject {
                   guard let self else { return }
                   switch result {
                   case .success(let result): self.reachReadyToPush(prID, draft: draft, result: result)
-                  case .failure(let error): self.fail(prID, error)
+                  case .failure(let error): self.failImplementation(prID, error)
                   }
               })
     }
@@ -450,10 +458,18 @@ public final class RespondQueue: ObservableObject {
         phases[prID] = .failed(error.localizedDescription, logURL: existingLog(draftID))
     }
 
-    private func fail(_ prID: String, _ error: Error) {
-        if let cancellation = error as? RespondCancellation, cancellation.dirty || (cancellation.unpushedCommits ?? 1) > 0 {
+    /// Una implementación que falló o se canceló puede haber dejado commits o cambios en el worktree: salvo que la
+    /// cancelación diga que no quedó nada, cuenta como trabajo sin pushear hasta `dismiss`.
+    private func failImplementation(_ prID: String, _ error: Error) {
+        if let cancellation = error as? RespondCancellation, !cancellation.dirty, cancellation.unpushedCommits == 0 {
+            // Nada que cuidar.
+        } else {
             leftWork.insert(prID)
         }
+        fail(prID, error)
+    }
+
+    private func fail(_ prID: String, _ error: Error) {
         let message = error.localizedDescription
         var logURL: URL?
         if var record = records[prID] {
@@ -486,7 +502,7 @@ public final class RespondQueue: ObservableObject {
             if let record = records[prID] { save(record) }
             finish(prID, .ready(draft))
         case .failure(let error):
-            fail(prID, error)
+            failImplementation(prID, error)
         }
     }
 

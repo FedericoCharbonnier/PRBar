@@ -73,3 +73,13 @@ public enum ConfirmAlert {
         }
     }
 }
+
+/// Descartar una corrida de Responder con trabajo sin pushear (M11): la fila, la ventana y `prbar respond dismiss`.
+public enum RespondDiscardCopy {
+    public static let title = "Discard the changes that weren’t pushed?"
+
+    public static func message(worktree: String?) -> String {
+        let place = worktree.map { "PRBar’s worktree (\($0))" } ?? "PRBar’s worktree"
+        return "\(place) has commits or changes that weren’t pushed. Discarding deletes them; this can’t be undone."
+    }
+}

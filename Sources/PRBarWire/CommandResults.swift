@@ -349,6 +349,9 @@ public struct RespondInfo: Codable, Equatable, Sendable {
     public var testSummary: String?
     /// El archivo que Claude está editando. Todavía no se llena (la cola de Responder no sigue las herramientas).
     public var currentFile: String?
+    /// El worktree de PRBar tiene commits o cambios sin pushear (fixes listos, un push que falló, una implementación
+    /// cancelada o fallida): descartar los borra. nil = no (o una app vieja).
+    public var unpushedWork: Bool?
 
     public init(pr: String, phase: String, detail: String? = nil, runningTests: Bool, title: String? = nil,
                 account: String? = nil, headRef: String? = nil, worktree: String? = nil, language: String? = nil,

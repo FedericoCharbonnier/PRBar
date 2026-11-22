@@ -488,6 +488,26 @@ enum ChatCoordinatorTests {
             try await waitUntil { h.backend.cleanups == [chat.session.id] }
             try expectEqual(chat.session.messages.last?.text, ChatCoordinator.stoppedText)
         },
+        TestCase("chat coordinator: descartar con un turno en curso lo corta y borra el workspace al terminar (M9)") { @MainActor in
+            let h = Harness()
+            h.backend.held = true
+            h.backend.stubborn = true
+            let chat = h.review()
+            chat.send("long question")
+            try await waitUntil { h.backend.inputs.count == 1 }
+            chat.discard()
+            try expectEqual(chat.activity, "Stopping…")
+            try await Task.sleep(nanoseconds: 50_000_000)
+            try expectEqual(h.backend.cleanups, [])
+            h.backend.held = false
+            try await h.finish(chat)
+            try await waitUntil { h.backend.cleanups == [chat.session.id] }
+            try expect(!chat.isRunning)
+            // Sin turno, borra en el acto.
+            let idle = h.review(reviewDraft("PR_2"))
+            idle.discard()
+            try await waitUntil { h.backend.cleanups.contains(idle.session.id) }
+        },
         TestCase("chat coordinator: como mucho 2 chats a la vez en toda la app") { @MainActor in
             let h = Harness()
             h.backend.held = true

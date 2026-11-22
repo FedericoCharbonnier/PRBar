@@ -352,6 +352,8 @@ enum UIActionInventory {
         .init("WindowPresenter.swift", "NSAlertButton", "Cancel", 1, .viewOnly("keeps the window open")),
         .init("AppModel+Updates.swift", "Component:UpdateWindow", "-", 1, .cli(["update"])),
         .init("AppModel.swift", "Component:ReviewWindow", "-", 1, .viewOnly("window plumbing (unsaved state, close)")),
+        // Descartar trabajo sin pushear (Dismiss, Analyze Again / Fix CI Again): la CLI pregunta lo mismo.
+        .init("AppModel.swift", "ConfirmAlert", "-", 2, .cli(["respond dismiss", "ci dismiss"])),   // --yes
         .init("AppModel.swift", "Component:RespondWindow", "-", 1, .viewOnly("window plumbing (unsaved state, close)")),
         .init("Popover/PRRowView.swift", "Component:ReviewButtonActions", "-", 2,
               .cli(["review start", "review cancel", "open", "review dismiss"])),
@@ -414,6 +416,7 @@ enum UIActionInventory {
         .init("Settings/RunOnSection.swift", "Button", "Test Connection", 1, .cli(["runners test"])),
         .init("Settings/RunOnSection.swift", "Button", "-", 1, .cli(["runners remove"])),   // Remove (red label)
         .init("Settings/RunOnSection.swift", "ConfirmAlert", "-", 1, .cli(["runners remove"])),
+        .init("Update/UpdateWindow.swift", "ConfirmAlert", "Update while fixes aren’t pushed?", 1, .cli(["update"])),   // la pregunta lo dice
         .init("Settings/RunOnSection.swift", "Component:AddRunnerSheet", "-", 1, .cli(["runners add"])),
         .init("Settings/RunOnSection.swift", "Picker", "From ~/.ssh/config", 1, .cli(["runners add"])),
         .init("Settings/RunOnSection.swift", "TextField", "Host", 1, .cli(["runners add"])),

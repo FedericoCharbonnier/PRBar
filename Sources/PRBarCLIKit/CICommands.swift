@@ -178,6 +178,9 @@ struct CIDismiss: RemoteCommand {
     @Argument(help: prHelp) var pr: String
     @OptionGroup var global: GlobalOptions
 
+    func confirmation(_ connection: AppConnection, _ output: Output) throws -> String? {
+        try RespondDiscardQuestion.ask(pr: pr, connection)
+    }
     func appCommand(confirmed: Bool) -> AppCommand { .respondDismiss(pr: pr) }
     func render(_ result: JSONValue, _ output: Output) throws { output.line("Dismissed.") }
 }

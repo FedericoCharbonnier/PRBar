@@ -266,14 +266,15 @@ struct PRRowView: View {
             cancel: { model.cancelRespond(prID: item.id) },
             open: { model.openRespond(prID: item.id) },
             retry: {
-                // Con fixes hechos no se vuelve a analizar: la ventana reintenta la publicación sin perder nada.
-                if respond.records[item.id]?.result != nil {
+                // Con fixes hechos (o commits que dejó una implementación) no se vuelve a analizar: la ventana reintenta
+                // la publicación, o pregunta antes de descartarlos.
+                if respond.records[item.id]?.result != nil || respond.unpushedWork.contains(item.id) {
                     model.openRespond(prID: item.id)
                 } else {
                     model.startRespond(item)
                 }
             },
-            dismiss: { model.dismissRespond(prID: item.id) }
+            dismiss: { model.confirmDismissRespond(prID: item.id) }
         )
     }
 
@@ -286,14 +287,15 @@ struct PRRowView: View {
             cancel: { model.cancelRespond(prID: item.id) },
             open: { model.openRespond(prID: item.id) },
             retry: {
-                // With a fix already made, the window retries the push without losing it.
-                if respond.records[item.id]?.result != nil {
+                // With a fix already made (or commits a canceled fix left), the window retries the push or asks before
+                // discarding it.
+                if respond.records[item.id]?.result != nil || respond.unpushedWork.contains(item.id) {
                     model.openRespond(prID: item.id)
                 } else {
                     model.startCIFix(item)
                 }
             },
-            dismiss: { model.dismissRespond(prID: item.id) }
+            dismiss: { model.confirmDismissRespond(prID: item.id) }
         )
     }
 
