@@ -2,49 +2,389 @@ import AppKit
 import PRBarCore
 import SwiftUI
 
-/// Ventana de Responder (spec §14): elegir qué arreglar y qué responder, ver los fixes de Claude (diff, archivos
-/// sensibles, tests a pedido) y pushear + responder. Sigue en vivo la fase del PR en `RespondQueue`.
-///
-/// Seguridad: nada que escribió Claude se ejecuta antes de que el usuario vea el diff **completo** (y los commits
-/// con sus mensajes), que va arriba de "Correr tests" y del push. Los tests corren solo con "Correr tests"; el push
-/// (con los hooks del usuario, en el worktree de PRBar) y las respuestas, solo después de confirmar, y Return en
-/// la confirmación cancela (`ConfirmAlert`).
-struct RespondWindow: View {
+/// La pestaña Respond o Fix CI del PR (spec M.1 "Respond / Fix CI"): sin tarea, qué hay para responder o qué falla y
+/// Start; mientras Claude analiza, el progreso; con el análisis, `RespondRunView` (sigue el registro actual, así que un
+/// análisis nuevo reemplaza al anterior sin preguntar: lo elegido vive en el coordinador de cada draft).
+struct RespondPane: View {
     @ObservedObject var model: AppModel
     @ObservedObject var queue: RespondQueue
     @ObservedObject var prStore: PRStore
     let prID: String
-    /// El análisis con el que se abrió la ventana. Si el PR se vuelve a analizar, `AppModel.openRespond` la
-    /// reemplaza con el nuevo.
+    let mode: RespondMode
+    /// Lleva a la otra pestaña (Respond ↔ Fix CI) cuando la corrida abierta es del otro tipo.
+    let showTab: (PRTab) -> Void
+
+    init(model: AppModel, prID: String, mode: RespondMode, showTab: @escaping (PRTab) -> Void) {
+        self.model = model
+        queue = model.respond
+        prStore = model.prStore
+        self.prID = prID
+        self.mode = mode
+        self.showTab = showTab
+    }
+
+    private var hasRun: Bool { queue.records[prID] != nil || queue.phases[prID] != nil }
+
+    var body: some View {
+        if hasRun, queue.mode(of: prID) != mode {
+            RespondOtherRunView(model: model, prID: prID, mode: mode, showTab: showTab)
+        } else if let record = queue.records[prID] {
+            RespondRunView(model: model, prID: prID, draft: record.draft, chat: model.respondChat(for: record.draft))
+                .id(record.draft.id)
+        } else if queue.phases[prID]?.isActive == true {
+            RespondAnalyzingView(model: model, prID: prID, mode: mode)
+        } else {
+            RespondStartView(model: model, prID: prID, mode: mode)
+        }
+    }
+}
+
+/// La cabecera de la pestaña antes del análisis (sin draft): `repo#N`, título y estado.
+private struct RespondItemHeaderView: View {
+    let item: ClassifiedPR
+    let mode: RespondMode
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            PRReferenceLine(repo: item.pr.repo, number: item.pr.number, url: item.pr.url, linkTitle: "Open on GitHub")
+            Text(item.pr.title)
+                .font(.system(size: 20, weight: .semibold))
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+            Label(status, systemImage: mode == .ciFix ? "xmark.octagon.fill" : "bubble.left.and.exclamationmark.bubble.right")
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(mode == .ciFix ? Theme.redText : Theme.orangeText)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 20)
+        .padding(.top, 14)
+        .padding(.bottom, 12)
+    }
+
+    private var status: String {
+        if mode == .ciFix {
+            return item.pr.ciState == .failure ? "Checks failed on \(item.pr.headRef)" : "The CI isn’t failing"
+        }
+        let feedback = ActionClassifier.newFeedback(item.pr, me: item.account)
+        let comments = feedback.count == 1 ? "1 new comment" : "\(feedback.count) new comments"
+        return feedback.changesRequested ? "Changes requested · \(comments)" : comments
+    }
+}
+
+/// Sin tarea: qué hay para responder o qué checks fallan, y Start Respond / Start Fix CI.
+private struct RespondStartView: View {
+    @ObservedObject var model: AppModel
+    let prID: String
+    let mode: RespondMode
+
+    var body: some View {
+        if let item = model.currentItem(prID) {
+            VStack(alignment: .leading, spacing: 0) {
+                RespondItemHeaderView(item: item, mode: mode)
+                Divider()
+                VStack(spacing: 14) {
+                    Spacer()
+                    Image(systemName: mode == .ciFix ? "wrench.and.screwdriver" : "arrowshape.turn.up.left.2")
+                        .font(.system(size: 38, weight: .light))
+                        .foregroundStyle(Theme.violet)
+                        .accessibilityHidden(true)
+                    Text(mode == .ciFix ? "Fix the CI with Claude" : "Respond with Claude").font(.title3.weight(.semibold))
+                    Text(mode == .ciFix
+                         ? "Claude reads the failing checks and their logs and fixes the code in PRBar’s worktree. You review the diff before pushing."
+                         : "Claude reads the unresolved comments and proposes fixes and replies. You choose what to do before anything is pushed.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 460)
+                    if mode == .ciFix {
+                        HStack(spacing: 6) {
+                            CIIcon(state: item.pr.ciState)
+                            Text(CIIcon.label(for: item.pr.ciState) ?? "No CI")
+                            Text("·").foregroundStyle(.tertiary)
+                            Text(String(item.pr.headOid.prefix(7))).font(.system(.callout, design: .monospaced))
+                        }
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    }
+                    if case .failed(let message, let logURL)? = model.respond.phases[prID] {
+                        VStack(spacing: 6) {
+                            ErrorBanner(messages: [message])
+                            if let logURL {
+                                Button("Show Log") { NSWorkspace.shared.open(logURL) }
+                                    .controlSize(.small)
+                            }
+                        }
+                        .frame(maxWidth: 520)
+                    }
+                    let reason = unavailableReason(item)
+                    Button(mode == .ciFix ? "Start Fix CI" : "Start Respond") {
+                        if mode == .ciFix { model.startCIFix(item) } else { model.startRespond(item) }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .disabled(reason != nil)
+                    .help(reason ?? (mode == .ciFix ? "Fix the failing checks with Claude" : "Respond to the comments with Claude"))
+                    if let reason {
+                        Text(reason).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 460)
+                    }
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity)
+                .padding(20)
+            }
+        } else {
+            MessageView(icon: "questionmark.folder", title: "This PR is no longer in your list",
+                        text: "There’s nothing to respond to or fix.")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private func unavailableReason(_ item: ClassifiedPR) -> String? {
+        mode == .ciFix ? model.ciFixUnavailableReason(item)
+                       : model.respondUnavailableReason(item) ?? model.respondSlotConflictReason(prID, starting: .feedback)
+    }
+}
+
+/// Claude analiza (todavía no hay draft): la tarjeta de progreso y Stop.
+private struct RespondAnalyzingView: View {
+    @ObservedObject var model: AppModel
+    let prID: String
+    let mode: RespondMode
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let item = model.currentItem(prID) {
+                RespondItemHeaderView(item: item, mode: mode)
+            }
+            RespondProgressCard(model: model, prID: prID, isCI: mode == .ciFix, draft: nil)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 12)
+            Divider()
+            VStack(spacing: 12) {
+                ProgressView().controlSize(.large).tint(Theme.violet)
+                Text(mode == .ciFix ? "Reading the failing checks and preparing the worktree…" : "Claude is analyzing the comments…")
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            HStack {
+                Button("Stop") {
+                    ConfirmAlert.present(title: mode == .ciFix ? "Stop fixing the CI?" : "Stop this response?",
+                                         message: "Claude stops and what it did so far is lost.", action: "Stop") {
+                        model.cancelRespond(prID: prID)
+                    }
+                }
+                .keyboardShortcut(".", modifiers: .command)
+                .help("Stop Claude (⌘.)")
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            .windowBar()
+        }
+    }
+}
+
+/// La corrida abierta del PR es del otro tipo (un Respond y un Fix CI comparten el lugar; spec K.2.1).
+private struct RespondOtherRunView: View {
+    @ObservedObject var model: AppModel
+    let prID: String
+    let mode: RespondMode
+    let showTab: (PRTab) -> Void
+
+    var body: some View {
+        VStack(spacing: 10) {
+            MessageView(icon: "arrow.left.arrow.right",
+                        title: mode == .ciFix ? "A Respond Run Is Open" : "A Fix CI Run Is Open",
+                        text: model.respondSlotConflictReason(prID, starting: mode)
+                            ?? "Finish or dismiss the other run first.")
+            Button(mode == .ciFix ? "Go to Respond" : "Go to Fix CI") { showTab(mode == .ciFix ? .respond : .fixCI) }
+                .buttonStyle(.borderedProminent)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// La tarjeta de progreso (spec M.1): título, worktree, tiempo · costo y las tres etapas (Analyzing · Implementing ·
+/// Running tests) con su estado, subtítulo y reloj.
+struct RespondProgressCard: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var queue: RespondQueue
+    let prID: String
+    let isCI: Bool
+    /// nil mientras analiza (todavía no hay draft).
+    let draft: RespondDraft?
+
+    init(model: AppModel, prID: String, isCI: Bool, draft: RespondDraft?) {
+        self.model = model
+        queue = model.respond
+        self.prID = prID
+        self.isCI = isCI
+        self.draft = draft
+    }
+
+    private var phase: RespondPhase? { queue.phases[prID] }
+    private var running: Bool { phase?.isActive == true || queue.runningTests.contains(prID) }
+    private var record: RespondRecord? { queue.records[prID] }
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: running ? 1 : 3600)) { context in
+            content(now: context.date)
+        }
+    }
+
+    private func content(now: Date) -> some View {
+        let timeline = model.respondTimelines[prID] ?? RespondStageTimeline()
+        let stages = timeline.stages(phase: phase, runningTests: queue.runningTests.contains(prID),
+                                     testsRan: record?.result?.tests != nil)
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: "sparkles").foregroundStyle(Theme.violet).accessibilityHidden(true)
+                Text(title).font(.callout.weight(.semibold))
+                Spacer(minLength: 8)
+                Text(timeAndCost(timeline, now: now))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .help(UsageFormat.note)
+            }
+            if let draft {
+                let path = draft.worktree.path
+                Label("\((path as NSString).abbreviatingWithTildeInPath) (\(draft.worktreeOrigin))", systemImage: "folder")
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(path)
+            }
+            HStack(alignment: .top, spacing: 12) {
+                ForEach(stages, id: \.kind) { stage in
+                    stageView(stage, now: now)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: Theme.Radius.card).fill(Theme.tint(Theme.violet).opacity(0.6)))
+        .cardBorder()
+    }
+
+    private var title: String {
+        let state: String = switch phase {
+        case .queued?: "Queued"
+        case .preparing?, .analyzing?: "Analyzing"
+        case .ready?: isCI ? "Ready to fix" : "Choose what to fix"
+        case .implementing?: "Implementing"
+        case .readyToPush? where queue.runningTests.contains(prID): "Running tests"
+        case .readyToPush?: "Ready to push"
+        case .pushing?: "Pushing"
+        case .done?: "Pushed"
+        case .failed?: "Stopped"
+        case nil: ""
+        }
+        return "\(isCI ? "Fix CI" : "Respond") · \(state)"
+    }
+
+    /// "1:12 · $0.42": desde que empezó la primera etapa hasta ahora (o hasta que terminó la última).
+    private func timeAndCost(_ timeline: RespondStageTimeline, now: Date) -> String {
+        var parts: [String] = []
+        if let start = timeline.starts.values.min() ?? queue.runs[prID]?.startedAt {
+            let end = running ? now : (timeline.ends.values.max() ?? now)
+            parts.append(ClaudeTasksSidebar.clock(end.timeIntervalSince(start)))
+        }
+        if let usage = record?.usage { parts.append(UsageFormat.cost(usage)) }
+        return parts.joined(separator: " · ")
+    }
+
+    private func stageView(_ stage: RespondStage, now: Date) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            stageIcon(stage.status).frame(width: 14, height: 14)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(stage.kind.title)
+                    .font(.subheadline.weight(stage.status == .running ? .semibold : .regular))
+                    .foregroundStyle(stage.status == .pending ? .secondary : .primary)
+                let detail = [subtitle(stage), stage.duration(now: now).map(ClaudeTasksSidebar.clock)]
+                    .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+                if !detail.isEmpty {
+                    Text(detail)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder
+    private func stageIcon(_ status: RespondStageStatus) -> some View {
+        switch status {
+        case .pending: Image(systemName: "circle").foregroundStyle(.tertiary).accessibilityLabel("Pending")
+        case .running: ProgressView().controlSize(.mini).tint(Theme.violet).accessibilityLabel("Running")
+        case .done: Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.green).accessibilityLabel("Done")
+        case .failed: Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.red).accessibilityLabel("Failed")
+        }
+    }
+
+    private func subtitle(_ stage: RespondStage) -> String? {
+        switch stage.kind {
+        case .analyzing:
+            guard let draft else { return nil }
+            if isCI {
+                let count = draft.ci?.checkNames.count ?? 0
+                return count == 1 ? "1 check" : "\(count) checks"
+            }
+            return draft.items.count == 1 ? "1 comment" : "\(draft.items.count) comments"
+        case .implementing:
+            if case .implementing(let done, let total)? = phase {
+                return isCI ? "Fixing" : "Fix \(min(done + 1, max(total, 1))) of \(max(total, 1))"
+            }
+            guard stage.status == .done, let result = record?.result else { return nil }
+            let commits = RespondCounts.commits(result)
+            return commits == 1 ? "1 commit" : "\(commits) commits"
+        case .testing:
+            if queue.runningTests.contains(prID) { return draft.flatMap(model.testCommand(for:)) }
+            if let tests = record?.result?.tests { return tests.passed ? "Passed" : "Failed" }
+            return draft.flatMap(model.testCommand(for:)) ?? "No test command"
+        }
+    }
+}
+
+/// El Respond o el Fix CI de un PR en la ventana principal (spec §14): elegir qué arreglar y qué responder, ver los
+/// fixes de Claude (diff, archivos sensibles, tests a pedido) y pushear + responder. Sigue en vivo la fase del PR en
+/// `RespondQueue`.
+///
+/// Seguridad: nada que escribió Claude se ejecuta antes de que el usuario vea el diff **completo** (y los commits
+/// con sus mensajes): la pestaña abre en Diff, y los tests corren solo con "Run Tests" (en Tests). El push (con los
+/// hooks del usuario, en el worktree de PRBar) y las respuestas, solo después de confirmar, y Return en la
+/// confirmación cancela (`ConfirmAlert`).
+struct RespondRunView: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var queue: RespondQueue
+    @ObservedObject var prStore: PRStore
+    let prID: String
+    /// El análisis que se muestra: `RespondPane` sigue el registro actual y re-crea la vista con `.id(draft.id)`.
     let draft: RespondDraft
-    /// Avisa si hay decisiones o textos sin usar (etapa de elección).
-    let reportUnsaved: (Bool) -> Void
-    let close: () -> Void
+    /// nil: sin botón Close (la pestaña no se cierra).
+    let close: (() -> Void)?
     /// The decisions (shared with the chat, which can draft replies and choose fixes).
     @ObservedObject var chat: ChatCoordinator
-    private let initialSelections: [String: RespondSelection]
 
     @FocusState private var focus: RespondFocus?
-    @State private var showsChat: Bool
-    /// The panel's width, remembered between windows (320–480).
-    @AppStorage("ChatPanelWidth") private var chatWidth = 360.0
+    @State private var output = RespondOutput.diff
+    /// El chip de archivo elegido en Diff (nil = todos).
+    @State private var diffFile: String?
 
-    static let size = NSSize(width: 760, height: 680)
-
-    init(model: AppModel, prID: String, draft: RespondDraft, chat: ChatCoordinator, showsChat: Bool = false,
-         reportUnsaved: @escaping (Bool) -> Void = { _ in }, close: @escaping () -> Void) {
+    init(model: AppModel, prID: String, draft: RespondDraft, chat: ChatCoordinator, close: (() -> Void)? = nil) {
         self.model = model
         queue = model.respond
         prStore = model.prStore
         self.prID = prID
         self.draft = draft
-        self.reportUnsaved = reportUnsaved
         self.close = close
         // Lo que ya se eligió (p. ej. se canceló la implementación o falló la publicación) o, si no, lo que propuso
         // Claude: `AppModel.respondChat` arma las decisiones del coordinador.
         self.chat = chat
-        initialSelections = chat.selections
-        _showsChat = State(initialValue: showsChat)
     }
 
     // MARK: Estado
@@ -104,7 +444,6 @@ struct RespondWindow: View {
         return false
     }
 
-    private var hasUnsavedChanges: Bool { isChoosing && chat.selections != initialSelections }
     private var fixCount: Int { RespondCounts.fixes(draft, chat.selections) }
     private var replyCount: Int { RespondCounts.plannedReplies(draft, chat.selections) }
     private var testCommand: String? { model.testCommand(for: draft) }
@@ -131,40 +470,29 @@ struct RespondWindow: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            RespondHeader(draft: draft, placement: draft.runner.map { "on \($0)" } ?? model.placements.label(prID: draft.prID))
+            RespondHeader(draft: draft, status: RespondStatusLine.of(draft),
+                          placement: draft.runner.map { "on \($0)" } ?? model.placements.label(prID: draft.prID))
                 .padding(.horizontal, 20)
                 .padding(.top, 14)
                 .padding(.bottom, 12)
+            if showsProgressCard {
+                RespondProgressCard(model: model, prID: prID, isCI: isCI, draft: draft)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 12)
+            }
             Divider()
             content
         }
-        .frame(minWidth: 620, maxWidth: .infinity, minHeight: 520, maxHeight: .infinity, alignment: .top)
-        .onChange(of: hasUnsavedChanges, initial: true) { _, unsaved in reportUnsaved(unsaved) }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onChange(of: chatLock, initial: true) { _, reason in chat.setLock(reason) }
         .onChange(of: isFinished, initial: true) { _, finished in if finished { chat.markReadOnly() } }
-        // Opening the chat widens the window as needed, staying on the screen.
-        .growsWindowForInspector(isPresented: showsChat && model.chatEnabled, minContentWidth: 620, inspectorWidth: chatWidth)
-        // View › Show Chat (⇧⌘C) in the menu bar.
-        .windowCommand(.toggleChat, enabled: model.chatEnabled, isOn: showsChat && model.chatEnabled) { showsChat.toggle() }
-        .inspector(isPresented: Binding(get: { showsChat && model.chatEnabled }, set: { showsChat = $0 })) {
-            ChatPanel(chat: chat, unavailableReason: model.chatUnavailableReason(for: chat),
-                      notice: nil,
-                      host: model.chatHost(chat), logURL: model.respondHistory.logURL(for: draft.id))
-                .inspectorColumnWidth(min: 320, ideal: chatWidth, max: 480)
-                .background(GeometryReader { geometry in
-                    Color.clear.onChange(of: geometry.size.width) { _, width in chatWidth = min(max(width, 320), 480) }
-                })
-        }
-        .toolbar {
-            if model.chatEnabled {
-                ToolbarItem(placement: .primaryAction) {
-                    Button { showsChat.toggle() } label: {
-                        Label("Chat", systemImage: "bubble.left.and.bubble.right")
-                    }
-                    .keyboardShortcut("c", modifiers: [.command, .shift])
-                    .help("Chat with Claude (⇧⌘C)")
-                }
-            }
+    }
+
+    /// La tarjeta de progreso, mientras hay una corrida que seguir (no en el final ni si ya no hay nada).
+    private var showsProgressCard: Bool {
+        switch stage {
+        case .done, .superseded, .gone: false
+        default: true
         }
     }
 
@@ -174,19 +502,22 @@ struct RespondWindow: View {
         case .choosing(let error, let canAct):
             if isCI { ciChoosing(error: error, canAct: canAct) } else { choosing(error: error, canAct: canAct) }
         case .waiting(let text):
-            progress(text, cancellable: true)
+            VStack(spacing: 0) {
+                progress(text)
+                bottomBar(running: true, help: nil) { EmptyView() }
+            }
         case .implementing(let done, let total):
             implementing(done: done, total: total)
         case .review(let result, let error):
             review(result, error: error)
         case .pushing:
-            progress(isCI ? "Checking the CI again and pushing to \(draft.headRef)…" : "Pushing to \(draft.headRef) and posting the replies…",
-                     cancellable: false)
+            progress(isCI ? "Checking the CI again and pushing to \(draft.headRef)…" : "Pushing to \(draft.headRef) and posting the replies…")
         case .done(let record):
             RespondDoneView(record: record, close: close)
         case .superseded:
+            // No debería verse: `RespondPane` sigue el registro actual.
             message(icon: "arrow.triangle.2.circlepath", title: "There’s a Newer Analysis of This PR",
-                    text: "This window shows the previous one.", action: ("Open New Analysis", { model.openRespond(prID: prID) }))
+                    text: "This is the previous one.", action: nil)
         case .gone(let error):
             message(icon: error == nil ? "tray" : "exclamationmark.triangle",
                     title: error == nil ? "Discarded" : isCI ? "Couldn’t Fix the CI" : "Couldn’t Analyze the PR",
@@ -208,32 +539,22 @@ struct RespondWindow: View {
                 .padding(.vertical, 14)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                HStack(spacing: 8) {
-                    Text("Claude reads the CI output above and fixes the code in PRBar’s worktree. Nothing is pushed until you push.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer()
-                    // After a failure: read the checks again (they may have changed) and fix from scratch.
-                    Button(canAct ? "Fix CI" : "Fix CI Again") {
-                        if canAct {
-                            queue.implementCI(prID: prID)
-                        } else if let item = currentItem {
-                            model.discardAndRestartRespond(item, mode: .ciFix)
-                        }
+            bottomBar(running: false,
+                      help: "Claude reads the CI output above and fixes the code in PRBar’s worktree. Nothing is pushed until you push.") {
+                // After a failure: read the checks again (they may have changed) and fix from scratch.
+                Button(canAct ? "Fix CI" : "Fix CI Again") {
+                    if canAct {
+                        queue.implementCI(prID: prID)
+                    } else if let item = currentItem {
+                        model.discardAndRestartRespond(item, mode: .ciFix)
                     }
-                        .buttonStyle(.borderedProminent)
-                        .keyboardShortcut(.return, modifiers: .command)
-                        .disabled((!canAct && currentItem.map { model.ciFixUnavailableReason($0, ignoringUnpushed: true) } != .some(nil))
-                                  || chat.isRunning
-                                  || model.jobsBlockedReason != nil)
-                        .help(model.jobsBlockedReason ?? "Claude fixes the code; you review the diff before pushing")
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
-                .background(.bar)
-                .overlay(alignment: .top) { Divider() }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.return, modifiers: .command)
+                .disabled((!canAct && currentItem.map { model.ciFixUnavailableReason($0, ignoringUnpushed: true) } != .some(nil))
+                          || chat.isRunning
+                          || model.jobsBlockedReason != nil)
+                .help(model.jobsBlockedReason ?? "Claude fixes the code; you review the diff before pushing")
             }
         }
     }
@@ -265,7 +586,7 @@ struct RespondWindow: View {
                 .padding(.top, 2)
                 .padding(.bottom, 14)
             }
-            .safeAreaInset(edge: .bottom, spacing: 0) { choosingFooter(error: error, canAct: canAct) }
+            choosingFooter(error: error, canAct: canAct)
         }
     }
 
@@ -280,6 +601,7 @@ struct RespondWindow: View {
                 .foregroundStyle(.secondary)
                 .help("Detected from the PR description, including PRBar’s “Fixed in …” prefix. Text you write is posted as is.")
             HStack(spacing: 8) {
+                leadingControls(running: false)
                 Text("\(fixCount) fix\(fixCount == 1 ? "" : "es") · \(replyCount) repl\(replyCount == 1 ? "y" : "ies")")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -320,8 +642,7 @@ struct RespondWindow: View {
         .padding(.horizontal, 20)
         .padding(.top, 12)
         .padding(.bottom, 14)
-        .background(.bar)
-        .overlay(alignment: .top) { Divider() }
+        .windowBar()
     }
 
     private func selection(_ item: RespondItem) -> Binding<RespondSelection> {
@@ -345,41 +666,50 @@ struct RespondWindow: View {
 
     private func implementing(done: Int, total: Int) -> some View {
         let chosen = draft.items.filter { chat.selections[$0.id]?.implement == true }
+        let fix = min(done + 1, max(total, 1))
         return VStack(spacing: 0) {
             ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(chosen.enumerated()), id: \.element.id) { index, item in
-                        if index > 0 { Divider() }
-                        HStack(spacing: 10) {
-                            implementingStatus(index: index, done: done)
-                                .frame(width: 18)
-                            RespondItemHeader(feedback: item.feedback)
+                VStack(alignment: .leading, spacing: 14) {
+                    if isCI {
+                        CIChecksSection(draft: draft, result: nil)
+                    } else if !chosen.isEmpty {
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(Array(chosen.enumerated()), id: \.element.id) { index, item in
+                                if index > 0 { Divider() }
+                                HStack(spacing: 10) {
+                                    implementingStatus(index: index, done: done)
+                                        .frame(width: 18)
+                                    RespondItemHeader(feedback: item.feedback)
+                                }
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                            }
                         }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
+                        .background(RoundedRectangle(cornerRadius: Theme.Radius.card).fill(Color(nsColor: .controlBackgroundColor)))
+                        .cardBorder()
                     }
+                    // No hay diff en vivo (plan 21, decisión 7): el progreso de Claude en su lugar.
+                    HStack(spacing: 10) {
+                        ProgressView().controlSize(.small).tint(Theme.violet)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Claude is editing…").font(.callout.weight(.semibold))
+                            Text(isCI ? "Fixing the failing checks in PRBar’s worktree" : "Fix \(fix) of \(max(total, 1))")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(12)
+                    .background(RoundedRectangle(cornerRadius: Theme.Radius.card).fill(Theme.tint(Theme.violet)))
+                    .accessibilityElement(children: .combine)
                 }
-                .background(RoundedRectangle(cornerRadius: Theme.Radius.card).fill(Color(nsColor: .controlBackgroundColor)))
-                .cardBorder()
                 .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                HStack(spacing: 8) {
-                    ProgressView(value: Double(done), total: Double(max(total, 1)))
-                        .frame(width: 120)
-                        .accessibilityLabel("Fixes implemented")
-                    Text(isCI ? "Claude is fixing the CI…" : "Implementing \(min(done + 1, max(total, 1))) of \(max(total, 1))…")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Button("Cancel") { queue.cancel(prID: prID) }
-                        .keyboardShortcut(.cancelAction)
-                        .help("Stops Claude. Commits already made stay unpushed in the worktree.")
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
-                .background(.bar)
-                .overlay(alignment: .top) { Divider() }
+            bottomBar(running: true, help: "Stop keeps the commits already made, unpushed, in the worktree.") {
+                ProgressView(value: Double(done), total: Double(max(total, 1)))
+                    .frame(width: 120)
+                    .accessibilityLabel("Fixes implemented")
             }
         }
     }
@@ -411,7 +741,7 @@ struct RespondWindow: View {
                         CIPassingBanner(message: blocked) { confirmPushAnywayCI(blocked) }
                     }
                     if isCI {
-                        CIChecksSection(draft: draft, result: result)
+                        CIChecksSection(draft: draft, result: result, localTests: result.tests)
                     }
                     if !result.sensitiveChanges.isEmpty {
                         SensitiveChangesBanner(paths: result.sensitiveChanges)
@@ -422,23 +752,82 @@ struct RespondWindow: View {
                     }
                     commitsSection(result)
                     if !isCI { repliesSection() }
-                    diffSection(result)
-                    // El diff completo va antes de "Correr tests" y del push: es lo que se ejecuta y se pushea.
-                    fullDiffSection(result)
-                    if let testCommand {
-                        TestsSection(command: testCommand, run: result.tests, running: runningTests,
-                                     disabled: queue.phases[prID] != .readyToPush(draft, result) || chat.isRunning
-                                         || model.jobsBlockedReason != nil,
-                                     start: { model.runRespondTests(prID: prID) },
-                                     cancel: { queue.cancel(prID: prID) })
-                    }
+                    // Diff · Tests · Log. Abre en Diff: el diff completo se ve antes de correr los tests o pushear.
+                    outputSection(result)
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 14)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .safeAreaInset(edge: .bottom, spacing: 0) { reviewFooter(result) }
+            reviewFooter(result)
         }
+    }
+
+    // MARK: Diff · Tests · Log
+
+    private func outputSection(_ result: RespondResult) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Picker("Show", selection: $output) {
+                ForEach(RespondOutput.allCases, id: \.self) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+            switch output {
+            case .diff:
+                fileChips(result)
+                fullDiffSection(result)
+            case .tests:
+                if let testCommand {
+                    TestsSection(command: testCommand, run: result.tests, running: runningTests,
+                                 disabled: queue.phases[prID] != .readyToPush(draft, result) || chat.isRunning
+                                     || model.jobsBlockedReason != nil,
+                                 start: { model.runRespondTests(prID: prID) },
+                                 cancel: { queue.cancel(prID: prID) })
+                } else {
+                    Text("This repo has no test command. Set one in Settings › Repos to run its tests here.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+            case .log:
+                RespondLogView(url: model.respondHistory.logURL(for: draft.id))
+            }
+        }
+    }
+
+    /// Un chip por archivo cambiado (del diffstat); clic muestra solo ese archivo en el diff. Los que pueden ejecutar
+    /// código, en rojo.
+    @ViewBuilder
+    private func fileChips(_ result: RespondResult) -> some View {
+        let files = DiffFiles.files(stat: result.diffStat)
+        if files.isEmpty {
+            Text("No changes").font(.callout).foregroundStyle(.secondary)
+        } else {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    chip("All files (\(files.count))", selected: diffFile == nil, sensitive: false) { diffFile = nil }
+                    ForEach(files, id: \.self) { file in
+                        chip((file as NSString).lastPathComponent, selected: diffFile == file,
+                             sensitive: result.sensitiveChanges.contains(file)) { diffFile = diffFile == file ? nil : file }
+                            .help(file)
+                    }
+                }
+            }
+        }
+    }
+
+    private func chip(_ title: String, selected: Bool, sensitive: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(.subheadline, design: .monospaced))
+                .foregroundStyle(selected ? Color.white : sensitive ? Theme.redText : Color.primary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(Capsule().fill(selected ? Theme.accent : sensitive ? Theme.tint(Theme.red) : Color.primary.opacity(0.07)))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     private func commitsSection(_ result: RespondResult) -> some View {
@@ -473,49 +862,30 @@ struct RespondWindow: View {
         }
     }
 
-    /// I3: el diff completo (`startHeadOid..HEAD`), con scroll, monoespaciado y +/- en color.
+    /// I3: el diff completo (`startHeadOid..HEAD`), con scroll, monoespaciado y +/- en color; con un chip elegido, solo
+    /// ese archivo.
     @ViewBuilder
     private func fullDiffSection(_ result: RespondResult) -> some View {
         if let diff = result.diff {
-            section("Full diff") {
-                VStack(alignment: .leading, spacing: 0) {
-                    DiffTextView(diff: diff)
-                        .frame(minHeight: 160, idealHeight: 360, maxHeight: 420)
-                    if result.diffTruncated == true {
-                        Divider()
-                        Label(RespondCopy.diffTruncatedNote, systemImage: "scissors")
-                            .font(.subheadline)
-                            .foregroundStyle(Theme.orangeText)
-                            .padding(10)
-                    }
+            let shown = diffFile.map { DiffFiles.section(of: diff, file: $0) }.flatMap { $0.isEmpty ? nil : $0 } ?? diff
+            VStack(alignment: .leading, spacing: 0) {
+                DiffTextView(diff: shown)
+                    .frame(minHeight: 160, idealHeight: 360, maxHeight: 420)
+                if result.diffTruncated == true {
+                    Divider()
+                    Label(RespondCopy.diffTruncatedNote, systemImage: "scissors")
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.orangeText)
+                        .padding(10)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: Theme.Radius.card).fill(Color(nsColor: .controlBackgroundColor)))
+            .cardBorder()
         } else {
             Text("This result doesn’t include the full diff: review it in the worktree before pushing.")
                 .font(.subheadline)
                 .foregroundStyle(Theme.orangeText)
-        }
-    }
-
-    private func diffSection(_ result: RespondResult) -> some View {
-        section("Changes") {
-            let lines = result.diffStat.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-            VStack(alignment: .leading, spacing: 1) {
-                if result.diffStat.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text("No changes").foregroundStyle(.secondary)
-                } else {
-                    ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                        let sensitive = result.sensitiveChanges.contains { line.contains($0) }
-                        Text(line)
-                            .foregroundStyle(sensitive ? Theme.redText : .primary)
-                            .fontWeight(sensitive ? .semibold : .regular)
-                    }
-                }
-            }
-            .font(.system(.subheadline, design: .monospaced))
-            .textSelection(.enabled)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(10)
         }
     }
 
@@ -530,38 +900,39 @@ struct RespondWindow: View {
         } else if commits == 0 {
             pending == 1 ? "Post 1 Reply" : "Post \(pending) Replies"
         } else {
-            "Push and Reply"
+            "Push & Reply"
         }
-        return VStack(alignment: .leading, spacing: 8) {
-            Text("Pushing runs your hooks (pre-push) in PRBar’s worktree, on Claude’s code. " + RespondCopy.ownWorktreeNote)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            HStack(spacing: 8) {
-                Button {
-                    NSWorkspace.shared.open(URL(fileURLWithPath: draft.worktree.path, isDirectory: true))
-                } label: {
-                    Image(systemName: "folder")
-                }
-                .buttonStyle(.borderless)
-                .help("Show Worktree in Finder (\(draft.worktree.path))")
-                .accessibilityLabel("Show Worktree in Finder")
-                Spacer()
-                Button(title) { confirmPublish(commits: commits, pending: pending, pushed: pushed, result: result) }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.return, modifiers: .command)
-                    .disabled(runningTests || (pushed && pending == 0) || chat.isRunning || (isCI && commits == 0))
-                    .help(chat.isRunning ? "Wait for Claude to finish"
-                        : runningTests ? "Wait for the tests to finish"
-                        : isCI ? (commits == 0 ? "Claude made no changes: nothing to push" : "Asks for confirmation, checks the CI again and pushes")
-                        : "Asks for confirmation before pushing and posting")
+        return bottomBar(running: runningTests, help: pushHelp(result, pushed: pushed)) {
+            Button {
+                NSWorkspace.shared.open(URL(fileURLWithPath: draft.worktree.path, isDirectory: true))
+            } label: {
+                Image(systemName: "folder")
             }
+            .buttonStyle(.borderless)
+            .help("Show Worktree in Finder (\(draft.worktree.path))")
+            .accessibilityLabel("Show Worktree in Finder")
+            Button(title) { confirmPublish(commits: commits, pending: pending, pushed: pushed, result: result) }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.return, modifiers: .command)
+                .disabled(runningTests || (pushed && pending == 0) || chat.isRunning || (isCI && commits == 0))
+                .help(chat.isRunning ? "Wait for Claude to finish"
+                    : runningTests ? "Wait for the tests to finish"
+                    : isCI ? (commits == 0 ? "Claude made no changes: nothing to push" : "Asks for confirmation, checks the CI again and pushes (⌘↩)")
+                    : "Asks for confirmation before pushing and posting (⌘↩)")
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
-        .background(.bar)
-        .overlay(alignment: .top) { Divider() }
+    }
+
+    /// El texto de ayuda de la barra según `respondPushGate` (spec M.1; plan 21, decisión 7).
+    private func pushHelp(_ result: RespondResult, pushed: Bool) -> String {
+        if pushed { return "Pushed. Only the pending replies are left." }
+        if runningTests { return "Running the tests…" }
+        switch model.respondPushGate(prID: prID) {
+        case .runTests: return "Tests run before pushing"
+        case .testsFailed: return "Tests failed"
+        case .ready:
+            if let tests = result.tests { return tests.passed ? "Tests passed" : "Tests failed" }
+            return "Pushing runs your pre-push hooks in PRBar’s worktree"
+        }
     }
 
     /// M1: Return cancela; pushear o publicar necesita un clic. Con "Run tests before pushing" el mensaje avisa que
@@ -673,14 +1044,10 @@ struct RespondWindow: View {
         }
     }
 
-    private func progress(_ text: String, cancellable: Bool) -> some View {
+    private func progress(_ text: String) -> some View {
         VStack(spacing: 12) {
-            ProgressView().controlSize(.large)
+            ProgressView().controlSize(.large).tint(Theme.violet)
             Text(text).font(.title3).foregroundStyle(.secondary)
-            if cancellable {
-                Button("Cancel") { queue.cancel(prID: prID) }
-                    .keyboardShortcut(.cancelAction)
-            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -692,37 +1059,157 @@ struct RespondWindow: View {
                 if let action {
                     Button(action.0, action: action.1)
                 }
-                Button("Close", action: close)
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
+                if let close {
+                    Button("Close", action: close)
+                        .buttonStyle(.borderedProminent)
+                        .keyboardShortcut(.defaultAction)
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+
+    // MARK: Barra inferior
+
+    /// La barra de abajo (spec M.1): Undo, Stop ⌘. (corriendo) o Discard, el texto de ayuda y la acción de la etapa.
+    private func bottomBar<Primary: View>(running: Bool, help: String?, @ViewBuilder primary: () -> Primary) -> some View {
+        HStack(spacing: 8) {
+            leadingControls(running: running)
+            if let help {
+                Text(help)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .help(help == pushHooksNote ? RespondCopy.ownWorktreeNote : help)
+            }
+            Spacer(minLength: 8)
+            primary()
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+        .windowBar()
+    }
+
+    private var pushHooksNote: String { "Pushing runs your pre-push hooks in PRBar’s worktree" }
+
+    @ViewBuilder
+    private func leadingControls(running: Bool) -> some View {
+        Button { ChatUndo.perform(chat) } label: {
+            Label("Undo", systemImage: "arrow.uturn.backward")
+        }
+        .disabled(running || chat.session.undoableMessageID == nil || !chat.canUndo)
+        .help("Undo Claude’s last change from the chat")
+        if running {
+            Button("Stop") { confirmStop() }
+                .keyboardShortcut(".", modifiers: .command)
+                .help("Stop Claude (⌘.)")
+        } else {
+            Button("Discard") { model.confirmDismissRespond(prID: prID) }
+                .disabled(queue.phases[prID]?.isActive == true)
+                .help(isCI ? "Discard this CI fix and its worktree" : "Discard this analysis and its worktree")
+        }
+    }
+
+    /// Pregunta como la pastilla (`CancellablePill`) antes de parar a Claude.
+    private func confirmStop() {
+        ConfirmAlert.present(
+            title: isCI ? "Stop fixing the CI?" : "Stop this response?",
+            message: "Claude stops. Commits already made stay unpushed in PRBar’s worktree.",
+            action: "Stop"
+        ) { model.cancelRespond(prID: prID) }
+    }
 }
 
-/// Encabezado: `repo#N` + "Abrir en GitHub", título, cuenta, rama y worktree.
-private struct RespondHeader: View {
-    let draft: RespondDraft
-    /// Where the analysis ran (spec J): "on devbox" or "Ran on this Mac — devbox unreachable"; nil = this Mac.
-    let placement: String?
+/// Qué muestra la sección de abajo del resultado.
+enum RespondOutput: CaseIterable {
+    case diff, tests, log
 
-    private var origin: String {
-        switch draft.worktree.origin {
+    var title: String {
+        switch self {
+        case .diff: "Diff"
+        case .tests: "Tests"
+        case .log: "Log"
+        }
+    }
+}
+
+/// Las últimas 400 líneas del log de Claude de la corrida, y "Open Log".
+private struct RespondLogView: View {
+    let url: URL
+    @State private var text: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let text, !text.isEmpty {
+                DiffTextView(diff: text, colored: false)
+                    .frame(minHeight: 160, idealHeight: 360, maxHeight: 420)
+                    .background(RoundedRectangle(cornerRadius: Theme.Radius.card).fill(Color(nsColor: .controlBackgroundColor)))
+                    .cardBorder()
+            } else {
+                Text(text == nil ? "Loading the log…" : "There’s no log of this run yet.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            HStack {
+                Text("Last 400 lines").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button("Open Log") { NSWorkspace.shared.open(url) }
+                    .controlSize(.small)
+                    .disabled(!FileManager.default.fileExists(atPath: url.path))
+            }
+        }
+        .task(id: url) {
+            let url = url
+            let loaded = await Task.detached { (try? String(contentsOf: url, encoding: .utf8)).map { DiffFiles.tail($0, lines: 400) } }.value
+            text = loaded ?? ""
+        }
+    }
+}
+
+extension RespondDraft {
+    /// De dónde salió el worktree: "PRBar worktree", "main clone"…
+    var worktreeOrigin: String {
+        switch worktree.origin {
         case .mainClone: "main clone"
         case .existingWorktree: "existing worktree"
         case .created: "new worktree"
         case .dedicated: "PRBar worktree"
         }
     }
+}
+
+/// "Changes requested by ana, luis" / "3 checks failed": la línea de estado de la cabecera.
+enum RespondStatusLine {
+    static func of(_ draft: RespondDraft) -> String {
+        if draft.isCIFix {
+            let count = draft.ci?.checkNames.count ?? 0
+            return count == 1 ? "1 check failed" : "\(count) checks failed"
+        }
+        var reviewers: [String] = []
+        for item in draft.items where !reviewers.contains(item.feedback.reviewer) { reviewers.append(item.feedback.reviewer) }
+        return reviewers.isEmpty ? "No unresolved comments" : "Changes requested by \(reviewers.joined(separator: ", "))"
+    }
+}
+
+/// Encabezado: `repo#N` + "Abrir en GitHub", título, cuenta, rama y worktree.
+private struct RespondHeader: View {
+    let draft: RespondDraft
+    /// "Changes requested by ana" / "2 checks failed".
+    let status: String
+    /// Where the analysis ran (spec J): "on devbox" or "Ran on this Mac — devbox unreachable"; nil = this Mac.
+    let placement: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             PRReferenceLine(repo: draft.repo, number: draft.number, url: draft.url, linkTitle: "Open on GitHub")
             Text(draft.title)
-                .font(.title2.weight(.semibold))
+                .font(.system(size: 20, weight: .semibold))
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
+            Label(status, systemImage: draft.isCIFix ? "xmark.octagon.fill" : "bubble.left.and.exclamationmark.bubble.right")
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(draft.isCIFix ? Theme.redText : Theme.orangeText)
             HStack(spacing: 6) {
                 Text("@\(draft.account)").foregroundStyle(.primary)
                 Text("·").foregroundStyle(.tertiary)
@@ -739,20 +1226,7 @@ private struct RespondHeader: View {
             .font(.callout)
             .foregroundStyle(.secondary)
             .lineLimit(1)
-            HStack(spacing: 4) {
-                Image(systemName: "folder").imageScale(.small).fontWeight(.semibold)
-                Text("Worktree:")
-                Text(draft.worktree.path)
-                    .font(.system(.subheadline, design: .monospaced))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .textSelection(.enabled)
-                    .help(draft.worktree.path)
-                Text("(\(origin))")
-            }
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
-            .accessibilityElement(children: .combine)
+            // El worktree va en la tarjeta de progreso.
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -983,7 +1457,7 @@ private struct TestsSection: View {
 /// Estado final: lo que se pusheó y las respuestas publicadas, con sus links.
 private struct RespondDoneView: View {
     let record: RespondRecord
-    let close: () -> Void
+    let close: (() -> Void)?
 
     private var commits: Int { record.result.map(RespondCounts.commits) ?? 0 }
 
@@ -1001,9 +1475,11 @@ private struct RespondDoneView: View {
             HStack(spacing: 8) {
                 ExternalLink("View on GitHub", destination: record.draft.url)
                     .padding(.trailing, 8)
-                Button("Close", action: close)
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
+                if let close {
+                    Button("Close", action: close)
+                        .buttonStyle(.borderedProminent)
+                        .keyboardShortcut(.defaultAction)
+                }
             }
             .padding(.top, 14)
         }
@@ -1059,6 +1535,8 @@ struct RespondRepliesList: View {
 /// líneas `+` en verde, las `-` en rojo y los encabezados (`diff --git`, `@@`) en gris.
 struct DiffTextView: NSViewRepresentable {
     let diff: String
+    /// false: texto plano (el log de Claude), sin los colores del diff.
+    var colored = true
 
     final class Coordinator {
         var shown: String?
@@ -1094,7 +1572,14 @@ struct DiffTextView: NSViewRepresentable {
     private func update(_ scroll: NSScrollView, _ coordinator: Coordinator) {
         guard coordinator.shown != diff, let text = scroll.documentView as? NSTextView else { return }
         coordinator.shown = diff
-        text.textStorage?.setAttributedString(Self.colored(diff))
+        text.textStorage?.setAttributedString(colored ? Self.colored(diff) : Self.plain(diff))
+    }
+
+    static func plain(_ text: String) -> NSAttributedString {
+        NSAttributedString(string: text, attributes: [
+            .font: NSFont.monospacedSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular),
+            .foregroundColor: NSColor.labelColor,
+        ])
     }
 
     static func colored(_ diff: String) -> NSAttributedString {
@@ -1123,6 +1608,9 @@ struct DiffTextView: NSViewRepresentable {
 struct CIChecksSection: View {
     let draft: RespondDraft
     let result: RespondResult?
+    /// Los tests del repo que corrieron en el worktree después del fix: "falla en GitHub → pasa local" (no hay resultado
+    /// local por check; plan 21, decisión 7).
+    var localTests: TestRun? = nil
     @State private var expanded: Set<String> = []
 
     private var item: RespondItem? { draft.items.first }
@@ -1168,6 +1656,7 @@ struct CIChecksSection: View {
                 if let app = check.appName { Text("· \(CILogs.displayName(app))").font(.subheadline).foregroundStyle(.secondary) }
                 Spacer(minLength: 0)
                 Text(check.hasLog ? "job log" : "summary only").font(.caption).foregroundStyle(.secondary)
+                localResult
                 if let url = check.detailsURL, url.scheme == "https" {
                     ExternalLink("Details", destination: url).font(.subheadline)
                 }
@@ -1188,6 +1677,24 @@ struct CIChecksSection: View {
             }
         }
         .padding(10)
+    }
+}
+
+extension CIChecksSection {
+    /// "Fails on GitHub" y, si corrieron los tests del repo, "→ passes locally" / "→ fails locally".
+    @ViewBuilder
+    var localResult: some View {
+        HStack(spacing: 4) {
+            Text("Fails on GitHub").foregroundStyle(Theme.redText)
+            if let localTests {
+                Image(systemName: "arrow.right").foregroundStyle(.secondary).accessibilityHidden(true)
+                Text(localTests.passed ? "passes locally" : "fails locally")
+                    .foregroundStyle(localTests.passed ? Theme.greenText : Theme.redText)
+            }
+        }
+        .font(.caption.weight(.medium))
+        .help(localTests == nil ? "The repo’s tests haven’t run in the worktree"
+                                : "The repo’s tests (“\(localTests?.command ?? "")”) in PRBar’s worktree, after the fix")
     }
 }
 

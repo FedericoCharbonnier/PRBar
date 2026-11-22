@@ -30,7 +30,14 @@ struct PRDetailView: View {
     var body: some View {
         content
             .onAppear { model.detailAppeared(prID) }
+            // El modo foco no se apaga acá: al elegir otro PR, su `onChange(initial:)` lo pone según ese PR (el orden
+            // entre el `onDisappear` de uno y el `onAppear` del otro no está garantizado).
             .onDisappear { model.detailDisappeared(prID) }
+    }
+
+    /// Claude trabaja en Respond o Fix CI del PR que se ve (spec M.1 "Modo foco").
+    private func claudeWorking(_ tab: PRTab) -> Bool {
+        (tab == .respond || tab == .fixCI) && (respond.phases[prID]?.isActive == true || respond.runningTests.contains(prID))
     }
 
     @ViewBuilder
@@ -39,6 +46,8 @@ struct PRDetailView: View {
             let tab = state.nav.tab(for: prID, context: context)
             pane(tab)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // Modo foco (spec M.1): mientras Claude trabaja en Respond o Fix CI del PR que se ve.
+                .onChange(of: claudeWorking(tab), initial: true) { _, working in detail.focus.setClaudeWorking(working) }
                 .modifier(ChatInspectorModifier(model: model, detail: detail, prID: prID, tab: tab, enabled: hostsInspector))
                 // View › Show Chat in the menu bar.
                 .windowCommand(.toggleChat, enabled: model.chatEnabled, isOn: detail.focus.chatShown && model.chatEnabled) {
@@ -62,7 +71,6 @@ struct PRDetailView: View {
         }
     }
 
-    /// Hasta su task, cada pestaña muestra un botón que abre la ventana de hoy.
     @ViewBuilder
     private func pane(_ tab: PRTab) -> some View {
         switch tab {
@@ -76,7 +84,7 @@ struct PRDetailView: View {
                 PRGoneView(prID: prID)
             }
         case .respond, .fixCI:
-            LegacyPaneButton(title: "Open Respond Window") { model.openRespond(prID: prID) }
+            RespondPane(model: model, prID: prID, mode: tab == .fixCI ? .ciFix : .feedback) { state.choose($0, for: prID) }
         }
     }
 }
@@ -95,17 +103,6 @@ enum PRDetailToolbar {
             Label("Chat", systemImage: "bubble.left.and.bubble.right")
         }
         .help(detail.focus.chatShown ? "Hide Chat (⌥⌘I)" : "Show Chat (⌥⌘I)")
-    }
-}
-
-/// Provisorio (plan 21): la pestaña abre la ventana vieja hasta que llega su pane.
-private struct LegacyPaneButton: View {
-    let title: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(title, action: action)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

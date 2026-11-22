@@ -116,7 +116,7 @@ private final class SnapshotSession {
 
     // MARK: Models
 
-    private func makeModel(_ name: String, snapshot: Snapshot) throws -> AppModel {
+    private func makeModel(_ name: String, snapshot: Snapshot, holdsImplementation: Bool = false) throws -> AppModel {
         let dir = scratch.appendingPathComponent(name, isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let stateURL = dir.appendingPathComponent("state.json")
@@ -147,7 +147,8 @@ private final class SnapshotSession {
                                                    inProgress: [fixtures.loginRedirect.id]),
             respondPipeline: SnapshotRespondPipeline(draft: fixtures.csvDraft, result: fixtures.csvResult, tests: fixtures.csvTests,
                                                      logDirectory: respondHistory.directory.appendingPathComponent("logs"),
-                                                     ciDraft: fixtures.ciFixDraft, ciResult: fixtures.ciFixResult),
+                                                     ciDraft: fixtures.ciFixDraft, ciResult: fixtures.ciFixResult,
+                                                     holdsImplementation: holdsImplementation),
             chatBackend: SnapshotChatBackend(),
             instructionsStore: InstructionsStore(fileURL: dir.appendingPathComponent("instructions.json")),
             instructionsChatBackend: SnapshotInstructionsChatBackend(),
@@ -260,6 +261,8 @@ private final class SnapshotSession {
         try await window("main-review-chat", title: "PRBar", size: Theme.MainLayout.defaultSize) { MainWindow(model: model) }
     }
 
+    /// web-app#475 (mine, with feedback) in the Respond tab: choosing what to fix, and then, in its own model whose
+    /// pipeline holds the implementation, Claude implementing (focus mode: no list, chat open).
     private func respondWindows(model: AppModel) async throws {
         let item = fixtures.csvExport
         let prID = item.id
@@ -270,28 +273,26 @@ private final class SnapshotSession {
         }
         guard let draft = model.respond.records[prID]?.draft else { throw SnapshotError(message: "No respond draft") }
         model.respond.setChat(prID: prID, draftID: draft.id, chat: fixtures.respondChat)
-        let title = "Respond · \(draft.repo.name)#\(draft.number)"
-        try await window("respond-choose", title: title, size: NSSize(width: 760, height: 1440)) {
-            RespondWindow(model: model, prID: prID, draft: draft, chat: model.respondChat(for: draft), close: {})
-        }
+        model.main.go(to: .pr(prID: prID, tab: .respond), snapshot: model.prStore.snapshot)
+        try await window("main-respond-choose", title: "PRBar", size: Theme.MainLayout.defaultSize) { MainWindow(model: model) }
 
-        let selections = Dictionary(uniqueKeysWithValues: draft.items.map { ($0.id, RespondSelection.defaults(for: $0)) })
-        model.respond.implement(prID: prID, selections: selections)
-        try await waitUntil("the fixes") {
-            if case .readyToPush? = model.respond.phases[prID] { return true }
+        let focus = try makeModel("respond-focus", snapshot: fixtures.snapshot, holdsImplementation: true)
+        focus.respond.analyze(item, localPath: "/Users/sam/Code/web-app", worktreeDir: "/Users/sam/Code/worktrees")
+        try await waitUntil("the analysis") {
+            if case .ready? = focus.respond.phases[prID] { return true }
             return false
         }
-        model.runRespondTests(prID: prID)
-        try await waitUntil("the tests") {
-            if case .readyToPush(_, let result)? = model.respond.phases[prID] { return result.tests != nil }
+        guard let focusDraft = focus.respond.records[prID]?.draft else { throw SnapshotError(message: "No respond draft") }
+        focus.respond.setChat(prID: prID, draftID: focusDraft.id, chat: fixtures.respondChat)
+        let selections = Dictionary(uniqueKeysWithValues: focusDraft.items.map { ($0.id, RespondSelection.defaults(for: $0)) })
+        focus.respond.implement(prID: prID, selections: selections)
+        try await waitUntil("the implementation") {
+            if case .implementing(let done, _)? = focus.respond.phases[prID] { return done > 0 }
             return false
         }
-        try await window("respond-ready-to-push", title: title, size: NSSize(width: 760, height: 1140)) {
-            RespondWindow(model: model, prID: prID, draft: draft, chat: model.respondChat(for: draft), close: {})
-        }
-        try await window("respond-chat", title: title, size: NSSize(width: 1180, height: 1140)) {
-            RespondWindow(model: model, prID: prID, draft: draft, chat: model.respondChat(for: draft), showsChat: true, close: {})
-        }
+        focus.main.go(to: .pr(prID: prID, tab: .respond), snapshot: focus.prStore.snapshot)
+        try await window("main-respond-focus", title: "PRBar", size: Theme.MainLayout.defaultSize) { MainWindow(model: focus) }
+        focus.respond.cancel(prID: prID)
     }
 
     /// Fix CI (spec K) of web-app#475: the popover row while the fix waits to be pushed, and its window.
@@ -304,12 +305,11 @@ private final class SnapshotSession {
             if case .readyToPush? = model.respond.phases[prID] { return true }
             return false
         }
-        guard let draft = model.respond.records[prID]?.draft else { throw SnapshotError(message: "No CI fix draft") }
+        guard model.respond.records[prID] != nil else { throw SnapshotError(message: "No CI fix draft") }
         model.popoverTab.selected = .mine
         try await popover("popover-mine-ci-fix", model: model)
-        try await window("ci-fix-ready-to-push", title: model.respondWindowTitle(draft), size: NSSize(width: 760, height: 1320)) {
-            RespondWindow(model: model, prID: prID, draft: draft, chat: model.respondChat(for: draft), close: {})
-        }
+        model.main.go(to: .pr(prID: prID, tab: .fixCI), snapshot: model.prStore.snapshot)
+        try await window("main-fix-ci-ready", title: "PRBar", size: Theme.MainLayout.defaultSize) { MainWindow(model: model) }
     }
 
     /// api#322 (mine, Ready to Merge) in the Merge tab with its summary loaded, and web-app#491 (someone else's) in

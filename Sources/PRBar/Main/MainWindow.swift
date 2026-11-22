@@ -50,6 +50,7 @@ struct MainWindow: View {
                 detailView
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .animation(.easeInOut(duration: 0.2), value: detail.focus.isFocused)
         case .history:
             Text("History")   // Task 9
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

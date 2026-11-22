@@ -106,6 +106,8 @@ struct SnapshotRespondPipeline: RespondPipelineRunning {
     /// Fix CI (spec K): what `analyze` in CI mode and its fix return.
     var ciDraft: RespondDraft? = nil
     var ciResult: RespondResult? = nil
+    /// Main window's focus mode: `implement` reports fix 1 of 3 and waits until it's cancelled.
+    var holdsImplementation = false
 
     func analyze(_ request: RespondRequest, draftID: UUID,
                  onPhase: @escaping @MainActor @Sendable (RespondPhase) -> Void) async throws -> RespondDraft {
@@ -116,7 +118,11 @@ struct SnapshotRespondPipeline: RespondPipelineRunning {
 
     func implement(draft: RespondDraft, selections: [String: RespondSelection],
                    onProgress: @escaping @MainActor @Sendable (Int, Int) -> Void) async throws -> RespondResult {
-        draft.isCIFix ? (ciResult ?? result) : result
+        if holdsImplementation {
+            await onProgress(1, 3)
+            try await Task.sleep(for: .seconds(3600))
+        }
+        return draft.isCIFix ? (ciResult ?? result) : result
     }
 
     func runTests(draft: RespondDraft, testCommand: String) async -> TestRun { tests }

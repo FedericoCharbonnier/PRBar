@@ -123,16 +123,7 @@ struct ChatPanel: View {
     }
 
     private func undo(_ id: UUID) {
-        Task { @MainActor in
-            if await chat.undoDiscardsLaterEdits(id) {
-                ConfirmAlert.present(title: "Undo Claude’s changes?",
-                                     message: "Undo will also discard your manual edits since then.", action: "Undo") {
-                    chat.undo(id)
-                }
-            } else {
-                chat.undo(id)
-            }
-        }
+        ChatUndo.perform(chat, messageID: id)
     }
 
     // MARK: Campo de texto
@@ -407,6 +398,26 @@ enum ChatInputKeys {
         case .send:
             send()
             return .handled
+        }
+    }
+}
+
+/// Deshacer un cambio de Claude (la tarjeta del chat y el Undo de la barra de Respond / Fix CI): si después hubo
+/// ediciones a mano, pregunta antes porque también se pierden.
+enum ChatUndo {
+    /// Sin `messageID`, el último cambio que se puede deshacer (`chat.session.undoableMessageID`).
+    @MainActor
+    static func perform(_ chat: ChatCoordinator, messageID: UUID? = nil) {
+        guard let id = messageID ?? chat.session.undoableMessageID else { return }
+        Task { @MainActor in
+            if await chat.undoDiscardsLaterEdits(id) {
+                ConfirmAlert.present(title: "Undo Claude’s changes?",
+                                     message: "Undo will also discard your manual edits since then.", action: "Undo") {
+                    chat.undo(id)
+                }
+            } else {
+                chat.undo(id)
+            }
         }
     }
 }

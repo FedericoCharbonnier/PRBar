@@ -80,8 +80,7 @@ enum UIActionInventory {
         .init("Main/PRListPane.swift", "Component:MessageView", "checkmark.seal", 1, .viewOnly("the list’s empty state, no action")),
         .init("Main/PRDetailView.swift", "Component:PRTabBar", "-", 1, .viewOnly("navigation in the main window")),
         .init("Main/PRTabBar.swift", "Button", "-", 1, .viewOnly("navigation in the main window")),   // a tab
-        .init("Main/PRDetailView.swift", "Button", "-", 2, .cli(["chat"])),   // LegacyPaneButton (temporary) and Chat (toggles the inspector)
-        .init("Main/PRDetailView.swift", "Component:LegacyPaneButton", "Open Respond Window", 1, .viewOnly("temporary, removed in plan 21")),
+        .init("Main/PRDetailView.swift", "Button", "-", 1, .cli(["chat"])),   // Chat (toggles the inspector)
         .init("Main/PRDetailView.swift", "Button", "Open on GitHub", 1, .cli(["open"])),   // a PR that's no longer in the list
         .init("Main/PRDetailView.swift", "Component:MessageView", "questionmark.folder", 1, .viewOnly("a message; its action is a Button in this file")),
         .init("Popover/PopoverView.swift", "Button", "Open PRBar Window", 1, .viewOnly("temporary, replaced in plan 21 task 12")),
@@ -217,22 +216,40 @@ enum UIActionInventory {
         .init("Review/ReviewStyle.swift", "Link", "-", 1, .viewOnly(generic)),
         // Ventana de Respond
         // carpeta, Push/Post, la acción de un mensaje ("Open New Analysis"…) y el botón Chat
-        .init("Respond/RespondWindow.swift", "Button", "-", 4, .cli(["open", "respond push", "chat"])),
-        .init("Respond/RespondWindow.swift", "Button", "Push Anyway…", 2, .cli(["respond push", "ci push"])),   // --anyway (tests failed / CI passes now)
-        .init("Respond/RespondWindow.swift", "Button", "Fix CI", 1, .cli(["ci fix"])),   // or "Fix CI Again"
-        .init("Respond/RespondWindow.swift", "ExternalLink", "Details", 1, .cli(["ci show"])),   // the check's details URL
-        .init("Respond/RespondWindow.swift", "Component:CIPassingBanner", "-", 1, .cli(["ci push"])),   // --anyway
-        .init("Respond/RespondWindow.swift", "Button", "Reset to Claude’s Suggestions", 1, .cli(["respond select"])),
-        .init("Respond/RespondWindow.swift", "Button", "Implement 1 Fix", 1, .cli(["respond implement"])),
-        .init("Respond/RespondWindow.swift", "Button", "Analyze Again", 1, .cli(["respond start"])),
-        .init("Respond/RespondWindow.swift", "Button", "Retry Pending Replies", 1, .cli(["respond reply-only"])),
-        .init("Respond/RespondWindow.swift", "Button", "Cancel", 3, .cli(["respond cancel"])),
-        .init("Respond/RespondWindow.swift", "Button", "Run Tests", 1, .cli(["respond test"])),
-        .init("Respond/RespondWindow.swift", "Button", "Close", 2, .viewOnly("closes the window")),
-        .init("Respond/RespondWindow.swift", "DisclosureGroup", "-", 2, .viewOnly("test output and what Claude saw of a failing check; `prbar respond|ci show --full` prints them")),
-        .init("Respond/RespondWindow.swift", "ExternalLink", "View Reply", 1, .cli(["respond show"])),
-        .init("Respond/RespondWindow.swift", "ExternalLink", "View on GitHub", 1, .cli(["open"])),
-        .init("Respond/RespondWindow.swift", "Link", "-", 1, .cli(["respond show"])),   // links a los commits
+        .init("Respond/RespondPane.swift", "Button", "-", 5, .cli(["respond push", "ci push", "respond diff", "chat", "open"])),   // Push & Reply / Push, file chips (diff), Undo (chat /undo), Show Worktree in Finder, a message's action
+        .init("Respond/RespondPane.swift", "Button", "Push Anyway…", 2, .cli(["respond push", "ci push"])),   // --anyway (tests failed / CI passes now)
+        .init("Respond/RespondPane.swift", "Button", "Fix CI", 1, .cli(["ci fix"])),   // or "Fix CI Again"
+        .init("Respond/RespondPane.swift", "Button", "Start Fix CI", 1, .cli(["ci fix", "respond start"])),   // or "Start Respond"
+        .init("Respond/RespondPane.swift", "ExternalLink", "Details", 1, .cli(["ci show"])),   // the check's details URL
+        .init("Respond/RespondPane.swift", "Component:CIPassingBanner", "-", 1, .cli(["ci push"])),   // --anyway
+        .init("Respond/RespondPane.swift", "Button", "Reset to Claude’s Suggestions", 1, .cli(["respond select"])),
+        .init("Respond/RespondPane.swift", "Button", "Implement 1 Fix", 1, .cli(["respond implement"])),
+        .init("Respond/RespondPane.swift", "Button", "Analyze Again", 1, .cli(["respond start"])),
+        .init("Respond/RespondPane.swift", "Button", "Retry Pending Replies", 1, .cli(["respond reply-only"])),
+        .init("Respond/RespondPane.swift", "Button", "Cancel", 1, .cli(["respond cancel"])),   // the tests
+        .init("Respond/RespondPane.swift", "Button", "Stop", 2, .cli(["respond cancel", "ci cancel"])),
+        .init("Respond/RespondPane.swift", "Button", "Discard", 1, .cli(["respond dismiss", "ci dismiss"])),
+        .init("Respond/RespondPane.swift", "Button", "Run Tests", 1, .cli(["respond test"])),
+        .init("Respond/RespondPane.swift", "Button", "Close", 2, .viewOnly("closes a PR window; hidden in the main window's tab")),
+        .init("Respond/RespondPane.swift", "Button", "Go to Respond", 1, .viewOnly("navigation in the main window")),   // or "Go to Fix CI"
+        .init("Respond/RespondPane.swift", "Button", "Open Log", 1, .viewOnly("opens Claude's log of the run")),
+        .init("Respond/RespondPane.swift", "Button", "Show Log", 1, .viewOnly("opens Claude's log of the failed run")),
+        .init("Respond/RespondPane.swift", "Picker", "Show", 1, .viewOnly("Diff · Tests · Log; `prbar respond|ci diff` and `test` print them")),
+        .init("Respond/RespondPane.swift", "DisclosureGroup", "-", 2, .viewOnly("test output and what Claude saw of a failing check; `prbar respond|ci show --full` prints them")),
+        .init("Respond/RespondPane.swift", "ExternalLink", "View Reply", 1, .cli(["respond show"])),
+        .init("Respond/RespondPane.swift", "ExternalLink", "View on GitHub", 1, .cli(["open"])),
+        .init("Respond/RespondPane.swift", "Link", "-", 1, .cli(["respond show"])),   // links a los commits
+        .init("Respond/RespondPane.swift", "Component:MessageView", "-", 1, .viewOnly("a message; its action is a Button in this file")),
+        .init("Respond/RespondPane.swift", "Component:MessageView", "arrow.left.arrow.right", 1, .viewOnly("a message; its action is a Button in this file")),
+        .init("Respond/RespondPane.swift", "Component:MessageView", "questionmark.folder", 1, .viewOnly("a message")),
+        .init("Respond/RespondPane.swift", "Component:RespondDoneView", "-", 1, .viewOnly("the pushed run; its links are in this file")),
+        .init("Respond/RespondPane.swift", "Component:RespondOtherRunView", "-", 1, .viewOnly("navigation in the main window")),
+        .init("Respond/RespondPane.swift", "Component:RespondRunView", "-", 1, .viewOnly("the run's view inside the pane; its controls are in this file")),
+        .init("Respond/RespondPane.swift", "Component:TestsBlockedPushBanner", "-", 1, .cli(["respond push"])),   // --anyway
+        .init("Respond/RespondPane.swift", "Component:TestsSection", "-", 1, .cli(["respond test", "respond cancel"])),
+        .init("Respond/RespondPane.swift", "ConfirmAlert", "-", 5, .cli(["respond push", "respond reply-only", "ci push", "chat"])),   // Push & Reply / Push, Push Anyway (tests, CI), Post, Undo (/undo)
+        .init("Respond/RespondPane.swift", "ConfirmAlert", "Stop fixing the CI?", 1, .cli(["respond cancel", "ci cancel"])),   // or "Stop this response?"
+        .init("Main/PRDetailView.swift", "Component:RespondPane", "-", 1, .viewOnly("navigation in the main window")),
         .init("Respond/RespondItemCard.swift", "Toggle", "Implement fix", 1, .cli(["respond select"])),
         .init("Respond/RespondItemCard.swift", "Toggle", "Reply", 1, .cli(["respond select"])),
         .init("Respond/RespondItemCard.swift", "TextEditor", "-", 1, .cli(["respond select"])),
@@ -389,7 +406,6 @@ enum UIActionInventory {
         .init("AppModel+Updates.swift", "Component:UpdateWindow", "-", 1, .cli(["update"])),
         // Descartar trabajo sin pushear (Dismiss, Analyze Again / Fix CI Again): la CLI pregunta lo mismo.
         .init("AppModel.swift", "ConfirmAlert", "-", 1, .cli(["respond dismiss", "ci dismiss"])),   // --yes
-        .init("AppModel.swift", "Component:RespondWindow", "-", 1, .viewOnly("window plumbing (unsaved state, close)")),
         // AppModel.rowActions: los pills de las filas (popover y ventana principal).
         .init("AppModel+Popover.swift", "Component:ReviewButtonActions", "-", 1,
               .cli(["review start", "review cancel", "open", "review dismiss"])),
@@ -407,11 +423,6 @@ enum UIActionInventory {
         .init("Chat/ChatPanel.swift", "ConfirmAlert", "Undo Claude’s changes?", 1, .cli(["chat"])),   // --undo --yes
         .init("Chat/ChatPanel.swift", "onKeyPress", "-", 1, .cli(["chat"])),   // ↩ sends
         .init("Components/SearchablePickerPopover.swift", "Component:PickerContent", "-", 1, .viewOnly(generic)),
-        .init("Respond/RespondWindow.swift", "Component:MessageView", "-", 1, .viewOnly("a message; its action is a Button in this file")),
-        .init("Respond/RespondWindow.swift", "Component:RespondDoneView", "-", 1, .viewOnly("closes the window")),
-        .init("Respond/RespondWindow.swift", "Component:TestsBlockedPushBanner", "-", 1, .cli(["respond push"])),   // --anyway
-        .init("Respond/RespondWindow.swift", "Component:TestsSection", "-", 1, .cli(["respond test", "respond cancel"])),
-        .init("Respond/RespondWindow.swift", "ConfirmAlert", "-", 4, .cli(["respond push", "respond reply-only", "ci push"])),   // Push and Reply / Push, Push Anyway (tests, CI), Post
         .init("Review/HistoryWindow.swift", "Component:HistoryDetailView", "-", 1, .cli(["history reopen"])),
         .init("Review/HistoryWindow.swift", "Component:RespondHistoryDetailView", "-", 1, .cli(["open"])),
         .init("Review/HistoryWindow.swift", "Component:MessageView", "-", 1, .viewOnly("an empty-state message without an action")),

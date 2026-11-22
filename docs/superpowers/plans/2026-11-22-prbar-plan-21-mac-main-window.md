@@ -2071,6 +2071,15 @@ Layout: spec M.1 "Respond / Fix CI" y "Modo foco y chat"; boceto `MacRespond.dc.
   `implement` informa `onProgress(1, 3)` y se queda esperando hasta que lo cancelen (`try await
   Task.sleep(for: .seconds(3600))`). El modelo `respond-focus` implementa el draft de `fixtures.csvDraft` y espera
   `.implementing`.
+  **Hecho (implementación):** `RespondPane(model:prID:mode:showTab:)` (`mode: RespondMode`; `showTab` lleva a la otra
+  pestaña) elige entre `RespondStartView` (sin corrida; con el error si falló el análisis), `RespondAnalyzingView`
+  (analizando: todavía no hay draft ni registro), `RespondOtherRunView` (corrida del otro modo) y `RespondRunView` (lo
+  que era `RespondWindow`, con `.id(draft.id)`). La tarjeta es `RespondProgressCard` y lleva el worktree (salió de la
+  cabecera). Los chips, el fragmento de un archivo y la cola del log salen de `DiffFiles` (Core, con tests). El reloj de
+  etapas se reinicia con una corrida nueva (no con "Queued to post…"). El modo foco no se apaga en `onDisappear` (el
+  orden contra el `onAppear` del PR siguiente no está garantizado): el `onChange(initial:)` del PR nuevo lo pone.
+  `ChatUndo.perform(_:messageID:)`. `respondWindowTitle` se borró. `CIChecksSection(localTests:)` dice "Fails on GitHub
+  → passes/fails locally". El botón de Respond dice "Push & Reply".
 - [ ] **Step 8:** Paridad UI (Start Respond → `.cli(["respond"])`, Start Fix CI → `.cli(["ci fix"])`, Stop →
   `.cli(["respond cancel", "ci cancel"])`, Discard → `.cli(["respond dismiss"])`, Push/Push & Reply → `.cli(["respond
   push", "ci push"])`, Undo → `.cli(["chat"])` con `// /undo`, el segmentado → `.viewOnly`; usar las rutas que existan

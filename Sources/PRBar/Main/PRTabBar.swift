@@ -24,7 +24,7 @@ struct PRTabBar: View {
         let indicator = indicator(item.tab)
         return Button { choose(item.tab) } label: {
             HStack(spacing: 5) {
-                Text(item.tab.title)
+                Text(item.tab.title).fixedSize()
                 switch indicator {
                 case .running?:
                     ProgressView().controlSize(.mini).tint(isSelected ? .white : Theme.violet)

@@ -189,6 +189,10 @@ final class AppModel: ObservableObject {
     @Published private(set) var reviewRuns: [String: ClaudeRunInfo] = [:]
     /// La ventana principal (spec M.1): sobrevive a cerrarla con ⌘W.
     let main = MainWindowState()
+    /// Cuándo empezó y terminó cada etapa (Analyzing · Implementing · Running tests) del Respond / Fix CI de cada PR: la
+    /// tarjeta de progreso de la pestaña. Lo llena `respondTimelineObserver` con cada cambio de fase.
+    @Published private(set) var respondTimelines: [String: RespondStageTimeline] = [:]
+    private var respondTimelineObserver: AnyCancellable?
     private var terminationObserver: NSObjectProtocol?
     /// Chats discarded while a turn was running, until it ends (`discardChat`).
     private var retiringChats: [UUID: ChatCoordinator] = [:]
@@ -296,6 +300,8 @@ final class AppModel: ObservableObject {
         )
         installStateObserver = updates.session.$state.removeDuplicates().sink { [weak self] _ in self?.objectWillChange.send() }
         publishingObserver = publishingReviews.$running.sink { [weak self] _ in self?.objectWillChange.send() }
+        respondTimelineObserver = respond.$phases.combineLatest(respond.$runningTests)
+            .sink { [weak self] phases, runningTests in self?.noteRespondStages(phases, runningTests: runningTests) }
         mergePruneObserver = prStore.$snapshot.dropFirst().compactMap { $0 }.sink { [weak self] snapshot in
             self?.merges.prune(keeping: Set(snapshot.items.map(\.id)))
             self?.updateMergeSessions(snapshot)
@@ -1080,7 +1086,25 @@ final class AppModel: ObservableObject {
     func dismissRespond(prID: String) {
         if let draft = respond.records[prID]?.draft { discardChat(draftID: draft.id) }
         respond.dismiss(prID: prID)
-        WindowPresenter.shared.close(id: Self.respondWindowID(prID))
+        respondTimelines[prID] = nil
+    }
+
+    /// Anota en el reloj de etapas de cada PR su fase de ahora. Una corrida nueva (vuelve a analizar después de haber
+    /// terminado de analizar) empieza un reloj nuevo.
+    private func noteRespondStages(_ phases: [String: RespondPhase], runningTests: Set<String>, now: Date = Date()) {
+        var timelines = respondTimelines
+        for prID in Set(phases.keys).union(runningTests) {
+            var timeline = timelines[prID] ?? RespondStageTimeline()
+            switch phases[prID] {
+            case .queued?, .preparing?, .analyzing?:
+                // "Queued to post…" (ya con resultado) no es una corrida nueva.
+                if timeline.ends[.analyzing] != nil, respond.records[prID]?.result == nil { timeline = RespondStageTimeline() }
+            default: break
+            }
+            timeline.note(phase: phases[prID], runningTests: runningTests.contains(prID), at: now)
+            timelines[prID] = timeline
+        }
+        if timelines != respondTimelines { respondTimelines = timelines }
     }
 
     /// Lo elegido para el análisis `draft` (ventana, chat o CLI): las `selections` de su coordinador.
@@ -1150,28 +1174,10 @@ final class AppModel: ObservableObject {
         return gate
     }
 
-    /// Abre la ventana de Responder del PR (una por PR). Con otro draft (se volvió a analizar) se reemplaza el
-    /// contenido, pidiendo confirmación si había elecciones o textos sin usar.
+    /// Abre el Respond o el Fix CI del PR en su pestaña de la ventana principal (spec M.4).
     func openRespond(prID: String) {
-        guard let draft = respond.records[prID]?.draft else { return }
-        let windowID = Self.respondWindowID(prID)
-        WindowPresenter.shared.show(
-            id: windowID, title: respondWindowTitle(draft), size: RespondWindow.size,
-            // Sin confirmación al cerrar: las decisiones viven en el coordinador del draft (plan 7, decisión 3).
-            options: WindowOptions(sharedFrameKey: "RespondWindowFrame", tabbingIdentifier: "PRBar.respond", bridgesToolbar: true,
-                                   toolbarStyle: .unified),
-            contentID: draft.id.uuidString,
-            replaceConfirmation: "The previous analysis has unused decisions. Replace it?"
-        ) {
-            RespondWindow(model: self, prID: prID, draft: draft, chat: self.respondChat(for: draft)) { unsaved in
-                WindowPresenter.shared.setUnsavedChanges(unsaved, for: windowID)
-            } close: {
-                WindowPresenter.shared.close(id: windowID)
-            }
-        }
+        navigate(to: .pr(prID: prID, tab: respond.mode(of: prID) == .ciFix ? .fixCI : .respond))
     }
-
-    private static func respondWindowID(_ prID: String) -> String { "respond-\(prID)" }
 
     /// Click en una notificación de Responder: la ventana si el PR sigue en curso; si no, el Historial.
     func openRespondFromNotification(prID: String) {
