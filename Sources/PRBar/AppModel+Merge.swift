@@ -7,12 +7,12 @@ import SwiftUI
 /// de un merge, o cuando el PR sale de la lista sin la ventana abierta.
 @MainActor
 final class MergeSession: ObservableObject {
-    let window: MergeWindowModel
+    let window: MergeDetailModel
     var record: MergeRecord
     /// El chat de la ventana; se crea la primera vez que se lo usa (`AppModel.mergeChat`).
     @Published var chat: ChatCoordinator?
 
-    init(window: MergeWindowModel, record: MergeRecord) {
+    init(window: MergeDetailModel, record: MergeRecord) {
         self.window = window
         self.record = record
     }
@@ -42,7 +42,7 @@ extension AppModel {
         let record = existing ?? MergeRecord(item: item, startedAt: Date())
         let api = self.api
         let accounts = self.accounts
-        let window = MergeWindowModel(prID: item.id, recordID: record.id) {
+        let window = MergeDetailModel(prID: item.id, recordID: record.id) {
             let token = try await accounts.token(for: record.account)
             return try await api.mergeDetail(repo: record.repo, number: record.number, token: token)
         }
@@ -123,7 +123,7 @@ extension AppModel {
         await loadMergeWindow(session, alreadyOpen: session.window.detail != nil)
     }
 
-    /// La primera vez carga el resumen; reabierta refresca con el head fijo (spec G.8, `MergeWindowModel.opened`). Si
+    /// La primera vez carga el resumen; reabierta refresca con el head fijo (spec G.8, `MergeDetailModel.opened`). Si
     /// la primera carga trae otro head que la lista, la lista está atrasada: se refresca una vez (así el snapshot no
     /// pone el banner con un head viejo). Un chat vacío que se abrió antes de cargar se rehace con el head cargado.
     func loadMergeWindow(_ session: MergeSession, alreadyOpen: Bool) async {

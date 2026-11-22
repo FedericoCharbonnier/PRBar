@@ -88,7 +88,7 @@ public enum MergeFlow {
         if let blockedReason { return blockedReason }
         guard let current else { return "This PR isn’t in PRBar’s list anymore." }
         guard shownHead != nil, let options else { return "Loading…" }
-        if stale { return MergeWindowModel.staleText }
+        if stale { return MergeDetailModel.staleText }
         return MergePolicy.problem(current, method: method, options: options)?.localizedDescription
     }
 

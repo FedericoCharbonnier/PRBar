@@ -50,11 +50,6 @@ extension AppModel {
             discardChat(draftID: previous.id)
         }
     }
-
-    /// The Respond window's title for the PR's run.
-    func respondWindowTitle(_ draft: RespondDraft) -> String {
-        "\(draft.isCIFix ? "Fix CI" : "Respond") · \(draft.repo.name)#\(draft.number)"
-    }
 }
 
 // MARK: - Claude usage (spec O)

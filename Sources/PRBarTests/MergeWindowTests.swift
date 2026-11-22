@@ -9,10 +9,10 @@ private func detail(_ head: String, checks: [MergeCheck] = []) -> MergeDetail {
 
 /// Una ventana cuyo `fetch` devuelve, en orden, `results` (el último se repite).
 @MainActor
-private func window(_ results: [Result<MergeDetail, PRBarError>]) -> (MergeWindowModel, Box<Int>) {
+private func window(_ results: [Result<MergeDetail, PRBarError>]) -> (MergeDetailModel, Box<Int>) {
     let calls = Box(0)
     let queue = Box(results)
-    let model = MergeWindowModel(prID: "o/r#7", recordID: UUID()) {
+    let model = MergeDetailModel(prID: "o/r#7", recordID: UUID()) {
         calls.value += 1
         let next = queue.value.count > 1 ? queue.value.removeFirst() : queue.value[0]
         return try next.get()
@@ -34,7 +34,7 @@ extension Result {
 
 enum MergeWindowTests {
     /// Carga A y después ve B.
-    @MainActor static func window2() -> (MergeWindowModel, Box<Int>) {
+    @MainActor static func window2() -> (MergeDetailModel, Box<Int>) {
         window([.success(detail("aaa")), .success(detail("bbb"))])
     }
 
@@ -145,7 +145,7 @@ enum MergeWindowTests {
             try expect(!window.isStale)
         },
         TestCase("merge window: precargada (capturas, CLI) ya tiene head") { @MainActor in
-            let window = MergeWindowModel(prID: "o/r#7", recordID: UUID(), detail: detail("ccc")) { detail("ccc") }
+            let window = MergeDetailModel(prID: "o/r#7", recordID: UUID(), detail: detail("ccc")) { detail("ccc") }
             try expectEqual(window.shownHead, "ccc")
         },
         TestCase("merge window: el botón mergea el head que muestra la ventana, aunque el snapshot tenga otro") {
@@ -161,7 +161,7 @@ enum MergeWindowTests {
             try expectEqual(request.item.id, ready.id)
             try expectEqual(request.method, .squash)
             try expectEqual(try merge(method: .squash).get().method, .squash)
-            try expectEqual(merge(stale: true).failureValue, .unavailable(MergeWindowModel.staleText))
+            try expectEqual(merge(stale: true).failureValue, .unavailable(MergeDetailModel.staleText))
             try expectEqual(merge(blocked: "Installing an update").failureValue, .blocked("Installing an update"))
             try expectEqual(merge(shown: nil).failureValue, .unavailable("Loading…"))
             try expectEqual(merge(method: .rebase).failureValue, .unavailable("This repo doesn’t allow Rebase and Merge"))
@@ -190,7 +190,7 @@ enum MergeWindowTests {
             try expectEqual(problem(current: nil), "This PR isn’t in PRBar’s list anymore.")
             try expectEqual(problem(shown: nil), "Loading…")
             try expectEqual(problem(options: nil), "Loading…")
-            try expectEqual(problem(stale: true), MergeWindowModel.staleText)
+            try expectEqual(problem(stale: true), MergeDetailModel.staleText)
             try expectEqual(problem(method: .rebase), "This repo doesn’t allow Rebase and Merge")
             let blocked = MergeOptions(availability: .disabled(reason: "Blocked by branch protection or required checks"),
                                        methods: [.squash], defaultMethod: .squash)

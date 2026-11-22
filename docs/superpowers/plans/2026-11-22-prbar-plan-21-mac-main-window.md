@@ -2541,6 +2541,14 @@ en `PRBarURLTests`.
   `MergeDetailModel` solo si el cambio es mecánico).
 - [ ] **Step 2:** `swift build --product PRBar && swift build --product PRBarCLI && swift build --product PRBarTests &&
   swift run PRBarTests`. Paridad UI ("YA NO EXISTE" → borrar entradas). **Commit** `"Remove the old window types"`.
+  **Hecho (implementación):** los tipos de ventana viejos ya no estaban (los `git mv` de las tasks 6–11). Se borraron
+  además: la confirmación de cambios sin guardar de `WindowPresenter` (`setUnsavedChanges`, `replaceConfirmation`,
+  `CloseConfirmation`, `windowShouldClose`, `isOpen(id:)`; solo la usaban las ventanas de Review/Respond),
+  `InspectorWindowSizing.swift` y `InspectorSizing` de Core con su test (nadie agranda ya la ventana al abrir el chat) y
+  `respondWindowTitle`. `MergeWindowModel` → `MergeDetailModel` (mecánico). Comentarios de `WindowSpaces.Kind` y
+  `WindowOptions`. El escáner de la paridad UI atribuía los miembros de una `class` al último `struct` del archivo (al
+  irse `CloseConfirmation`, `WindowOptions` pasó a parecer un componente con acciones): ahora una `class`/`enum`/
+  `extension` al mismo nivel cierra el `struct`.
 
 ---
 

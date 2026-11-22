@@ -61,7 +61,6 @@ enum UIActionInventory {
         .init("Main/PRDetailView.swift", "ConfirmAlert", "Stop fixing the CI?", 1, .cli(["respond cancel", "ci cancel"])),   // or "Stop this response?"
         .init("AppMenu.swift", "ClosureMenuItem", "Keyboard Shortcuts", 1, .viewOnly("lists the shortcuts")),
         .init("AppMenu.swift", "ClosureMenuItem", "Show Log", 1, .cli(["app logs"])),
-        .init("Components/InspectorWindowSizing.swift", "Component:WindowAccessor", "-", 1, .viewOnly("finds the window to widen when the chat opens")),
         .init("Components/WindowCommands.swift", "Component:WindowAccessor", "-", 1, .viewOnly("finds the window a View menu command acts on")),
         .init("Components/WindowCommands.swift", "Component:WindowCommandModifier", "-", 1, .viewOnly("registers a window’s View menu commands (Show Chat, Refresh)")),
         // PRBar Activity (plan 13, spec I)
@@ -417,10 +416,6 @@ enum UIActionInventory {
         .init("AppMenu.swift", "NSMenuItem", "", 1, .viewOnly("AppMenu.item: the menu items are inventoried as MenuItem")),
         .init("AppMenu.swift", "NSMenuItem", "-", 1, .viewOnly("a submenu title")),
         .init("Review/ReviewButton.swift", "NSMenuItem", "-", 1, .viewOnly("the error text at the top of the error menu (disabled)")),
-        .init("WindowPresenter.swift", "NSAlertButton", "Replace", 1, .viewOnly("replaces a window’s unsaved contents with the new ones")),
-        .init("WindowPresenter.swift", "NSAlertButton", "Keep Previous", 1, .viewOnly("keeps the window’s unsaved contents")),
-        .init("WindowPresenter.swift", "NSAlertButton", "Close", 1, .viewOnly("closes a window with unsaved edits")),
-        .init("WindowPresenter.swift", "NSAlertButton", "Cancel", 1, .viewOnly("keeps the window open")),
         .init("Main/MainWindow.swift", "Component:UpdateSheet", "-", 1, .cli(["update"])),
         .init("Main/MainSidebar.swift", "Component:UpdateButton", "-", 1, .cli(["update"])),   // while installing
         .init("Main/MainSidebar.swift", "Button", "What’s New", 1, .cli(["update"])),   // opens the Update sheet

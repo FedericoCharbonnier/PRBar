@@ -5,7 +5,7 @@ import Foundation
 /// no cambia lo mostrado: marca la ventana como desactualizada (`newerHead`, el banner) hasta que el usuario recarga.
 /// Con el mismo head, ⌘R reemplaza el detalle (checks y reviews nuevos).
 @MainActor
-public final class MergeWindowModel: ObservableObject {
+public final class MergeDetailModel: ObservableObject {
     public nonisolated static let staleText = "New commits were pushed since you opened this — Reload"
 
     public let prID: String

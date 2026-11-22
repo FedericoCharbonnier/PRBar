@@ -66,6 +66,9 @@ enum UIActionScanner {
     /// Un `struct` de la app (a cualquier nivel) y sus miembros, un nivel más adentro.
     private static let structDeclaration = try! NSRegularExpression(
         pattern: #"^(\s*)((private|fileprivate|public) )?struct (\w+)"#)
+    /// Otro tipo al mismo nivel (o más afuera) que el `struct` de antes: sus miembros ya no son del `struct`.
+    private static let otherTypeDeclaration = try! NSRegularExpression(
+        pattern: #"^(\s*)((private|fileprivate|public|final|@MainActor) )*(class|enum|extension|actor) \w+"#)
     /// Una acción que recibe un componente: una propiedad o un parámetro del `init` que es un closure (`-> Void`).
     private static let actionMember = try! NSRegularExpression(
         pattern: #"^(\s*)((private|fileprivate|public) )?((let|var) \w+: .*-> Void|init\(.*-> Void)"#)
@@ -90,6 +93,11 @@ enum UIActionScanner {
                 if let match = structDeclaration.firstMatch(in: line, range: range),
                    let name = Range(match.range(at: 4), in: line) {
                     current = (String(line[name]), match.range(at: 1).length)
+                    continue
+                }
+                if let open = current, let match = otherTypeDeclaration.firstMatch(in: line, range: range),
+                   match.range(at: 1).length <= open.indent {
+                    current = nil
                     continue
                 }
                 if let current, let match = actionMember.firstMatch(in: line, range: range),

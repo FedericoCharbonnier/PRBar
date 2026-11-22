@@ -334,7 +334,7 @@ private final class SnapshotSession {
         let detail = fixtures.idempotencyDetail
         let record = MergeRecord(item: item, startedAt: fixtures.date(minutes: -8))
         model.mergeSessions[item.id] = MergeSession(
-            window: MergeWindowModel(prID: item.id, recordID: record.id, detail: detail) { detail }, record: record)
+            window: MergeDetailModel(prID: item.id, recordID: record.id, detail: detail) { detail }, record: record)
         model.main.go(to: .pr(prID: item.id, tab: .merge), snapshot: model.prStore.snapshot)
         try await window("main-merge", title: "PRBar", size: Theme.MainLayout.defaultSize) { MainWindow(model: model) }
         // El mismo PR en su ventana (⇧⌘O, spec M.2): solo el detalle, sin barra lateral ni lista.
@@ -358,7 +358,7 @@ private final class SnapshotSession {
         otherDetail.reviewDecision = .reviewRequired
         let otherRecord = MergeRecord(item: other, startedAt: fixtures.date(minutes: -3))
         model.mergeSessions[other.id] = MergeSession(
-            window: MergeWindowModel(prID: other.id, recordID: otherRecord.id, detail: otherDetail) { otherDetail },
+            window: MergeDetailModel(prID: other.id, recordID: otherRecord.id, detail: otherDetail) { otherDetail },
             record: otherRecord)
         model.main.go(to: .pr(prID: other.id, tab: .details), snapshot: model.prStore.snapshot)
         try await window("main-details", title: "PRBar", size: Theme.MainLayout.defaultSize) { MainWindow(model: model) }

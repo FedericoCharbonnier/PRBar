@@ -14,7 +14,7 @@ struct MergeDetailPane: View {
     @ObservedObject var prStore: PRStore
     @ObservedObject var merges: MergeQueue
     @ObservedObject var session: MergeSession
-    @ObservedObject var window: MergeWindowModel
+    @ObservedObject var window: MergeDetailModel
     let mode: MergePaneMode
 
     @State private var descriptionExpanded = false
@@ -331,7 +331,7 @@ struct MergeDetailPane: View {
 struct MergeChatPanel: View {
     @ObservedObject var model: AppModel
     @ObservedObject var session: MergeSession
-    @ObservedObject var window: MergeWindowModel
+    @ObservedObject var window: MergeDetailModel
 
     init(model: AppModel, session: MergeSession) {
         self.model = model

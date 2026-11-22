@@ -5,9 +5,9 @@ import CoreGraphics
 public enum WindowSpaces {
     /// What a window is for.
     public enum Kind: Sendable {
-        /// Review, Respond, Merge, History: can go full screen and be grouped in tabs (with the windows of its kind).
+        /// The main window and the PR windows: can go full screen and be grouped in tabs (with the windows of its kind).
         case document
-        /// Settings, Activity, Update: a single window that comes to the Space you're on.
+        /// Settings: a single window that comes to the Space you're on.
         case utility
     }
 
