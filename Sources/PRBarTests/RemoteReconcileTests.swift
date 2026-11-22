@@ -205,6 +205,55 @@ enum RemoteReconcileTests {
             try await Task.sleep(for: .milliseconds(200))
             try expectEqual(h.service.state, .connected)
         },
+        TestCase("remote host: sin pong dentro del plazo cierra el link y reconecta; con pong lo mantiene (L6)") {
+            let relay = InMemoryRelay()
+            let keys = MacKeys()
+            let account = await relay.enroll(macKey: keys.relay.publicKey)
+            let host = RemoteHost(
+                configuration: .init(accountId: account, relayHost: relay.host, macName: "Mac", appVersion: "1.3.0",
+                                     keys: keys, backoff: { _ in .milliseconds(50) },
+                                     pingInterval: .milliseconds(100), pongTimeout: .milliseconds(150)),
+                devices: [], linkFactory: relay.factory(), handler: { _, _ in .success(.null) })
+            try await host.connect()
+            defer { Task { await host.disconnect() } }
+            // Con pong: varios pings y el mismo link.
+            let first = try expectSome(await relay.macLink(account))
+            try await eventually(3, "pings") { await relay.pings >= 3 }
+            let same = await relay.macLink(account) === first
+            try expect(same, "reconectó con el relay contestando")
+            // El relay deja de contestar (socket muerto sin cierre): la Mac corta y vuelve a entrar.
+            await relay.setMutePongs(true)
+            try await eventually(3, "link nuevo") {
+                guard let link = await relay.macLink(account) else { return false }
+                return link !== first
+            }
+            await relay.setMutePongs(false)
+            try await eventually(3, "conectado") { await host.isConnected }
+            let second = try expectSome(await relay.macLink(account))
+            let pings = await relay.pings
+            try await eventually(3, "más pings") { await relay.pings >= pings + 3 }
+            let kept = await relay.macLink(account) === second
+            try expect(kept, "reconectó con el relay contestando otra vez")
+        },
+        TestCase("remote service: retryNow con el link abierto manda un ping ya; sin pong reconecta (L6)") { @MainActor in
+            let h = try await ServiceHarness.make()
+            let relay = h.relay, account = h.account
+            let first = try expectSome(await relay.macLink(account))
+            let before = await relay.pings
+            await h.service.retryNow()
+            try await eventually(3, "ping inmediato") { await relay.pings == before + 1 }
+            try await Task.sleep(for: .milliseconds(700))
+            let same = await relay.macLink(account) === first
+            try expect(same, "con pong no tenía que reconectar")
+            await relay.setMutePongs(true)
+            await h.service.retryNow()
+            try await eventually(3, "link nuevo") {
+                guard let link = await relay.macLink(account) else { return false }
+                return link !== first
+            }
+            await relay.setMutePongs(false)
+            try await h.waitConnected()
+        },
     ]
 }
 

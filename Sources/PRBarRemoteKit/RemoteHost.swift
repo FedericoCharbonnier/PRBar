@@ -84,6 +84,10 @@ public actor RemoteHost {
         public var limits: RemoteLimits
         /// Espera antes de reconectar con el relay (intento 1, 2, …).
         public var backoff: @Sendable (Int) -> Duration
+        /// Cada cuánto la Mac le manda `ping` al relay, y cuánto espera el `pong` (o cualquier marco) antes de dar el
+        /// link por muerto y reconectar (revisión L6): un NAT o un Wi-Fi que se cayó sin cerrar el socket.
+        public var pingInterval: Duration
+        public var pongTimeout: Duration
 
         /// El rpId que tienen que tener las passkeys: el host de `webOrigin`, sin puerto.
         public var rpId: String { URLComponents(string: webOrigin)?.host ?? relayHost }
@@ -94,6 +98,7 @@ public actor RemoteHost {
                     pairingLifetime: TimeInterval = 300, pushTimeout: Duration = .seconds(10),
                     pairingAckTimeout: Duration = .seconds(20), limits: RemoteLimits = .standard,
                     backoff: @escaping @Sendable (Int) -> Duration = RemoteBackoff.standard,
+                    pingInterval: Duration = .seconds(20), pongTimeout: Duration = .seconds(10),
                     webOrigin: String? = nil) {
             self.accountId = accountId
             self.relayHost = relayHost
@@ -108,6 +113,8 @@ public actor RemoteHost {
             self.pairingAckTimeout = pairingAckTimeout
             self.limits = limits
             self.backoff = backoff
+            self.pingInterval = pingInterval
+            self.pongTimeout = pongTimeout
         }
     }
 
@@ -145,6 +152,10 @@ public actor RemoteHost {
     private let clock: @Sendable () -> Date
     private var link: RelayLink?
     private var receiveTask: Task<Void, Never>?
+    /// El `ping` periódico del link actual (L6).
+    private var heartbeatTask: Task<Void, Never>?
+    /// Marcos recibidos del link actual: si no sube después de un `ping`, el link está muerto.
+    private var framesReceived = 0
     private var wantsConnection = false
     /// Sube con cada `connect()`/`disconnect()`: un `openLink` o un ciclo de reconexión de antes no guarda su link.
     private var generation = 0
@@ -227,6 +238,15 @@ public actor RemoteHost {
         self.link = link
         linkOpenedAt = clock()
         eventSink.yield(.status(.connected))
+        framesReceived = 0
+        let interval = config.pingInterval
+        heartbeatTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: interval)
+                guard !Task.isCancelled else { return }
+                await self?.probe(link)
+            }
+        }
         receiveTask = Task { [weak self] in
             var closeError: Error?
             do {
@@ -272,8 +292,28 @@ public actor RemoteHost {
         }
     }
 
+    /// Manda un `ping` por `link` y, si en `pongTimeout` no llega nada, lo cierra: el receptor termina y `linkEnded`
+    /// reconecta por el camino de siempre (L6).
+    private func probe(_ link: RelayLink) async {
+        guard self.link === link else { return }
+        let mark = framesReceived
+        send(.ping)
+        try? await Task.sleep(for: config.pongTimeout)
+        guard self.link === link, framesReceived == mark else { return }
+        await link.close()
+    }
+
+    /// Despertó la Mac o cambió la red con el link abierto: un `ping` ya, sin esperar al próximo (L6). No espera la
+    /// respuesta; si no llega, el link se cierra y reconecta solo.
+    public func checkLiveness() {
+        guard let link else { return }
+        Task { await probe(link) }
+    }
+
     private func dropAll() {
         link = nil
+        heartbeatTask?.cancel()
+        heartbeatTask = nil
         sessions = [:]
         pendingSessions = [:]
         online = []
@@ -305,6 +345,7 @@ public actor RemoteHost {
     // MARK: - Mensajes del relay
 
     private func handle(_ message: RelayMessage) {
+        framesReceived &+= 1
         switch message {
         case .recv(let from, let sid, let b):
             if from.hasPrefix("pair:") {

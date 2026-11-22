@@ -65,6 +65,7 @@ struct ServiceHarness {
                 config.backoff = { _ in .milliseconds(50) }
                 config.pushTimeout = .seconds(2)
                 config.pairingAckTimeout = .seconds(3)
+                config.pongTimeout = .milliseconds(500)
             },
             keepAwake: keepAwake, connectBackoff: { _ in .milliseconds(50) }, mailboxInterval: .seconds(3600),
             feedDebounce: .milliseconds(50), activityInterval: .milliseconds(200))

@@ -16,7 +16,7 @@ enum RemoteMacIntegrationTests {
             }
             try await run(binary: binary)
         },
-        TestCase("remote mac integration: Reset borra la cuenta vieja del relay (4401, 4403)") {
+        TestCase("remote mac integration: el ping de la Mac recibe pong; Reset borra la cuenta vieja del relay (4401, 4403)") {
             guard let binary = ProcessInfo.processInfo.environment["PRBAR_RELAY_BIN"] else {
                 print("    skipped: PRBAR_RELAY_BIN not set")
                 return
@@ -36,10 +36,14 @@ enum RemoteMacIntegrationTests {
             keys: RemoteKeyStore(secrets: secrets),
             devices: RemoteDeviceStore(directory: try temporaryDirectory().appendingPathComponent("remote")),
             enroller: URLSessionRelayEnroller(allowInsecureForTests: true),
-            linkFactory: { host in WebSocketRelayLink.factory(host: host, allowInsecureTransportForTests: true) },
+            linkFactory: { host in
+                WebSocketRelayLink.factory(host: host, allowInsecureTransportForTests: true, pingInterval: nil)
+            },
             macName: "Integration Mac", appVersion: "1.3.0",
             tune: { config in
                 config.backoff = { _ in .milliseconds(200) }
+                config.pingInterval = .milliseconds(200)
+                config.pongTimeout = .seconds(1)
             },
             connectBackoff: { _ in .milliseconds(200) }, mailboxInterval: .seconds(3600),
             feedDebounce: .milliseconds(50), allowInsecureForTests: true)
@@ -50,6 +54,12 @@ enum RemoteMacIntegrationTests {
         defer { Task { await service.stop() } }
         _ = try await service.enable(relay: relay.host, enrollToken: relay.token)
         try await eventually(10, "connected") { await service.state == .connected }
+
+        // El relay contesta cada ping: la Mac no se reconecta (cualquier corte pasaría por offline ≥ 200 ms).
+        for _ in 0..<30 {
+            try expectEqual(service.state, .connected)
+            try await Task.sleep(for: .milliseconds(50))
+        }
 
         let presence = SoftwareWebAuthnAuthenticator(rpId: rpIdOf(relay.host), origin: "https://\(relay.host)")
         let client = RemoteClient(configuration: .init(appVersion: "1.3.0", deviceName: "Integration iPhone",

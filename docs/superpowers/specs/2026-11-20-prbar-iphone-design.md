@@ -135,7 +135,7 @@ Después, **solo ruteo**:
 | `{"t":"pair.open","pairing":"<id>","authKey":"<b64url 32B>","expires":<unix>}` / `{"t":"pair.close","pairing":…}` | solo Mac | Abre/cierra la ranura de emparejamiento (en memoria, ≤ 5 min, una por cuenta). |
 | `{"t":"device.add","device":"<id>","relayKey":"<b64url>"}` / `{"t":"device.remove","device":…}` / `{"t":"devices"}` | solo Mac | Alta/baja (la baja cierra su conexión con 4403, borra token y buzón) / lista `{id, lastSeen}`. |
 | `{"t":"account.delete"}` | solo Mac | Borra la cuenta, sus dispositivos, suscripciones y buzones; cierra los teléfonos con 4403, contesta `{"t":"account.deleted"}` y cierra a la Mac con 1000. Si falla: `{"t":"error","reason":"internal"}` (no borró nada). |
-| `{"t":"ping"}` → `{"t":"pong"}` | todos | Cada 20 s (además del ping de WebSocket). |
+| `{"t":"ping"}` → `{"t":"pong"}` | todos | Cada 20 s (además del ping de WebSocket). La Mac espera el `pong` (o cualquier marco) 10 s; si no llega, cierra y reconecta. |
 
 Códigos de cierre: 4401 no autorizado · 4403 dispositivo dado de baja · 4408 sin `auth` a tiempo · 4409 reemplazado (el
 mismo cliente se conectó de nuevo: gana el último) · 4413 marco demasiado grande · 4429 límite de tasa.
@@ -513,7 +513,9 @@ Una revisión de `PRBarRemoteMac`, los cambios de RemoteKit, los comandos `remot
   Mac en el QR/link y en el `hello`/resultado, el del teléfono al unirse; títulos de push; y el teléfono guarda un
   emparejamiento recién con su propio "Codes Match" (si la Mac confirma antes, el resultado queda en memoria). L6:
   `SystemKeychain` actualiza en el lugar (`SecItemUpdate`, agrega solo si falta); `retryNow` no se pisa consigo mismo y
-  `stop()` no marca "disabled" un host nuevo; el host SSH de un trabajo no sale de la Mac.
+  `stop()` no marca "disabled" un host nuevo; el host SSH de un trabajo no sale de la Mac. El `ping` de la Mac tiene
+  plazo: sin `pong` (ni otro marco) en 10 s, `RemoteHost` cierra el link y reconecta; despertar o cambiar de red con
+  el link abierto manda un `ping` enseguida.
 - **Abierto**: un corte de red con una ranura de emparejamiento abierta la cancela (la ranura del relay también se pierde
   con la conexión).
 

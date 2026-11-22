@@ -88,7 +88,8 @@ enum FixtureServer {
             keys: RemoteKeyStore(secrets: MemorySecretStore()),
             devices: RemoteDeviceStore(directory: state.appendingPathComponent("remote")),
             enroller: URLSessionRelayEnroller(allowInsecureForTests: insecure),
-            linkFactory: { host in WebSocketRelayLink.factory(host: host, allowInsecureTransportForTests: insecure) },
+            linkFactory: { host in WebSocketRelayLink.factory(host: host, allowInsecureTransportForTests: insecure,
+                                                                         pingInterval: nil) },
             macName: "Fixture Mac", appVersion: "1.9.0",
             tune: { config in
                 config.webOrigin = origin

@@ -79,7 +79,9 @@ public struct RemoteServiceEnvironment {
     public static func live(macName: String, appVersion: String) -> RemoteServiceEnvironment {
         RemoteServiceEnvironment(
             keys: RemoteKeyStore(), devices: RemoteDeviceStore(), enroller: URLSessionRelayEnroller(),
-            linkFactory: { host in WebSocketRelayLink.factory(host: host) }, macName: macName, appVersion: appVersion,
+            // Sin el `ping` propio del link: lo manda `RemoteHost`, que además vigila el `pong` (L6).
+            linkFactory: { host in WebSocketRelayLink.factory(host: host, pingInterval: nil) }, macName: macName,
+            appVersion: appVersion,
             keepAwake: KeepAwake(power: IOKitPowerSource(), assertions: IOKitSleepAssertion()))
     }
 }
@@ -202,7 +204,11 @@ public final class RemoteAccessService: ObservableObject {
         guard settings.enabled, !retrying, !replacedByAnotherMac else { return }
         retrying = true
         defer { retrying = false }
-        if let host, await host.isConnected { return }
+        if let host, await host.isConnected {
+            // Parece conectado, pero el socket pudo quedar muerto al dormir o al cambiar de red: un `ping` ya.
+            await host.checkLiveness()
+            return
+        }
         await stop()
         startHost()
     }

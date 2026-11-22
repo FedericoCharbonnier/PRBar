@@ -53,7 +53,8 @@ public protocol RelayLink: AnyObject, Sendable {
     func connect() async throws -> RelayReady
     /// Encola un marco. El orden de llamada es el orden en el cable (el relay preserva FIFO por par).
     func send(_ message: RelayMessage) throws
-    /// Los marcos que llegan después de `ready`. Termina con `RelayClosed` cuando la conexión se cierra.
+    /// Los marcos que llegan después de `ready` (también los `pong`). Termina con `RelayClosed` cuando la conexión se
+    /// cierra.
     var incoming: AsyncThrowingStream<RelayMessage, Error> { get }
     func close() async
 }
@@ -65,12 +66,14 @@ public typealias RelayLinkFactory = @Sendable (RelayCredential) -> RelayLink
 public final class WebSocketRelayLink: RelayLink, @unchecked Sendable {
     public static let subprotocol = "prbar-relay.v1"
     public static let maxFrame = 128 * 1024
-    static let pingInterval: Duration = .seconds(20)
+    public static let defaultPingInterval: Duration = .seconds(20)
 
     private let host: String
     private let credential: RelayCredential
     private let allowInsecure: Bool
     private let session: URLSession
+    /// `nil`: el link no manda `ping` solo (la Mac los manda desde `RemoteHost`, que además espera el `pong`).
+    private let pingInterval: Duration?
     private let lock = NSLock()
     private var task: URLSessionWebSocketTask?
     private var outbound: AsyncStream<RelayMessage>.Continuation?
@@ -81,17 +84,19 @@ public final class WebSocketRelayLink: RelayLink, @unchecked Sendable {
 
     /// `host`: `prbar.example.org` o `prbar.example.org:8443` (o `127.0.0.1:port` en los tests de integración).
     public init(host: String, credential: RelayCredential, allowInsecureTransportForTests: Bool = false,
-                session: URLSession = .shared) {
+                session: URLSession = .shared, pingInterval: Duration? = defaultPingInterval) {
         self.host = host
         self.credential = credential
         allowInsecure = allowInsecureTransportForTests
         self.session = session
+        self.pingInterval = pingInterval
     }
 
-    public static func factory(host: String, allowInsecureTransportForTests: Bool = false) -> RelayLinkFactory {
+    public static func factory(host: String, allowInsecureTransportForTests: Bool = false,
+                               pingInterval: Duration? = defaultPingInterval) -> RelayLinkFactory {
         { credential in
             WebSocketRelayLink(host: host, credential: credential,
-                               allowInsecureTransportForTests: allowInsecureTransportForTests)
+                               allowInsecureTransportForTests: allowInsecureTransportForTests, pingInterval: pingInterval)
         }
     }
 
@@ -149,7 +154,6 @@ public final class WebSocketRelayLink: RelayLink, @unchecked Sendable {
                 do {
                     let message = try await self?.receive(task)
                     guard let message else { return }
-                    if case .pong = message { continue }
                     incoming.yield(message)
                 } catch {
                     incoming.finish(throwing: self?.closeError(task, error) ?? error)
@@ -169,16 +173,19 @@ public final class WebSocketRelayLink: RelayLink, @unchecked Sendable {
                 }
             }
         }
-        let pinger = Task {
-            while !Task.isCancelled {
-                try? await Task.sleep(for: Self.pingInterval)
-                if Task.isCancelled { return }
-                continuation.yield(.ping)
+        let pingInterval = pingInterval
+        let pinger = pingInterval.map { interval in
+            Task {
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: interval)
+                    if Task.isCancelled { return }
+                    continuation.yield(.ping)
+                }
             }
         }
         lock.withLock {
             outbound = continuation
-            workers = [reader, writer, pinger]
+            workers = [reader, writer] + (pinger.map { [$0] } ?? [])
         }
     }
 

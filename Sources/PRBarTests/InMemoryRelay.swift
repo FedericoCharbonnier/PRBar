@@ -38,6 +38,8 @@ actor InMemoryRelay {
     /// Cómo contesta `account.delete`: lo borra (el relay de ahora), `forbidden` (un relay viejo) o `internal`.
     enum AccountDeleteMode { case delete, unsupported, failing }
     var accountDeleteMode = AccountDeleteMode.delete
+    /// Relay colgado: recibe los `ping` pero no contesta (ni manda nada más a la Mac).
+    var mutePongs = false
     var pushStatus = 200
     /// Relay comprometido: deja pasar solo los primeros N mensajes del teléfono que empareja (p. ej. sin el acuse).
     var pairForwardLimit: Int?
@@ -72,7 +74,10 @@ actor InMemoryRelay {
     /// reciben `offline`, solo el `online` de la conexión nueva.
     func setSilentMacOffline(_ value: Bool) { silentMacOffline = value }
     func setAccountDeleteMode(_ value: AccountDeleteMode) { accountDeleteMode = value }
+    func setMutePongs(_ value: Bool) { mutePongs = value }
     func hasAccount(_ account: String) -> Bool { accounts[account] != nil }
+    /// Los `ping` que recibió (de cualquier conexión).
+    private(set) var pings = 0
 
     /// La conexión de la Mac de la cuenta, si hay una.
     func macLink(_ acct: String) -> InMemoryRelayLink? { accounts[acct]?.mac }
@@ -211,7 +216,11 @@ actor InMemoryRelay {
     // MARK: - Ruteo
 
     func receive(_ message: RelayMessage, from link: InMemoryRelayLink) {
-        if case .ping = message { return link.deliver(.pong) }
+        if case .ping = message {
+            pings += 1
+            if !mutePongs { link.deliver(.pong) }
+            return
+        }
         switch link.role {
         case .mac(let acct): fromMac(message, acct: acct, link: link)
         case .device(let acct, let id): fromDevice(message, acct: acct, id: id, link: link)
