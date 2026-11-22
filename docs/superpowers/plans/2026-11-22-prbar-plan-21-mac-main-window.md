@@ -2584,6 +2584,13 @@ Spec M.8: la ventana principal en los ocho estados del boceto, claro y oscuro, y
   `docs/screenshots/README.md` con la lista nueva. Mirar cada PNG con Read y compararlo con el boceto; anotar las
   diferencias que queden en la Task 21.
 - [ ] **Step 4: Commit** `"Update the screenshots for the main window"`.
+  **Hecho (implementación):** el modo de capturas ya tenía casi todos los estados (las tasks 5–14 los fueron
+  sumando): faltaban `main-empty` (`caughtUpSnapshot`, 960×600) y `main-loading` (`makeModel(_:snapshot: nil)`, sin
+  `state.json`; sin el spinner de Refresh porque el modo de capturas no arranca un refresh). `main-list` y
+  `main-search` (Task 18) quedan además de `main-review`. Las funciones del modo de capturas ya no se llaman por
+  ventanas (`respondTabs`, `fixCITab`, `updateSheet`). Las capturas se revisaron en una carpeta temporal; los PNG de
+  `docs/screenshots` (y su README) **no** se regeneraron en esta rama: quedan para `Scripts/snapshots.sh` y un `git rm`
+  de los nombres viejos cuando el usuario lo decida.
 
 ---
 

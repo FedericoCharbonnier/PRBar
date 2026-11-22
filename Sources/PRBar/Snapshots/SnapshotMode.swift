@@ -101,15 +101,21 @@ private final class SnapshotSession {
         try await popover("popover-empty", model: empty)
         empty.popoverTab.selected = .mine
         try await popover("popover-empty-mine", model: empty)
+        // La ventana principal sin nada que hacer, en su tamaño mínimo (spec M.1 "Vacío").
+        empty.main.go(to: .list(.toReview), snapshot: empty.prStore.snapshot)
+        try await window("main-empty", title: "PRBar", size: Theme.MainLayout.minSize) { MainWindow(model: empty) }
+        // Recién arrancada, sin `state.json`: las filas esqueleto.
+        let loading = try makeModel("loading", snapshot: nil)
+        try await window("main-loading", title: "PRBar", size: Theme.MainLayout.defaultSize) { MainWindow(model: loading) }
 
         try await reviewTab()
-        try await respondWindows(model: main)
+        try await respondTabs(model: main)
         try await mergeTabs()
         try await history()
         try await settings()
         try await notification()
-        try await updateWindow()
-        try await ciFixWindows()
+        try await updateSheet()
+        try await fixCITab()
         let activity = try makeModel("activity", snapshot: fixtures.snapshot)
         activity.snapshotLiveUsage = fixtures.liveUsage
         activity.main.go(to: .activity, snapshot: activity.prStore.snapshot)
@@ -119,12 +125,12 @@ private final class SnapshotSession {
 
     // MARK: Models
 
-    private func makeModel(_ name: String, snapshot: Snapshot, holdsImplementation: Bool = false) throws -> AppModel {
+    private func makeModel(_ name: String, snapshot: Snapshot?, holdsImplementation: Bool = false) throws -> AppModel {
         let dir = scratch.appendingPathComponent(name, isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let stateURL = dir.appendingPathComponent("state.json")
         let configURL = dir.appendingPathComponent("config.json")
-        try JSONCoding.encoder.encode(snapshot).write(to: stateURL)
+        if let snapshot { try JSONCoding.encoder.encode(snapshot).write(to: stateURL) }
         try JSONCoding.encoder.encode(fixtures.config).write(to: configURL)
         let historyDir = dir.appendingPathComponent("history", isDirectory: true)
         let respondHistory = RespondHistory(historyDir: historyDir)
@@ -174,7 +180,7 @@ private final class SnapshotSession {
 
     // MARK: Screens
 
-    private func updateWindow() async throws {
+    private func updateSheet() async throws {
         let model = try makeModel("update", snapshot: fixtures.snapshot)
         model.updates.applySnapshotState(available: SnapshotFixtures.updateRelease)
         // The sheet over the main window (spec M.2): a sheet of an offscreen window isn't captured, so it's drawn on
@@ -277,7 +283,7 @@ private final class SnapshotSession {
 
     /// web-app#475 (mine, with feedback) in the Respond tab: choosing what to fix, and then, in its own model whose
     /// pipeline holds the implementation, Claude implementing (focus mode: no list, chat open).
-    private func respondWindows(model: AppModel) async throws {
+    private func respondTabs(model: AppModel) async throws {
         let item = fixtures.csvExport
         let prID = item.id
         model.respond.analyze(item, localPath: "/Users/sam/Code/web-app", worktreeDir: "/Users/sam/Code/worktrees")
@@ -309,8 +315,8 @@ private final class SnapshotSession {
         focus.respond.cancel(prID: prID)
     }
 
-    /// Fix CI (spec K) of web-app#475: the popover row while the fix waits to be pushed, and its window.
-    private func ciFixWindows() async throws {
+    /// Fix CI (spec K) of web-app#475: the popover row while the fix waits to be pushed, and its Fix CI tab.
+    private func fixCITab() async throws {
         let model = try makeModel("ci-fix", snapshot: fixtures.snapshot)
         let item = fixtures.csvExport
         let prID = item.id
