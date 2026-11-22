@@ -21,25 +21,28 @@ Every screen comes in `-light` and `-dark`, at 2x:
 | --- | --- |
 | `menubar-icon` | The menu bar icon with a badge of 5, on a menu-bar-like strip |
 | `menubar-icon-update` | The same icon with the blue "update available" dot at the glyph's top-right corner |
-| `popover` | The popover's To Review tab (selected; My PRs shows "3 •"): To Review (one idle, one "Reviewing…" on devbox), Updated Since My Review (ready, 4 comments, "Ran on this Mac — devbox unreachable"), Other collapsed; at the bottom the resources footer (CPU 12%, RAM 640 MB, Disk 2.3 GB) |
-| `popover-update` | The To Review tab with PRBar 1.3.0 offered: the blue "Update" capsule in the header, left of refresh and settings |
+| `popover` | The popover's To Review tab (selected; My PRs shows "3 •"): To Review (one idle, one "Reviewing…" on devbox), Updated Since My Review (ready, 4 comments, "Ran on this Mac — devbox unreachable"), Other collapsed. Under the tabs, the Claude strip (1 running · 1 ready); at the bottom the resources line (CPU, RAM, worktrees, this month's Claude cost) and Open PRBar ⌘0, Settings… ⌘, and Quit PRBar ⌘Q |
+| `popover-update` | The To Review tab with PRBar 1.3.0 offered: the update notice with its Update button in the footer |
 | `popover-mine` | The My PRs tab: My PRs with Feedback (Changes requested, failing CI with **Fix CI** next to Respond), Ready to Merge (one ready, one blocked) and Waiting for Review (collapsed) |
 | `popover-mine-ci-fix` | The My PRs tab while a Fix CI waits to be pushed: the row's "CI fix ready" pill |
 | `popover-empty` | The To Review tab with nothing to review ("Nothing to review 🎉"), Other collapsed |
 | `popover-empty-mine` | The My PRs tab with nothing to do ("No PRs of yours need anything"), Waiting for Review collapsed |
-| `review-window` | The Review window: Claude's summary, 3 kept findings (one expanded for editing), 2 discarded with reasons, a general comment, comments posted in Spanish; the header says the review ran "on devbox" |
-| `review-published` | The Review window after posting, with a rule suggestion from the findings you usually discard |
-| `review-chat` | The Review window with the chat open ("on devbox"): a question that narrowed #2 and a finding Claude added (#6) |
-| `review-chat-rule` | The Review chat after “from now on…”: Claude’s rule proposal as a card, editable, with Save and Dismiss |
-| `respond-choose` | Respond: choosing what to do with 3 comments (fix, reply, fix + reply) |
-| `respond-ready-to-push` | Respond: 2 commits, the diff, the `package.json` warning, tests passed, Push and Reply |
-| `respond-chat` | Respond, ready to push, with the chat open: a reply drafted for a reviewer and a change to the fixes’ code |
-| `ci-fix-ready-to-push` | Fix CI: the failing checks (`test (node 20)`, `typecheck`) with what Claude saw of each, Claude's summary, the commit, the diff and Push (no replies) |
-| `merge-window` | The Merge window: description, reviews, checks, unresolved conversations, files, and the bar with the method, the head and "Squash and Merge" |
-| `merge-chat` | The Merge window with the read-only chat open ("on devbox", the repo's destination) |
-| `activity` | PRBar Activity: CPU, RAM, Disk and Claude ("this month · estimated") tiles, what's running now by task (a review with its `claude` and `git`, its cost so far, with Stop), Claude usage (this month and the recent tasks with time, tokens and estimated cost), disk by category and Clean Up |
-| `history` | The History window with reviews, responses and a Fix CI (each with its estimated Claude cost), the published review selected with its Claude line |
-| `history-ci-fix` | The History window with the Fix CI entry selected: Claude's time, tokens and estimated cost, the commit and the diff stat |
+| `main-list` | The main window on To Review: sidebar (Pull Requests, Claude tasks, History, Activity; update, iPhone and Settings at the bottom), the PR list grouped by section, and the selected PR |
+| `main-search` | The list filtered by the toolbar search: only sections with results, expanded |
+| `main-empty` | The main window with nothing to review |
+| `main-loading` | The main window before the first refresh |
+| `main-review` | A PR's Review tab: Claude's summary, kept findings (one expanded for editing), discarded ones with reasons, a general comment |
+| `main-review-chat` | The Review tab with the chat inspector open ("on devbox") |
+| `main-details` | A PR's Details tab: description, reviews, checks, conversations and files |
+| `main-merge` | Your PR's Merge tab: details plus the merge block with the method, the head and "Squash and Merge" |
+| `main-respond-choose` | The Respond tab: choosing what to do with each comment (fix, reply, fix + reply) |
+| `main-respond-focus` | Respond in focus mode with the chat beside it |
+| `main-fix-ci-ready` | The Fix CI tab ready to push: failing checks, Claude's summary, the commit and the diff |
+| `main-history` | History: reviews, responses and a Fix CI grouped by day, with filters and each record's Claude cost |
+| `main-history-ci-fix` | History with the Fix CI record selected: time, tokens, estimated cost, the commit and the diff stat |
+| `main-activity` | Activity: CPU, RAM, Disk and Claude tiles, what's running now (with Stop), Claude usage and disk by category |
+| `main-update-sheet` | The update sheet over the main window |
+| `pr-window` | A PR opened in its own window (⇧⌘O) on the Merge tab |
 | `settings-general` (with the Disk warning), `settings-claude`, `settings-instructions`, `settings-accounts`, `settings-repos`, `settings-slack` | Each Settings tab, configured. `settings-claude` includes Run On (after Chat): Default devbox, the table with This Mac and devbox (folder, "✓ Linux · claude 2.1.318 · logged in · 5 min ago", fallback on), Add SSH Host…, Test Connection, Remove; `settings-repos` shows "Run Claude on: Default (devbox)" and the warning "Last job ran on this Mac — devbox was unreachable (fallback)." |
 | `settings-iphone` | Settings › iPhone connected to the relay: Open PRBar on your phone with the QR to the web app (`https://prbar.fcharbonnier.duckdns.org/`); "Connected to prbar.fcharbonnier.duckdns.org · 1 iPhone online", Pair iPhone…; two iPhones (one online with Face ID required, one last seen 5 min ago without it), keep awake and mailbox on |
 | `settings-iphone-off` | iPhone access off (no "Open PRBar on your phone" QR until it is on) |
@@ -49,7 +52,7 @@ Every screen comes in `-light` and `-dark`, at 2x:
 Notes on fidelity (the windows are drawn offscreen and never shown):
 
 - Windows include their title bar and toolbar. Effects the window server draws live (blur, Liquid Glass) are
-  replaced by plain fills: the History sidebar is a flat rounded panel and the toolbar platters have no glass.
+  replaced by plain fills: the sidebar is a flat panel and the toolbar platters have no glass.
 - Switches and checkboxes keep the gray "inactive window" tint even when on.
 - In the dark Settings snapshots no toolbar tab is highlighted (the window title names the tab).
 - Some windows are taller than their default size so the whole screen fits without scrolling.
