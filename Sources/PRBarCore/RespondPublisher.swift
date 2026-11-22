@@ -26,7 +26,11 @@ public struct PostedReply: Codable, Equatable, Sendable {
 /// - Las respuestas se publican de a una; cada una que sale bien se avisa con `onPosted` (para guardarla en el
 ///   registro en el acto) y nunca se vuelve a publicar si está en `alreadyPosted`.
 public struct RespondPublisher: Sendable {
-    public static let pushTimeout: TimeInterval = 120
+    /// El push corre los hooks `pre-push` del usuario, que pueden correr toda la suite de tests (M6): el plazo solo
+    /// frena un push colgado (p. ej. una red que no contesta). Uno por inactividad mataría una suite que no imprime
+    /// nada por minutos. Si igual se corta después de que GitHub aceptó la rama, el reintento lo detecta
+    /// (`remoteHead`) en vez de fallar para siempre con el lease.
+    public static let pushTimeout: TimeInterval = 30 * 60
     public static let rejectedMessage = "GitHub rejected the push: the branch moved ahead. Pull the changes and try again."
     static let maxQuoteLength = 200
     /// `GitHardening` sin `core.hooksPath`: el push corre los hooks del usuario.
@@ -81,13 +85,47 @@ public struct RespondPublisher: Sendable {
             throw PRBarError.respond("\(reviewed.prefix(12)) doesn't descend from \(draft.startHeadOid), the base of the analysis. Not pushing.")
         }
 
-        let pushed = try await run(["-C", path] + Self.pushHardening
+        let lsRemote = ["-C", path] + GitHardening.arguments + Self.lsRemoteArguments(headRef: headRef)
+        let pushed: ProcessResult
+        do {
+            pushed = try await run(["-C", path] + Self.pushHardening
                                    + Self.pushArguments(reviewed: reviewed, headRef: headRef, startHeadOid: draft.startHeadOid),
                                    timeout: Self.pushTimeout)
+        } catch {
+            // Cortado (plazo o cancelación) quizás después de que GitHub aceptó la rama.
+            if await remoteHead(lsRemote, headRef: headRef) == reviewed { return }
+            throw error
+        }
         guard pushed.status == 0 else {
+            // Un push anterior que se cortó tarde ya dejó la rama en lo revisado: el lease falla, pero está pusheado.
+            if await remoteHead(lsRemote, headRef: headRef) == reviewed { return }
             let stderr = [pushed.stderr, pushed.stdout].joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
             throw PRBarError.respond(Self.pushFailureMessage(stderr: stderr))
         }
+    }
+
+    /// `ls-remote origin refs/heads/<headRef>`.
+    static func lsRemoteArguments(headRef: String) -> [String] { ["ls-remote", "origin", "refs/heads/\(headRef)"] }
+
+    /// El sha de `refs/heads/<headRef>` en la salida de `ls-remote`; nil si no está.
+    public static func remoteHead(fromLsRemote output: String, headRef: String) -> String? {
+        for line in output.split(whereSeparator: \.isNewline) {
+            let parts = line.split(separator: "\t")
+            if parts.count == 2, parts[1] == "refs/heads/\(headRef)", FixImplementer.isFullSHA(String(parts[0])) {
+                return String(parts[0])
+            }
+        }
+        return nil
+    }
+
+    /// La rama en `origin` según `ls-remote` (`arguments` completos); nil si no se pudo leer. Fuera de la tarea: si
+    /// el push se canceló, esta no puede lanzar procesos.
+    private func remoteHead(_ arguments: [String], headRef: String) async -> String? {
+        let publisher = self
+        return await Task.detached {
+            guard let result = try? await publisher.run(arguments, timeout: ProcessTimeouts.standard), result.status == 0 else { return nil }
+            return Self.remoteHead(fromLsRemote: result.stdout, headRef: headRef)
+        }.value
     }
 
     /// `push --force-with-lease=refs/heads/<headRef>:<startHeadOid> origin <reviewed>:refs/heads/<headRef>`. The lease
