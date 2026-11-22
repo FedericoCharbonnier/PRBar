@@ -308,7 +308,7 @@ enum UIActionInventory {
         .init("Settings/ClaudeTab.swift", "Button", "-", 4, .cli(["claude stage", "claude set", "claude skills", "claude review set"])),
         .init("Settings/ClaudeTab.swift", "Toggle", "Filter findings", 1, .cli(["claude set"])),
         .init("Settings/ClaudeTab.swift", "Picker", "Model", 2, .cli(["claude set"])),   // --model y --chat-model
-        .init("Settings/ClaudeTab.swift", "Toggle", "Chat with Claude in Review, Respond and Merge windows", 1, .cli(["claude set"])),   // --chat
+        .init("Settings/ClaudeTab.swift", "Toggle", "Chat with Claude in the Review, Respond and Merge tabs", 1, .cli(["claude set"])),   // --chat
         .init("Settings/ClaudeTab.swift", "Picker", "-", 1, .cli(["claude stage", "claude prompt edit"])),   // Skill / Custom Prompt por etapa
         .init("Settings/ClaudeTab.swift", "Button", "Edit Prompt…", 1, .cli(["claude prompt edit", "claude prompt show"])),
         .init("Settings/ClaudeTab.swift", "Button", "Edit…", 1, .cli(["claude prompt edit", "claude prompt show"])),   // Prompts

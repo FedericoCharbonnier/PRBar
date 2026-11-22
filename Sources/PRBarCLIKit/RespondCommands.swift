@@ -5,7 +5,7 @@ import PRBarCore
 struct RespondGroup: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "respond", abstract: "Respond to the feedback on your PRs with Claude.",
-        discussion: "prbar respond <pr> analyzes the unresolved comments. Comments are numbered like in the window.",
+        discussion: "prbar respond <pr> analyzes the unresolved comments. Comments are numbered like in PRBar’s Respond tab.",
         subcommands: [RespondStart.self, RespondShow.self, RespondSelect.self, RespondImplement.self, RespondTest.self,
                       RespondDiffCommand.self, RespondPush.self, RespondReplyOnly.self, RespondCancel.self, RespondDismiss.self],
         defaultSubcommand: RespondStart.self)

@@ -5,7 +5,7 @@ import PRBarCore
 struct ReviewGroup: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "review", abstract: "Review other people’s PRs with Claude.",
-        discussion: "prbar review <pr> starts a review. Findings are numbered like in the window (#N).",
+        discussion: "prbar review <pr> starts a review. Findings are numbered like in PRBar’s Review tab (#N).",
         subcommands: [ReviewStart.self, ReviewShow.self, ReviewEdit.self, ReviewInclude.self, ReviewExclude.self,
                       ReviewComment.self, ReviewPublish.self, ReviewCancel.self, ReviewDismiss.self],
         defaultSubcommand: ReviewStart.self)

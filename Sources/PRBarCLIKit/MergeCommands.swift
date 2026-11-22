@@ -99,7 +99,7 @@ public enum MergePreviewRender {
 struct MergeCommand: RemoteCommand {
     static let configuration = CommandConfiguration(
         commandName: "merge", abstract: "Merge a PR of yours that’s Ready to Merge (Merge / Merge With…).",
-        discussion: "Uses the repo’s merge method unless you pass --method. Shows the PR’s summary (description, reviews, checks, unresolved conversations, files) and asks; without a terminal it needs --yes. It only merges the head it showed. --preview shows it without merging (--json has all of it); --dismiss clears a merge error from the row. `prbar open <pr> --merge` opens the Merge window.")
+        discussion: "Uses the repo’s merge method unless you pass --method. Shows the PR’s summary (description, reviews, checks, unresolved conversations, files) and asks; without a terminal it needs --yes. It only merges the head it showed. --preview shows it without merging (--json has all of it); --dismiss clears a merge error from the row. `prbar open <pr> --merge` opens its Merge tab in PRBar’s window.")
     @Argument(help: prHelp) var pr: String
     @Option(help: "squash, merge or rebase (default: the repo’s).") var method: MergeMethod?
     @Flag(help: "Only show what would be merged.") var preview = false

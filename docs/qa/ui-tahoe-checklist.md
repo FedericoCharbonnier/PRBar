@@ -13,7 +13,7 @@ Ajustes del Sistema › Centro de control › "Ocultar y mostrar automáticament
 ## B. App en pantalla completa
 Safari (u otra app) en pantalla completa.
 - [ ] Clic en el ícono de PRBar: el panel aparece **sobre** la app en pantalla completa, sin cambiar de Space; la barra de menús de la app no se reemplaza.
-- [ ] Desde el panel: Review de un PR listo, Settings (⌘,), History (⌘Y), PRBar Activity. Cada ventana aparece sobre la app en pantalla completa; no hay animación de cambio de Space.
+- [ ] Desde el panel: un PR listo (abre la ventana principal en Review), Settings (⌘,), Open PRBar (⌘0), el pie de recursos (Activity). Cada ventana aparece sobre la app en pantalla completa; no hay animación de cambio de Space.
 - [ ] Cerrar la última ventana de PRBar: se vuelve a la app en pantalla completa, sin saltar a un escritorio.
 - [ ] Salir de ese Space (⌃→) con una ventana de PRBar abierta: aparece el ícono de PRBar en el Dock (la app pasa a regular).
 - [ ] En un escritorio normal, una ventana de Review se puede poner en pantalla completa (⌃⌘F o View › Enter Full Screen).
@@ -23,7 +23,7 @@ Safari (u otra app) en pantalla completa.
 Una MacBook Air 13" en "Más espacio" o una resolución baja; Dock abajo y grande.
 - [ ] Con muchos PRs, el panel nunca pasa el Dock: la lista se achica y hace scroll; el pie (CPU/RAM) y la cápsula "Update" del header siguen visibles.
 - [ ] Con el ícono cerca del borde derecho, el panel queda entero dentro de la pantalla.
-- [ ] Review/Respond/Merge de 720–760 pt: ⇧⌘C abre el chat y la ventana se ensancha lo necesario sin salirse de la pantalla (cerca del borde derecho, se corre a la izquierda).
+- [ ] Ventana principal en su mínimo (960×600): ⌥⌘I abre el chat a la derecha y la lista toma su ancho mínimo; nada se sale de la ventana. En una ventana de PR (⇧⌘O) el chat va al lado del detalle.
 - [ ] Settings › Claude: la ventana se puede agrandar en alto (no en ancho); al cambiar de pestaña vuelve al tamaño de esa pestaña.
 
 ## D. Varios monitores
@@ -41,10 +41,10 @@ Una MacBook Air 13" en "Más espacio" o una resolución baja; Dock abajo y grand
 ## F. Teclado
 - [ ] Panel abierto: ↓ selecciona la primera fila, ↑/↓ recorren las filas visibles (se saltean las secciones colapsadas) y la lista hace scroll hasta la elegida; Return abre el PR.
 - [ ] Con el mouse sobre una fila, ↓ sigue desde esa fila.
-- [ ] ⌘1/⌘2, ⌘R, ⌘Y, ⌘, funcionan con el panel recién abierto **sin** haber hecho clic adentro (el panel no activa la app).
+- [ ] ⌘1/⌘2, ⌘R, ⌘0, ⌘, funcionan con el panel recién abierto **sin** haber hecho clic adentro (el panel no activa la app).
 - [ ] ⌘Q con un review corriendo: pregunta "Quit PRBar while a job is running?"; Cancel (Return) no sale. Sin trabajos: sale sin preguntar. `prbar app quit` no pregunta.
-- [ ] Menú View con una ventana de Review: "Show Chat ⇧⌘C" (cambia a "Hide Chat"), "Refresh ⌘R", "Enter Full Screen". Sin chat habilitado, Show Chat está deshabilitado. En Merge, Refresh recarga el resumen; en Activity, mide el disco; en Review, refresca la lista de PRs.
-- [ ] Menú Window: Minimize, Zoom, Close, History ⌘Y, PRBar Activity, Bring All to Front y la lista de ventanas. Menú Help: buscador del sistema, Keyboard Shortcuts y Show Log.
+- [ ] Menú View en la ventana principal: "Show Sidebar ⌃⌘S", "Show Chat ⌥⌘I" (cambia a "Hide Chat"), To Review ⌘1 · My PRs ⌘2 · History ⌘3 · Activity ⌘4, Back ⌘[, "Refresh ⌘R", Find ⌘F, "Enter Full Screen". Sin chat habilitado, Show Chat está deshabilitado. En Merge, Refresh recarga el resumen; en Activity, mide el disco; en las demás, refresca la lista de PRs. Menú Pull Request: Open in New Window ⇧⌘O, Open on GitHub, las pestañas ⌥⌘1–3, Merge… ⇧⌘M, Stop Claude ⌘..
+- [ ] Menú Window: Minimize, Zoom, Close, PRBar ⌘0, Bring All to Front y la lista de ventanas. Menú Help: buscador del sistema, Keyboard Shortcuts y Show Log.
 - [ ] Settings › Claude › Run On: Tab hasta la tabla, ↑/↓ eligen un host, ⌫ pide confirmar y lo quita; Test Connection actúa sobre el elegido; con "This Mac" elegido Test y Remove están deshabilitados.
 - [ ] Pastilla "Reviewing…" de una fila: con el mouse encima dice "Cancel" en rojo; clic → popover "Cancel this review?"; Esc o "Keep Running" no cancela; "Cancel Review" cancela. Lo mismo en Respond ("Analyzing…", "Implementing…").
 
@@ -61,9 +61,9 @@ Agregar Japonés (Romaji) o Pinyin en Teclado › Fuentes de entrada.
 
 ## I. Preferencia de pestañas
 Ajustes del Sistema › Escritorio y Dock › "Preferir pestañas al abrir documentos".
-- [ ] "Siempre": abrir dos reviews de PRs distintos → quedan como pestañas de una ventana. Abrir History → ventana aparte (no es pestaña de los reviews). Respond y Merge forman sus propios grupos.
+- [ ] "Siempre": abrir dos PRs distintos en su ventana (⇧⌘O) → quedan como pestañas de una ventana. La ventana principal no se agrupa con ellas.
 - [ ] "En pantalla completa": con un Review en pantalla completa, abrir otro Review → se abre como pestaña. Sin pantalla completa → ventanas separadas.
-- [ ] "Nunca": todas separadas. Settings, Activity y Update nunca son pestañas.
+- [ ] "Nunca": todas separadas. Settings nunca es pestaña.
 - [ ] Reabrir el review de un PR que ya tiene ventana (o pestaña) trae esa misma, no abre otra.
 
 ## J. Listas desplegables con buscador

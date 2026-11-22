@@ -436,7 +436,7 @@ struct ClaudeSet: RemoteCommand {
     @Option(help: "plugin:skill or skill.") var filterSkill: String?
     @Option(help: "plugin:skill or skill.") var respondSkill: String?
     @Option(help: "opus, sonnet, haiku or default.") var model: String?
-    @Option(help: "Chat with Claude in Review, Respond and Merge windows: on or off.") var chat: OnOff?
+    @Option(help: "Chat with Claude in the Review, Respond and Merge tabs: on or off.") var chat: OnOff?
     @Option(help: "Chat model: opus, sonnet, haiku or same (as the review).") var chatModel: String?
     @OptionGroup var global: GlobalOptions
 
@@ -521,7 +521,7 @@ struct ClaudeReviewGroup: ParsableCommand {
 struct ClaudeReviewSet: RemoteCommand {
     static let configuration = CommandConfiguration(
         commandName: "set", abstract: "Change what the review reports (Settings › Claude › What the review reports).",
-        discussion: "Categories: \(FindingCategory.allCases.map(\.rawValue).joined(separator: ", ")). What these settings hide goes to “Hidden by your settings” in the Review window (`prbar review include` still includes it).")
+        discussion: "Categories: \(FindingCategory.allCases.map(\.rawValue).joined(separator: ", ")). What these settings hide goes to “Hidden by your settings” in the Review tab (`prbar review include` still includes it).")
     @Option(help: "low (everything), medium or high.") var minSeverity: Severity?
     @Option(help: "At most this many findings (1–50), or none.") var maxFindings: String?
     @Option(help: "Hide findings in files matching this glob (repeatable).") var ignore: [String] = []

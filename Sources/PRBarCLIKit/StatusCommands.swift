@@ -93,17 +93,17 @@ enum OpenTargetFlag: String, EnumerableFlag {
     static func help(for value: OpenTargetFlag) -> ArgumentHelp? {
         switch value {
         case .browser: "The PR on GitHub (default)."
-        case .review: "Its Review window."
-        case .respond: "Its Respond window."
+        case .review: "Its Review tab in PRBar’s window."
+        case .respond: "Its Respond tab in PRBar’s window."
         case .posted: "The posted review on GitHub."
         case .worktree: "The Respond worktree in Finder."
-        case .merge: "Its Merge window (a PR of yours that’s Ready to Merge)."
+        case .merge: "Its Merge tab in PRBar’s window (a PR of yours that’s Ready to Merge)."
         }
     }
 }
 
 struct OpenCommand: RemoteCommand {
-    static let configuration = CommandConfiguration(commandName: "open", abstract: "Open a PR on GitHub, or its window in PRBar.")
+    static let configuration = CommandConfiguration(commandName: "open", abstract: "Open a PR on GitHub, or its tab in PRBar’s window.")
     @Argument(help: prHelp) var pr: String
     @Flag var target: OpenTargetFlag = .browser
     @Flag(help: "Copy the PR’s link instead of opening it (Copy Link).") var copy = false
@@ -138,7 +138,7 @@ struct HistoryList: RemoteCommand {
     static let configuration = CommandConfiguration(commandName: "list", abstract: "List the history (also: prbar history).")
     @Option(help: "Only this repo (owner/repo).") var repo: String?
     @Option(help: "review, respond, ci-fix or merge.") var kind: HistoryKind?
-    @Option(help: "Title, repo or number (like the window’s search).") var search: String?
+    @Option(help: "Title, repo or number (like History’s search).") var search: String?
     @Option(help: "At most this many records (default 50).") var limit: Int?
     @OptionGroup var global: GlobalOptions
 
@@ -209,7 +209,7 @@ struct HistoryReopen: RemoteCommand {
     @OptionGroup var global: GlobalOptions
 
     func appCommand(confirmed: Bool) -> AppCommand { .historyReopen(id: id) }
-    func render(_ result: JSONValue, _ output: Output) throws { output.line("Opened the review window.") }
+    func render(_ result: JSONValue, _ output: Output) throws { output.line("Opened the review in PRBar’s window.") }
 }
 
 struct AppGroup: ParsableCommand {
@@ -287,7 +287,7 @@ enum LogKind: String, EnumerableFlag {
         switch value {
         case .app: "PRBar’s log (default)."
         case .slack: "The Slack connector’s log (Settings › Slack › Show Log)."
-        case .update: "The last update’s log (Show Log in the update window)."
+        case .update: "The last update’s log (Show Log in the Update sheet)."
         case .instructions: "The Instructions chat’s log (Show Log under an error in that chat)."
         }
     }

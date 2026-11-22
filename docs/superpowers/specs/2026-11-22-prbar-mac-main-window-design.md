@@ -201,3 +201,83 @@ History pasa de ⌘Y a ⌘3; ⌘Y deja de usarse.
 - QA a mano (`docs/qa/plan-21-checklist.md`): notificaciones de cada tipo, ⌘W y ⌘Q con tareas, Dock con y sin el
   interruptor, pantalla completa, ventana de PR y pestañas nativas, todos los atajos, VoiceOver en barra lateral, lista y
   pestañas.
+
+## M.9 Decisiones de implementación (Plan 21)
+
+Las del plan (`docs/superpowers/plans/2026-11-22-prbar-plan-21-mac-main-window.md`) y las que salieron al implementar.
+
+**Bocetos.** No se pudieron bajar al repo (Task 0): no había herramienta para el proyecto de Claude Design. Se siguió
+este spec; donde el spec no decía algo, se eligió lo más parecido al resto de la app y quedó anotado en el plan.
+
+**Estructura**
+
+1. Dos columnas nativas (barra lateral | contenido) y la lista propia dentro del contenido, en vez de tres columnas de
+   `NavigationSplitView`: así Activity ocupa todo el ancho y el modo foco oculta solo la lista. Se ve igual que tres
+   columnas.
+2. El chat no es un `.inspector` dentro del detalle (desarmaba el layout): en la ventana principal se aplica a toda la
+   columna de contenido (queda a la derecha de lista + detalle; con el chat abierto la lista toma su mínimo). En la
+   ventana de PR va al lado del detalle en un `HStack` de 300 pt, porque un `.inspector` sin `NavigationSplitView`
+   dejaba la cabecera del pane debajo de la toolbar.
+3. Las pestañas del PR van en `.principal` y quedan centradas en la columna de contenido (no en la ventana entera).
+   History pone ahí sus filtros All · Reviews · Responds · Merges (`HistoryFilterBar`, con el mismo aspecto que las
+   pestañas: un `Picker` segmentado en la toolbar no mostraba la opción elegida).
+
+**Lista y pestañas**
+
+4. "CI Failing" no existía como sección: son los PRs míos de categoría `.other` con CI roto. Un PR con feedback y CI
+   roto queda en With Feedback.
+5. To Review suma la sección callada "Other" (plegada), como el popover. El aviso del vacío dice "N drafts hidden ·
+   Show" y despliega "Other" (no hay ajuste de borradores al que mandar).
+6. Pestaña inicial con una tarea abierta pero sin feedback ni CI roto: la de la tarea.
+7. Details muestra en el chat la review del PR (si hay); sin review, un texto.
+8. Back guarda los lugares a los que se llegó con `navigate(to:)` (barra lateral, ⌘1–4, notificaciones, links, pills);
+   moverse con ↑ ↓ no llena la pila.
+
+**Panes**
+
+9. Merge: "Delete branch after merge" (o "Branch is kept after merge") y "Post in #canal" son filas informativas (el
+   ajuste del repo y el aviso de Slack): hacerlos interruptores cambiaría la lógica de merge. Merge pasa de ⌘↩ a ⇧⌘M
+   (del menú; el botón ya no tiene atajo propio). Debajo de 600 pt de ancho el detalle pasa a una columna.
+10. Respond / Fix CI: "Claude is editing" muestra el progreso (fix i de n), no un diff en vivo. Los checks de Fix CI
+    dicen "Fails on GitHub → passes/fails locally" con el resultado de los tests locales de la corrida. Push y Push &
+    Reply siguen la regla de hoy (`RespondPushGate`). El modo foco no se apaga al desaparecer el pane (el orden contra
+    el PR siguiente no está garantizado): lo pone el PR nuevo.
+11. History: se fue el `Picker` de repo (la búsqueda lo cubre). Navegar a un registro que el filtro o la búsqueda
+    esconden los limpia. Sin registro elegido, se elige el primero. `prbar://history/<uuid>` no se implementa.
+12. Activity: tiles · Claude tasks · Claude this month · Worktrees · Recent tasks · Disk. Clean Up por fila solo en
+    los worktrees terminados.
+13. "Install" en la barra lateral abre la hoja de Update (donde está la política con trabajos en curso), no instala
+    directo.
+
+**Popover, menús y atajos**
+
+14. El menú ⚙︎ del popover desaparece (Settings es un botón). Por pedido del usuario el pie conserva "Quit PRBar ⌘Q"
+    junto a Open PRBar ⌘0 y Settings… ⌘,.
+15. ⌘↩ no está en el menú (lo tomaría antes que el chat); está en Help › Keyboard Shortcuts. ⌘Z es un ítem propio de
+    Edit que decide entre el deshacer del texto y "Undo Claude’s Change".
+16. El menú Pull Request suma "Open on GitHub" además de lo de M.6; ⌥⌘1–3 llevan el nombre de cada pestaña y marcan la
+    elegida. Los botones Stop conservan su ⌘. (el menú, si está habilitado, lo atiende antes).
+17. Búsqueda: el campo está en To Review, My PRs y History (en Activity no). SwiftUI no deja fijar su ancho: se le pone
+    170 pt al `NSSearchToolbarItem` que crea `.searchable`, y ⌘F (View › Find) usa ese mismo ítem. Buscando, la lista
+    muestra solo las secciones con resultados, desplegadas; sin resultados, "No Results". En History busca por título
+    y repo/número (los registros no guardan autor ni rama).
+
+**Links, Dock e iPhone**
+
+18. `prbar://` entiende, además de `/<tab>`, el `?screen=` de los links del iPhone. Un link que no se entiende abre la
+    ventana sin moverse y el log no guarda el link (puede tener nombres de repos privados).
+19. "Always show in Dock" tiene su comando (`prbar config set always-show-in-dock on|off`, regla de paridad),
+    denegado al teléfono.
+
+**Limpieza**
+
+20. Se borraron las ventanas viejas y lo que solo ellas usaban: la confirmación de cambios sin guardar de
+    `WindowPresenter` (lo editado de una review vive en el coordinador del draft), el agrandado de la ventana al abrir
+    el chat (`InspectorSizing`) y `respondWindowTitle`. `MergeWindowModel` pasó a `MergeDetailModel`;
+    `UpdateWindowMode` conserva su nombre. Las claves de frame viejas en `UserDefaults` quedan (no molestan).
+21. Capturas: la hoja de Update se dibuja encima del contenido (la hoja de una ventana fuera de pantalla no sale) y
+    `main-loading` muestra las filas esqueleto sin el spinner de Refresh (el modo de capturas no arranca un refresh).
+    Fuera de pantalla el campo de búsqueda no dibuja su fondo, así que su ancho no se ve en las capturas. Los PNG de
+    `docs/screenshots` no se regeneraron en el plan 21 (siguen siendo los de las ventanas viejas).
+22. Los textos de la CLI, Settings › Claude ("Chat with Claude in the Review, Respond and Merge tabs") y los docs
+    hablan de pestañas de la ventana de PRBar en vez de ventanas sueltas.

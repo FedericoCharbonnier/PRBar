@@ -1,7 +1,7 @@
 # prbar — PRBar from the terminal
 
-`prbar` controls PRBar.app: everything you can do in the menu bar, the Review, Respond and History windows and
-Settings, you can do from the terminal. The app does the work (it’s the only one that writes the config, runs Claude
+`prbar` controls PRBar.app: everything you can do in the menu bar, PRBar’s window (To Review, My PRs, History,
+Activity) and Settings, you can do from the terminal. The app does the work (it’s the only one that writes the config, runs Claude
 and posts); `prbar` asks it over a private socket.
 
 ## Install
@@ -23,8 +23,8 @@ without the app.
 `owner/repo#N`, `repo#N` (when only one configured repo has that name) or the PR’s URL. The PR has to be in PRBar’s
 list (`prbar prs`).
 
-Findings are numbered like in the Review window (`#1`, `#2`…, including the ones discarded by the filter and the ones
-the chat added); comments in Respond are numbered like in the Respond window. You can also use their ids (`f2`,
+Findings are numbered like in the Review tab (`#1`, `#2`…, including the ones discarded by the filter and the ones
+the chat added); comments in Respond are numbered like in the Respond tab. You can also use their ids (`f2`,
 `thread:…`).
 
 ## Commands
@@ -37,14 +37,14 @@ shows the help of `review start`, the group’s default subcommand).
 | `prbar status [--json]` | What the menu bar shows: the popover tabs’ totals (“To Review N · My PRs N”), the PRs in each of the popover’s sections (Other and Waiting for Review apart; `sectionCounts` in `--json`, keyed like `section` in `prbar prs`), running jobs, issues |
 | `prbar prs [--tab to-review\|mine] [--list to-review\|updated\|mine\|ready-to-merge\|other] [--account L]` | The PRs; `--tab` keeps one of the popover’s tabs and combines with `--list` (`--list other --tab mine` is Waiting for Review; a section from the other tab is a usage error). The Section column shows the popover’s section (in `--json`, `section` is `toReview`, `updatedSinceMyReview`, `otherToReview`, `myFeedback`, `readyToMerge` or `waitingForReview`, and `tab` is `to-review` or `mine`) |
 | `prbar refresh` | Refresh now |
-| `prbar resources [--json]` | CPU, memory and disk PRBar is using (the popover’s footer and the PRBar Activity window): CPU and memory of the app and every process it launched, with its task; disk by category (worktrees, updater, history, logs, app data). Says how many leftover worktrees `prbar cleanup` would remove, and Claude’s estimated cost this month (`claudeThisMonth`) |
+| `prbar resources [--json]` | CPU, memory and disk PRBar is using (the popover’s footer and Activity in PRBar’s window): CPU and memory of the app and every process it launched, with its task; disk by category (worktrees, updater, history, logs, app data). Says how many leftover worktrees `prbar cleanup` would remove, and Claude’s estimated cost this month (`claudeThisMonth`) |
 | `prbar cleanup [--older-than 30d] [--preview] [--yes]` | Clean Up: delete leftover worktrees and the updater’s builds (and, with `--older-than`, history and log files older than that many days). Shows what it would delete and asks; without a terminal it needs `--yes`. Only deletes what it showed (with `--yes`, what the preview listed at that moment) and that is still deletable. Never touches a worktree with a job running or with fixes not pushed yet (those are listed as skipped). `--preview` only lists. “Nothing to clean up.” exits 0 |
-| `prbar open <pr> [--review\|--respond\|--merge\|--posted\|--worktree] [--copy]` | Open the PR, its window (`--merge`: the Merge window of a PR of yours that’s Ready to Merge), the posted review or the worktree; `--copy` copies the link (not with `--json`) |
+| `prbar open <pr> [--review\|--respond\|--merge\|--posted\|--worktree] [--copy]` | Open the PR, its tab in PRBar’s window (`--review`, `--respond`; `--merge`: the Merge tab of a PR of yours that’s Ready to Merge), the posted review or the worktree; `--copy` copies the link (not with `--json`) |
 | `prbar history [--repo R] [--kind review\|respond\|ci-fix\|merge] [--search Q] [--limit N]` | History, with each job’s estimated Claude cost (`usage` in `--json`; older records have none) |
 | `prbar history show <id> [--open-log\|--reveal-log]` | One record (id or its first 4+ characters), with its chat and Claude’s time, tokens and estimated cost. `--open-log`/`--reveal-log` don’t go with `--json` (it has `logPath`) |
 | `prbar usage [--month YYYY-MM]` | Claude’s time, tokens and **estimated** cost: the month’s total (by kind) and its tasks (one per job: a review, an analysis, the fixes, a Fix CI, a chat message…). Estimated from what Claude Code reports; on a Claude subscription you may not be billed per token. Runs PRBar couldn’t measure (stopped, timed out) count their time only |
 | `prbar history reopen <id>` | Open to Post |
-| `prbar app start\|quit\|settings [tab]\|history [id]` | The app (tabs: `general`, `claude`, `instructions`, `accounts`, `repos`, `slack`). `quit` doesn’t open PRBar if it isn’t running (exit 3) |
+| `prbar app start\|quit\|settings [tab]\|history [id]` | The app (tabs: `general`, `claude`, `instructions`, `accounts`, `repos`, `slack`). `history` opens History in PRBar’s window (⌘3), on that record if given. `quit` doesn’t open PRBar if it isn’t running (exit 3) |
 | `prbar app popover [--tab to-review\|mine]` | Open the menu bar popover, on that tab if given (the popover remembers it; ⌘1 / ⌘2). If PRBar can’t open it, the tab stays selected for the next time you click the menu bar icon |
 | `prbar app logs [--app\|--slack\|--update\|--instructions] [--path]` | Open a log (PRBar’s, the Slack connector’s, the last update’s, the Instructions chat’s) |
 | `prbar doctor [--json]` | Check the installation |
@@ -70,16 +70,16 @@ shows the help of `review start`, the group’s default subcommand).
 | `prbar respond reply-only <pr> [--wait] [--yes]` | Only replies |
 | `prbar respond cancel\|dismiss <pr>` | Cancel / dismiss. If PRBar’s worktree has commits or changes that weren’t pushed, dismiss asks first (without a terminal it needs `--yes`) |
 | `prbar ci [list]` | Your PRs whose CI failed, with their Fix CI |
-| `prbar ci fix <pr> [--wait]` | Fix CI (manual only): PRBar reads the failing checks and their logs on this Mac, Claude fixes the code in PRBar’s worktree (here or on the repo’s host). Nothing is pushed; no comment is posted. On a Fix CI that’s waiting to start (the window’s “Fix CI”) it starts the fix without reading the checks again |
+| `prbar ci fix <pr> [--wait]` | Fix CI (manual only): PRBar reads the failing checks and their logs on this Mac, Claude fixes the code in PRBar’s worktree (here or on the repo’s host). Nothing is pushed; no comment is posted. On a Fix CI that’s waiting to start (the Fix CI tab’s “Fix CI”) it starts the fix without reading the checks again |
 | `prbar ci show <pr> [--full]` | The failing checks, Claude’s summary and its commit (`--full`: the CI output Claude saw) |
 | `prbar ci diff <pr> [--stat]`, `prbar ci test <pr> [--wait]` | The diff that would be pushed / run the repo’s tests in the worktree |
 | `prbar ci push <pr> [--wait] [--yes]` | Push the fix from this Mac, after checking on GitHub that the PR is still at the commit whose checks failed and that they still don’t pass. Refused (exit 6) if the PR’s run isn’t a Fix CI, also with `--yes` |
 | `prbar ci push <pr> --anyway [--yes]` | Push Anyway: the tests failed, or the failing checks pass now (a new head is never pushed) |
 | `prbar ci cancel\|dismiss <pr>` | Cancel / dismiss (the chat works as in Respond: `prbar chat <pr>`). Dismissing unpushed work asks first, as in Respond |
-| `prbar chat <pr> ["message"]` | Chat with Claude about the review, the Respond analysis or, for a PR that’s Ready to Merge, the PR before merging (read only, like the Merge window’s chat); without a message in a terminal, an interactive chat (`/undo`, `/show`, `/stop`, `/quit`); without a terminal the message comes from stdin |
+| `prbar chat <pr> ["message"]` | Chat with Claude about the review, the Respond analysis or, for a PR that’s Ready to Merge, the PR before merging (read only, like the Merge tab’s chat); without a message in a terminal, an interactive chat (`/undo`, `/show`, `/stop`, `/quit`); without a terminal the message comes from stdin |
 | `prbar chat <pr> --undo [--yes]\|--show\|--stop` | Undo Claude’s last change (asks if it would discard your manual edits), print the conversation, stop the answer |
 | `prbar merge <pr> [--method squash\|merge\|rebase] [--yes]` | Merge a PR of yours that’s Ready to Merge (the repo’s method unless `--method`) |
-| `prbar merge <pr> --preview [--method M]` | What would be merged, without merging: the Merge window’s summary (description, reviews, checks, unresolved conversations, files; `--json` has all of it), branches, commits, head and the note; also for a PR that can’t be merged yet (with why, exit 6) |
+| `prbar merge <pr> --preview [--method M]` | What would be merged, without merging: the Merge tab’s summary (description, reviews, checks, unresolved conversations, files; `--json` has all of it), branches, commits, head and the note; also for a PR that can’t be merged yet (with why, exit 6) |
 | `prbar merge <pr> --dismiss` | Dismiss the row’s merge error |
 | `prbar config show`, `prbar config set refresh-interval 1\|2\|5\|10`, `… launch-at-login on\|off`, `… always-show-in-dock on\|off` (keep the Dock icon without windows), `… update-interval 0\|6\|12\|24\|168` (hours; 0 = check manually only), `… disk-warning 1–100\|off` (GB; notify when PRBar uses more) | General |
 | `prbar account list\|reload`, `prbar account enable\|disable <login>` | Accounts |
@@ -150,9 +150,9 @@ In a terminal (stdin and stdout are a TTY, no `--json`): colored tables (`NO_COL
 
 - `review publish` without `--only`: a checkbox list of the findings (↑↓ or j/k, space toggles, `a`/`n` all/none,
   `e` edits the comment in `$EDITOR`, ↩ done, `q` cancels), then a confirmation with the review type and the number of
-  comments. What you choose is applied in the app, so the window shows the same.
+  comments. What you choose is applied in the app, so PRBar’s window shows the same.
 - `respond push` / `reply-only`: the summary and the diff stat, then a confirmation.
-- `merge`: what the app’s Merge window shows (title, head → base, commits, head SHA, method, the note about failing
+- `merge`: what the app’s Merge tab shows (title, head → base, commits, head SHA, method, the note about failing
   checks, a previous error, and the PR’s description, reviews, checks, unresolved conversations and files), then a
   confirmation. `prbar merge` only merges the head it showed: if someone pushes in between, the app refuses
   (exit 6) and you run it again. With `--yes` it prints the head it’s merging to stderr. A PR that can’t be merged yet
