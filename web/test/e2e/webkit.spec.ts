@@ -12,6 +12,14 @@ let page: Page;
 
 test.beforeAll(async ({ browser }) => {
   context = await browser.newContext({ viewport: { width: 393, height: 852 } });
+  // Sin autenticador, WebKit headless espera los 60 s del timeout de WebAuthn antes de rechazar (con el gesto del
+  // toque, muestra un pedido que nadie contesta). Simulamos un dispositivo sin passkeys: rechaza enseguida, como
+  // Safari cuando el usuario cancela.
+  await context.addInitScript(() => {
+    if (navigator.credentials) {
+      navigator.credentials.create = () => Promise.reject(new DOMException("No passkeys in this test", "NotAllowedError"));
+    }
+  });
   page = await context.newPage();
   page.on("console", (m) => {
     if (m.type() === "error") console.log(`[page error] ${m.text()}`);
