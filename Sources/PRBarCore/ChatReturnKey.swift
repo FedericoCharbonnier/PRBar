@@ -19,3 +19,19 @@ public enum ChatReturnKey {
         return shift || option ? .newline : .send
     }
 }
+
+/// ⌘↩ is the primary action of the Merge, Review and Respond windows (Merge, Post Review, Implement…). While the user
+/// is typing in an editable text (a chat composer, a finding's text) the key belongs to the text: in the chat it
+/// sends, as in most chat apps, and the window's button never sees it (AppKit runs key equivalents before the text
+/// view's `keyDown`, so without this a ⌘↩ typed out of habit in the Merge chat would merge).
+public enum PrimaryShortcutScope {
+    /// Whether the window skips its key equivalents for this key so the editing text gets it as a normal key.
+    /// - Parameters:
+    ///   - isReturn: the key is Return or Enter.
+    ///   - command/shift/option/control: the modifiers held.
+    ///   - editingText: the first responder is an editable text view (a text field's field editor or a text editor).
+    public static func textKeepsKey(isReturn: Bool, command: Bool, shift: Bool, option: Bool, control: Bool,
+                                    editingText: Bool) -> Bool {
+        isReturn && command && !shift && !option && !control && editingText
+    }
+}

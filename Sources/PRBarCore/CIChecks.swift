@@ -1,11 +1,5 @@
 import Foundation
 
-/// Qué hace una corrida de "Responder" (spec K.6.1): responder el feedback de un review o arreglar el CI.
-public enum RespondMode: String, Codable, CaseIterable, Sendable {
-    case feedback
-    case ciFix
-}
-
 /// Un check del head de un PR (check run o status), tal como lo dice GitHub.
 public struct CICheckRun: Codable, Equatable, Sendable {
     public enum Source: String, Codable, Sendable { case checkRun, status }
@@ -25,10 +19,13 @@ public struct CICheckRun: Codable, Equatable, Sendable {
     public var outputTitle: String?
     public var outputSummary: String?
     public var outputText: String?
+    /// Un check run (no un status): cuándo empezó y terminó.
+    public var startedAt: Date?
+    public var completedAt: Date?
 
     public init(source: Source, id: Int? = nil, name: String, status: String, conclusion: String?, appSlug: String? = nil,
                 appName: String? = nil, detailsURL: URL? = nil, outputTitle: String? = nil, outputSummary: String? = nil,
-                outputText: String? = nil) {
+                outputText: String? = nil, startedAt: Date? = nil, completedAt: Date? = nil) {
         self.source = source
         self.id = id
         self.name = name
@@ -40,6 +37,13 @@ public struct CICheckRun: Codable, Equatable, Sendable {
         self.outputTitle = outputTitle
         self.outputSummary = outputSummary
         self.outputText = outputText
+        self.startedAt = startedAt
+        self.completedAt = completedAt
+    }
+
+    public var durationSeconds: Double? {
+        guard let startedAt, let completedAt, completedAt >= startedAt else { return nil }
+        return completedAt.timeIntervalSince(startedAt)
     }
 
     public static let failingConclusions: Set<String> = ["failure", "timed_out", "startup_failure", "error"]
@@ -51,26 +55,6 @@ public struct CICheckRun: Codable, Equatable, Sendable {
     public var isActions: Bool { source == .checkRun && appSlug == "github-actions" && id != nil }
 }
 
-/// Un check que falló, como lo guarda el Fix CI (spec K.6.2). El log ya saneado va en el ítem, no acá.
-public struct CICheckFailure: Codable, Equatable, Sendable, Identifiable {
-    public var id: String
-    public var name: String
-    public var conclusion: String
-    public var appName: String?
-    public var detailsURL: URL?
-    /// Se le pasó a Claude el log del job (Actions); si no, solo el resumen del check.
-    public var hasLog: Bool
-
-    public init(id: String, name: String, conclusion: String, appName: String?, detailsURL: URL?, hasLog: Bool) {
-        self.id = id
-        self.name = name
-        self.conclusion = conclusion
-        self.appName = appName
-        self.detailsURL = detailsURL
-        self.hasLog = hasLog
-    }
-}
-
 /// Lo que un Fix CI sabe del CI que falló (spec K): el head y los checks.
 public struct CIFixContext: Codable, Equatable, Sendable {
     /// El commit cuyos checks fallaron (= `RespondDraft.startHeadOid`).
@@ -78,11 +62,14 @@ public struct CIFixContext: Codable, Equatable, Sendable {
     public var checks: [CICheckFailure]
     /// Checks fallidos que no entraron (tope `CILogs.maxChecks`): se nombran sin log.
     public var omitted: [String]
+    /// Cuántos checks corrieron en `headOid` (el "2 of 9" del iPhone); nil en drafts viejos.
+    public var totalChecks: Int?
 
-    public init(headOid: String, checks: [CICheckFailure], omitted: [String] = []) {
+    public init(headOid: String, checks: [CICheckFailure], omitted: [String] = [], totalChecks: Int? = nil) {
         self.headOid = headOid
         self.checks = checks
         self.omitted = omitted
+        self.totalChecks = totalChecks
     }
 
     public var checkNames: [String] { checks.map(\.name) + omitted }
@@ -214,6 +201,14 @@ public enum CILogs {
         return body.count > budget ? String(body.suffix(max(0, budget))) : body
     }
 
+    /// Las últimas líneas no vacías del log ya saneado (lo que el iPhone muestra de un check), cada una acotada.
+    public static func excerpt(_ log: String, secrets: [String], lines: Int = CICheckFailure.logExcerptLines) -> [String]? {
+        let tail = clean(log, secrets: secrets).split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }.suffix(lines)
+        let result = tail.map { $0.count > 200 ? String($0.prefix(199)) + "…" : $0 }
+        return result.isEmpty ? nil : result
+    }
+
     /// Los checks que fallaron, en el orden de GitHub y sin repetir nombre (gana el primero).
     public static func failing(_ runs: [CICheckRun]) -> [CICheckRun] {
         var seen = Set<String>()
@@ -236,8 +231,9 @@ public enum CIFixItem {
     public static func id(headOid: String) -> String { "ci:\(headOid)" }
 
     /// `logs`: el log de cada check de Actions, por id del check run. Arma también el contexto que guarda el draft.
+    /// `total`: cuántos checks corrieron en el head (fallidos o no).
     public static func make(headOid: String, failing: [CICheckRun], logs: [Int: String], secrets: [String],
-                            prURL: URL, at date: Date = Date()) -> (item: RespondItem, context: CIFixContext) {
+                            prURL: URL, total: Int? = nil, at date: Date = Date()) -> (item: RespondItem, context: CIFixContext) {
         let shown = Array(failing.prefix(CILogs.maxChecks))
         let omitted = failing.dropFirst(CILogs.maxChecks).map(\.name)
         let perCheck = shown.isEmpty ? CILogs.maxTotalChars : CILogs.maxTotalChars / shown.count
@@ -250,13 +246,15 @@ public enum CIFixItem {
                                             createdAt: date, url: run.detailsURL ?? prURL))
             checks.append(CICheckFailure(id: run.id.map { "check:\($0)" } ?? "status:\(run.name)", name: run.name,
                                          conclusion: run.conclusion ?? "failure", appName: run.appName,
-                                         detailsURL: run.detailsURL, hasLog: log != nil))
+                                         detailsURL: run.detailsURL, hasLog: log != nil,
+                                         durationSeconds: run.durationSeconds,
+                                         logExcerpt: log.flatMap { CILogs.excerpt($0, secrets: secrets) }))
         }
         let assessment = "Failing checks: \(CILogs.nameList(shown.map(\.name) + omitted))."
         let feedback = FeedbackItem(id: id(headOid: headOid), kind: .ciChecks, path: nil, line: nil, isOutdated: false,
                                     comments: comments)
         let item = RespondItem(feedback: feedback, assessment: assessment, action: .fix, fixPlan: "", reply: "")
-        return (item, CIFixContext(headOid: headOid, checks: checks, omitted: Array(omitted)))
+        return (item, CIFixContext(headOid: headOid, checks: checks, omitted: Array(omitted), totalChecks: total))
     }
 }
 

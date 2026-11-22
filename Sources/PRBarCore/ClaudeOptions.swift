@@ -78,32 +78,6 @@ public struct FilterSettings: Hashable, Codable, Sendable {
     }
 }
 
-public enum ReviewTone: String, Codable, CaseIterable, Sendable {
-    case direct, friendly, withSuggestions
-
-    public var title: String {
-        switch self {
-        case .direct: "Direct"
-        case .friendly: "Friendly"
-        case .withSuggestions: "With Suggestions"
-        }
-    }
-
-    public init(from decoder: Decoder) throws {
-        self = ReviewTone(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .direct
-    }
-}
-
-public enum CommitMode: String, Codable, CaseIterable, Sendable {
-    case perComment, single
-
-    public var title: String { self == .perComment ? "One per Comment" : "Single Commit" }
-
-    public init(from decoder: Decoder) throws {
-        self = CommitMode(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .perComment
-    }
-}
-
 /// What the review reports (spec E.5). PRBar tells Claude and also applies them to its answer
 /// (`ReviewOptionsFilter`).
 public struct ReviewOptions: Hashable, Codable, Sendable {

@@ -1,0 +1,200 @@
+{
+  "app" : [
+    {
+      "text" : "{\"appVersion\":\"web-0.1.0\",\"commandProtocol\":8,\"deviceName\":\"Federico’s iPhone\",\"remoteProtocol\":1,\"t\":\"hello\"}",
+      "type" : "hello"
+    },
+    {
+      "text" : "{\"appVersion\":\"1.9.0\",\"commandProtocol\":8,\"macName\":\"Federico’s MacBook Pro\",\"remoteProtocol\":1,\"t\":\"hello\"}",
+      "type" : "hello"
+    },
+    {
+      "text" : "{\"appVersion\":\"1.9.0\",\"commandProtocol\":8,\"incompatible\":\"updateIPhone\",\"macName\":\"Federico’s MacBook Pro\",\"remoteProtocol\":1,\"t\":\"hello\"}",
+      "type" : "hello"
+    },
+    {
+      "text" : "{\"cmd\":\"eyJzdGF0dXMiOnt9fQ==\",\"deadline\":\"2026-11-20T12:39:00Z\",\"id\":1,\"sentAt\":\"2026-11-20T12:38:00Z\",\"t\":\"req\"}",
+      "type" : "req"
+    },
+    {
+      "text" : "{\"cmd\":\"eyJtZXJnZSI6eyJjb25maXJtZWQiOnRydWUsImV4cGVjdGVkSGVhZE9pZCI6IjlmM2MyYTEiLCJtZXRob2QiOiJzcXVhc2giLCJwciI6ImFjbWUvYXBpIzMyMiJ9fQ==\",\"deadline\":\"2026-11-20T12:39:00Z\",\"id\":2,\"presence\":{\"authenticatorData\":\"AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ\",\"clientDataJSON\":\"e30\",\"credentialId\":\"AwMDAwMDAwMDAwMDAwMDAw\",\"signature\":\"MAYCAQECAQE\",\"ts\":1795178280123,\"v\":2},\"sentAt\":\"2026-11-20T12:38:00Z\",\"t\":\"req\"}",
+      "type" : "req"
+    },
+    {
+      "text" : "{\"id\":1,\"ok\":true,\"result\":{\"ok\":true},\"t\":\"res\"}",
+      "type" : "res"
+    },
+    {
+      "text" : "{\"event\":{\"progress\":{\"message\":\"Reviewing…\"}},\"id\":3,\"t\":\"res\"}",
+      "type" : "res"
+    },
+    {
+      "text" : "{\"event\":{\"text\":{\"delta\":\"Looking \"}},\"id\":3,\"t\":\"res\"}",
+      "type" : "res"
+    },
+    {
+      "text" : "{\"error\":{\"code\":\"unauthorized\",\"message\":\"Face ID is required for this on iPhone.\"},\"id\":2,\"ok\":false,\"t\":\"res\"}",
+      "type" : "res"
+    },
+    {
+      "text" : "{\"t\":\"sub\",\"topics\":[\"home\",\"activity\",\"pr:acme/api#317\"]}",
+      "type" : "sub"
+    },
+    {
+      "text" : "{\"data\":{\"prs\":[]},\"rev\":3,\"t\":\"state\",\"topic\":\"home\"}",
+      "type" : "state"
+    },
+    {
+      "text" : "{\"pr\":\"acme/api#317\",\"t\":\"chatDelta\",\"text\":\"Also, from the Mac.\"}",
+      "type" : "chatDelta"
+    },
+    {
+      "text" : "{\"t\":\"unpair\"}",
+      "type" : "unpair"
+    },
+    {
+      "text" : "{\"gated\":[\"reviewPublish\",\"respondTest\",\"respondPush\",\"respondPushAnyway\",\"merge\",\"remoteSetPresenceRequirement\"],\"requirePresence\":true,\"t\":\"presencePolicy\"}",
+      "type" : "presencePolicy"
+    },
+    {
+      "text" : "{\"reason\":\"revoked\",\"t\":\"bye\"}",
+      "type" : "bye"
+    },
+    {
+      "text" : "{\"t\":\"bye\"}",
+      "type" : "bye"
+    }
+  ],
+  "chunks" : [
+    {
+      "chunks" : [
+        "00006e7b2261707056657273696f6e223a22312e392e30222c22636f6d6d616e6450726f746f636f6c223a382c226d61634e616d65223a22466564657269636fe2809973204d6163426f6f6b2050726f222c2272656d6f746550726f746f636f6c223a312c2274223a2268656c6c6f227d0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      ],
+      "frame" : "{\"appVersion\":\"1.9.0\",\"commandProtocol\":8,\"macName\":\"Federico’s MacBook Pro\",\"remoteProtocol\":1,\"t\":\"hello\"}"
+    }
+  ],
+  "pairing" : [
+    {
+      "text" : "{\"join\":{\"_0\":{\"deviceName\":\"Federico’s iPhone\",\"model\":\"iPhone\",\"presence\":{\"credentialId\":\"ZMAkxmOIv9GpMIxp-J9zog\",\"publicKey\":\"MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE4t-83uGiFRH3Q-qovTtFEToo5h1cF7SUkoul0PHMVGmy-vbvc9ou9DHb-wsBfTVaGLLjwOelf865hUM5hNGVuw\",\"rpId\":\"prbar.example.org\"},\"push\":\"v8UK+FhouTSPOxy06ExhXo2qL7XOwzyd0GgXWAWVID0=\",\"relayKey\":\"8xyA1vF9Ce8T43iVDkA8Lg/BtAf9xx0LPxC7DMS5jVc=\"}}}",
+      "type" : "join"
+    },
+    {
+      "text" : "{\"join\":{\"_0\":{\"deviceName\":\"Federico’s iPhone\",\"model\":\"iPhone\",\"push\":\"v8UK+FhouTSPOxy06ExhXo2qL7XOwzyd0GgXWAWVID0=\",\"relayKey\":\"8xyA1vF9Ce8T43iVDkA8Lg/BtAf9xx0LPxC7DMS5jVc=\"}}}",
+      "type" : "joinWithoutPasskey"
+    },
+    {
+      "text" : "{\"confirm\":{}}",
+      "type" : "confirm"
+    },
+    {
+      "text" : "{\"result\":{\"_0\":{\"deviceId\":\"fmh7nna7zna2bylvvuaupg6fnm\",\"macName\":\"Federico’s MacBook Pro\",\"macSeal\":\"Evpr+0RpRQS+ltqoqcx54Vw8vGQFgd+yi9hDLzMdcy4=\",\"relayHost\":\"prbar.example.org\"}}}",
+      "type" : "result"
+    },
+    {
+      "text" : "{\"ack\":{}}",
+      "type" : "ack"
+    },
+    {
+      "text" : "{\"cancelled\":{}}",
+      "type" : "cancelled"
+    }
+  ],
+  "relay" : [
+    {
+      "text" : "{\"nonce\":\"Yhl-Rw3Cr9h03LHO2_Vi5ayoldm9ZZy8q7xONsImQzQ\",\"t\":\"challenge\",\"time\":1795178280}",
+      "type" : "challenge"
+    },
+    {
+      "text" : "{\"acct\":\"hohrh3jbgktkby7euvoae3wjze\",\"client\":\"fmh7nna7zna2bylvvuaupg6fnm\",\"sig\":\"CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQ\",\"t\":\"auth\"}",
+      "type" : "auth"
+    },
+    {
+      "text" : "{\"acct\":\"hohrh3jbgktkby7euvoae3wjze\",\"client\":\"pair\",\"pairing\":\"wkgc5nrkicgkayji\",\"proof\":\"CAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg\",\"t\":\"auth\"}",
+      "type" : "auth"
+    },
+    {
+      "text" : "{\"mac\":\"online\",\"since\":1795178000,\"t\":\"ready\"}",
+      "type" : "ready"
+    },
+    {
+      "text" : "{\"b\":\"AQID-vv8\",\"sid\":\"0123456789abcdef\",\"t\":\"send\",\"to\":\"mac\"}",
+      "type" : "send"
+    },
+    {
+      "text" : "{\"b\":\"AQID-vv8\",\"from\":\"mac\",\"sid\":\"0123456789abcdef\",\"t\":\"recv\"}",
+      "type" : "recv"
+    },
+    {
+      "text" : "{\"sid\":\"0123456789abcdef\",\"t\":\"undeliverable\",\"to\":\"mac\"}",
+      "type" : "undeliverable"
+    },
+    {
+      "text" : "{\"mac\":\"offline\",\"since\":1795178000,\"t\":\"presence\"}",
+      "type" : "presence"
+    },
+    {
+      "text" : "{\"device\":\"fmh7nna7zna2bylvvuaupg6fnm\",\"state\":\"online\",\"t\":\"presence\"}",
+      "type" : "presence"
+    },
+    {
+      "text" : "{\"b\":\"AQID-vv8\",\"collapse\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"id\":\"p1\",\"t\":\"push\",\"thread\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"to\":\"fmh7nna7zna2bylvvuaupg6fnm\"}",
+      "type" : "push"
+    },
+    {
+      "text" : "{\"id\":\"p1\",\"reason\":\"Unsubscribed\",\"status\":410,\"t\":\"pushResult\"}",
+      "type" : "pushResult"
+    },
+    {
+      "text" : "{\"b\":\"AQID-vv8\",\"slot\":\"home\",\"t\":\"mbox.put\",\"to\":\"fmh7nna7zna2bylvvuaupg6fnm\"}",
+      "type" : "mbox.put"
+    },
+    {
+      "text" : "{\"t\":\"mbox.get\"}",
+      "type" : "mbox.get"
+    },
+    {
+      "text" : "{\"items\":[{\"at\":1795178280,\"b\":\"AQID-vv8\",\"slot\":\"home\"}],\"t\":\"mbox\"}",
+      "type" : "mbox"
+    },
+    {
+      "text" : "{\"auth\":\"AQEBAQEBAQEBAQEBAQEBAQ\",\"endpoint\":\"https://web.push.apple.com/QGuQ\",\"p256dh\":\"BAcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc\",\"t\":\"webpush\"}",
+      "type" : "webpush"
+    },
+    {
+      "text" : "{\"authKey\":\"BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU\",\"expires\":1795178580,\"pairing\":\"wkgc5nrkicgkayji\",\"t\":\"pair.open\"}",
+      "type" : "pair.open"
+    },
+    {
+      "text" : "{\"pairing\":\"wkgc5nrkicgkayji\",\"t\":\"pair.close\"}",
+      "type" : "pair.close"
+    },
+    {
+      "text" : "{\"device\":\"fmh7nna7zna2bylvvuaupg6fnm\",\"relayKey\":\"BgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgY\",\"t\":\"device.add\"}",
+      "type" : "device.add"
+    },
+    {
+      "text" : "{\"device\":\"fmh7nna7zna2bylvvuaupg6fnm\",\"t\":\"device.remove\"}",
+      "type" : "device.remove"
+    },
+    {
+      "text" : "{\"t\":\"devices\"}",
+      "type" : "devices"
+    },
+    {
+      "text" : "{\"items\":[{\"id\":\"fmh7nna7zna2bylvvuaupg6fnm\",\"lastSeen\":1795178280}],\"t\":\"devices\"}",
+      "type" : "devices"
+    },
+    {
+      "text" : "{\"reason\":\"forbidden\",\"t\":\"error\"}",
+      "type" : "error"
+    },
+    {
+      "text" : "{\"t\":\"ping\"}",
+      "type" : "ping"
+    },
+    {
+      "text" : "{\"t\":\"pong\"}",
+      "type" : "pong"
+    }
+  ]
+}

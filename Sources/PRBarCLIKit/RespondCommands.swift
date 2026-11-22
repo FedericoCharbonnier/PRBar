@@ -236,7 +236,8 @@ struct RespondPush: RemoteCommand {
     }
 
     func appCommand(confirmed: Bool) -> AppCommand {
-        anyway ? .respondPushAnyway(pr: pr, confirmed: confirmed, wait: wait) : .respondPush(pr: pr, confirmed: confirmed, wait: wait)
+        anyway ? .respondPushAnyway(pr: pr, confirmed: confirmed, wait: wait, mode: .feedback)
+            : .respondPush(pr: pr, confirmed: confirmed, wait: wait, mode: .feedback)
     }
     func render(_ result: JSONValue, _ output: Output) throws { RespondRender.info(try result.decode(), output) }
 }
@@ -273,6 +274,20 @@ struct RespondDismiss: RemoteCommand {
     @Argument(help: prHelp) var pr: String
     @OptionGroup var global: GlobalOptions
 
+    func confirmation(_ connection: AppConnection, _ output: Output) throws -> String? {
+        try RespondDiscardQuestion.ask(pr: pr, connection)
+    }
     func appCommand(confirmed: Bool) -> AppCommand { .respondDismiss(pr: pr) }
     func render(_ result: JSONValue, _ output: Output) throws { output.line("Dismissed.") }
+}
+
+/// `respond dismiss` / `ci dismiss` con commits o cambios sin pushear en el worktree: pregunta (sin terminal, --yes).
+enum RespondDiscardQuestion {
+    static func ask(pr: String, _ connection: AppConnection) throws -> String? {
+        // Si no se puede leer el estado, el dismiss mismo dice por qué no hay nada que descartar.
+        guard let info: RespondInfo = try? connection.run(.respondShow(pr: pr)).decode(), info.unpushedWork == true else {
+            return nil
+        }
+        return RespondDiscardCopy.message(worktree: info.worktree) + " Discard them?"
+    }
 }

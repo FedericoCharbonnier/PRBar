@@ -319,6 +319,7 @@ extension AppModel {
                              })
         )
         session.chat = chat
+        watchChatForPhones(chat, prID: prID)
         return chat
     }
 }

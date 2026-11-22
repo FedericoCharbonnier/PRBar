@@ -133,7 +133,7 @@ final class WindowPresenter: NSObject, NSWindowDelegate {
         if options.resizable { style.insert(.resizable) }
         if options.miniaturizable { style.insert(.miniaturizable) }
         if options.bridgesToolbar { style.insert(.fullSizeContentView) }
-        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: style, backing: .buffered, defer: false)
+        let window = PRBarWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: style, backing: .buffered, defer: false)
         window.title = title
         window.isReleasedWhenClosed = false
         window.tabbingMode = options.allowsTabbing ? .automatic : .disallowed
@@ -318,5 +318,23 @@ enum SpaceContext {
         let mainHeight = NSScreen.screens.first?.frame.height ?? 0
         let screens = NSScreen.screens.map { WindowSpaces.cgFrame($0.frame, mainScreenHeight: mainHeight) }
         return WindowSpaces.isFullScreen(windowBounds: bounds, screenFrames: screens)
+    }
+}
+
+/// Las ventanas de PRBar: ⌘↩ mientras se escribe en un texto editable (el chat, el texto de un hallazgo) es del texto,
+/// no del botón principal de la ventana (Merge, Post Review, Implement…; `PrimaryShortcutScope`).
+final class PRBarWindow: NSWindow {
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let editingText = (firstResponder as? NSTextView)?.isEditable == true
+        // 36 = Return, 76 = Enter del teclado numérico.
+        if PrimaryShortcutScope.textKeepsKey(isReturn: event.keyCode == 36 || event.keyCode == 76,
+                                             command: flags.contains(.command), shift: flags.contains(.shift),
+                                             option: flags.contains(.option), control: flags.contains(.control),
+                                             editingText: editingText) {
+            // Sin `super`: ningún botón la ve y llega como tecla normal al `keyDown` del texto (el chat la manda).
+            return false
+        }
+        return super.performKeyEquivalent(with: event)
     }
 }

@@ -1,0 +1,38 @@
+{
+  "invalid" : [
+    "prbar://pair?v=1&r=prbar.example.org&a=hohrh3jbgktkby7euvoae3wjze&p=wkgc5nrkicgkayji&k=mGnhAPyD-PSUZN3lbk2PmfPZ-mbLU75tUH5d8PPIpJU&m=CiHBCygFvoRhFsaz43vPmdNrfAXBFV8ycOoxredWNlg&n=Federico%E2%80%99s%20MacBook%20Pro",
+    "http://prbar.example.org/#pair?v=1&r=prbar.example.org&a=hohrh3jbgktkby7euvoae3wjze&p=wkgc5nrkicgkayji&k=mGnhAPyD-PSUZN3lbk2PmfPZ-mbLU75tUH5d8PPIpJU&m=CiHBCygFvoRhFsaz43vPmdNrfAXBFV8ycOoxredWNlg&n=Federico%E2%80%99s%20MacBook%20Pro",
+    "https://evil.example.org/#pair?v=1&r=prbar.example.org&a=hohrh3jbgktkby7euvoae3wjze&p=wkgc5nrkicgkayji&k=mGnhAPyD-PSUZN3lbk2PmfPZ-mbLU75tUH5d8PPIpJU&m=CiHBCygFvoRhFsaz43vPmdNrfAXBFV8ycOoxredWNlg&n=Federico%E2%80%99s%20MacBook%20Pro",
+    "https://prbar.example.org/#pair?v=2&r=prbar.example.org&a=hohrh3jbgktkby7euvoae3wjze&p=wkgc5nrkicgkayji&k=mGnhAPyD-PSUZN3lbk2PmfPZ-mbLU75tUH5d8PPIpJU&m=CiHBCygFvoRhFsaz43vPmdNrfAXBFV8ycOoxredWNlg&n=Federico%E2%80%99s%20MacBook%20Pro",
+    "https://prbar.example.org/#pair?v=1&r=prbar.example.org&a=hohrh3jbgktkby7euvoae3wjze&p=wkgc5nrkicgkayji&k=mGnhAPyD-PSUZN3lbk2PmfPZ-mbLU75tUH5d8PPIpJU&m=CiHBCygFvoRhFsaz43vPmdNrfAXBFV8ycOoxredWNlg&n=Federico%E2%80%99s%20MacBook%20Pro&v=1",
+    "https://prbar.example.org/#pair?v=1&r=prbar.example.org&a=hohrh3jbgktkby7euvoae3wjze&p=wkgc5nrkicgkayji&k=AAmGnhAPyD-PSUZN3lbk2PmfPZ-mbLU75tUH5d8PPIpJU&m=CiHBCygFvoRhFsaz43vPmdNrfAXBFV8ycOoxredWNlg&n=Federico%E2%80%99s%20MacBook%20Pro"
+  ],
+  "valid" : [
+    {
+      "accountId" : "hohrh3jbgktkby7euvoae3wjze",
+      "authKey" : "4b09a258aeea9a1634688c58459de16b21290f2230424d609da606bb5be221a6",
+      "macName" : "Federico’s MacBook Pro",
+      "macStatic" : "0a21c10b2805be846116c6b3e37bcf99d36b7c05c1155f3270ea31ade7563658",
+      "nonce" : "c2ae0c4b863cac5bb14be79f3d4f3f55345f5bd379810769f95dcd34bb974632",
+      "pairingId" : "wkgc5nrkicgkayji",
+      "proof" : "0808fed25e0f5f307dbc4648e6d3c9a21d2e539d7c8182cfaea0230fbbfd0350",
+      "psk" : "32da43bb3d2ad129fea3a0f77c611c1d52ed120f316c9a992bd57fbe3b727656",
+      "relayHost" : "prbar.example.org",
+      "secret" : "9869e100fc83f8f49464dde56e4d8f99f3d9fa66cb53be6d507e5df0f3c8a495",
+      "url" : "https://prbar.example.org/#pair?v=1&r=prbar.example.org&a=hohrh3jbgktkby7euvoae3wjze&p=wkgc5nrkicgkayji&k=mGnhAPyD-PSUZN3lbk2PmfPZ-mbLU75tUH5d8PPIpJU&m=CiHBCygFvoRhFsaz43vPmdNrfAXBFV8ycOoxredWNlg&n=Federico%E2%80%99s%20MacBook%20Pro"
+    },
+    {
+      "accountId" : "hohrh3jbgktkby7euvoae3wjze",
+      "authKey" : "331a06645db3aeea1ab943c88f0408a2ebb5af6e60495f1ea011ecff7b795b06",
+      "macName" : "Work Mac & co = 🚀",
+      "macStatic" : "0a21c10b2805be846116c6b3e37bcf99d36b7c05c1155f3270ea31ade7563658",
+      "nonce" : "c2ae0c4b863cac5bb14be79f3d4f3f55345f5bd379810769f95dcd34bb974632",
+      "pairingId" : "wkgc5nrkicgkayji",
+      "proof" : "42f639a21d9ab6e674532b28c58475ed0ae2a5a4e7db93e0b03a4cd3747cb80c",
+      "psk" : "e41e47fc75c97a65d1fa8609a473308e3b6c3aab2491701c9e2caa4ca10d82c6",
+      "relayHost" : "prbar.example.org:8443",
+      "secret" : "41a7a0294d29aad8a458111743b4ef52dbf5a46aae5af65f2c03271635638dba",
+      "url" : "https://prbar.example.org:8443/#pair?v=1&r=prbar.example.org%3A8443&a=hohrh3jbgktkby7euvoae3wjze&p=wkgc5nrkicgkayji&k=QaegKU0pqtikWBEXQ7TvUtv1pGquWvZfLAMnFjVjjbo&m=CiHBCygFvoRhFsaz43vPmdNrfAXBFV8ycOoxredWNlg&n=Work%20Mac%20%26%20co%20%3D%20%F0%9F%9A%80"
+    }
+  ]
+}

@@ -98,6 +98,8 @@ public enum AppPaths {
             .appendingPathComponent("PRBar", isDirectory: true)
     }
     public static var configFile: URL { appSupport.appendingPathComponent("config.json") }
+    /// Los iPhones emparejados (spec P.2): solo claves públicas, 0600 en una carpeta 0700.
+    public static var remoteDir: URL { appSupport.appendingPathComponent("remote", isDirectory: true) }
     /// El id de esta instalación de PRBar (su subcarpeta en la carpeta remota de cada host). Aparte de la config:
     /// si se copia la config a otra Mac, el id no viaja.
     public static var installationIDFile: URL { appSupport.appendingPathComponent("installation-id") }

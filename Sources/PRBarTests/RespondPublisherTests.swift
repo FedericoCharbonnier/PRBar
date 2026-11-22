@@ -192,7 +192,7 @@ enum RespondPublisherTests {
             try expectEqual(push.arguments, ["-C", "/tmp/wt", "-c", "core.fsmonitor=false", "-c", "submodule.recurse=false",
                                              "-c", "core.untrackedCache=false", "push",
                                              "--force-with-lease=refs/heads/feature/7:\(String(repeating: "0", count: 40))", "origin", "\(reviewed):refs/heads/feature/7"])
-            try expectEqual(push.timeout, 120)
+            try expectEqual(push.timeout, RespondPublisher.pushTimeout)
             try expect(calls.allSatisfy { $0.executable == TempGitRepo.git })
             try expect(calls.allSatisfy { $0.environment?["GIT_TERMINAL_PROMPT"] == "0" })
             // Lo de antes del push: todo endurecido (salvo check-ref-format, que no mira ningún repo).
@@ -208,6 +208,37 @@ enum RespondPublisherTests {
             try expect(!flat.contains { ($0.hasPrefix("--force") && !$0.hasPrefix("--force-with-lease=")) || $0 == "-f"
                 || $0 == "--no-verify" || $0.contains("hooksPath") }, "\(flat)")
             try expect(!flat.contains { $0.hasPrefix("+") || $0.contains(":+") || $0.hasPrefix("HEAD") })
+        },
+        TestCase("respond publisher: un push que falla o se corta con la rama ya en lo revisado cuenta como pusheado (M6)") {
+            let reviewed = String(repeating: "a", count: 40)
+            try expect(RespondPublisher.pushTimeout >= 30 * 60, "un pre-push con tests largos no tiene que cortarse")
+            for (remote, expectSuccess) in [(reviewed, true), (String(repeating: "b", count: 40), false)] {
+                for timedOut in [false, true] {
+                    let handler: (String, [String]) -> ProcessResult = { _, args in
+                        if args.contains("check-ref-format") { return ok("feature/7\n") }
+                        if args.contains("--git-dir") { return ok("/nonexistent/gitdir\n/nonexistent/common\n") }
+                        if args.contains("get-url") { return ok("git@github.com:o/r.git\n") }
+                        if args.contains("rev-parse") { return ok(reviewed + "\n") }
+                        if args.contains("ls-remote") { return ok("\(remote)\trefs/heads/feature/7\n") }
+                        if args.contains("push") {
+                            return ProcessResult(status: 1, stdout: "", stderr: "! [rejected] (stale info)")
+                        }
+                        return ok("")
+                    }
+                    let integrity = try await publisher(runner: FakeProcessRunner(handler)).integrity(of: URL(fileURLWithPath: "/tmp/wt"))
+                    let result = RespondResult(items: [], diffStat: "", tests: nil, headOid: reviewed, gitIntegrity: integrity)
+                    let runner = PushTimingOutRunner(inner: FakeProcessRunner(handler), timesOut: timedOut)
+                    let push = { try await publisher(runner: runner, originMatches: { WorktreeResolver.originMatches($0, repo: $1) })
+                        .push(draft: draft(path: "/tmp/wt"), result: result) }
+                    if expectSuccess {
+                        try await push()
+                    } else {
+                        _ = try await expectThrows { try await push() }
+                    }
+                }
+            }
+            try expectEqual(RespondPublisher.remoteHead(fromLsRemote: "\(reviewed)\trefs/heads/feature/7\n", headRef: "feature/7"), reviewed)
+            try expectEqual(RespondPublisher.remoteHead(fromLsRemote: "\(reviewed)\trefs/heads/other\n", headRef: "feature/7"), nil)
         },
         TestCase("respond publisher: una rama inválida, un worktree que no es de PRBar o un resultado sin sha no llegan al push") {
             for bad in ["--upload-pack=x", "a..b", "HEAD", "con espacio", ""] {
@@ -473,4 +504,17 @@ enum RespondPublisherTests {
             try expectEqual(api.posts, [.reply(commentID: 101, body: "ok (Cambiá esto.): https://github.com/o/r/commit/\(sha1)")])
         },
     ]
+}
+
+/// Como `FakeProcessRunner`, pero el `push` puede vencer su plazo (lanza como el runner real).
+private struct PushTimingOutRunner: ProcessRunning {
+    let inner: FakeProcessRunner
+    let timesOut: Bool
+
+    func run(_ executable: String, _ arguments: [String], environment: [String: String]?, currentDirectory: URL?,
+             timeout: TimeInterval?) async throws -> ProcessResult {
+        if timesOut, arguments.contains("push") { throw PRBarError.timedOut(command: "git push") }
+        return try await inner.run(executable, arguments, environment: environment, currentDirectory: currentDirectory,
+                                   timeout: timeout)
+    }
 }

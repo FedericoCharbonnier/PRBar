@@ -1,0 +1,2656 @@
+{
+  "commands" : [
+    {
+      "json" : {
+        "status" : {
+
+        }
+      },
+      "name" : "status",
+      "policy" : "allowed",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : {
+          "accounts" : [
+
+          ],
+          "appVersion" : "1.9.0",
+          "badgeCount" : 3,
+          "counts" : {
+
+          },
+          "fetchedAt" : "2026-11-20T12:38:00Z",
+          "issues" : [
+
+          ],
+          "jobs" : [
+            {
+              "kind" : "respond",
+              "phase" : "implementing",
+              "pr" : "acme/web-app#488"
+            }
+          ],
+          "offline" : false,
+          "refreshing" : false,
+          "slackIssues" : [
+
+          ],
+          "tools" : [
+
+          ]
+        }
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"accounts\":[],\"appVersion\":\"1.9.0\",\"badgeCount\":3,\"counts\":{},\"fetchedAt\":\"2026-11-20T12:38:00Z\",\"issues\":[],\"jobs\":[{\"kind\":\"respond\",\"phase\":\"implementing\",\"pr\":\"acme/web-app#488\"}],\"offline\":false,\"refreshing\":false,\"slackIssues\":[],\"tools\":[]}}",
+      "text" : "{\"status\":{}}"
+    },
+    {
+      "json" : {
+        "listPRs" : {
+
+        }
+      },
+      "name" : "listPRs",
+      "policy" : "allowed",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : [
+          {
+            "account" : "diego",
+            "additions" : 46,
+            "author" : "truiz",
+            "authorName" : "Tomás Ruiz",
+            "baseRef" : "main",
+            "category" : "toReview",
+            "changedFiles" : 5,
+            "ci" : "success",
+            "deletions" : 12,
+            "headRef" : "feature/317",
+            "id" : "acme/api#317",
+            "isDraft" : false,
+            "number" : 317,
+            "repo" : "acme/api",
+            "review" : "ready",
+            "section" : "toReview",
+            "tab" : "to-review",
+            "title" : "Refresh expired sessions without logging users out",
+            "updatedAt" : "2026-11-20T12:38:00Z",
+            "url" : "https://github.com/acme/api/pull/317"
+          },
+          {
+            "account" : "diego",
+            "additions" : 46,
+            "approvals" : 2,
+            "author" : "diego",
+            "authorName" : "Diego",
+            "baseRef" : "main",
+            "category" : "readyToMerge",
+            "changedFiles" : 4,
+            "ci" : "success",
+            "deletions" : 12,
+            "headRef" : "feature/322",
+            "id" : "acme/api#322",
+            "isDraft" : false,
+            "number" : 322,
+            "repo" : "acme/api",
+            "section" : "readyToMerge",
+            "tab" : "mine",
+            "title" : "Make payment retries idempotent",
+            "updatedAt" : "2026-11-20T12:38:00Z",
+            "url" : "https://github.com/acme/api/pull/322"
+          },
+          {
+            "account" : "diego",
+            "additions" : 46,
+            "author" : "diego",
+            "authorName" : "Diego",
+            "baseRef" : "main",
+            "category" : "other",
+            "changedFiles" : 3,
+            "ci" : "failure",
+            "deletions" : 12,
+            "headRef" : "feature/488",
+            "id" : "acme/web-app#488",
+            "isDraft" : false,
+            "number" : 488,
+            "repo" : "acme/web-app",
+            "section" : "waitingForReview",
+            "tab" : "mine",
+            "title" : "Move report jobs to the new queue",
+            "updatedAt" : "2026-11-20T12:38:00Z",
+            "url" : "https://github.com/acme/web-app/pull/488"
+          }
+        ]
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":[{\"account\":\"diego\",\"additions\":46,\"author\":\"truiz\",\"authorName\":\"Tomás Ruiz\",\"baseRef\":\"main\",\"category\":\"toReview\",\"changedFiles\":5,\"ci\":\"success\",\"deletions\":12,\"headRef\":\"feature/317\",\"id\":\"acme/api#317\",\"isDraft\":false,\"number\":317,\"repo\":\"acme/api\",\"review\":\"ready\",\"section\":\"toReview\",\"tab\":\"to-review\",\"title\":\"Refresh expired sessions without logging users out\",\"updatedAt\":\"2026-11-20T12:38:00Z\",\"url\":\"https://github.com/acme/api/pull/317\"},{\"account\":\"diego\",\"additions\":46,\"approvals\":2,\"author\":\"diego\",\"authorName\":\"Diego\",\"baseRef\":\"main\",\"category\":\"readyToMerge\",\"changedFiles\":4,\"ci\":\"success\",\"deletions\":12,\"headRef\":\"feature/322\",\"id\":\"acme/api#322\",\"isDraft\":false,\"number\":322,\"repo\":\"acme/api\",\"section\":\"readyToMerge\",\"tab\":\"mine\",\"title\":\"Make payment retries idempotent\",\"updatedAt\":\"2026-11-20T12:38:00Z\",\"url\":\"https://github.com/acme/api/pull/322\"},{\"account\":\"diego\",\"additions\":46,\"author\":\"diego\",\"authorName\":\"Diego\",\"baseRef\":\"main\",\"category\":\"other\",\"changedFiles\":3,\"ci\":\"failure\",\"deletions\":12,\"headRef\":\"feature/488\",\"id\":\"acme/web-app#488\",\"isDraft\":false,\"number\":488,\"repo\":\"acme/web-app\",\"section\":\"waitingForReview\",\"tab\":\"mine\",\"title\":\"Move report jobs to the new queue\",\"updatedAt\":\"2026-11-20T12:38:00Z\",\"url\":\"https://github.com/acme/web-app/pull/488\"}]}",
+      "text" : "{\"listPRs\":{}}"
+    },
+    {
+      "json" : {
+        "listPRs" : {
+          "list" : "to-review",
+          "tab" : "to-review"
+        }
+      },
+      "name" : "listPRs",
+      "policy" : "allowed",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : [
+          {
+            "account" : "diego",
+            "additions" : 46,
+            "author" : "truiz",
+            "authorName" : "Tomás Ruiz",
+            "baseRef" : "main",
+            "category" : "toReview",
+            "changedFiles" : 5,
+            "ci" : "success",
+            "deletions" : 12,
+            "headRef" : "feature/317",
+            "id" : "acme/api#317",
+            "isDraft" : false,
+            "number" : 317,
+            "repo" : "acme/api",
+            "review" : "ready",
+            "section" : "toReview",
+            "tab" : "to-review",
+            "title" : "Refresh expired sessions without logging users out",
+            "updatedAt" : "2026-11-20T12:38:00Z",
+            "url" : "https://github.com/acme/api/pull/317"
+          },
+          {
+            "account" : "diego",
+            "additions" : 46,
+            "approvals" : 2,
+            "author" : "diego",
+            "authorName" : "Diego",
+            "baseRef" : "main",
+            "category" : "readyToMerge",
+            "changedFiles" : 4,
+            "ci" : "success",
+            "deletions" : 12,
+            "headRef" : "feature/322",
+            "id" : "acme/api#322",
+            "isDraft" : false,
+            "number" : 322,
+            "repo" : "acme/api",
+            "section" : "readyToMerge",
+            "tab" : "mine",
+            "title" : "Make payment retries idempotent",
+            "updatedAt" : "2026-11-20T12:38:00Z",
+            "url" : "https://github.com/acme/api/pull/322"
+          },
+          {
+            "account" : "diego",
+            "additions" : 46,
+            "author" : "diego",
+            "authorName" : "Diego",
+            "baseRef" : "main",
+            "category" : "other",
+            "changedFiles" : 3,
+            "ci" : "failure",
+            "deletions" : 12,
+            "headRef" : "feature/488",
+            "id" : "acme/web-app#488",
+            "isDraft" : false,
+            "number" : 488,
+            "repo" : "acme/web-app",
+            "section" : "waitingForReview",
+            "tab" : "mine",
+            "title" : "Move report jobs to the new queue",
+            "updatedAt" : "2026-11-20T12:38:00Z",
+            "url" : "https://github.com/acme/web-app/pull/488"
+          }
+        ]
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":[{\"account\":\"diego\",\"additions\":46,\"author\":\"truiz\",\"authorName\":\"Tomás Ruiz\",\"baseRef\":\"main\",\"category\":\"toReview\",\"changedFiles\":5,\"ci\":\"success\",\"deletions\":12,\"headRef\":\"feature/317\",\"id\":\"acme/api#317\",\"isDraft\":false,\"number\":317,\"repo\":\"acme/api\",\"review\":\"ready\",\"section\":\"toReview\",\"tab\":\"to-review\",\"title\":\"Refresh expired sessions without logging users out\",\"updatedAt\":\"2026-11-20T12:38:00Z\",\"url\":\"https://github.com/acme/api/pull/317\"},{\"account\":\"diego\",\"additions\":46,\"approvals\":2,\"author\":\"diego\",\"authorName\":\"Diego\",\"baseRef\":\"main\",\"category\":\"readyToMerge\",\"changedFiles\":4,\"ci\":\"success\",\"deletions\":12,\"headRef\":\"feature/322\",\"id\":\"acme/api#322\",\"isDraft\":false,\"number\":322,\"repo\":\"acme/api\",\"section\":\"readyToMerge\",\"tab\":\"mine\",\"title\":\"Make payment retries idempotent\",\"updatedAt\":\"2026-11-20T12:38:00Z\",\"url\":\"https://github.com/acme/api/pull/322\"},{\"account\":\"diego\",\"additions\":46,\"author\":\"diego\",\"authorName\":\"Diego\",\"baseRef\":\"main\",\"category\":\"other\",\"changedFiles\":3,\"ci\":\"failure\",\"deletions\":12,\"headRef\":\"feature/488\",\"id\":\"acme/web-app#488\",\"isDraft\":false,\"number\":488,\"repo\":\"acme/web-app\",\"section\":\"waitingForReview\",\"tab\":\"mine\",\"title\":\"Move report jobs to the new queue\",\"updatedAt\":\"2026-11-20T12:38:00Z\",\"url\":\"https://github.com/acme/web-app/pull/488\"}]}",
+      "text" : "{\"listPRs\":{\"list\":\"to-review\",\"tab\":\"to-review\"}}"
+    },
+    {
+      "json" : {
+        "resolvePR" : {
+          "pr" : "acme/api#317"
+        }
+      },
+      "name" : "resolvePR",
+      "policy" : "allowed",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : {
+          "pr" : "acme/api#317",
+          "url" : "https://github.com/acme/api/pull/317"
+        }
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"pr\":\"acme/api#317\",\"url\":\"https://github.com/acme/api/pull/317\"}}",
+      "text" : "{\"resolvePR\":{\"pr\":\"acme/api#317\"}}"
+    },
+    {
+      "json" : {
+        "refresh" : {
+
+        }
+      },
+      "name" : "refresh",
+      "policy" : "allowed",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : {
+          "ok" : true
+        }
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"ok\":true}}",
+      "text" : "{\"refresh\":{}}"
+    },
+    {
+      "json" : {
+        "history" : {
+          "limit" : 50
+        }
+      },
+      "name" : "history",
+      "policy" : "allowed",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : [
+          {
+            "finishedAt" : "2026-11-20T11:43:00Z",
+            "id" : "3C9A7E52-1D4B-4F0A-9B7E-6A2F1C8D5E40",
+            "kind" : "review",
+            "number" : 317,
+            "pr" : "acme/api#317",
+            "repo" : "acme/api",
+            "startedAt" : "2026-11-20T11:38:00Z",
+            "status" : "ready",
+            "title" : "Refresh expired sessions without logging users out",
+            "usage" : {
+              "cacheCreationTokens" : 0,
+              "cacheReadTokens" : 0,
+              "costUSD" : 0.41999999999999998,
+              "durationSeconds" : 0,
+              "inputTokens" : 0,
+              "outputTokens" : 0,
+              "runs" : 1,
+              "unknownRuns" : 0
+            }
+          }
+        ]
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":[{\"finishedAt\":\"2026-11-20T11:43:00Z\",\"id\":\"3C9A7E52-1D4B-4F0A-9B7E-6A2F1C8D5E40\",\"kind\":\"review\",\"number\":317,\"pr\":\"acme/api#317\",\"repo\":\"acme/api\",\"startedAt\":\"2026-11-20T11:38:00Z\",\"status\":\"ready\",\"title\":\"Refresh expired sessions without logging users out\",\"usage\":{\"cacheCreationTokens\":0,\"cacheReadTokens\":0,\"costUSD\":0.42,\"durationSeconds\":0,\"inputTokens\":0,\"outputTokens\":0,\"runs\":1,\"unknownRuns\":0}}]}",
+      "text" : "{\"history\":{\"limit\":50}}"
+    },
+    {
+      "json" : {
+        "historyShow" : {
+          "id" : "3C9A7E52-1D4B-4F0A-9B7E-6A2F1C8D5E40"
+        }
+      },
+      "name" : "historyShow",
+      "policy" : "allowed",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : {
+          "canOpen" : true,
+          "canReopen" : false,
+          "entry" : {
+            "finishedAt" : "2026-11-20T11:43:00Z",
+            "id" : "3C9A7E52-1D4B-4F0A-9B7E-6A2F1C8D5E40",
+            "kind" : "review",
+            "number" : 317,
+            "pr" : "acme/api#317",
+            "repo" : "acme/api",
+            "startedAt" : "2026-11-20T11:38:00Z",
+            "status" : "ready",
+            "title" : "Refresh expired sessions without logging users out",
+            "usage" : {
+              "cacheCreationTokens" : 0,
+              "cacheReadTokens" : 0,
+              "costUSD" : 0.41999999999999998,
+              "durationSeconds" : 0,
+              "inputTokens" : 0,
+              "outputTokens" : 0,
+              "runs" : 1,
+              "unknownRuns" : 0
+            }
+          },
+          "findings" : [
+            {
+              "body" : "Body of Expired refresh tokens are retried forever.",
+              "edited" : false,
+              "id" : "f1",
+              "included" : true,
+              "keptByFilter" : true,
+              "location" : "src/auth/session.ts:80",
+              "number" : 1,
+              "severity" : "high",
+              "title" : "Expired refresh tokens are retried forever"
+            },
+            {
+              "body" : "Body of Race between two refreshes.",
+              "edited" : false,
+              "id" : "f2",
+              "included" : true,
+              "keptByFilter" : true,
+              "location" : "src/auth/session.ts:81",
+              "number" : 2,
+              "severity" : "medium",
+              "title" : "Race between two refreshes"
+            },
+            {
+              "body" : "Body of Cookie max-age is hard-coded.",
+              "edited" : false,
+              "id" : "f3",
+              "included" : false,
+              "keptByFilter" : true,
+              "location" : "src/auth/session.ts:82",
+              "number" : 3,
+              "severity" : "low",
+              "title" : "Cookie max-age is hard-coded"
+            }
+          ],
+          "prURL" : "https://github.com/acme/api/pull/317",
+          "pushed" : false,
+          "replies" : [
+
+          ],
+          "summary" : "Sessions refresh in the background."
+        }
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"canOpen\":true,\"canReopen\":false,\"entry\":{\"finishedAt\":\"2026-11-20T11:43:00Z\",\"id\":\"3C9A7E52-1D4B-4F0A-9B7E-6A2F1C8D5E40\",\"kind\":\"review\",\"number\":317,\"pr\":\"acme/api#317\",\"repo\":\"acme/api\",\"startedAt\":\"2026-11-20T11:38:00Z\",\"status\":\"ready\",\"title\":\"Refresh expired sessions without logging users out\",\"usage\":{\"cacheCreationTokens\":0,\"cacheReadTokens\":0,\"costUSD\":0.42,\"durationSeconds\":0,\"inputTokens\":0,\"outputTokens\":0,\"runs\":1,\"unknownRuns\":0}},\"findings\":[{\"body\":\"Body of Expired refresh tokens are retried forever.\",\"edited\":false,\"id\":\"f1\",\"included\":true,\"keptByFilter\":true,\"location\":\"src/auth/session.ts:80\",\"number\":1,\"severity\":\"high\",\"title\":\"Expired refresh tokens are retried forever\"},{\"body\":\"Body of Race between two refreshes.\",\"edited\":false,\"id\":\"f2\",\"included\":true,\"keptByFilter\":true,\"location\":\"src/auth/session.ts:81\",\"number\":2,\"severity\":\"medium\",\"title\":\"Race between two refreshes\"},{\"body\":\"Body of Cookie max-age is hard-coded.\",\"edited\":false,\"id\":\"f3\",\"included\":false,\"keptByFilter\":true,\"location\":\"src/auth/session.ts:82\",\"number\":3,\"severity\":\"low\",\"title\":\"Cookie max-age is hard-coded\"}],\"prURL\":\"https://github.com/acme/api/pull/317\",\"pushed\":false,\"replies\":[],\"summary\":\"Sessions refresh in the background.\"}}",
+      "text" : "{\"historyShow\":{\"id\":\"3C9A7E52-1D4B-4F0A-9B7E-6A2F1C8D5E40\"}}"
+    },
+    {
+      "json" : {
+        "reviewStart" : {
+          "pr" : "acme/api#317",
+          "wait" : false
+        }
+      },
+      "name" : "reviewStart",
+      "policy" : "allowed",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : {
+          "detail" : "2 agents",
+          "findings" : [
+            {
+              "body" : "Body of Expired refresh tokens are retried forever.",
+              "edited" : false,
+              "id" : "f1",
+              "included" : true,
+              "keptByFilter" : true,
+              "location" : "src/auth/session.ts:80",
+              "number" : 1,
+              "severity" : "high",
+              "title" : "Expired refresh tokens are retried forever"
+            },
+            {
+              "body" : "Body of Race between two refreshes.",
+              "edited" : false,
+              "id" : "f2",
+              "included" : true,
+              "keptByFilter" : true,
+              "location" : "src/auth/session.ts:81",
+              "number" : 2,
+              "severity" : "medium",
+              "title" : "Race between two refreshes"
+            },
+            {
+              "body" : "Body of Cookie max-age is hard-coded.",
+              "edited" : false,
+              "id" : "f3",
+              "included" : false,
+              "keptByFilter" : true,
+              "location" : "src/auth/session.ts:82",
+              "number" : 3,
+              "severity" : "low",
+              "title" : "Cookie max-age is hard-coded"
+            }
+          ],
+          "outdated" : false,
+          "phase" : "ready",
+          "pr" : "acme/api#317",
+          "summary" : "Sessions refresh in the background.",
+          "title" : "Refresh expired sessions without logging users out"
+        }
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"detail\":\"2 agents\",\"findings\":[{\"body\":\"Body of Expired refresh tokens are retried forever.\",\"edited\":false,\"id\":\"f1\",\"included\":true,\"keptByFilter\":true,\"location\":\"src/auth/session.ts:80\",\"number\":1,\"severity\":\"high\",\"title\":\"Expired refresh tokens are retried forever\"},{\"body\":\"Body of Race between two refreshes.\",\"edited\":false,\"id\":\"f2\",\"included\":true,\"keptByFilter\":true,\"location\":\"src/auth/session.ts:81\",\"number\":2,\"severity\":\"medium\",\"title\":\"Race between two refreshes\"},{\"body\":\"Body of Cookie max-age is hard-coded.\",\"edited\":false,\"id\":\"f3\",\"included\":false,\"keptByFilter\":true,\"location\":\"src/auth/session.ts:82\",\"number\":3,\"severity\":\"low\",\"title\":\"Cookie max-age is hard-coded\"}],\"outdated\":false,\"phase\":\"ready\",\"pr\":\"acme/api#317\",\"summary\":\"Sessions refresh in the background.\",\"title\":\"Refresh expired sessions without logging users out\"}}",
+      "text" : "{\"reviewStart\":{\"pr\":\"acme/api#317\",\"wait\":false}}"
+    },
+    {
+      "json" : {
+        "reviewShow" : {
+          "pr" : "acme/api#317"
+        }
+      },
+      "name" : "reviewShow",
+      "policy" : "allowed",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : {
+          "detail" : "2 agents",
+          "findings" : [
+            {
+              "body" : "Body of Expired refresh tokens are retried forever.",
+              "edited" : false,
+              "id" : "f1",
+              "included" : true,
+              "keptByFilter" : true,
+              "location" : "src/auth/session.ts:80",
+              "number" : 1,
+              "severity" : "high",
+              "title" : "Expired refresh tokens are retried forever"
+            },
+            {
+              "body" : "Body of Race between two refreshes.",
+              "edited" : false,
+              "id" : "f2",
+              "included" : true,
+              "keptByFilter" : true,
+              "location" : "src/auth/session.ts:81",
+              "number" : 2,
+              "severity" : "medium",
+              "title" : "Race between two refreshes"
+            },
+            {
+              "body" : "Body of Cookie max-age is hard-coded.",
+              "edited" : false,
+              "id" : "f3",
+              "included" : false,
+              "keptByFilter" : true,
+              "location" : "src/auth/session.ts:82",
+              "number" : 3,
+              "severity" : "low",
+              "title" : "Cookie max-age is hard-coded"
+            }
+          ],
+          "outdated" : false,
+          "phase" : "ready",
+          "pr" : "acme/api#317",
+          "summary" : "Sessions refresh in the background.",
+          "title" : "Refresh expired sessions without logging users out"
+        }
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"detail\":\"2 agents\",\"findings\":[{\"body\":\"Body of Expired refresh tokens are retried forever.\",\"edited\":false,\"id\":\"f1\",\"included\":true,\"keptByFilter\":true,\"location\":\"src/auth/session.ts:80\",\"number\":1,\"severity\":\"high\",\"title\":\"Expired refresh tokens are retried forever\"},{\"body\":\"Body of Race between two refreshes.\",\"edited\":false,\"id\":\"f2\",\"included\":true,\"keptByFilter\":true,\"location\":\"src/auth/session.ts:81\",\"number\":2,\"severity\":\"medium\",\"title\":\"Race between two refreshes\"},{\"body\":\"Body of Cookie max-age is hard-coded.\",\"edited\":false,\"id\":\"f3\",\"included\":false,\"keptByFilter\":true,\"location\":\"src/auth/session.ts:82\",\"number\":3,\"severity\":\"low\",\"title\":\"Cookie max-age is hard-coded\"}],\"outdated\":false,\"phase\":\"ready\",\"pr\":\"acme/api#317\",\"summary\":\"Sessions refresh in the background.\",\"title\":\"Refresh expired sessions without logging users out\"}}",
+      "text" : "{\"reviewShow\":{\"pr\":\"acme/api#317\"}}"
+    },
+    {
+      "json" : {
+        "reviewEdit" : {
+          "finding" : "f1",
+          "pr" : "acme/api#317",
+          "title" : "Expired refresh tokens retry forever"
+        }
+      },
+      "name" : "reviewEdit",
+      "policy" : "allowed",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : {
+          "detail" : "2 agents",
+          "findings" : [
+            {
+              "body" : "Body of Expired refresh tokens are retried forever.",
+              "edited" : false,
+              "id" : "f1",
+              "included" : true,
+              "keptByFilter" : true,
+              "location" : "src/auth/session.ts:80",
+              "number" : 1,
+              "severity" : "high",
+              "title" : "Expired refresh tokens are retried forever"
+            },
+            {
+              "body" : "Body of Race between two refreshes.",
+              "edited" : false,
+              "id" : "f2",
+              "included" : true,
+              "keptByFilter" : true,
+              "location" : "src/auth/session.ts:81",
+              "number" : 2,
+              "severity" : "medium",
+              "title" : "Race between two refreshes"
+            },
+            {
+              "body" : "Body of Cookie max-age is hard-coded.",
+              "edited" : false,
+              "id" : "f3",
+              "included" : false,
+              "keptByFilter" : true,
+              "location" : "src/auth/session.ts:82",
+              "number" : 3,
+              "severity" : "low",
+              "title" : "Cookie max-age is hard-coded"
+            }
+          ],
+          "outdated" : false,
+          "phase" : "ready",
+          "pr" : "acme/api#317",
+          "summary" : "Sessions refresh in the background.",
+          "title" : "Refresh expired sessions without logging users out"
+        }
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"detail\":\"2 agents\",\"findings\":[{\"body\":\"Body of Expired refresh tokens are retried forever.\",\"edited\":false,\"id\":\"f1\",\"included\":true,\"keptByFilter\":true,\"location\":\"src/auth/session.ts:80\",\"number\":1,\"severity\":\"high\",\"title\":\"Expired refresh tokens are retried forever\"},{\"body\":\"Body of Race between two refreshes.\",\"edited\":false,\"id\":\"f2\",\"included\":true,\"keptByFilter\":true,\"location\":\"src/auth/session.ts:81\",\"number\":2,\"severity\":\"medium\",\"title\":\"Race between two refreshes\"},{\"body\":\"Body of Cookie max-age is hard-coded.\",\"edited\":false,\"id\":\"f3\",\"included\":false,\"keptByFilter\":true,\"location\":\"src/auth/session.ts:82\",\"number\":3,\"severity\":\"low\",\"title\":\"Cookie max-age is hard-coded\"}],\"outdated\":false,\"phase\":\"ready\",\"pr\":\"acme/api#317\",\"summary\":\"Sessions refresh in the background.\",\"title\":\"Refresh expired sessions without logging users out\"}}",
+      "text" : "{\"reviewEdit\":{\"finding\":\"f1\",\"pr\":\"acme/api#317\",\"title\":\"Expired refresh tokens retry forever\"}}"
+    },
+    {
+      "json" : {
+        "reviewSetIncluded" : {
+          "all" : false,
+          "findings" : [
+            "f3"
+          ],
+          "included" : true,
+          "pr" : "acme/api#317"
+        }
+      },
+      "name" : "reviewSetIncluded",
+      "policy" : "allowed",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : {
+          "detail" : "2 agents",
+          "findings" : [
+            {
+              "body" : "Body of Expired refresh tokens are retried forever.",
+              "edited" : false,
+              "id" : "f1",
+              "included" : true,
+              "keptByFilter" : true,
+              "location" : "src/auth/session.ts:80",
+              "number" : 1,
+              "severity" : "high",
+              "title" : "Expired refresh tokens are retried forever"
+            },
+            {
+              "body" : "Body of Race between two refreshes.",
+              "edited" : false,
+              "id" : "f2",
+              "included" : true,
+              "keptByFilter" : true,
+              "location" : "src/auth/session.ts:81",
+              "number" : 2,
+              "severity" : "medium",
+              "title" : "Race between two refreshes"
+            },
+            {
+              "body" : "Body of Cookie max-age is hard-coded.",
+              "edited" : false,
+              "id" : "f3",
+              "included" : true,
+              "keptByFilter" : true,
+              "location" : "src/auth/session.ts:82",
+              "number" : 3,
+              "severity" : "low",
+              "title" : "Cookie max-age is hard-coded"
+            }
+          ],
+          "outdated" : false,
+          "phase" : "ready",
+          "pr" : "acme/api#317",
+          "summary" : "Sessions refresh in the background.",
+          "title" : "Refresh expired sessions without logging users out"
+        }
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"detail\":\"2 agents\",\"findings\":[{\"body\":\"Body of Expired refresh tokens are retried forever.\",\"edited\":false,\"id\":\"f1\",\"included\":true,\"keptByFilter\":true,\"location\":\"src/auth/session.ts:80\",\"number\":1,\"severity\":\"high\",\"title\":\"Expired refresh tokens are retried forever\"},{\"body\":\"Body of Race between two refreshes.\",\"edited\":false,\"id\":\"f2\",\"included\":true,\"keptByFilter\":true,\"location\":\"src/auth/session.ts:81\",\"number\":2,\"severity\":\"medium\",\"title\":\"Race between two refreshes\"},{\"body\":\"Body of Cookie max-age is hard-coded.\",\"edited\":false,\"id\":\"f3\",\"included\":true,\"keptByFilter\":true,\"location\":\"src/auth/session.ts:82\",\"number\":3,\"severity\":\"low\",\"title\":\"Cookie max-age is hard-coded\"}],\"outdated\":false,\"phase\":\"ready\",\"pr\":\"acme/api#317\",\"summary\":\"Sessions refresh in the background.\",\"title\":\"Refresh expired sessions without logging users out\"}}",
+      "text" : "{\"reviewSetIncluded\":{\"all\":false,\"findings\":[\"f3\"],\"included\":true,\"pr\":\"acme/api#317\"}}"
+    },
+    {
+      "json" : {
+        "reviewSetComment" : {
+          "pr" : "acme/api#317",
+          "text" : "Looks good overall."
+        }
+      },
+      "name" : "reviewSetComment",
+      "policy" : "allowed",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : {
+          "detail" : "2 agents",
+          "findings" : [
+            {
+              "body" : "Body of Expired refresh tokens are retried forever.",
+              "edited" : false,
+              "id" : "f1",
+              "included" : true,
+              "keptByFilter" : true,
+              "location" : "src/auth/session.ts:80",
+              "number" : 1,
+              "severity" : "high",
+              "title" : "Expired refresh tokens are retried forever"
+            },
+            {
+              "body" : "Body of Race between two refreshes.",
+              "edited" : false,
+              "id" : "f2",
+              "included" : true,
+              "keptByFilter" : true,
+              "location" : "src/auth/session.ts:81",
+              "number" : 2,
+              "severity" : "medium",
+              "title" : "Race between two refreshes"
+            },
+            {
+              "body" : "Body of Cookie max-age is hard-coded.",
+              "edited" : false,
+              "id" : "f3",
+              "included" : true,
+              "keptByFilter" : true,
+              "location" : "src/auth/session.ts:82",
+              "number" : 3,
+              "severity" : "low",
+              "title" : "Cookie max-age is hard-coded"
+            }
+          ],
+          "outdated" : false,
+          "phase" : "ready",
+          "pr" : "acme/api#317",
+          "summary" : "Sessions refresh in the background.",
+          "title" : "Refresh expired sessions without logging users out"
+        }
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"detail\":\"2 agents\",\"findings\":[{\"body\":\"Body of Expired refresh tokens are retried forever.\",\"edited\":false,\"id\":\"f1\",\"included\":true,\"keptByFilter\":true,\"location\":\"src/auth/session.ts:80\",\"number\":1,\"severity\":\"high\",\"title\":\"Expired refresh tokens are retried forever\"},{\"body\":\"Body of Race between two refreshes.\",\"edited\":false,\"id\":\"f2\",\"included\":true,\"keptByFilter\":true,\"location\":\"src/auth/session.ts:81\",\"number\":2,\"severity\":\"medium\",\"title\":\"Race between two refreshes\"},{\"body\":\"Body of Cookie max-age is hard-coded.\",\"edited\":false,\"id\":\"f3\",\"included\":true,\"keptByFilter\":true,\"location\":\"src/auth/session.ts:82\",\"number\":3,\"severity\":\"low\",\"title\":\"Cookie max-age is hard-coded\"}],\"outdated\":false,\"phase\":\"ready\",\"pr\":\"acme/api#317\",\"summary\":\"Sessions refresh in the background.\",\"title\":\"Refresh expired sessions without logging users out\"}}",
+      "text" : "{\"reviewSetComment\":{\"pr\":\"acme/api#317\",\"text\":\"Looks good overall.\"}}"
+    },
+    {
+      "events" : [
+        {
+          "event" : {
+            "text" : {
+              "delta" : "Looking "
+            }
+          },
+          "id" : 1
+        },
+        {
+          "event" : {
+            "text" : {
+              "delta" : "at the diff."
+            }
+          },
+          "id" : 1
+        }
+      ],
+      "json" : {
+        "chatSend" : {
+          "message" : "Anything else worth flagging?",
+          "pr" : "acme/api#317"
+        }
+      },
+      "name" : "chatSend",
+      "policy" : "allowed",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : {
+          "kind" : "review",
+          "messages" : [
+            {
+              "createdAt" : "2026-11-20T12:38:00Z",
+              "id" : "B1D108FB-8BC4-4D2D-8EF8-BAD49C2788DD",
+              "notes" : [
+
+              ],
+              "proposals" : [
+
+              ],
+              "role" : "user",
+              "text" : "Anything else worth flagging?",
+              "undoable" : false,
+              "undone" : false
+            },
+            {
+              "createdAt" : "2026-11-20T12:38:00Z",
+              "id" : "7E70320E-1597-46F5-829A-C6139B1AA6B5",
+              "notes" : [
+
+              ],
+              "proposals" : [
+
+              ],
+              "role" : "assistant",
+              "text" : "Looking at the diff.",
+              "undoable" : false,
+              "undone" : false
+            }
+          ],
+          "pr" : "acme/api#317",
+          "readOnly" : false,
+          "running" : false,
+          "streamed" : false
+        }
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"kind\":\"review\",\"messages\":[{\"createdAt\":\"2026-11-20T12:38:00Z\",\"id\":\"B1D108FB-8BC4-4D2D-8EF8-BAD49C2788DD\",\"notes\":[],\"proposals\":[],\"role\":\"user\",\"text\":\"Anything else worth flagging?\",\"undoable\":false,\"undone\":false},{\"createdAt\":\"2026-11-20T12:38:00Z\",\"id\":\"7E70320E-1597-46F5-829A-C6139B1AA6B5\",\"notes\":[],\"proposals\":[],\"role\":\"assistant\",\"text\":\"Looking at the diff.\",\"undoable\":false,\"undone\":false}],\"pr\":\"acme/api#317\",\"readOnly\":false,\"running\":false,\"streamed\":false}}",
+      "text" : "{\"chatSend\":{\"message\":\"Anything else worth flagging?\",\"pr\":\"acme/api#317\"}}"
+    },
+    {
+      "json" : {
+        "chatShow" : {
+          "pr" : "acme/api#317"
+        }
+      },
+      "name" : "chatShow",
+      "policy" : "allowed",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : {
+          "kind" : "review",
+          "messages" : [
+            {
+              "createdAt" : "2026-11-20T12:38:00Z",
+              "id" : "B1D108FB-8BC4-4D2D-8EF8-BAD49C2788DD",
+              "notes" : [
+
+              ],
+              "proposals" : [
+
+              ],
+              "role" : "user",
+              "text" : "Anything else worth flagging?",
+              "undoable" : false,
+              "undone" : false
+            },
+            {
+              "createdAt" : "2026-11-20T12:38:00Z",
+              "id" : "7E70320E-1597-46F5-829A-C6139B1AA6B5",
+              "notes" : [
+
+              ],
+              "proposals" : [
+
+              ],
+              "role" : "assistant",
+              "text" : "Looking at the diff.",
+              "undoable" : false,
+              "undone" : false
+            }
+          ],
+          "pr" : "acme/api#317",
+          "readOnly" : false,
+          "running" : false,
+          "streamed" : false
+        }
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"kind\":\"review\",\"messages\":[{\"createdAt\":\"2026-11-20T12:38:00Z\",\"id\":\"B1D108FB-8BC4-4D2D-8EF8-BAD49C2788DD\",\"notes\":[],\"proposals\":[],\"role\":\"user\",\"text\":\"Anything else worth flagging?\",\"undoable\":false,\"undone\":false},{\"createdAt\":\"2026-11-20T12:38:00Z\",\"id\":\"7E70320E-1597-46F5-829A-C6139B1AA6B5\",\"notes\":[],\"proposals\":[],\"role\":\"assistant\",\"text\":\"Looking at the diff.\",\"undoable\":false,\"undone\":false}],\"pr\":\"acme/api#317\",\"readOnly\":false,\"running\":false,\"streamed\":false}}",
+      "text" : "{\"chatShow\":{\"pr\":\"acme/api#317\"}}"
+    },
+    {
+      "json" : {
+        "chatUndo" : {
+          "confirmed" : true,
+          "pr" : "acme/api#317"
+        }
+      },
+      "name" : "chatUndo",
+      "policy" : "allowed",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : {
+          "kind" : "review",
+          "messages" : [
+            {
+              "createdAt" : "2026-11-20T12:38:00Z",
+              "id" : "B1D108FB-8BC4-4D2D-8EF8-BAD49C2788DD",
+              "notes" : [
+
+              ],
+              "proposals" : [
+
+              ],
+              "role" : "user",
+              "text" : "Anything else worth flagging?",
+              "undoable" : false,
+              "undone" : false
+            },
+            {
+              "createdAt" : "2026-11-20T12:38:00Z",
+              "id" : "7E70320E-1597-46F5-829A-C6139B1AA6B5",
+              "notes" : [
+
+              ],
+              "proposals" : [
+
+              ],
+              "role" : "assistant",
+              "text" : "Looking at the diff.",
+              "undoable" : false,
+              "undone" : false
+            }
+          ],
+          "pr" : "acme/api#317",
+          "readOnly" : false,
+          "running" : false,
+          "streamed" : false
+        }
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"kind\":\"review\",\"messages\":[{\"createdAt\":\"2026-11-20T12:38:00Z\",\"id\":\"B1D108FB-8BC4-4D2D-8EF8-BAD49C2788DD\",\"notes\":[],\"proposals\":[],\"role\":\"user\",\"text\":\"Anything else worth flagging?\",\"undoable\":false,\"undone\":false},{\"createdAt\":\"2026-11-20T12:38:00Z\",\"id\":\"7E70320E-1597-46F5-829A-C6139B1AA6B5\",\"notes\":[],\"proposals\":[],\"role\":\"assistant\",\"text\":\"Looking at the diff.\",\"undoable\":false,\"undone\":false}],\"pr\":\"acme/api#317\",\"readOnly\":false,\"running\":false,\"streamed\":false}}",
+      "text" : "{\"chatUndo\":{\"confirmed\":true,\"pr\":\"acme/api#317\"}}"
+    },
+    {
+      "json" : {
+        "chatStop" : {
+          "pr" : "acme/api#317"
+        }
+      },
+      "name" : "chatStop",
+      "policy" : "allowed",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : {
+          "kind" : "review",
+          "messages" : [
+            {
+              "createdAt" : "2026-11-20T12:38:00Z",
+              "id" : "B1D108FB-8BC4-4D2D-8EF8-BAD49C2788DD",
+              "notes" : [
+
+              ],
+              "proposals" : [
+
+              ],
+              "role" : "user",
+              "text" : "Anything else worth flagging?",
+              "undoable" : false,
+              "undone" : false
+            },
+            {
+              "createdAt" : "2026-11-20T12:38:00Z",
+              "id" : "7E70320E-1597-46F5-829A-C6139B1AA6B5",
+              "notes" : [
+
+              ],
+              "proposals" : [
+
+              ],
+              "role" : "assistant",
+              "text" : "Looking at the diff.",
+              "undoable" : false,
+              "undone" : false
+            }
+          ],
+          "pr" : "acme/api#317",
+          "readOnly" : false,
+          "running" : false,
+          "streamed" : false
+        }
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"kind\":\"review\",\"messages\":[{\"createdAt\":\"2026-11-20T12:38:00Z\",\"id\":\"B1D108FB-8BC4-4D2D-8EF8-BAD49C2788DD\",\"notes\":[],\"proposals\":[],\"role\":\"user\",\"text\":\"Anything else worth flagging?\",\"undoable\":false,\"undone\":false},{\"createdAt\":\"2026-11-20T12:38:00Z\",\"id\":\"7E70320E-1597-46F5-829A-C6139B1AA6B5\",\"notes\":[],\"proposals\":[],\"role\":\"assistant\",\"text\":\"Looking at the diff.\",\"undoable\":false,\"undone\":false}],\"pr\":\"acme/api#317\",\"readOnly\":false,\"running\":false,\"streamed\":false}}",
+      "text" : "{\"chatStop\":{\"pr\":\"acme/api#317\"}}"
+    },
+    {
+      "json" : {
+        "ciList" : {
+
+        }
+      },
+      "name" : "ciList",
+      "policy" : "allowed",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : [
+          {
+            "account" : "diego",
+            "failedChecks" : 2,
+            "pr" : "acme/web-app#488",
+            "respondInProgress" : false,
+            "title" : "Move report jobs to the new queue",
+            "url" : "https://github.com/acme/web-app/pull/488"
+          }
+        ]
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":[{\"account\":\"diego\",\"failedChecks\":2,\"pr\":\"acme/web-app#488\",\"respondInProgress\":false,\"title\":\"Move report jobs to the new queue\",\"url\":\"https://github.com/acme/web-app/pull/488\"}]}",
+      "text" : "{\"ciList\":{}}"
+    },
+    {
+      "events" : [
+        {
+          "event" : {
+            "progress" : {
+              "message" : "Fixing CI…"
+            }
+          },
+          "id" : 1
+        }
+      ],
+      "json" : {
+        "ciFix" : {
+          "pr" : "acme/web-app#488",
+          "wait" : false
+        }
+      },
+      "name" : "ciFix",
+      "policy" : "allowed",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : {
+          "account" : "diego",
+          "ciChecks" : [
+            {
+              "appName" : "GitHub Actions",
+              "conclusion" : "failure",
+              "detailsURL" : "https://github.com/acme/web-app/actions/runs/1",
+              "durationSeconds" : 84,
+              "hasLog" : true,
+              "id" : "c1",
+              "logExcerpt" : [
+                "FAIL src/jobs/report.test.ts",
+                "Expected 2, got 3"
+              ],
+              "name" : "test (ubuntu-latest)"
+            }
+          ],
+          "commits" : [
+            {
+              "item" : "c1",
+              "sha" : "4e1d0b7",
+              "status" : "committed",
+              "summary" : "Use the new queue name"
+            }
+          ],
+          "diffStat" : "1 file changed, 2 insertions(+), 2 deletions(-)",
+          "fixes" : 1,
+          "headRef" : "feature/488",
+          "items" : [
+            {
+              "assessment" : "The queue name changed but the test still uses the old one.",
+              "fixPlan" : "Update the queue name in report.test.ts.",
+              "id" : "c1",
+              "implement" : true,
+              "location" : "src/jobs/report.ts:41",
+              "number" : 1,
+              "outdated" : false,
+              "reply" : false,
+              "replyText" : "",
+              "reviewer" : "GitHub Actions",
+              "suggested" : "Use the new queue name in the test.",
+              "thread" : [
+                "test (ubuntu-latest) failed"
+              ]
+            }
+          ],
+          "mode" : "ciFix",
+          "pendingReplies" : 0,
+          "phase" : "readyToPush",
+          "pr" : "acme/web-app#488",
+          "pushBlockedByTests" : false,
+          "pushed" : false,
+          "replies" : 0,
+          "runningTests" : false,
+          "sensitiveChanges" : [
+
+          ],
+          "testCommand" : "npm test",
+          "tests" : {
+            "command" : "npm test",
+            "outputTail" : "Tests: 42 passed",
+            "passed" : true
+          },
+          "title" : "Move report jobs to the new queue",
+          "usage" : {
+            "cacheCreationTokens" : 0,
+            "cacheReadTokens" : 0,
+            "costUSD" : 0.31,
+            "durationSeconds" : 0,
+            "inputTokens" : 0,
+            "outputTokens" : 0,
+            "runs" : 1,
+            "unknownRuns" : 0
+          }
+        }
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"account\":\"diego\",\"ciChecks\":[{\"appName\":\"GitHub Actions\",\"conclusion\":\"failure\",\"detailsURL\":\"https://github.com/acme/web-app/actions/runs/1\",\"durationSeconds\":84,\"hasLog\":true,\"id\":\"c1\",\"logExcerpt\":[\"FAIL src/jobs/report.test.ts\",\"Expected 2, got 3\"],\"name\":\"test (ubuntu-latest)\"}],\"commits\":[{\"item\":\"c1\",\"sha\":\"4e1d0b7\",\"status\":\"committed\",\"summary\":\"Use the new queue name\"}],\"diffStat\":\"1 file changed, 2 insertions(+), 2 deletions(-)\",\"fixes\":1,\"headRef\":\"feature/488\",\"items\":[{\"assessment\":\"The queue name changed but the test still uses the old one.\",\"fixPlan\":\"Update the queue name in report.test.ts.\",\"id\":\"c1\",\"implement\":true,\"location\":\"src/jobs/report.ts:41\",\"number\":1,\"outdated\":false,\"reply\":false,\"replyText\":\"\",\"reviewer\":\"GitHub Actions\",\"suggested\":\"Use the new queue name in the test.\",\"thread\":[\"test (ubuntu-latest) failed\"]}],\"mode\":\"ciFix\",\"pendingReplies\":0,\"phase\":\"readyToPush\",\"pr\":\"acme/web-app#488\",\"pushBlockedByTests\":false,\"pushed\":false,\"replies\":0,\"runningTests\":false,\"sensitiveChanges\":[],\"testCommand\":\"npm test\",\"tests\":{\"command\":\"npm test\",\"outputTail\":\"Tests: 42 passed\",\"passed\":true},\"title\":\"Move report jobs to the new queue\",\"usage\":{\"cacheCreationTokens\":0,\"cacheReadTokens\":0,\"costUSD\":0.31,\"durationSeconds\":0,\"inputTokens\":0,\"outputTokens\":0,\"runs\":1,\"unknownRuns\":0}}}",
+      "text" : "{\"ciFix\":{\"pr\":\"acme/web-app#488\",\"wait\":false}}"
+    },
+    {
+      "json" : {
+        "respondStart" : {
+          "pr" : "acme/web-app#488",
+          "wait" : false
+        }
+      },
+      "name" : "respondStart",
+      "policy" : "allowed",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : {
+          "account" : "diego",
+          "ciChecks" : [
+            {
+              "appName" : "GitHub Actions",
+              "conclusion" : "failure",
+              "detailsURL" : "https://github.com/acme/web-app/actions/runs/1",
+              "durationSeconds" : 84,
+              "hasLog" : true,
+              "id" : "c1",
+              "logExcerpt" : [
+                "FAIL src/jobs/report.test.ts",
+                "Expected 2, got 3"
+              ],
+              "name" : "test (ubuntu-latest)"
+            }
+          ],
+          "commits" : [
+            {
+              "item" : "c1",
+              "sha" : "4e1d0b7",
+              "status" : "committed",
+              "summary" : "Use the new queue name"
+            }
+          ],
+          "diffStat" : "1 file changed, 2 insertions(+), 2 deletions(-)",
+          "fixes" : 1,
+          "headRef" : "feature/488",
+          "items" : [
+            {
+              "assessment" : "The queue name changed but the test still uses the old one.",
+              "fixPlan" : "Update the queue name in report.test.ts.",
+              "id" : "c1",
+              "implement" : true,
+              "location" : "src/jobs/report.ts:41",
+              "number" : 1,
+              "outdated" : false,
+              "reply" : false,
+              "replyText" : "",
+              "reviewer" : "GitHub Actions",
+              "suggested" : "Use the new queue name in the test.",
+              "thread" : [
+                "test (ubuntu-latest) failed"
+              ]
+            }
+          ],
+          "mode" : "ciFix",
+          "pendingReplies" : 0,
+          "phase" : "readyToPush",
+          "pr" : "acme/web-app#488",
+          "pushBlockedByTests" : false,
+          "pushed" : false,
+          "replies" : 0,
+          "runningTests" : false,
+          "sensitiveChanges" : [
+
+          ],
+          "testCommand" : "npm test",
+          "tests" : {
+            "command" : "npm test",
+            "outputTail" : "Tests: 42 passed",
+            "passed" : true
+          },
+          "title" : "Move report jobs to the new queue",
+          "usage" : {
+            "cacheCreationTokens" : 0,
+            "cacheReadTokens" : 0,
+            "costUSD" : 0.31,
+            "durationSeconds" : 0,
+            "inputTokens" : 0,
+            "outputTokens" : 0,
+            "runs" : 1,
+            "unknownRuns" : 0
+          }
+        }
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"account\":\"diego\",\"ciChecks\":[{\"appName\":\"GitHub Actions\",\"conclusion\":\"failure\",\"detailsURL\":\"https://github.com/acme/web-app/actions/runs/1\",\"durationSeconds\":84,\"hasLog\":true,\"id\":\"c1\",\"logExcerpt\":[\"FAIL src/jobs/report.test.ts\",\"Expected 2, got 3\"],\"name\":\"test (ubuntu-latest)\"}],\"commits\":[{\"item\":\"c1\",\"sha\":\"4e1d0b7\",\"status\":\"committed\",\"summary\":\"Use the new queue name\"}],\"diffStat\":\"1 file changed, 2 insertions(+), 2 deletions(-)\",\"fixes\":1,\"headRef\":\"feature/488\",\"items\":[{\"assessment\":\"The queue name changed but the test still uses the old one.\",\"fixPlan\":\"Update the queue name in report.test.ts.\",\"id\":\"c1\",\"implement\":true,\"location\":\"src/jobs/report.ts:41\",\"number\":1,\"outdated\":false,\"reply\":false,\"replyText\":\"\",\"reviewer\":\"GitHub Actions\",\"suggested\":\"Use the new queue name in the test.\",\"thread\":[\"test (ubuntu-latest) failed\"]}],\"mode\":\"ciFix\",\"pendingReplies\":0,\"phase\":\"readyToPush\",\"pr\":\"acme/web-app#488\",\"pushBlockedByTests\":false,\"pushed\":false,\"replies\":0,\"runningTests\":false,\"sensitiveChanges\":[],\"testCommand\":\"npm test\",\"tests\":{\"command\":\"npm test\",\"outputTail\":\"Tests: 42 passed\",\"passed\":true},\"title\":\"Move report jobs to the new queue\",\"usage\":{\"cacheCreationTokens\":0,\"cacheReadTokens\":0,\"costUSD\":0.31,\"durationSeconds\":0,\"inputTokens\":0,\"outputTokens\":0,\"runs\":1,\"unknownRuns\":0}}}",
+      "text" : "{\"respondStart\":{\"pr\":\"acme/web-app#488\",\"wait\":false}}"
+    },
+    {
+      "json" : {
+        "respondShow" : {
+          "pr" : "acme/web-app#488"
+        }
+      },
+      "name" : "respondShow",
+      "policy" : "allowed",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : {
+          "account" : "diego",
+          "ciChecks" : [
+            {
+              "appName" : "GitHub Actions",
+              "conclusion" : "failure",
+              "detailsURL" : "https://github.com/acme/web-app/actions/runs/1",
+              "durationSeconds" : 84,
+              "hasLog" : true,
+              "id" : "c1",
+              "logExcerpt" : [
+                "FAIL src/jobs/report.test.ts",
+                "Expected 2, got 3"
+              ],
+              "name" : "test (ubuntu-latest)"
+            }
+          ],
+          "commits" : [
+            {
+              "item" : "c1",
+              "sha" : "4e1d0b7",
+              "status" : "committed",
+              "summary" : "Use the new queue name"
+            }
+          ],
+          "diffStat" : "1 file changed, 2 insertions(+), 2 deletions(-)",
+          "fixes" : 1,
+          "headRef" : "feature/488",
+          "items" : [
+            {
+              "assessment" : "The queue name changed but the test still uses the old one.",
+              "fixPlan" : "Update the queue name in report.test.ts.",
+              "id" : "c1",
+              "implement" : true,
+              "location" : "src/jobs/report.ts:41",
+              "number" : 1,
+              "outdated" : false,
+              "reply" : false,
+              "replyText" : "",
+              "reviewer" : "GitHub Actions",
+              "suggested" : "Use the new queue name in the test.",
+              "thread" : [
+                "test (ubuntu-latest) failed"
+              ]
+            }
+          ],
+          "mode" : "ciFix",
+          "pendingReplies" : 0,
+          "phase" : "readyToPush",
+          "pr" : "acme/web-app#488",
+          "pushBlockedByTests" : false,
+          "pushed" : false,
+          "replies" : 0,
+          "runningTests" : false,
+          "sensitiveChanges" : [
+
+          ],
+          "testCommand" : "npm test",
+          "tests" : {
+            "command" : "npm test",
+            "outputTail" : "Tests: 42 passed",
+            "passed" : true
+          },
+          "title" : "Move report jobs to the new queue",
+          "usage" : {
+            "cacheCreationTokens" : 0,
+            "cacheReadTokens" : 0,
+            "costUSD" : 0.31,
+            "durationSeconds" : 0,
+            "inputTokens" : 0,
+            "outputTokens" : 0,
+            "runs" : 1,
+            "unknownRuns" : 0
+          }
+        }
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"account\":\"diego\",\"ciChecks\":[{\"appName\":\"GitHub Actions\",\"conclusion\":\"failure\",\"detailsURL\":\"https://github.com/acme/web-app/actions/runs/1\",\"durationSeconds\":84,\"hasLog\":true,\"id\":\"c1\",\"logExcerpt\":[\"FAIL src/jobs/report.test.ts\",\"Expected 2, got 3\"],\"name\":\"test (ubuntu-latest)\"}],\"commits\":[{\"item\":\"c1\",\"sha\":\"4e1d0b7\",\"status\":\"committed\",\"summary\":\"Use the new queue name\"}],\"diffStat\":\"1 file changed, 2 insertions(+), 2 deletions(-)\",\"fixes\":1,\"headRef\":\"feature/488\",\"items\":[{\"assessment\":\"The queue name changed but the test still uses the old one.\",\"fixPlan\":\"Update the queue name in report.test.ts.\",\"id\":\"c1\",\"implement\":true,\"location\":\"src/jobs/report.ts:41\",\"number\":1,\"outdated\":false,\"reply\":false,\"replyText\":\"\",\"reviewer\":\"GitHub Actions\",\"suggested\":\"Use the new queue name in the test.\",\"thread\":[\"test (ubuntu-latest) failed\"]}],\"mode\":\"ciFix\",\"pendingReplies\":0,\"phase\":\"readyToPush\",\"pr\":\"acme/web-app#488\",\"pushBlockedByTests\":false,\"pushed\":false,\"replies\":0,\"runningTests\":false,\"sensitiveChanges\":[],\"testCommand\":\"npm test\",\"tests\":{\"command\":\"npm test\",\"outputTail\":\"Tests: 42 passed\",\"passed\":true},\"title\":\"Move report jobs to the new queue\",\"usage\":{\"cacheCreationTokens\":0,\"cacheReadTokens\":0,\"costUSD\":0.31,\"durationSeconds\":0,\"inputTokens\":0,\"outputTokens\":0,\"runs\":1,\"unknownRuns\":0}}}",
+      "text" : "{\"respondShow\":{\"pr\":\"acme/web-app#488\"}}"
+    },
+    {
+      "json" : {
+        "respondSelect" : {
+          "change" : {
+            "implement" : true
+          },
+          "items" : [
+            "c1"
+          ],
+          "pr" : "acme/web-app#488"
+        }
+      },
+      "name" : "respondSelect",
+      "policy" : "allowed",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : {
+          "account" : "diego",
+          "ciChecks" : [
+            {
+              "appName" : "GitHub Actions",
+              "conclusion" : "failure",
+              "detailsURL" : "https://github.com/acme/web-app/actions/runs/1",
+              "durationSeconds" : 84,
+              "hasLog" : true,
+              "id" : "c1",
+              "logExcerpt" : [
+                "FAIL src/jobs/report.test.ts",
+                "Expected 2, got 3"
+              ],
+              "name" : "test (ubuntu-latest)"
+            }
+          ],
+          "commits" : [
+            {
+              "item" : "c1",
+              "sha" : "4e1d0b7",
+              "status" : "committed",
+              "summary" : "Use the new queue name"
+            }
+          ],
+          "diffStat" : "1 file changed, 2 insertions(+), 2 deletions(-)",
+          "fixes" : 1,
+          "headRef" : "feature/488",
+          "items" : [
+            {
+              "assessment" : "The queue name changed but the test still uses the old one.",
+              "fixPlan" : "Update the queue name in report.test.ts.",
+              "id" : "c1",
+              "implement" : true,
+              "location" : "src/jobs/report.ts:41",
+              "number" : 1,
+              "outdated" : false,
+              "reply" : false,
+              "replyText" : "",
+              "reviewer" : "GitHub Actions",
+              "suggested" : "Use the new queue name in the test.",
+              "thread" : [
+                "test (ubuntu-latest) failed"
+              ]
+            }
+          ],
+          "mode" : "ciFix",
+          "pendingReplies" : 0,
+          "phase" : "readyToPush",
+          "pr" : "acme/web-app#488",
+          "pushBlockedByTests" : false,
+          "pushed" : false,
+          "replies" : 0,
+          "runningTests" : false,
+          "sensitiveChanges" : [
+
+          ],
+          "testCommand" : "npm test",
+          "tests" : {
+            "command" : "npm test",
+            "outputTail" : "Tests: 42 passed",
+            "passed" : true
+          },
+          "title" : "Move report jobs to the new queue",
+          "usage" : {
+            "cacheCreationTokens" : 0,
+            "cacheReadTokens" : 0,
+            "costUSD" : 0.31,
+            "durationSeconds" : 0,
+            "inputTokens" : 0,
+            "outputTokens" : 0,
+            "runs" : 1,
+            "unknownRuns" : 0
+          }
+        }
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"account\":\"diego\",\"ciChecks\":[{\"appName\":\"GitHub Actions\",\"conclusion\":\"failure\",\"detailsURL\":\"https://github.com/acme/web-app/actions/runs/1\",\"durationSeconds\":84,\"hasLog\":true,\"id\":\"c1\",\"logExcerpt\":[\"FAIL src/jobs/report.test.ts\",\"Expected 2, got 3\"],\"name\":\"test (ubuntu-latest)\"}],\"commits\":[{\"item\":\"c1\",\"sha\":\"4e1d0b7\",\"status\":\"committed\",\"summary\":\"Use the new queue name\"}],\"diffStat\":\"1 file changed, 2 insertions(+), 2 deletions(-)\",\"fixes\":1,\"headRef\":\"feature/488\",\"items\":[{\"assessment\":\"The queue name changed but the test still uses the old one.\",\"fixPlan\":\"Update the queue name in report.test.ts.\",\"id\":\"c1\",\"implement\":true,\"location\":\"src/jobs/report.ts:41\",\"number\":1,\"outdated\":false,\"reply\":false,\"replyText\":\"\",\"reviewer\":\"GitHub Actions\",\"suggested\":\"Use the new queue name in the test.\",\"thread\":[\"test (ubuntu-latest) failed\"]}],\"mode\":\"ciFix\",\"pendingReplies\":0,\"phase\":\"readyToPush\",\"pr\":\"acme/web-app#488\",\"pushBlockedByTests\":false,\"pushed\":false,\"replies\":0,\"runningTests\":false,\"sensitiveChanges\":[],\"testCommand\":\"npm test\",\"tests\":{\"command\":\"npm test\",\"outputTail\":\"Tests: 42 passed\",\"passed\":true},\"title\":\"Move report jobs to the new queue\",\"usage\":{\"cacheCreationTokens\":0,\"cacheReadTokens\":0,\"costUSD\":0.31,\"durationSeconds\":0,\"inputTokens\":0,\"outputTokens\":0,\"runs\":1,\"unknownRuns\":0}}}",
+      "text" : "{\"respondSelect\":{\"change\":{\"implement\":true},\"items\":[\"c1\"],\"pr\":\"acme/web-app#488\"}}"
+    },
+    {
+      "json" : {
+        "respondReset" : {
+          "pr" : "acme/web-app#488"
+        }
+      },
+      "name" : "respondReset",
+      "policy" : "allowed",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : {
+          "account" : "diego",
+          "ciChecks" : [
+            {
+              "appName" : "GitHub Actions",
+              "conclusion" : "failure",
+              "detailsURL" : "https://github.com/acme/web-app/actions/runs/1",
+              "durationSeconds" : 84,
+              "hasLog" : true,
+              "id" : "c1",
+              "logExcerpt" : [
+                "FAIL src/jobs/report.test.ts",
+                "Expected 2, got 3"
+              ],
+              "name" : "test (ubuntu-latest)"
+            }
+          ],
+          "commits" : [
+            {
+              "item" : "c1",
+              "sha" : "4e1d0b7",
+              "status" : "committed",
+              "summary" : "Use the new queue name"
+            }
+          ],
+          "diffStat" : "1 file changed, 2 insertions(+), 2 deletions(-)",
+          "fixes" : 1,
+          "headRef" : "feature/488",
+          "items" : [
+            {
+              "assessment" : "The queue name changed but the test still uses the old one.",
+              "fixPlan" : "Update the queue name in report.test.ts.",
+              "id" : "c1",
+              "implement" : true,
+              "location" : "src/jobs/report.ts:41",
+              "number" : 1,
+              "outdated" : false,
+              "reply" : false,
+              "replyText" : "",
+              "reviewer" : "GitHub Actions",
+              "suggested" : "Use the new queue name in the test.",
+              "thread" : [
+                "test (ubuntu-latest) failed"
+              ]
+            }
+          ],
+          "mode" : "ciFix",
+          "pendingReplies" : 0,
+          "phase" : "readyToPush",
+          "pr" : "acme/web-app#488",
+          "pushBlockedByTests" : false,
+          "pushed" : false,
+          "replies" : 0,
+          "runningTests" : false,
+          "sensitiveChanges" : [
+
+          ],
+          "testCommand" : "npm test",
+          "tests" : {
+            "command" : "npm test",
+            "outputTail" : "Tests: 42 passed",
+            "passed" : true
+          },
+          "title" : "Move report jobs to the new queue",
+          "usage" : {
+            "cacheCreationTokens" : 0,
+            "cacheReadTokens" : 0,
+            "costUSD" : 0.31,
+            "durationSeconds" : 0,
+            "inputTokens" : 0,
+            "outputTokens" : 0,
+            "runs" : 1,
+            "unknownRuns" : 0
+          }
+        }
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"account\":\"diego\",\"ciChecks\":[{\"appName\":\"GitHub Actions\",\"conclusion\":\"failure\",\"detailsURL\":\"https://github.com/acme/web-app/actions/runs/1\",\"durationSeconds\":84,\"hasLog\":true,\"id\":\"c1\",\"logExcerpt\":[\"FAIL src/jobs/report.test.ts\",\"Expected 2, got 3\"],\"name\":\"test (ubuntu-latest)\"}],\"commits\":[{\"item\":\"c1\",\"sha\":\"4e1d0b7\",\"status\":\"committed\",\"summary\":\"Use the new queue name\"}],\"diffStat\":\"1 file changed, 2 insertions(+), 2 deletions(-)\",\"fixes\":1,\"headRef\":\"feature/488\",\"items\":[{\"assessment\":\"The queue name changed but the test still uses the old one.\",\"fixPlan\":\"Update the queue name in report.test.ts.\",\"id\":\"c1\",\"implement\":true,\"location\":\"src/jobs/report.ts:41\",\"number\":1,\"outdated\":false,\"reply\":false,\"replyText\":\"\",\"reviewer\":\"GitHub Actions\",\"suggested\":\"Use the new queue name in the test.\",\"thread\":[\"test (ubuntu-latest) failed\"]}],\"mode\":\"ciFix\",\"pendingReplies\":0,\"phase\":\"readyToPush\",\"pr\":\"acme/web-app#488\",\"pushBlockedByTests\":false,\"pushed\":false,\"replies\":0,\"runningTests\":false,\"sensitiveChanges\":[],\"testCommand\":\"npm test\",\"tests\":{\"command\":\"npm test\",\"outputTail\":\"Tests: 42 passed\",\"passed\":true},\"title\":\"Move report jobs to the new queue\",\"usage\":{\"cacheCreationTokens\":0,\"cacheReadTokens\":0,\"costUSD\":0.31,\"durationSeconds\":0,\"inputTokens\":0,\"outputTokens\":0,\"runs\":1,\"unknownRuns\":0}}}",
+      "text" : "{\"respondReset\":{\"pr\":\"acme/web-app#488\"}}"
+    },
+    {
+      "json" : {
+        "respondImplement" : {
+          "pr" : "acme/web-app#488",
+          "wait" : false
+        }
+      },
+      "name" : "respondImplement",
+      "policy" : "allowed",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : {
+          "account" : "diego",
+          "ciChecks" : [
+            {
+              "appName" : "GitHub Actions",
+              "conclusion" : "failure",
+              "detailsURL" : "https://github.com/acme/web-app/actions/runs/1",
+              "durationSeconds" : 84,
+              "hasLog" : true,
+              "id" : "c1",
+              "logExcerpt" : [
+                "FAIL src/jobs/report.test.ts",
+                "Expected 2, got 3"
+              ],
+              "name" : "test (ubuntu-latest)"
+            }
+          ],
+          "commits" : [
+            {
+              "item" : "c1",
+              "sha" : "4e1d0b7",
+              "status" : "committed",
+              "summary" : "Use the new queue name"
+            }
+          ],
+          "diffStat" : "1 file changed, 2 insertions(+), 2 deletions(-)",
+          "fixes" : 1,
+          "headRef" : "feature/488",
+          "items" : [
+            {
+              "assessment" : "The queue name changed but the test still uses the old one.",
+              "fixPlan" : "Update the queue name in report.test.ts.",
+              "id" : "c1",
+              "implement" : true,
+              "location" : "src/jobs/report.ts:41",
+              "number" : 1,
+              "outdated" : false,
+              "reply" : false,
+              "replyText" : "",
+              "reviewer" : "GitHub Actions",
+              "suggested" : "Use the new queue name in the test.",
+              "thread" : [
+                "test (ubuntu-latest) failed"
+              ]
+            }
+          ],
+          "mode" : "ciFix",
+          "pendingReplies" : 0,
+          "phase" : "readyToPush",
+          "pr" : "acme/web-app#488",
+          "pushBlockedByTests" : false,
+          "pushed" : false,
+          "replies" : 0,
+          "runningTests" : false,
+          "sensitiveChanges" : [
+
+          ],
+          "testCommand" : "npm test",
+          "tests" : {
+            "command" : "npm test",
+            "outputTail" : "Tests: 42 passed",
+            "passed" : true
+          },
+          "title" : "Move report jobs to the new queue",
+          "usage" : {
+            "cacheCreationTokens" : 0,
+            "cacheReadTokens" : 0,
+            "costUSD" : 0.31,
+            "durationSeconds" : 0,
+            "inputTokens" : 0,
+            "outputTokens" : 0,
+            "runs" : 1,
+            "unknownRuns" : 0
+          }
+        }
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"account\":\"diego\",\"ciChecks\":[{\"appName\":\"GitHub Actions\",\"conclusion\":\"failure\",\"detailsURL\":\"https://github.com/acme/web-app/actions/runs/1\",\"durationSeconds\":84,\"hasLog\":true,\"id\":\"c1\",\"logExcerpt\":[\"FAIL src/jobs/report.test.ts\",\"Expected 2, got 3\"],\"name\":\"test (ubuntu-latest)\"}],\"commits\":[{\"item\":\"c1\",\"sha\":\"4e1d0b7\",\"status\":\"committed\",\"summary\":\"Use the new queue name\"}],\"diffStat\":\"1 file changed, 2 insertions(+), 2 deletions(-)\",\"fixes\":1,\"headRef\":\"feature/488\",\"items\":[{\"assessment\":\"The queue name changed but the test still uses the old one.\",\"fixPlan\":\"Update the queue name in report.test.ts.\",\"id\":\"c1\",\"implement\":true,\"location\":\"src/jobs/report.ts:41\",\"number\":1,\"outdated\":false,\"reply\":false,\"replyText\":\"\",\"reviewer\":\"GitHub Actions\",\"suggested\":\"Use the new queue name in the test.\",\"thread\":[\"test (ubuntu-latest) failed\"]}],\"mode\":\"ciFix\",\"pendingReplies\":0,\"phase\":\"readyToPush\",\"pr\":\"acme/web-app#488\",\"pushBlockedByTests\":false,\"pushed\":false,\"replies\":0,\"runningTests\":false,\"sensitiveChanges\":[],\"testCommand\":\"npm test\",\"tests\":{\"command\":\"npm test\",\"outputTail\":\"Tests: 42 passed\",\"passed\":true},\"title\":\"Move report jobs to the new queue\",\"usage\":{\"cacheCreationTokens\":0,\"cacheReadTokens\":0,\"costUSD\":0.31,\"durationSeconds\":0,\"inputTokens\":0,\"outputTokens\":0,\"runs\":1,\"unknownRuns\":0}}}",
+      "text" : "{\"respondImplement\":{\"pr\":\"acme/web-app#488\",\"wait\":false}}"
+    },
+    {
+      "json" : {
+        "respondTest" : {
+          "pr" : "acme/web-app#488",
+          "wait" : false
+        }
+      },
+      "name" : "respondTest",
+      "policy" : "gated",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : {
+          "account" : "diego",
+          "ciChecks" : [
+            {
+              "appName" : "GitHub Actions",
+              "conclusion" : "failure",
+              "detailsURL" : "https://github.com/acme/web-app/actions/runs/1",
+              "durationSeconds" : 84,
+              "hasLog" : true,
+              "id" : "c1",
+              "logExcerpt" : [
+                "FAIL src/jobs/report.test.ts",
+                "Expected 2, got 3"
+              ],
+              "name" : "test (ubuntu-latest)"
+            }
+          ],
+          "commits" : [
+            {
+              "item" : "c1",
+              "sha" : "4e1d0b7",
+              "status" : "committed",
+              "summary" : "Use the new queue name"
+            }
+          ],
+          "diffStat" : "1 file changed, 2 insertions(+), 2 deletions(-)",
+          "fixes" : 1,
+          "headRef" : "feature/488",
+          "items" : [
+            {
+              "assessment" : "The queue name changed but the test still uses the old one.",
+              "fixPlan" : "Update the queue name in report.test.ts.",
+              "id" : "c1",
+              "implement" : true,
+              "location" : "src/jobs/report.ts:41",
+              "number" : 1,
+              "outdated" : false,
+              "reply" : false,
+              "replyText" : "",
+              "reviewer" : "GitHub Actions",
+              "suggested" : "Use the new queue name in the test.",
+              "thread" : [
+                "test (ubuntu-latest) failed"
+              ]
+            }
+          ],
+          "mode" : "ciFix",
+          "pendingReplies" : 0,
+          "phase" : "readyToPush",
+          "pr" : "acme/web-app#488",
+          "pushBlockedByTests" : false,
+          "pushed" : false,
+          "replies" : 0,
+          "runningTests" : false,
+          "sensitiveChanges" : [
+
+          ],
+          "testCommand" : "npm test",
+          "tests" : {
+            "command" : "npm test",
+            "outputTail" : "Tests: 42 passed",
+            "passed" : true
+          },
+          "title" : "Move report jobs to the new queue",
+          "usage" : {
+            "cacheCreationTokens" : 0,
+            "cacheReadTokens" : 0,
+            "costUSD" : 0.31,
+            "durationSeconds" : 0,
+            "inputTokens" : 0,
+            "outputTokens" : 0,
+            "runs" : 1,
+            "unknownRuns" : 0
+          }
+        }
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"account\":\"diego\",\"ciChecks\":[{\"appName\":\"GitHub Actions\",\"conclusion\":\"failure\",\"detailsURL\":\"https://github.com/acme/web-app/actions/runs/1\",\"durationSeconds\":84,\"hasLog\":true,\"id\":\"c1\",\"logExcerpt\":[\"FAIL src/jobs/report.test.ts\",\"Expected 2, got 3\"],\"name\":\"test (ubuntu-latest)\"}],\"commits\":[{\"item\":\"c1\",\"sha\":\"4e1d0b7\",\"status\":\"committed\",\"summary\":\"Use the new queue name\"}],\"diffStat\":\"1 file changed, 2 insertions(+), 2 deletions(-)\",\"fixes\":1,\"headRef\":\"feature/488\",\"items\":[{\"assessment\":\"The queue name changed but the test still uses the old one.\",\"fixPlan\":\"Update the queue name in report.test.ts.\",\"id\":\"c1\",\"implement\":true,\"location\":\"src/jobs/report.ts:41\",\"number\":1,\"outdated\":false,\"reply\":false,\"replyText\":\"\",\"reviewer\":\"GitHub Actions\",\"suggested\":\"Use the new queue name in the test.\",\"thread\":[\"test (ubuntu-latest) failed\"]}],\"mode\":\"ciFix\",\"pendingReplies\":0,\"phase\":\"readyToPush\",\"pr\":\"acme/web-app#488\",\"pushBlockedByTests\":false,\"pushed\":false,\"replies\":0,\"runningTests\":false,\"sensitiveChanges\":[],\"testCommand\":\"npm test\",\"tests\":{\"command\":\"npm test\",\"outputTail\":\"Tests: 42 passed\",\"passed\":true},\"title\":\"Move report jobs to the new queue\",\"usage\":{\"cacheCreationTokens\":0,\"cacheReadTokens\":0,\"costUSD\":0.31,\"durationSeconds\":0,\"inputTokens\":0,\"outputTokens\":0,\"runs\":1,\"unknownRuns\":0}}}",
+      "text" : "{\"respondTest\":{\"pr\":\"acme/web-app#488\",\"wait\":false}}"
+    },
+    {
+      "json" : {
+        "respondDiff" : {
+          "pr" : "acme/web-app#488"
+        }
+      },
+      "name" : "respondDiff",
+      "policy" : "allowed",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : {
+          "diff" : "diff --git a/src/jobs/report.test.ts b/src/jobs/report.test.ts\n--- a/src/jobs/report.test.ts\n+++ b/src/jobs/report.test.ts\n@@ -39,4 +39,4 @@\n-  const queue = \"reports\";\n+  const queue = \"reports-v2\";",
+          "diffStat" : "1 file changed, 2 insertions(+), 2 deletions(-)",
+          "pr" : "acme/web-app#488",
+          "sensitiveChanges" : [
+
+          ],
+          "truncated" : false
+        }
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"diff\":\"diff --git a/src/jobs/report.test.ts b/src/jobs/report.test.ts\\n--- a/src/jobs/report.test.ts\\n+++ b/src/jobs/report.test.ts\\n@@ -39,4 +39,4 @@\\n-  const queue = \\\"reports\\\";\\n+  const queue = \\\"reports-v2\\\";\",\"diffStat\":\"1 file changed, 2 insertions(+), 2 deletions(-)\",\"pr\":\"acme/web-app#488\",\"sensitiveChanges\":[],\"truncated\":false}}",
+      "text" : "{\"respondDiff\":{\"pr\":\"acme/web-app#488\"}}"
+    },
+    {
+      "json" : {
+        "respondReplyOnly" : {
+          "confirmed" : true,
+          "pr" : "acme/web-app#488",
+          "wait" : false
+        }
+      },
+      "name" : "respondReplyOnly",
+      "policy" : "allowed",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : {
+          "account" : "diego",
+          "ciChecks" : [
+            {
+              "appName" : "GitHub Actions",
+              "conclusion" : "failure",
+              "detailsURL" : "https://github.com/acme/web-app/actions/runs/1",
+              "durationSeconds" : 84,
+              "hasLog" : true,
+              "id" : "c1",
+              "logExcerpt" : [
+                "FAIL src/jobs/report.test.ts",
+                "Expected 2, got 3"
+              ],
+              "name" : "test (ubuntu-latest)"
+            }
+          ],
+          "commits" : [
+            {
+              "item" : "c1",
+              "sha" : "4e1d0b7",
+              "status" : "committed",
+              "summary" : "Use the new queue name"
+            }
+          ],
+          "diffStat" : "1 file changed, 2 insertions(+), 2 deletions(-)",
+          "fixes" : 1,
+          "headRef" : "feature/488",
+          "items" : [
+            {
+              "assessment" : "The queue name changed but the test still uses the old one.",
+              "fixPlan" : "Update the queue name in report.test.ts.",
+              "id" : "c1",
+              "implement" : true,
+              "location" : "src/jobs/report.ts:41",
+              "number" : 1,
+              "outdated" : false,
+              "reply" : false,
+              "replyText" : "",
+              "reviewer" : "GitHub Actions",
+              "suggested" : "Use the new queue name in the test.",
+              "thread" : [
+                "test (ubuntu-latest) failed"
+              ]
+            }
+          ],
+          "mode" : "ciFix",
+          "pendingReplies" : 0,
+          "phase" : "readyToPush",
+          "pr" : "acme/web-app#488",
+          "pushBlockedByTests" : false,
+          "pushed" : false,
+          "replies" : 0,
+          "runningTests" : false,
+          "sensitiveChanges" : [
+
+          ],
+          "testCommand" : "npm test",
+          "tests" : {
+            "command" : "npm test",
+            "outputTail" : "Tests: 42 passed",
+            "passed" : true
+          },
+          "title" : "Move report jobs to the new queue",
+          "usage" : {
+            "cacheCreationTokens" : 0,
+            "cacheReadTokens" : 0,
+            "costUSD" : 0.31,
+            "durationSeconds" : 0,
+            "inputTokens" : 0,
+            "outputTokens" : 0,
+            "runs" : 1,
+            "unknownRuns" : 0
+          }
+        }
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"account\":\"diego\",\"ciChecks\":[{\"appName\":\"GitHub Actions\",\"conclusion\":\"failure\",\"detailsURL\":\"https://github.com/acme/web-app/actions/runs/1\",\"durationSeconds\":84,\"hasLog\":true,\"id\":\"c1\",\"logExcerpt\":[\"FAIL src/jobs/report.test.ts\",\"Expected 2, got 3\"],\"name\":\"test (ubuntu-latest)\"}],\"commits\":[{\"item\":\"c1\",\"sha\":\"4e1d0b7\",\"status\":\"committed\",\"summary\":\"Use the new queue name\"}],\"diffStat\":\"1 file changed, 2 insertions(+), 2 deletions(-)\",\"fixes\":1,\"headRef\":\"feature/488\",\"items\":[{\"assessment\":\"The queue name changed but the test still uses the old one.\",\"fixPlan\":\"Update the queue name in report.test.ts.\",\"id\":\"c1\",\"implement\":true,\"location\":\"src/jobs/report.ts:41\",\"number\":1,\"outdated\":false,\"reply\":false,\"replyText\":\"\",\"reviewer\":\"GitHub Actions\",\"suggested\":\"Use the new queue name in the test.\",\"thread\":[\"test (ubuntu-latest) failed\"]}],\"mode\":\"ciFix\",\"pendingReplies\":0,\"phase\":\"readyToPush\",\"pr\":\"acme/web-app#488\",\"pushBlockedByTests\":false,\"pushed\":false,\"replies\":0,\"runningTests\":false,\"sensitiveChanges\":[],\"testCommand\":\"npm test\",\"tests\":{\"command\":\"npm test\",\"outputTail\":\"Tests: 42 passed\",\"passed\":true},\"title\":\"Move report jobs to the new queue\",\"usage\":{\"cacheCreationTokens\":0,\"cacheReadTokens\":0,\"costUSD\":0.31,\"durationSeconds\":0,\"inputTokens\":0,\"outputTokens\":0,\"runs\":1,\"unknownRuns\":0}}}",
+      "text" : "{\"respondReplyOnly\":{\"confirmed\":true,\"pr\":\"acme/web-app#488\",\"wait\":false}}"
+    },
+    {
+      "json" : {
+        "respondPushAnyway" : {
+          "confirmed" : true,
+          "pr" : "acme/web-app#488",
+          "wait" : false
+        }
+      },
+      "name" : "respondPushAnyway",
+      "policy" : "gated",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : {
+          "account" : "diego",
+          "ciChecks" : [
+            {
+              "appName" : "GitHub Actions",
+              "conclusion" : "failure",
+              "detailsURL" : "https://github.com/acme/web-app/actions/runs/1",
+              "durationSeconds" : 84,
+              "hasLog" : true,
+              "id" : "c1",
+              "logExcerpt" : [
+                "FAIL src/jobs/report.test.ts",
+                "Expected 2, got 3"
+              ],
+              "name" : "test (ubuntu-latest)"
+            }
+          ],
+          "commits" : [
+            {
+              "item" : "c1",
+              "sha" : "4e1d0b7",
+              "status" : "committed",
+              "summary" : "Use the new queue name"
+            }
+          ],
+          "diffStat" : "1 file changed, 2 insertions(+), 2 deletions(-)",
+          "fixes" : 1,
+          "headRef" : "feature/488",
+          "items" : [
+            {
+              "assessment" : "The queue name changed but the test still uses the old one.",
+              "fixPlan" : "Update the queue name in report.test.ts.",
+              "id" : "c1",
+              "implement" : true,
+              "location" : "src/jobs/report.ts:41",
+              "number" : 1,
+              "outdated" : false,
+              "reply" : false,
+              "replyText" : "",
+              "reviewer" : "GitHub Actions",
+              "suggested" : "Use the new queue name in the test.",
+              "thread" : [
+                "test (ubuntu-latest) failed"
+              ]
+            }
+          ],
+          "mode" : "ciFix",
+          "pendingReplies" : 0,
+          "phase" : "readyToPush",
+          "pr" : "acme/web-app#488",
+          "pushBlockedByTests" : false,
+          "pushed" : false,
+          "replies" : 0,
+          "runningTests" : false,
+          "sensitiveChanges" : [
+
+          ],
+          "testCommand" : "npm test",
+          "tests" : {
+            "command" : "npm test",
+            "outputTail" : "Tests: 42 passed",
+            "passed" : true
+          },
+          "title" : "Move report jobs to the new queue",
+          "usage" : {
+            "cacheCreationTokens" : 0,
+            "cacheReadTokens" : 0,
+            "costUSD" : 0.31,
+            "durationSeconds" : 0,
+            "inputTokens" : 0,
+            "outputTokens" : 0,
+            "runs" : 1,
+            "unknownRuns" : 0
+          }
+        }
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"account\":\"diego\",\"ciChecks\":[{\"appName\":\"GitHub Actions\",\"conclusion\":\"failure\",\"detailsURL\":\"https://github.com/acme/web-app/actions/runs/1\",\"durationSeconds\":84,\"hasLog\":true,\"id\":\"c1\",\"logExcerpt\":[\"FAIL src/jobs/report.test.ts\",\"Expected 2, got 3\"],\"name\":\"test (ubuntu-latest)\"}],\"commits\":[{\"item\":\"c1\",\"sha\":\"4e1d0b7\",\"status\":\"committed\",\"summary\":\"Use the new queue name\"}],\"diffStat\":\"1 file changed, 2 insertions(+), 2 deletions(-)\",\"fixes\":1,\"headRef\":\"feature/488\",\"items\":[{\"assessment\":\"The queue name changed but the test still uses the old one.\",\"fixPlan\":\"Update the queue name in report.test.ts.\",\"id\":\"c1\",\"implement\":true,\"location\":\"src/jobs/report.ts:41\",\"number\":1,\"outdated\":false,\"reply\":false,\"replyText\":\"\",\"reviewer\":\"GitHub Actions\",\"suggested\":\"Use the new queue name in the test.\",\"thread\":[\"test (ubuntu-latest) failed\"]}],\"mode\":\"ciFix\",\"pendingReplies\":0,\"phase\":\"readyToPush\",\"pr\":\"acme/web-app#488\",\"pushBlockedByTests\":false,\"pushed\":false,\"replies\":0,\"runningTests\":false,\"sensitiveChanges\":[],\"testCommand\":\"npm test\",\"tests\":{\"command\":\"npm test\",\"outputTail\":\"Tests: 42 passed\",\"passed\":true},\"title\":\"Move report jobs to the new queue\",\"usage\":{\"cacheCreationTokens\":0,\"cacheReadTokens\":0,\"costUSD\":0.31,\"durationSeconds\":0,\"inputTokens\":0,\"outputTokens\":0,\"runs\":1,\"unknownRuns\":0}}}",
+      "text" : "{\"respondPushAnyway\":{\"confirmed\":true,\"pr\":\"acme/web-app#488\",\"wait\":false}}"
+    },
+    {
+      "json" : {
+        "respondPush" : {
+          "confirmed" : true,
+          "pr" : "acme/web-app#488",
+          "wait" : false
+        }
+      },
+      "name" : "respondPush",
+      "policy" : "gated",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : {
+          "account" : "diego",
+          "ciChecks" : [
+            {
+              "appName" : "GitHub Actions",
+              "conclusion" : "failure",
+              "detailsURL" : "https://github.com/acme/web-app/actions/runs/1",
+              "durationSeconds" : 84,
+              "hasLog" : true,
+              "id" : "c1",
+              "logExcerpt" : [
+                "FAIL src/jobs/report.test.ts",
+                "Expected 2, got 3"
+              ],
+              "name" : "test (ubuntu-latest)"
+            }
+          ],
+          "commits" : [
+            {
+              "item" : "c1",
+              "sha" : "4e1d0b7",
+              "status" : "committed",
+              "summary" : "Use the new queue name"
+            }
+          ],
+          "diffStat" : "1 file changed, 2 insertions(+), 2 deletions(-)",
+          "fixes" : 1,
+          "headRef" : "feature/488",
+          "items" : [
+            {
+              "assessment" : "The queue name changed but the test still uses the old one.",
+              "fixPlan" : "Update the queue name in report.test.ts.",
+              "id" : "c1",
+              "implement" : true,
+              "location" : "src/jobs/report.ts:41",
+              "number" : 1,
+              "outdated" : false,
+              "reply" : false,
+              "replyText" : "",
+              "reviewer" : "GitHub Actions",
+              "suggested" : "Use the new queue name in the test.",
+              "thread" : [
+                "test (ubuntu-latest) failed"
+              ]
+            }
+          ],
+          "mode" : "ciFix",
+          "pendingReplies" : 0,
+          "phase" : "pushed",
+          "pr" : "acme/web-app#488",
+          "pushBlockedByTests" : false,
+          "pushed" : true,
+          "replies" : 0,
+          "runningTests" : false,
+          "sensitiveChanges" : [
+
+          ],
+          "testCommand" : "npm test",
+          "tests" : {
+            "command" : "npm test",
+            "outputTail" : "Tests: 42 passed",
+            "passed" : true
+          },
+          "title" : "Move report jobs to the new queue",
+          "usage" : {
+            "cacheCreationTokens" : 0,
+            "cacheReadTokens" : 0,
+            "costUSD" : 0.31,
+            "durationSeconds" : 0,
+            "inputTokens" : 0,
+            "outputTokens" : 0,
+            "runs" : 1,
+            "unknownRuns" : 0
+          }
+        }
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"account\":\"diego\",\"ciChecks\":[{\"appName\":\"GitHub Actions\",\"conclusion\":\"failure\",\"detailsURL\":\"https://github.com/acme/web-app/actions/runs/1\",\"durationSeconds\":84,\"hasLog\":true,\"id\":\"c1\",\"logExcerpt\":[\"FAIL src/jobs/report.test.ts\",\"Expected 2, got 3\"],\"name\":\"test (ubuntu-latest)\"}],\"commits\":[{\"item\":\"c1\",\"sha\":\"4e1d0b7\",\"status\":\"committed\",\"summary\":\"Use the new queue name\"}],\"diffStat\":\"1 file changed, 2 insertions(+), 2 deletions(-)\",\"fixes\":1,\"headRef\":\"feature/488\",\"items\":[{\"assessment\":\"The queue name changed but the test still uses the old one.\",\"fixPlan\":\"Update the queue name in report.test.ts.\",\"id\":\"c1\",\"implement\":true,\"location\":\"src/jobs/report.ts:41\",\"number\":1,\"outdated\":false,\"reply\":false,\"replyText\":\"\",\"reviewer\":\"GitHub Actions\",\"suggested\":\"Use the new queue name in the test.\",\"thread\":[\"test (ubuntu-latest) failed\"]}],\"mode\":\"ciFix\",\"pendingReplies\":0,\"phase\":\"pushed\",\"pr\":\"acme/web-app#488\",\"pushBlockedByTests\":false,\"pushed\":true,\"replies\":0,\"runningTests\":false,\"sensitiveChanges\":[],\"testCommand\":\"npm test\",\"tests\":{\"command\":\"npm test\",\"outputTail\":\"Tests: 42 passed\",\"passed\":true},\"title\":\"Move report jobs to the new queue\",\"usage\":{\"cacheCreationTokens\":0,\"cacheReadTokens\":0,\"costUSD\":0.31,\"durationSeconds\":0,\"inputTokens\":0,\"outputTokens\":0,\"runs\":1,\"unknownRuns\":0}}}",
+      "text" : "{\"respondPush\":{\"confirmed\":true,\"pr\":\"acme/web-app#488\",\"wait\":false}}"
+    },
+    {
+      "json" : {
+        "respondCancel" : {
+          "pr" : "acme/web-app#488"
+        }
+      },
+      "name" : "respondCancel",
+      "policy" : "allowed",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : {
+          "ok" : true
+        }
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"ok\":true}}",
+      "text" : "{\"respondCancel\":{\"pr\":\"acme/web-app#488\"}}"
+    },
+    {
+      "json" : {
+        "respondDismiss" : {
+          "pr" : "acme/web-app#488"
+        }
+      },
+      "name" : "respondDismiss",
+      "policy" : "allowed",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : {
+          "ok" : true
+        }
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"ok\":true}}",
+      "text" : "{\"respondDismiss\":{\"pr\":\"acme/web-app#488\"}}"
+    },
+    {
+      "json" : {
+        "mergePreview" : {
+          "pr" : "acme/api#322"
+        }
+      },
+      "name" : "mergePreview",
+      "policy" : "allowed",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : {
+          "baseRef" : "main",
+          "commitCount" : 3,
+          "deletesBranch" : true,
+          "headOid" : "9f3c2a1",
+          "headRef" : "feature/322",
+          "method" : "squash",
+          "pr" : "acme/api#322",
+          "title" : "Make payment retries idempotent",
+          "url" : "https://github.com/acme/api/pull/322"
+        }
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"baseRef\":\"main\",\"commitCount\":3,\"deletesBranch\":true,\"headOid\":\"9f3c2a1\",\"headRef\":\"feature/322\",\"method\":\"squash\",\"pr\":\"acme/api#322\",\"title\":\"Make payment retries idempotent\",\"url\":\"https://github.com/acme/api/pull/322\"}}",
+      "text" : "{\"mergePreview\":{\"pr\":\"acme/api#322\"}}"
+    },
+    {
+      "json" : {
+        "merge" : {
+          "confirmed" : true,
+          "expectedHeadOid" : "9f3c2a1",
+          "method" : "squash",
+          "pr" : "acme/api#322"
+        }
+      },
+      "name" : "merge",
+      "policy" : "gated",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : {
+          "mergedAt" : "2026-11-20T12:38:00Z",
+          "method" : "squash",
+          "pr" : "acme/api#322",
+          "url" : "https://github.com/acme/api/pull/322"
+        }
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"mergedAt\":\"2026-11-20T12:38:00Z\",\"method\":\"squash\",\"pr\":\"acme/api#322\",\"url\":\"https://github.com/acme/api/pull/322\"}}",
+      "text" : "{\"merge\":{\"confirmed\":true,\"expectedHeadOid\":\"9f3c2a1\",\"method\":\"squash\",\"pr\":\"acme/api#322\"}}"
+    },
+    {
+      "json" : {
+        "mergeDismiss" : {
+          "pr" : "acme/api#322"
+        }
+      },
+      "name" : "mergeDismiss",
+      "policy" : "allowed",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : {
+          "ok" : true
+        }
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"ok\":true}}",
+      "text" : "{\"mergeDismiss\":{\"pr\":\"acme/api#322\"}}"
+    },
+    {
+      "json" : {
+        "resources" : {
+
+        }
+      },
+      "name" : "resources",
+      "policy" : "allowed",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : {
+          "disk" : {
+            "items" : [
+
+            ],
+            "scannedAt" : "2026-11-20T12:38:00Z"
+          },
+          "usage" : {
+            "cpuPercent" : 12,
+            "memoryBytes" : 300000000,
+            "processes" : [
+
+            ],
+            "sampledAt" : "2026-11-20T12:38:00Z"
+          }
+        }
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"disk\":{\"items\":[],\"scannedAt\":\"2026-11-20T12:38:00Z\"},\"usage\":{\"cpuPercent\":12,\"memoryBytes\":300000000,\"processes\":[],\"sampledAt\":\"2026-11-20T12:38:00Z\"}}}",
+      "text" : "{\"resources\":{}}"
+    },
+    {
+      "json" : {
+        "usage" : {
+
+        }
+      },
+      "name" : "usage",
+      "policy" : "allowed",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : {
+          "month" : {
+            "byKind" : {
+              "review" : {
+                "cacheCreationTokens" : 0,
+                "cacheReadTokens" : 0,
+                "costUSD" : 1.2,
+                "durationSeconds" : 0,
+                "inputTokens" : 0,
+                "outputTokens" : 0,
+                "runs" : 3,
+                "unknownRuns" : 0
+              }
+            },
+            "month" : "2026-11",
+            "usage" : {
+              "cacheCreationTokens" : 0,
+              "cacheReadTokens" : 0,
+              "costUSD" : 1.2,
+              "durationSeconds" : 0,
+              "inputTokens" : 0,
+              "outputTokens" : 0,
+              "runs" : 3,
+              "unknownRuns" : 0
+            }
+          },
+          "note" : "Estimated from what Claude Code reports. On a Claude subscription you may not be billed per token.",
+          "tasks" : [
+
+          ]
+        }
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"month\":{\"byKind\":{\"review\":{\"cacheCreationTokens\":0,\"cacheReadTokens\":0,\"costUSD\":1.2,\"durationSeconds\":0,\"inputTokens\":0,\"outputTokens\":0,\"runs\":3,\"unknownRuns\":0}},\"month\":\"2026-11\",\"usage\":{\"cacheCreationTokens\":0,\"cacheReadTokens\":0,\"costUSD\":1.2,\"durationSeconds\":0,\"inputTokens\":0,\"outputTokens\":0,\"runs\":3,\"unknownRuns\":0}},\"note\":\"Estimated from what Claude Code reports. On a Claude subscription you may not be billed per token.\",\"tasks\":[]}}",
+      "text" : "{\"usage\":{}}"
+    },
+    {
+      "json" : {
+        "notifyList" : {
+
+        }
+      },
+      "name" : "notifyList",
+      "policy" : "allowed",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : {
+          "deniedInMacOS" : false,
+          "enabled" : true,
+          "kinds" : {
+            "approved-or-ci" : true,
+            "my-feedback" : true,
+            "new-to-review" : true,
+            "ready-to-merge" : true,
+            "review-finished" : true,
+            "reviewed-updated" : true
+          }
+        }
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"deniedInMacOS\":false,\"enabled\":true,\"kinds\":{\"approved-or-ci\":true,\"my-feedback\":true,\"new-to-review\":true,\"ready-to-merge\":true,\"review-finished\":true,\"reviewed-updated\":true}}}",
+      "text" : "{\"notifyList\":{}}"
+    },
+    {
+      "json" : {
+        "notifySet" : {
+          "enabled" : false,
+          "kind" : "ready-to-merge"
+        }
+      },
+      "name" : "notifySet",
+      "policy" : "allowed",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : {
+          "ok" : true
+        }
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"ok\":true}}",
+      "text" : "{\"notifySet\":{\"enabled\":false,\"kind\":\"ready-to-merge\"}}"
+    },
+    {
+      "json" : {
+        "notifySetEnabled" : {
+          "enabled" : true
+        }
+      },
+      "name" : "notifySetEnabled",
+      "policy" : "allowed",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : {
+          "ok" : true
+        }
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"ok\":true}}",
+      "text" : "{\"notifySetEnabled\":{\"enabled\":true}}"
+    },
+    {
+      "json" : {
+        "remoteSetPresenceRequirement" : {
+          "device" : "fmh7nna7zna2bylvvuaupg6fnm",
+          "enabled" : true
+        }
+      },
+      "name" : "remoteSetPresenceRequirement",
+      "policy" : "allowed",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : {
+          "id" : "fmh7nna7zna2bylvvuaupg6fnm",
+          "lastSeen" : "2026-11-20T12:38:00Z",
+          "model" : "iPhone",
+          "name" : "Federico’s iPhone",
+          "notifications" : true,
+          "online" : true,
+          "pairedAt" : "2026-11-20T12:38:00Z",
+          "requirePresence" : true
+        }
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"id\":\"fmh7nna7zna2bylvvuaupg6fnm\",\"lastSeen\":\"2026-11-20T12:38:00Z\",\"model\":\"iPhone\",\"name\":\"Federico’s iPhone\",\"notifications\":true,\"online\":true,\"pairedAt\":\"2026-11-20T12:38:00Z\",\"requirePresence\":true}}",
+      "text" : "{\"remoteSetPresenceRequirement\":{\"device\":\"fmh7nna7zna2bylvvuaupg6fnm\",\"enabled\":true}}"
+    },
+    {
+      "json" : {
+        "reviewPublish" : {
+          "allInBody" : false,
+          "confirmed" : true,
+          "event" : "COMMENT",
+          "pr" : "acme/api#317",
+          "withComments" : true
+        }
+      },
+      "name" : "reviewPublish",
+      "policy" : "allowed",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : {
+          "action" : "COMMENT",
+          "comments" : 3,
+          "pr" : "acme/api#317",
+          "publishedAt" : "2026-11-20T12:38:00Z",
+          "url" : "https://github.com/acme/api/pull/317"
+        }
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"action\":\"COMMENT\",\"comments\":3,\"pr\":\"acme/api#317\",\"publishedAt\":\"2026-11-20T12:38:00Z\",\"url\":\"https://github.com/acme/api/pull/317\"}}",
+      "text" : "{\"reviewPublish\":{\"allInBody\":false,\"confirmed\":true,\"event\":\"COMMENT\",\"pr\":\"acme/api#317\",\"withComments\":true}}"
+    },
+    {
+      "json" : {
+        "reviewPublish" : {
+          "allInBody" : false,
+          "confirmed" : true,
+          "event" : "APPROVE",
+          "pr" : "acme/api#317",
+          "withComments" : true
+        }
+      },
+      "name" : "reviewPublish",
+      "policy" : "gated",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : {
+          "action" : "APPROVE",
+          "comments" : 3,
+          "pr" : "acme/api#317",
+          "publishedAt" : "2026-11-20T12:38:00Z",
+          "url" : "https://github.com/acme/api/pull/317"
+        }
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"action\":\"APPROVE\",\"comments\":3,\"pr\":\"acme/api#317\",\"publishedAt\":\"2026-11-20T12:38:00Z\",\"url\":\"https://github.com/acme/api/pull/317\"}}",
+      "text" : "{\"reviewPublish\":{\"allInBody\":false,\"confirmed\":true,\"event\":\"APPROVE\",\"pr\":\"acme/api#317\",\"withComments\":true}}"
+    },
+    {
+      "json" : {
+        "reviewCancel" : {
+          "pr" : "acme/api#317"
+        }
+      },
+      "name" : "reviewCancel",
+      "policy" : "allowed",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : {
+          "ok" : true
+        }
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"ok\":true}}",
+      "text" : "{\"reviewCancel\":{\"pr\":\"acme/api#317\"}}"
+    },
+    {
+      "json" : {
+        "reviewDismiss" : {
+          "pr" : "acme/api#317"
+        }
+      },
+      "name" : "reviewDismiss",
+      "policy" : "allowed",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : {
+          "ok" : true
+        }
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"ok\":true}}",
+      "text" : "{\"reviewDismiss\":{\"pr\":\"acme/api#317\"}}"
+    }
+  ],
+  "errors" : [
+    {
+      "error" : {
+        "code" : "unauthorized",
+        "message" : "Face ID is required for this on iPhone."
+      },
+      "id" : 1,
+      "ok" : false
+    },
+    {
+      "error" : {
+        "code" : "unauthorized",
+        "message" : "Face ID isn't set up on this device. Pair it again."
+      },
+      "id" : 1,
+      "ok" : false
+    },
+    {
+      "error" : {
+        "code" : "unauthorized",
+        "message" : "This can’t be done from iPhone. Use PRBar on your Mac."
+      },
+      "id" : 1,
+      "ok" : false
+    },
+    {
+      "error" : {
+        "code" : "protocolMismatch",
+        "message" : "Update PRBar on your Mac and iPhone."
+      },
+      "id" : 1,
+      "ok" : false
+    },
+    {
+      "error" : {
+        "code" : "invalidState",
+        "message" : "This request expired. Try again."
+      },
+      "id" : 1,
+      "ok" : false
+    },
+    {
+      "error" : {
+        "code" : "invalidState",
+        "message" : "Too many requests from this iPhone. Wait a moment and try again."
+      },
+      "id" : 1,
+      "ok" : false
+    }
+  ],
+  "gated" : [
+    "reviewPublish",
+    "respondTest",
+    "respondPush",
+    "respondPushAnyway",
+    "merge",
+    "remoteSetPresenceRequirement"
+  ],
+  "minimumRemoteVersion" : 8,
+  "protocolVersion" : 8,
+  "push" : [
+    {
+      "badge" : 3,
+      "body" : "api#7: 2 comments",
+      "createdAt" : "2026-11-20T12:38:00Z",
+      "deepLink" : "prbar://pr/acme/api/7?screen=respond",
+      "id" : "6F1D8C2E-0B7A-4E55-9C61-3A2B9E0F4D11",
+      "kind" : "myPRFeedback",
+      "pr" : "acme/api#7",
+      "threadId" : "acme/api#7",
+      "title" : "New Feedback",
+      "v" : 1
+    },
+    {
+      "badge" : 3,
+      "body" : "api#322",
+      "createdAt" : "2026-11-20T12:38:00Z",
+      "deepLink" : "prbar://pr/acme/api/322?screen=merge",
+      "id" : "6F1D8C2E-0B7A-4E55-9C61-3A2B9E0F4D11",
+      "kind" : "readyToMerge",
+      "pr" : "acme/api#322",
+      "threadId" : "acme/api#322",
+      "title" : "Ready to Merge",
+      "v" : 1
+    },
+    {
+      "badge" : 3,
+      "body" : "",
+      "createdAt" : "2026-11-20T12:38:00Z",
+      "deepLink" : "prbar://activity",
+      "id" : "6F1D8C2E-0B7A-4E55-9C61-3A2B9E0F4D11",
+      "kind" : "updateAvailable",
+      "threadId" : "updateAvailable",
+      "title" : "PRBar 2.0 is available",
+      "v" : 1
+    }
+  ],
+  "topics" : [
+    {
+      "json" : {
+        "ci" : [
+          {
+            "account" : "diego",
+            "failedChecks" : 2,
+            "pr" : "acme/web-app#488",
+            "respondInProgress" : false,
+            "title" : "Move report jobs to the new queue",
+            "url" : "https://github.com/acme/web-app/pull/488"
+          }
+        ],
+        "findingCounts" : {
+          "acme/api#317" : 2
+        },
+        "prs" : [
+          {
+            "account" : "diego",
+            "additions" : 46,
+            "author" : "truiz",
+            "authorName" : "Tomás Ruiz",
+            "baseRef" : "main",
+            "category" : "toReview",
+            "changedFiles" : 5,
+            "ci" : "success",
+            "deletions" : 12,
+            "headRef" : "feature/317",
+            "id" : "acme/api#317",
+            "isDraft" : false,
+            "number" : 317,
+            "repo" : "acme/api",
+            "review" : "ready",
+            "section" : "toReview",
+            "tab" : "to-review",
+            "title" : "Refresh expired sessions without logging users out",
+            "updatedAt" : "2026-11-20T12:38:00Z",
+            "url" : "https://github.com/acme/api/pull/317"
+          },
+          {
+            "account" : "diego",
+            "additions" : 46,
+            "approvals" : 2,
+            "author" : "diego",
+            "authorName" : "Diego",
+            "baseRef" : "main",
+            "category" : "readyToMerge",
+            "changedFiles" : 4,
+            "ci" : "success",
+            "deletions" : 12,
+            "headRef" : "feature/322",
+            "id" : "acme/api#322",
+            "isDraft" : false,
+            "number" : 322,
+            "repo" : "acme/api",
+            "section" : "readyToMerge",
+            "tab" : "mine",
+            "title" : "Make payment retries idempotent",
+            "updatedAt" : "2026-11-20T12:38:00Z",
+            "url" : "https://github.com/acme/api/pull/322"
+          },
+          {
+            "account" : "diego",
+            "additions" : 46,
+            "author" : "diego",
+            "authorName" : "Diego",
+            "baseRef" : "main",
+            "category" : "other",
+            "changedFiles" : 3,
+            "ci" : "failure",
+            "deletions" : 12,
+            "headRef" : "feature/488",
+            "id" : "acme/web-app#488",
+            "isDraft" : false,
+            "number" : 488,
+            "repo" : "acme/web-app",
+            "section" : "waitingForReview",
+            "tab" : "mine",
+            "title" : "Move report jobs to the new queue",
+            "updatedAt" : "2026-11-20T12:38:00Z",
+            "url" : "https://github.com/acme/web-app/pull/488"
+          }
+        ],
+        "status" : {
+          "accounts" : [
+
+          ],
+          "appVersion" : "1.9.0",
+          "badgeCount" : 3,
+          "counts" : {
+
+          },
+          "fetchedAt" : "2026-11-20T12:38:00Z",
+          "issues" : [
+
+          ],
+          "jobs" : [
+            {
+              "kind" : "respond",
+              "phase" : "implementing",
+              "pr" : "acme/web-app#488"
+            }
+          ],
+          "offline" : false,
+          "refreshing" : false,
+          "slackIssues" : [
+
+          ],
+          "tools" : [
+
+          ]
+        }
+      },
+      "text" : "{\"ci\":[{\"account\":\"diego\",\"failedChecks\":2,\"pr\":\"acme/web-app#488\",\"respondInProgress\":false,\"title\":\"Move report jobs to the new queue\",\"url\":\"https://github.com/acme/web-app/pull/488\"}],\"findingCounts\":{\"acme/api#317\":2},\"prs\":[{\"account\":\"diego\",\"additions\":46,\"author\":\"truiz\",\"authorName\":\"Tomás Ruiz\",\"baseRef\":\"main\",\"category\":\"toReview\",\"changedFiles\":5,\"ci\":\"success\",\"deletions\":12,\"headRef\":\"feature/317\",\"id\":\"acme/api#317\",\"isDraft\":false,\"number\":317,\"repo\":\"acme/api\",\"review\":\"ready\",\"section\":\"toReview\",\"tab\":\"to-review\",\"title\":\"Refresh expired sessions without logging users out\",\"updatedAt\":\"2026-11-20T12:38:00Z\",\"url\":\"https://github.com/acme/api/pull/317\"},{\"account\":\"diego\",\"additions\":46,\"approvals\":2,\"author\":\"diego\",\"authorName\":\"Diego\",\"baseRef\":\"main\",\"category\":\"readyToMerge\",\"changedFiles\":4,\"ci\":\"success\",\"deletions\":12,\"headRef\":\"feature/322\",\"id\":\"acme/api#322\",\"isDraft\":false,\"number\":322,\"repo\":\"acme/api\",\"section\":\"readyToMerge\",\"tab\":\"mine\",\"title\":\"Make payment retries idempotent\",\"updatedAt\":\"2026-11-20T12:38:00Z\",\"url\":\"https://github.com/acme/api/pull/322\"},{\"account\":\"diego\",\"additions\":46,\"author\":\"diego\",\"authorName\":\"Diego\",\"baseRef\":\"main\",\"category\":\"other\",\"changedFiles\":3,\"ci\":\"failure\",\"deletions\":12,\"headRef\":\"feature/488\",\"id\":\"acme/web-app#488\",\"isDraft\":false,\"number\":488,\"repo\":\"acme/web-app\",\"section\":\"waitingForReview\",\"tab\":\"mine\",\"title\":\"Move report jobs to the new queue\",\"updatedAt\":\"2026-11-20T12:38:00Z\",\"url\":\"https://github.com/acme/web-app/pull/488\"}],\"status\":{\"accounts\":[],\"appVersion\":\"1.9.0\",\"badgeCount\":3,\"counts\":{},\"fetchedAt\":\"2026-11-20T12:38:00Z\",\"issues\":[],\"jobs\":[{\"kind\":\"respond\",\"phase\":\"implementing\",\"pr\":\"acme/web-app#488\"}],\"offline\":false,\"refreshing\":false,\"slackIssues\":[],\"tools\":[]}}",
+      "topic" : "home"
+    },
+    {
+      "json" : {
+        "chat" : {
+          "kind" : "review",
+          "messages" : [
+
+          ],
+          "pr" : "acme/api#317",
+          "readOnly" : false,
+          "running" : false,
+          "streamed" : false
+        },
+        "pr" : {
+          "account" : "diego",
+          "additions" : 46,
+          "author" : "truiz",
+          "authorName" : "Tomás Ruiz",
+          "baseRef" : "main",
+          "category" : "toReview",
+          "changedFiles" : 5,
+          "ci" : "success",
+          "deletions" : 12,
+          "headRef" : "feature/317",
+          "id" : "acme/api#317",
+          "isDraft" : false,
+          "number" : 317,
+          "repo" : "acme/api",
+          "review" : "ready",
+          "section" : "toReview",
+          "tab" : "to-review",
+          "title" : "Refresh expired sessions without logging users out",
+          "updatedAt" : "2026-11-20T12:38:00Z",
+          "url" : "https://github.com/acme/api/pull/317"
+        },
+        "review" : {
+          "detail" : "2 agents",
+          "findings" : [
+            {
+              "body" : "Body of Expired refresh tokens are retried forever.",
+              "edited" : false,
+              "id" : "f1",
+              "included" : true,
+              "keptByFilter" : true,
+              "location" : "src/auth/session.ts:80",
+              "number" : 1,
+              "severity" : "high",
+              "title" : "Expired refresh tokens are retried forever"
+            },
+            {
+              "body" : "Body of Race between two refreshes.",
+              "edited" : false,
+              "id" : "f2",
+              "included" : true,
+              "keptByFilter" : true,
+              "location" : "src/auth/session.ts:81",
+              "number" : 2,
+              "severity" : "medium",
+              "title" : "Race between two refreshes"
+            },
+            {
+              "body" : "Body of Cookie max-age is hard-coded.",
+              "edited" : false,
+              "id" : "f3",
+              "included" : false,
+              "keptByFilter" : true,
+              "location" : "src/auth/session.ts:82",
+              "number" : 3,
+              "severity" : "low",
+              "title" : "Cookie max-age is hard-coded"
+            }
+          ],
+          "outdated" : false,
+          "phase" : "ready",
+          "pr" : "acme/api#317",
+          "summary" : "Sessions refresh in the background.",
+          "title" : "Refresh expired sessions without logging users out"
+        },
+        "slackChannel" : "#api-reviews"
+      },
+      "text" : "{\"chat\":{\"kind\":\"review\",\"messages\":[],\"pr\":\"acme/api#317\",\"readOnly\":false,\"running\":false,\"streamed\":false},\"pr\":{\"account\":\"diego\",\"additions\":46,\"author\":\"truiz\",\"authorName\":\"Tomás Ruiz\",\"baseRef\":\"main\",\"category\":\"toReview\",\"changedFiles\":5,\"ci\":\"success\",\"deletions\":12,\"headRef\":\"feature/317\",\"id\":\"acme/api#317\",\"isDraft\":false,\"number\":317,\"repo\":\"acme/api\",\"review\":\"ready\",\"section\":\"toReview\",\"tab\":\"to-review\",\"title\":\"Refresh expired sessions without logging users out\",\"updatedAt\":\"2026-11-20T12:38:00Z\",\"url\":\"https://github.com/acme/api/pull/317\"},\"review\":{\"detail\":\"2 agents\",\"findings\":[{\"body\":\"Body of Expired refresh tokens are retried forever.\",\"edited\":false,\"id\":\"f1\",\"included\":true,\"keptByFilter\":true,\"location\":\"src/auth/session.ts:80\",\"number\":1,\"severity\":\"high\",\"title\":\"Expired refresh tokens are retried forever\"},{\"body\":\"Body of Race between two refreshes.\",\"edited\":false,\"id\":\"f2\",\"included\":true,\"keptByFilter\":true,\"location\":\"src/auth/session.ts:81\",\"number\":2,\"severity\":\"medium\",\"title\":\"Race between two refreshes\"},{\"body\":\"Body of Cookie max-age is hard-coded.\",\"edited\":false,\"id\":\"f3\",\"included\":false,\"keptByFilter\":true,\"location\":\"src/auth/session.ts:82\",\"number\":3,\"severity\":\"low\",\"title\":\"Cookie max-age is hard-coded\"}],\"outdated\":false,\"phase\":\"ready\",\"pr\":\"acme/api#317\",\"summary\":\"Sessions refresh in the background.\",\"title\":\"Refresh expired sessions without logging users out\"},\"slackChannel\":\"#api-reviews\"}",
+      "topic" : "pr:acme/api#317"
+    },
+    {
+      "json" : {
+        "chat" : {
+          "kind" : "merge",
+          "messages" : [
+
+          ],
+          "pr" : "acme/api#322",
+          "readOnly" : true,
+          "running" : false,
+          "streamed" : false
+        },
+        "pr" : {
+          "account" : "diego",
+          "additions" : 46,
+          "approvals" : 2,
+          "author" : "diego",
+          "authorName" : "Diego",
+          "baseRef" : "main",
+          "category" : "readyToMerge",
+          "changedFiles" : 4,
+          "ci" : "success",
+          "deletions" : 12,
+          "headRef" : "feature/322",
+          "id" : "acme/api#322",
+          "isDraft" : false,
+          "number" : 322,
+          "repo" : "acme/api",
+          "section" : "readyToMerge",
+          "tab" : "mine",
+          "title" : "Make payment retries idempotent",
+          "updatedAt" : "2026-11-20T12:38:00Z",
+          "url" : "https://github.com/acme/api/pull/322"
+        },
+        "slackChannel" : "#api-reviews"
+      },
+      "text" : "{\"chat\":{\"kind\":\"merge\",\"messages\":[],\"pr\":\"acme/api#322\",\"readOnly\":true,\"running\":false,\"streamed\":false},\"pr\":{\"account\":\"diego\",\"additions\":46,\"approvals\":2,\"author\":\"diego\",\"authorName\":\"Diego\",\"baseRef\":\"main\",\"category\":\"readyToMerge\",\"changedFiles\":4,\"ci\":\"success\",\"deletions\":12,\"headRef\":\"feature/322\",\"id\":\"acme/api#322\",\"isDraft\":false,\"number\":322,\"repo\":\"acme/api\",\"section\":\"readyToMerge\",\"tab\":\"mine\",\"title\":\"Make payment retries idempotent\",\"updatedAt\":\"2026-11-20T12:38:00Z\",\"url\":\"https://github.com/acme/api/pull/322\"},\"slackChannel\":\"#api-reviews\"}",
+      "topic" : "pr:acme/api#322"
+    },
+    {
+      "json" : {
+        "history" : [
+          {
+            "finishedAt" : "2026-11-20T11:43:00Z",
+            "id" : "3C9A7E52-1D4B-4F0A-9B7E-6A2F1C8D5E40",
+            "kind" : "review",
+            "number" : 317,
+            "pr" : "acme/api#317",
+            "repo" : "acme/api",
+            "startedAt" : "2026-11-20T11:38:00Z",
+            "status" : "ready",
+            "title" : "Refresh expired sessions without logging users out",
+            "usage" : {
+              "cacheCreationTokens" : 0,
+              "cacheReadTokens" : 0,
+              "costUSD" : 0.41999999999999998,
+              "durationSeconds" : 0,
+              "inputTokens" : 0,
+              "outputTokens" : 0,
+              "runs" : 1,
+              "unknownRuns" : 0
+            }
+          }
+        ],
+        "resources" : {
+          "disk" : {
+            "items" : [
+
+            ],
+            "scannedAt" : "2026-11-20T12:38:00Z"
+          },
+          "usage" : {
+            "cpuPercent" : 12,
+            "memoryBytes" : 300000000,
+            "processes" : [
+
+            ],
+            "sampledAt" : "2026-11-20T12:38:00Z"
+          }
+        },
+        "running" : [
+          {
+            "kind" : "respond",
+            "phase" : "implementing",
+            "pr" : "acme/web-app#488",
+            "title" : "Move report jobs to the new queue"
+          }
+        ],
+        "system" : {
+          "cores" : 10,
+          "diskFreeBytes" : 214748364800,
+          "diskTotalBytes" : 1073741824000,
+          "memoryTotalBytes" : 34359738368,
+          "memoryUsedBytes" : 19327352832
+        },
+        "usage" : {
+          "month" : {
+            "byKind" : {
+              "review" : {
+                "cacheCreationTokens" : 0,
+                "cacheReadTokens" : 0,
+                "costUSD" : 1.2,
+                "durationSeconds" : 0,
+                "inputTokens" : 0,
+                "outputTokens" : 0,
+                "runs" : 3,
+                "unknownRuns" : 0
+              }
+            },
+            "month" : "2026-11",
+            "usage" : {
+              "cacheCreationTokens" : 0,
+              "cacheReadTokens" : 0,
+              "costUSD" : 1.2,
+              "durationSeconds" : 0,
+              "inputTokens" : 0,
+              "outputTokens" : 0,
+              "runs" : 3,
+              "unknownRuns" : 0
+            }
+          },
+          "note" : "Estimated from what Claude Code reports. On a Claude subscription you may not be billed per token.",
+          "tasks" : [
+
+          ]
+        }
+      },
+      "text" : "{\"history\":[{\"finishedAt\":\"2026-11-20T11:43:00Z\",\"id\":\"3C9A7E52-1D4B-4F0A-9B7E-6A2F1C8D5E40\",\"kind\":\"review\",\"number\":317,\"pr\":\"acme/api#317\",\"repo\":\"acme/api\",\"startedAt\":\"2026-11-20T11:38:00Z\",\"status\":\"ready\",\"title\":\"Refresh expired sessions without logging users out\",\"usage\":{\"cacheCreationTokens\":0,\"cacheReadTokens\":0,\"costUSD\":0.42,\"durationSeconds\":0,\"inputTokens\":0,\"outputTokens\":0,\"runs\":1,\"unknownRuns\":0}}],\"resources\":{\"disk\":{\"items\":[],\"scannedAt\":\"2026-11-20T12:38:00Z\"},\"usage\":{\"cpuPercent\":12,\"memoryBytes\":300000000,\"processes\":[],\"sampledAt\":\"2026-11-20T12:38:00Z\"}},\"running\":[{\"kind\":\"respond\",\"phase\":\"implementing\",\"pr\":\"acme/web-app#488\",\"title\":\"Move report jobs to the new queue\"}],\"system\":{\"cores\":10,\"diskFreeBytes\":214748364800,\"diskTotalBytes\":1073741824000,\"memoryTotalBytes\":34359738368,\"memoryUsedBytes\":19327352832},\"usage\":{\"month\":{\"byKind\":{\"review\":{\"cacheCreationTokens\":0,\"cacheReadTokens\":0,\"costUSD\":1.2,\"durationSeconds\":0,\"inputTokens\":0,\"outputTokens\":0,\"runs\":3,\"unknownRuns\":0}},\"month\":\"2026-11\",\"usage\":{\"cacheCreationTokens\":0,\"cacheReadTokens\":0,\"costUSD\":1.2,\"durationSeconds\":0,\"inputTokens\":0,\"outputTokens\":0,\"runs\":3,\"unknownRuns\":0}},\"note\":\"Estimated from what Claude Code reports. On a Claude subscription you may not be billed per token.\",\"tasks\":[]}}",
+      "topic" : "activity"
+    }
+  ]
+}

@@ -36,6 +36,13 @@ func expectEqual<T: Equatable>(
     }
 }
 
+/// El valor, o falla si es `nil`.
+func expectSome<T>(_ value: T?, _ message: @autoclosure () -> String = "",
+                   file: StaticString = #fileID, line: UInt = #line) throws -> T {
+    guard let value else { throw TestFailure(description: "\(file):\(line) expected a value, got nil. \(message())") }
+    return value
+}
+
 func expectThrows(
     file: StaticString = #fileID, line: UInt = #line,
     _ body: () async throws -> Void

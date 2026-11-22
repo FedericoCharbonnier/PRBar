@@ -30,7 +30,9 @@ struct UpdateCommand: RemoteCommand {
             output.line(output.paint(info.title ?? "PRBar \(latest)", .bold))
             output.line(notes)
         }
-        return "Update PRBar from \(info.installed) to \(latest)? It restarts PRBar."
+        var question = "Update PRBar from \(info.installed) to \(latest)? It restarts PRBar."
+        if let unpushed = info.unpushedFixes, unpushed > 0 { question += " " + QuitConfirmation.unpushedMessage(unpushed) }
+        return question
     }
 
     func appCommand(confirmed: Bool) -> AppCommand {
@@ -41,6 +43,8 @@ struct UpdateCommand: RemoteCommand {
     }
 
     var cancelCommand: AppCommand? { installs ? .updateCancel : nil }
+    /// `--cancel` sin la app corriendo no tiene nada que cancelar: no la abre (L15).
+    var launchesApp: Bool { !cancel }
 
     func render(_ result: JSONValue, _ output: Output) throws {
         if cancel { return output.line("Canceled the update.") }

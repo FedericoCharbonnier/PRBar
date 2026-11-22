@@ -354,6 +354,8 @@ public struct GitHubClient: GitHubAPI, CIChecksAPI {
             let name: String
             let status: String?
             let conclusion: String?
+            let started_at: Date?
+            let completed_at: Date?
             let details_url: String?
             let html_url: String?
             let app: App?
@@ -377,7 +379,8 @@ public struct GitHubClient: GitHubAPI, CIChecksAPI {
                 CICheckRun(source: .checkRun, id: run.id, name: run.name, status: run.status ?? "completed",
                            conclusion: run.conclusion, appSlug: run.app?.slug, appName: run.app?.name,
                            detailsURL: (run.details_url ?? run.html_url).flatMap(URL.init(string:)),
-                           outputTitle: run.output?.title, outputSummary: run.output?.summary, outputText: run.output?.text)
+                           outputTitle: run.output?.title, outputSummary: run.output?.summary, outputText: run.output?.text,
+                           startedAt: run.started_at, completedAt: run.completed_at)
             }
             if decoded.check_runs.count < 100 { break }
         }

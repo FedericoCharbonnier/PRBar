@@ -10,7 +10,8 @@ extension AppModel {
     }
 
     /// Why "Fix CI" can't start now; nil = it can. It shares the PR's Respond slot (spec K.6.1).
-    func ciFixUnavailableReason(_ item: ClassifiedPR) -> String? {
+    /// `ignoringUnpushed`: "Fix CI Again" in the window, which asks before discarding that work.
+    func ciFixUnavailableReason(_ item: ClassifiedPR, ignoringUnpushed: Bool = false) -> String? {
         if let reason = respondUnavailableReason(item) {
             return reason.replacingOccurrences(of: "to respond with Claude", with: "to fix the CI with Claude")
         }
@@ -22,7 +23,7 @@ extension AppModel {
         if case .readyToPush? = respond.phases[prID] {
             return "\(prID) has changes that weren’t pushed: push or dismiss them first."
         }
-        if case .failed? = respond.phases[prID], respond.records[prID]?.result != nil {
+        if case .failed? = respond.phases[prID], respond.unpushedWork.contains(prID), !ignoringUnpushed {
             return "\(prID) has changes that weren’t pushed: open it to retry or dismiss it."
         }
         return nil
@@ -43,7 +44,11 @@ extension AppModel {
     func startCIFix(_ item: ClassifiedPR) {
         guard ciFixUnavailableReason(item) == nil else { return }
         let worktreeDir = repoConfig(account: item.account, repo: item.pr.repo)?.worktreeDir
-        respond.analyze(item, localPath: localPath(for: item), worktreeDir: worktreeDir, mode: .ciFix)
+        let previous = respond.records[item.id]?.draft
+        // La corrida anterior se reemplaza: su chat se va con su worktree (M5).
+        if respond.analyze(item, localPath: localPath(for: item), worktreeDir: worktreeDir, mode: .ciFix), let previous {
+            discardChat(draftID: previous.id)
+        }
     }
 
     /// The Respond window's title for the PR's run.

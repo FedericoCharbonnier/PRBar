@@ -1,11 +1,5 @@
 import Foundation
 
-public enum ReviewEvent: String, Codable, Sendable {
-    case comment = "COMMENT"
-    case requestChanges = "REQUEST_CHANGES"
-    case approve = "APPROVE"
-}
-
 public struct ReviewSubmission: Equatable, Sendable {
     public struct InlineComment: Equatable, Sendable {
         public let path: String

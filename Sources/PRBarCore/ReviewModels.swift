@@ -1,17 +1,5 @@
 import Foundation
 
-public enum Severity: String, Codable, Sendable, CaseIterable {
-    case high, medium, low
-
-    public var label: String {
-        switch self {
-        case .high: "High"
-        case .medium: "Medium"
-        case .low: "Low"
-        }
-    }
-}
-
 /// What a finding is about (spec E.4). Lenient: a missing or unknown category is `other`.
 public enum FindingCategory: String, Codable, Sendable, CaseIterable {
     case bug, security, performance, tests, style, docs, other

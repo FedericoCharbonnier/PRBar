@@ -20,12 +20,28 @@ func rejects(_ arguments: [String]) -> Bool {
 enum CLIParsingTests {
     static var cases: [TestCase] {
         [
+            TestCase("cli parse: --json no saltea efectos; quit y update --cancel no abren la app (L14, L15)") {
+                try expect(rejects(["open", "api#3", "--copy", "--json"]))
+                try expect(rejects(["history", "show", "abcd", "--open-log", "--json"]))
+                try expect(rejects(["history", "show", "abcd", "--reveal-log", "--json"]))
+                try expect(!rejects(["history", "show", "abcd", "--json"]))
+                func launches(_ arguments: [String]) throws -> Bool {
+                    guard let command = try PRBarCommand.parseAsRoot(arguments) as? any RemoteCommand else {
+                        throw TestFailure(description: "\(arguments) no es remoto")
+                    }
+                    return command.launchesApp
+                }
+                try expect(!(try launches(["app", "quit"])))
+                try expect(!(try launches(["update", "--cancel"])))
+                try expect(try launches(["update", "--check"]))
+                try expect(try launches(["status"]))
+            },
             TestCase("cli parse: ci y usage (specs K y O)") {
                 try expectEqual(try parsed(["ci"]), .ciList)
                 try expectEqual(try parsed(["ci", "fix", "api#3", "--wait"]), .ciFix(pr: "api#3", wait: true))
                 try expectEqual(try parsed(["ci", "show", "api#3"]), .respondShow(pr: "api#3"))
-                try expectEqual(try parsed(["ci", "push", "api#3", "--yes"]), .respondPush(pr: "api#3", confirmed: true, wait: false))
-                try expectEqual(try parsed(["ci", "push", "api#3", "--anyway", "--yes"]), .respondPushAnyway(pr: "api#3", confirmed: true, wait: false))
+                try expectEqual(try parsed(["ci", "push", "api#3", "--yes"]), .respondPush(pr: "api#3", confirmed: true, wait: false, mode: .ciFix))
+                try expectEqual(try parsed(["ci", "push", "api#3", "--anyway", "--yes"]), .respondPushAnyway(pr: "api#3", confirmed: true, wait: false, mode: .ciFix))
                 try expectEqual(try parsed(["ci", "cancel", "api#3"]), .respondCancel(pr: "api#3"))
                 try expectEqual(try parsed(["usage"]), .usage(month: nil))
                 try expectEqual(try parsed(["usage", "--month", "2026-03"]), .usage(month: "2026-03"))
@@ -130,7 +146,7 @@ enum CLIParsingTests {
                 try expectEqual(try parsed(["respond", "implement", "web#2"]), .respondImplement(pr: "web#2", wait: false))
                 try expectEqual(try parsed(["respond", "test", "web#2", "--wait"]), .respondTest(pr: "web#2", wait: true))
                 try expectEqual(try parsed(["respond", "diff", "web#2", "--stat"]), .respondDiff(pr: "web#2"))
-                try expectEqual(try parsed(["respond", "push", "web#2", "--yes"]), .respondPush(pr: "web#2", confirmed: true, wait: false))
+                try expectEqual(try parsed(["respond", "push", "web#2", "--yes"]), .respondPush(pr: "web#2", confirmed: true, wait: false, mode: .feedback))
                 try expectEqual(try parsed(["respond", "reply-only", "web#2"], confirmed: false),
                                 .respondReplyOnly(pr: "web#2", confirmed: false, wait: false))
                 try expectEqual(try parsed(["respond", "cancel", "web#2"]), .respondCancel(pr: "web#2"))
@@ -323,7 +339,7 @@ enum CLIParsingTests {
                 }
                 try expectEqual(changes.addIgnore, ["dist/**"])
                 try expectEqual(changes.removeIgnore, ["gen/**"])
-                try expectEqual(try parsed(["respond", "push", "web#2", "--anyway", "--yes"]), .respondPushAnyway(pr: "web#2", confirmed: true, wait: false))
+                try expectEqual(try parsed(["respond", "push", "web#2", "--anyway", "--yes"]), .respondPushAnyway(pr: "web#2", confirmed: true, wait: false, mode: .feedback))
                 try expect(try PRBarCommand.parseAsRoot(["app", "logs", "--instructions"]) is any LocalCommand)
             },
             TestCase("cli: --review/--fixes cambian solo lo nombrado") {

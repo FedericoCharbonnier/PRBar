@@ -7,11 +7,21 @@ public struct CLICommandSpec: Sendable {
     public let path: String
     public let produces: [AppCommand.Name]
     public let samples: [[String]]
+    /// Lo que el comando manda antes de su comando final (`remote pair`: abrir la ranura y esperar al teléfono).
+    public let prepares: [AppCommand.Name]
 
     init(_ path: String, _ produces: [AppCommand.Name], _ samples: [String]...) {
         self.path = path
         self.produces = produces
         self.samples = samples
+        prepares = []
+    }
+
+    init(_ path: String, _ produces: [AppCommand.Name], prepares: [AppCommand.Name], _ samples: [String]...) {
+        self.path = path
+        self.produces = produces
+        self.samples = samples
+        self.prepares = prepares
     }
 }
 
@@ -74,6 +84,17 @@ public enum CLIRouter {
         .init("ci dismiss", [.respondDismiss], ["ci", "dismiss", "web#2"]),
         // Uso de Claude (spec O)
         .init("usage", [.usage], ["usage"], ["usage", "--month", "2026-10"]),
+        // Acceso desde el iPhone (spec Q.3)
+        .init("remote status", [.remoteStatus], ["remote"], ["remote", "status", "--json"]),
+        .init("remote enable", [.remoteEnable], ["remote", "enable", "--relay", "relay.example.com", "--enroll-token-stdin"]),
+        .init("remote disable", [.remoteDisable], ["remote", "disable"]),
+        .init("remote pair", [.remotePairConfirm], prepares: [.remotePairStart, .remotePairWait], ["remote", "pair"]),
+        .init("remote devices", [.remoteDevices, .remoteSetPresenceRequirement],
+              ["remote", "devices", "--json"], ["remote", "devices", "--require-face-id", "dev1", "off"]),
+        .init("remote revoke", [.remoteRevoke], ["remote", "revoke", "dev1", "--yes"]),
+        .init("remote keep-awake", [.remoteSetKeepAwake], ["remote", "keep-awake", "on"]),
+        .init("remote mailbox", [.remoteSetMailbox], ["remote", "mailbox", "off"]),
+        .init("remote reset", [.remoteReset], ["remote", "reset", "--yes"]),
         // Chat (plan 6)
         .init("chat", [.chatSend, .chatShow, .chatUndo, .chatStop],
               ["chat", "api#1", "hi"], ["chat", "api#1", "--show"], ["chat", "api#1", "--undo"], ["chat", "api#1", "--stop"]),

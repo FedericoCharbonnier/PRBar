@@ -420,6 +420,7 @@ extension AppModel: RespondActions {
                            pushBlockedByTests: respondPushGate(prID: prID).isTestsFailed)
         info.pushBlockedByCI = respond.pushBlockedByCI[prID]
         info.mode = respond.mode(of: prID)
+        info.unpushedWork = respond.unpushedWork.contains(prID) ? true : nil
         return info
     }
 
@@ -509,6 +510,9 @@ extension AppModel: RespondActions {
         if case .failed? = phase, respond.records[item.id]?.result != nil {
             throw CommandFailure(.invalidState, "\(item.id) already has fixes: retry with `prbar respond push \(item.id)`.")
         }
+        if respond.unpushedWork.contains(item.id) {
+            throw CommandFailure(.invalidState, "\(item.id) has changes that weren’t pushed in PRBar’s worktree: check them, then dismiss them (`prbar respond dismiss \(item.id)`) before analyzing again.")
+        }
         startRespond(item)
         guard wait else { return respondInfo(item.id) }
         try await waitForRespond(item.id, events: events)
@@ -566,6 +570,7 @@ extension AppModel: RespondActions {
             throw CommandFailure(.invalidState, "There’s no test command for \(draft.repo.fullName). Set it with `prbar repo set \(draft.repo.fullName) --test-command …`.")
         }
         guard !respond.runningTests.contains(id) else { throw CommandFailure(.invalidState, "The tests are already running.") }
+        try throwIfMayNotRunRepoCode()
         try throwIfJobsBlocked()
         try throwIfChatting(id)
         runRespondTests(prID: id)
@@ -573,6 +578,14 @@ extension AppModel: RespondActions {
         guard wait else { return respondInfo(id) }
         try await waitForRespond(id, events: events)
         return respondInfo(id)
+    }
+
+    /// The test command and a push (git hooks) run code from the repository, which Claude may have changed: from an
+    /// iPhone only with a fresh Face ID proof (decision H1; `RemotePolicy` already gates them, this is the last check).
+    private func throwIfMayNotRunRepoCode() throws {
+        guard CommandOrigin.mayRunRepoCode else {
+            throw CommandFailure(.unauthorized, CommandOrigin.presenceRequiredMessage)
+        }
     }
 
     func respondDiff(pr: String) throws -> RespondDiff {
@@ -584,19 +597,23 @@ extension AppModel: RespondActions {
                            sensitiveChanges: result.sensitiveChanges)
     }
 
-    func respondPush(pr: String, wait: Bool, events: CommandEventSink) async throws -> RespondInfo {
-        try await pushAndReply(pr: pr, anyway: false, wait: wait, events: events)
+    func respondPush(pr: String, wait: Bool, mode: RespondMode?, events: CommandEventSink) async throws -> RespondInfo {
+        try await pushAndReply(pr: pr, anyway: false, wait: wait, mode: mode, events: events)
     }
 
-    func respondPushAnyway(pr: String, wait: Bool, events: CommandEventSink) async throws -> RespondInfo {
-        try await pushAndReply(pr: pr, anyway: true, wait: wait, events: events)
+    func respondPushAnyway(pr: String, wait: Bool, mode: RespondMode?, events: CommandEventSink) async throws -> RespondInfo {
+        try await pushAndReply(pr: pr, anyway: true, wait: wait, mode: mode, events: events)
     }
 
     /// "Push and Reply" (o "Retry Pending Replies") y "Push Anyway". Con "Run tests before pushing" primero corren
     /// los tests (`pushRespond`); si fallan no se pushea y la respuesta lo dice.
-    private func pushAndReply(pr: String, anyway: Bool, wait: Bool, events: CommandEventSink) async throws -> RespondInfo {
+    private func pushAndReply(pr: String, anyway: Bool, wait: Bool, mode: RespondMode?,
+                              events: CommandEventSink) async throws -> RespondInfo {
         let id = try resolvePRID(pr)
+        try throwIfMayNotRunRepoCode()
         let record = try respondRecord(id)
+        // `prbar ci push` nunca pushea una corrida de Responder (ni al revés), tampoco con --yes (spec K.6.14).
+        if let problem = RespondPushGate.modeCheck(expected: mode, actual: respond.mode(of: id), prID: id) { throw problem }
         let gate = respondPushGate(prID: id)
         if let problem = RespondPushGate.commandCheck(
             record, phase: respond.phases[id], runningTests: respond.runningTests.contains(id),
@@ -676,8 +693,15 @@ extension AppModel: CIFixUsageActions {
             let phase = respond.runningTests.contains(item.id) ? "testing" : respond.phases[item.id]?.cliName
             return CIListEntry(pr: item.id, title: item.pr.title, url: item.pr.url, account: item.account,
                                phase: isCI ? phase : nil, respondInProgress: !isCI && respond.phases[item.id] != nil,
-                               unavailableReason: ciFixUnavailableReason(item))
+                               unavailableReason: ciFixUnavailableReason(item),
+                               failedChecks: failedCheckCount(item))
         }
+    }
+
+    /// Los checks que fallaron en el head actual, si un Fix CI ya los leyó (sin pedirle nada nuevo a GitHub).
+    private func failedCheckCount(_ item: ClassifiedPR) -> Int? {
+        guard let ci = respond.records[item.id]?.draft.ci, ci.headOid == item.pr.headOid else { return nil }
+        return ci.checks.count + ci.omitted.count
     }
 
     func ciFix(pr: String, wait: Bool, events: CommandEventSink) async throws -> RespondInfo {
@@ -686,7 +710,21 @@ extension AppModel: CIFixUsageActions {
         guard PopoverTabs.isMine(item) else {
             throw CommandFailure(.invalidState, "\(id) isn’t your PR: Fix CI is only for your own PRs.")
         }
-        guard item.pr.ciState == .failure else {
+        // Un Fix CI que quedó en `ready` (no pudo arrancar solo): lo mismo que el botón "Fix CI" de la ventana, sin
+        // volver a bajar los logs ni preparar otro worktree (L12).
+        if case .ready(let draft)? = respond.phases[id], draft.isCIFix {
+            if let jobsBlockedReason { throw CommandFailure(.invalidState, jobsBlockedReason) }
+            guard respond.implementCI(prID: id) else {
+                throw CommandFailure(.invalidState, "Couldn’t start Fix CI for \(id): something else is running on it. Try again in a moment.")
+            }
+            guard wait else { return respondInfo(id) }
+            try await waitForRespond(id, events: events)
+            return respondInfo(id)
+        }
+        // Como "Fix CI Again" en la ventana: una corrida de Fix CI abierta se puede repetir aunque el CI ya no figure
+        // como fallido en el último refresco.
+        let hasCIRun = respond.mode(of: id) == .ciFix && respond.phases[id] != nil
+        guard item.pr.ciState == .failure || hasCIRun else {
             throw CommandFailure(.invalidState, "\(id)’s CI isn’t failing (as of the last refresh). Run `prbar refresh` if it just failed.")
         }
         if let reason = respondSlotConflictReason(id, starting: .ciFix) {

@@ -300,7 +300,8 @@ public struct RespondPipeline: RespondPipelineRunning {
         let feedback = try await api.reviewFeedback(repo: pr.repo, number: pr.number, token: token)
         if feedback.isCrossRepository { throw PRBarError.respond(Self.forkMessage) }
         let head = feedback.headRefOid
-        let failing = CILogs.failing(try await ciAPI.checkRuns(repo: pr.repo, headOid: head, token: token))
+        let runs = try await ciAPI.checkRuns(repo: pr.repo, headOid: head, token: token)
+        let failing = CILogs.failing(runs)
         guard !failing.isEmpty else { throw PRBarError.respond(Self.noFailingChecksMessage) }
         var logs: [Int: String] = [:]
         for run in failing.prefix(CILogs.maxChecks) where run.isActions {
@@ -315,11 +316,17 @@ public struct RespondPipeline: RespondPipelineRunning {
         }
         try Task.checkCancellation()
         let (worktree, startHeadOid) = try await prepareWorktree(request, headRef: feedback.headRefName)
+        // Cancelado justo cuando terminaba de armarlo: nadie va a recibir el draft, así que el worktree se borra acá (L1).
+        if Task.isCancelled {
+            await Task.detached { [self] in await removeWorktree(worktree) }.value
+            throw CancellationError()
+        }
         guard startHeadOid == head else {
             await Task.detached { [self] in await removeWorktree(worktree) }.value
             throw PRBarError.respond("The PR got new commits while PRBar was reading its CI (now at \(startHeadOid.prefix(7))). Try Fix CI again.")
         }
-        let (ciItem, context) = CIFixItem.make(headOid: head, failing: failing, logs: logs, secrets: [token], prURL: pr.url)
+        let (ciItem, context) = CIFixItem.make(headOid: head, failing: failing, logs: logs, secrets: [token], prURL: pr.url,
+                                               total: Set(runs.map { $0.name.lowercased() }).count)
         return RespondDraft(
             id: draftID, prID: item.id, repo: pr.repo, number: pr.number, title: pr.title, url: pr.url,
             headRef: feedback.headRefName, account: item.account, worktree: worktree, startHeadOid: startHeadOid,

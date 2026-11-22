@@ -31,6 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.statusItem = statusItem
         WindowPresenter.shared.installMainMenu()
         model.showPopover = { [weak statusItem] in statusItem?.show() ?? false }
+        model.closePopover = { [weak statusItem] in statusItem?.close() }
     }
 
     /// ⌘Q (menu, popover, Dock) while jobs are running asks first: quitting cancels them. `prbar app quit`, the
@@ -39,17 +40,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let model else { return .terminateNow }
         let systemQuit = NSAppleEventManager.shared().currentAppleEvent?
             .attributeDescriptor(forKeyword: AEKeyword(kAEQuitReason)) != nil
-        let activeJobs = model.activeJobCount
-        guard QuitConfirmation.shouldAsk(activeJobs: activeJobs, programmatic: QuitRequest.skipsConfirmation || systemQuit)
-        else { return .terminateNow }
+        let activeJobs = model.activeJobCount + (model.updates.isInstalling ? 1 : 0)
+        let unpushed = model.respond.unpushedWork.count
+        guard QuitConfirmation.shouldAsk(activeJobs: activeJobs, unpushed: unpushed,
+                                         programmatic: QuitRequest.skipsConfirmation || systemQuit)
+        else { return terminateAfterStoppingProcesses(model) }
         // The panel is at menu level and would cover the alert. From it the app isn't active: the alert needs it, on
         // the Space the user is on.
         statusItem?.close()
         NSApp.activate()
-        let alert = ConfirmAlert.make(title: QuitConfirmation.title(activeJobs: activeJobs),
-                                      message: QuitConfirmation.message, action: "Quit")
+        let alert = ConfirmAlert.make(title: QuitConfirmation.title(activeJobs: activeJobs, unpushed: unpushed),
+                                      message: QuitConfirmation.message(activeJobs: activeJobs, unpushed: unpushed),
+                                      action: "Quit")
         alert.window.collectionBehavior.insert([.moveToActiveSpace, .fullScreenAuxiliary])
-        return ConfirmAlert.confirmed(alert.runModal()) ? .terminateNow : .terminateCancel
+        return ConfirmAlert.confirmed(alert.runModal()) ? terminateAfterStoppingProcesses(model) : .terminateCancel
+    }
+
+    private var stoppingProcesses = false
+
+    /// Cancela todo y espera (unos segundos como mucho) a que terminen los procesos que lanzó PRBar; los que no
+    /// terminan con SIGTERM reciben SIGKILL (`ProcessShutdown`). Recién después sale.
+    private func terminateAfterStoppingProcesses(_ model: AppModel) -> NSApplication.TerminateReply {
+        guard !stoppingProcesses else { return .terminateCancel }
+        stoppingProcesses = true
+        model.cancelEverythingForQuit()
+        Task { @MainActor in
+            await ProcessShutdown.terminateAll()
+            NSApp.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
 }
 

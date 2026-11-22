@@ -27,16 +27,24 @@ final class NotificationDelivery: NSObject, UNUserNotificationCenterDelegate {
         Bundle.main.bundleIdentifier == nil ? nil : UNUserNotificationCenter.current()
     }
 
-    func requestAuthorization() {
-        guard let center else {
-            AppLog.write("Notifications disabled: the app isn't running as a bundle.")
-            return
-        }
+    /// El delegado y las categorías van acá, antes de que termine de arrancar la app (se crea en
+    /// `applicationWillFinishLaunching`): el clic en una notificación que abrió PRBar llega enseguida y, sin delegado,
+    /// se pierde (M10). Pedir permiso sigue esperando a `requestAuthorization`.
+    override init() {
+        super.init()
+        guard let center else { return }
         center.delegate = self
         let open = UNNotificationAction(identifier: Self.openActionID, title: "Open", options: [.foreground])
         center.setNotificationCategories([
             UNNotificationCategory(identifier: Self.categoryID, actions: [open], intentIdentifiers: [])
         ])
+    }
+
+    func requestAuthorization() {
+        guard let center else {
+            AppLog.write("Notifications disabled: the app isn't running as a bundle.")
+            return
+        }
         center.requestAuthorization(options: [.alert, .sound]) { granted, error in
             if let error { AppLog.write("Notification permission: \(error.localizedDescription)") }
             if !granted { AppLog.write("The user didn't allow notifications.") }
@@ -49,7 +57,11 @@ final class NotificationDelivery: NSObject, UNUserNotificationCenterDelegate {
         return await center.notificationSettings().authorizationStatus == .denied
     }
 
+    /// También a los iPhones emparejados (lo asigna `AppModel`, spec P.9). Corre aunque no haya bundle.
+    var onDeliver: (([PlannedNotification]) -> Void)?
+
     func deliver(_ notifications: [PlannedNotification]) {
+        onDeliver?(notifications)
         guard let center else { return }
         for notification in notifications {
             let content = UNMutableNotificationContent()

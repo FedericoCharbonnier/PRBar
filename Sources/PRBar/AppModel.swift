@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import PRBarCore
+import PRBarRemoteMac
 import SwiftUI
 
 struct ResolvedTools: Equatable, Sendable {
@@ -52,6 +53,8 @@ struct AppModelServices {
     var popoverDefaults: UserDefaults? = .standard
     /// `nil`: `usage.json` in Application Support (spec O).
     var usageLedger: UsageLedger? = nil
+    /// El acceso desde el iPhone (spec Q). `nil`: sin red ni llavero (el modo de capturas).
+    var remoteAccess: RemoteServiceEnvironment? = nil
 
     static func live(runner: SystemProcessRunner) -> AppModelServices {
         let accounts = AccountProvider(runner: runner, ghPath: nil)
@@ -59,7 +62,8 @@ struct AppModelServices {
         let keychain = KeychainStore()
         // Sin provider guardado: el conector de Claude, salvo que ya haya un token de usuario (solo atributos, así
         // abrir la app no pide permiso al Llavero).
-        if !configStore.config.slack.providerChosen {
+        // No con una config que no se pudo leer: guardar los defaults pisaría el archivo del usuario.
+        if !configStore.config.slack.providerChosen && configStore.savesAutomatically {
             let hasToken = (try? keychain.exists(SlackAnnouncer.tokenKey)) ?? false
             do {
                 try configStore.update { $0.resolveDefaultSlackProvider(hasUserToken: hasToken) }
@@ -69,13 +73,19 @@ struct AppModelServices {
         }
         // La API real se arma en `rebuildSlackAPI()` cuando se conoce la ruta de claude (antes del primer refresco).
         let slack = SlackAnnouncer(api: SlackClient(), provider: configStore.config.slack.provider, secrets: keychain)
-        return AppModelServices(
+        var services = AppModelServices(
             configStore: configStore, stateStore: SnapshotStore(), accounts: accounts, api: GitHubClient(), slack: slack,
             notifications: NotificationDelivery(), history: ReviewHistory(), respondHistory: RespondHistory(),
             claudeSkills: ClaudeSkills()
         )
+        services.remoteAccess = .live(macName: Host.current().localizedName ?? "Mac",
+                                      appVersion: AppVersion.current())
+        return services
     }
 }
+
+/// Cierra el panel del ícono (`AppModel.closePopover`).
+typealias PopoverCloser = @MainActor () -> Void
 
 @MainActor
 final class AppModel: ObservableObject {
@@ -154,7 +164,8 @@ final class AppModel: ObservableObject {
         configStore: configStore, transport: updateTransport, runner: runner, notifications: notifications,
         gitPath: { [weak self] in self?.tools.git },
         activeJobs: { [weak self] in self?.activeJobCount ?? 0 },
-        cancelJobs: { [weak self] in self?.cancelJobsForUpdate() }
+        cancelJobs: { [weak self] in self?.cancelJobsForUpdate() },
+        unpushedFixes: { [weak self] in self?.respond.unpushedWork.count ?? 0 }
     )
     /// Publicaciones en GitHub (review) y Slack en curso: una actualización las espera (spec D.3). Las de Responder
     /// ya cuentan por su fase (`pushing`).
@@ -177,6 +188,8 @@ final class AppModel: ObservableObject {
     /// Cuándo se pidió cada review (por prID), para el `ReviewRecord`.
     private var reviewStarts: [String: Date] = [:]
     private var terminationObserver: NSObjectProtocol?
+    /// Chats discarded while a turn was running, until it ends (`discardChat`).
+    private var retiringChats: [UUID: ChatCoordinator] = [:]
     /// El socket de `prbar` (spec C.2); `nil` en el modo de capturas o si no se pudo abrir.
     var commandServer: CommandServer?
     /// Re-renders the views that use `jobsBlockedReason` when an update starts or ends.
@@ -195,6 +208,8 @@ final class AppModel: ObservableObject {
     let popoverTab: PopoverTabState
     /// Abre el panel de la barra de menú (`StatusItemController.show`); `false` si no pudo. Lo pone `AppDelegate`.
     var showPopover: (() -> Bool)?
+    /// Cierra el panel (lo asigna `AppDelegate`): una alerta desde el panel lo cierra antes (`confirmFromPopover`).
+    var closePopover: PopoverCloser?
     /// La fila elegida con ↑/↓ en el popover.
     let popoverRows = PopoverRowSelection()
     /// Claude's usage, one entry per run (spec O). Written from any thread by `ClaudeUsageCenter`'s observer.
@@ -203,6 +218,14 @@ final class AppModel: ObservableObject {
     @Published var usageRevision = 0
     /// The snapshot mode's "running" tasks' Claude usage (`liveClaudeUsage`); empty in the real app.
     var snapshotLiveUsage: [ProcessActivity: ClaudeUsage] = [:]
+    /// El acceso desde el iPhone (spec Q). `lazy` porque guarda `self` como sus acciones y su config.
+    private(set) lazy var remoteAccess = RemoteAccessService(settings: self, environment: remoteEnvironment)
+    let remoteEnvironment: RemoteServiceEnvironment
+    /// Avisos de cambios para el feed del iPhone y los chats que miran los teléfonos (AppModel+Remote).
+    var remoteObservers: [AnyCancellable] = []
+    /// Por id de la sesión del chat (no por la dirección del objeto, que se puede reusar; L8). Se borra al descartarlo.
+    var remoteChatWatchers: [UUID: AnyCancellable] = [:]
+    var remoteSystem: RemoteSystemObservers?
 
     @Published private(set) var tools = ResolvedTools()
     @Published private(set) var toolsResolved = false
@@ -246,6 +269,9 @@ final class AppModel: ObservableObject {
         self.discardStats = services.discardStats ?? DiscardStatsStore()
         self.mergeHistory = services.mergeHistory ?? MergeHistory()
         self.usageLedger = services.usageLedger ?? UsageLedger()
+        self.remoteEnvironment = services.remoteAccess
+            ?? .offline(directory: FileManager.default.temporaryDirectory.appendingPathComponent("prbar-remote-\(UUID().uuidString)"),
+                        appVersion: "0")
         self.claudeSkills = services.claudeSkills
         self.reviewPipeline = services.reviewPipeline
         self.respondPipeline = services.respondPipeline
@@ -278,6 +304,7 @@ final class AppModel: ObservableObject {
             Task { @MainActor in self?.usageRevision += 1 }
         }
         startCommandServer()
+        startRemoteAccess()
         WindowPresenter.shared.openSettings = { [weak self] in self?.openSettings() }
         WindowPresenter.shared.openHistory = { [weak self] in self?.openHistory() }
         WindowPresenter.shared.openActivity = { [weak self] in self?.openActivityWindow() }
@@ -293,17 +320,14 @@ final class AppModel: ObservableObject {
         notifications?.onSelectPR = { [weak self] prID in self?.selectTab(forNotificationPR: prID) }
         notifications?.onOpenActivity = { [weak self] in self?.openActivityWindow() }
         notifications?.onOpenMerge = { [weak self] prID in self?.openMergeFromNotification(prID: prID) }
-        // Al salir se cancela todo: el runner manda SIGTERM al grupo de procesos de cada Claude (y sus `git`/`gh`).
-        // Los worktrees que queden los borra la limpieza de huérfanos del próximo arranque.
+        // Al salir se cancela todo (`cancelEverythingForQuit`; `AppDelegate` además espera a que terminen los procesos
+        // y mata los que no). Los worktrees que queden los borra la limpieza de huérfanos del próximo arranque, salvo
+        // los que tienen trabajo sin pushear.
         terminationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.stopCommandServer()
-                self?.reviews.cancelAll()
-                self?.respond.cancelAll()
-                // A turn that was running stays `pending` in its record and reopens as "Interrupted" (spec B.9).
-                self?.chatScheduler.cancelAll()
+                self?.cancelEverythingForQuit()
                 // The usage ledger writes in the background: whatever is pending reaches the disk before quitting.
                 self?.usageLedger.flush()
             }
@@ -311,6 +335,19 @@ final class AppModel: ObservableObject {
         // En segundo plano y sin esperar a nadie: cada host que responde limpia lo que quedó de antes (J.7.16).
         startRemoteOrphanCleanup()
         Task { await bootstrap() }
+    }
+
+    /// Al salir: corta el socket y el acceso remoto y cancela reviews, Responder, chats y el chat de instrucciones (el
+    /// runner manda SIGTERM al grupo de procesos de cada uno). Se puede llamar más de una vez.
+    func cancelEverythingForQuit() {
+        stopCommandServer()
+        stopRemoteAccess()
+        reviews.cancelAll()
+        respond.cancelAll()
+        // A turn that was running stays `pending` in its record and reopens as "Interrupted" (spec B.9).
+        chatScheduler.cancelAll()
+        for chat in runningChats { chat.stop() }
+        instructionsChat.stop()
     }
 
     /// Modo de capturas: herramientas y cuentas como si ya se hubieran encontrado, sin correr `gh` ni buscar nada.
@@ -840,6 +877,7 @@ final class AppModel: ObservableObject {
                              })
         )
         chats[draft.id] = chat
+        watchChatForPhones(chat, prID: draft.prID)
         return chat
     }
 
@@ -857,12 +895,17 @@ final class AppModel: ObservableObject {
 
     /// Los chats (Review o Respond) con un turno corriendo o en cola: cuentan como trabajos al actualizar (spec D.3).
     var runningChats: [ChatCoordinator] {
-        (Array(chats.values) + mergeSessions.values.compactMap(\.chat)).filter(\.isRunning)
+        (Array(chats.values) + mergeSessions.values.compactMap(\.chat) + retiringChats.values).filter(\.isRunning)
     }
 
-    /// The chat's worktree goes away with its review or respond (spec B.5).
-    private func discardChat(draftID: UUID) {
-        chats.removeValue(forKey: draftID)?.discardWorkspace()
+    /// The chat's worktree goes away with its review or respond (spec B.5). A running turn is stopped first (M9); until
+    /// it really ends the chat stays in `retiringChats`, so quitting, updating and Activity still see it.
+    func discardChat(draftID: UUID) {
+        retiringChats = retiringChats.filter { $0.value.isRunning }
+        guard let chat = chats.removeValue(forKey: draftID) else { return }
+        remoteChatWatchers[chat.session.id] = nil
+        if chat.isRunning { retiringChats[draftID] = chat }
+        chat.discard()
     }
 
     /// The Respond window's coordinator: the decisions start as saved (or Claude's), and the conversation comes from
@@ -897,6 +940,7 @@ final class AppModel: ObservableObject {
             )
         )
         chats[draft.id] = chat
+        watchChatForPhones(chat, prID: prID)
         return chat
     }
 
@@ -996,16 +1040,56 @@ final class AppModel: ObservableObject {
     }
 
     /// Analiza el feedback sin resolver del PR (spec §14). Un registro anterior terminado (listo, publicado o
-    /// fallido) se reemplaza; uno con fixes sin pushear no (la cola lo ignora).
+    /// fallido) se reemplaza, con su worktree y su chat; uno con trabajo sin pushear no (la cola lo ignora).
     func startRespond(_ item: ClassifiedPR) {
         guard respondUnavailableReason(item) == nil, respondSlotConflictReason(item.id, starting: .feedback) == nil else { return }
         let localPath = localPath(for: item)
         let worktreeDir = repoConfig(account: item.account, repo: item.pr.repo)?.worktreeDir
-        respond.analyze(item, localPath: localPath, worktreeDir: worktreeDir)
+        let previous = respond.records[item.id]?.draft
+        // La corrida anterior se reemplaza: su chat se va con su worktree (M5).
+        if respond.analyze(item, localPath: localPath, worktreeDir: worktreeDir), let previous {
+            discardChat(draftID: previous.id)
+        }
     }
 
     func cancelRespond(prID: String) {
         respond.cancel(prID: prID)
+    }
+
+    /// "Dismiss" de la fila: con trabajo sin pushear pregunta antes de borrarlo (M11).
+    func confirmDismissRespond(prID: String) {
+        guard respond.unpushedWork.contains(prID) else { return dismissRespond(prID: prID) }
+        if confirmFromPopover(title: RespondDiscardCopy.title,
+                              message: RespondDiscardCopy.message(worktree: respond.records[prID]?.draft.worktree.path),
+                              action: "Discard") {
+            dismissRespond(prID: prID)
+        }
+    }
+
+    /// Una confirmación pedida desde el panel (que está a nivel de menú y taparía la alerta, y se cierra con cualquier
+    /// clic afuera): se cierra el panel y la alerta va al frente, en el Space del usuario, como la de salir.
+    func confirmFromPopover(title: String, message: String, action: String) -> Bool {
+        closePopover?()
+        NSApp.activate()
+        let alert = ConfirmAlert.make(title: title, message: message, action: action)
+        alert.window.collectionBehavior.insert([.moveToActiveSpace, .fullScreenAuxiliary])
+        return ConfirmAlert.confirmed(alert.runModal())
+    }
+
+    /// "Analyze Again" / "Fix CI Again" con trabajo sin pushear: pregunta, lo descarta y vuelve a empezar.
+    func discardAndRestartRespond(_ item: ClassifiedPR, mode: RespondMode) {
+        let restart = { [weak self] in
+            guard let self else { return }
+            if self.respond.unpushedWork.contains(item.id) {
+                if let draft = self.respond.records[item.id]?.draft { self.discardChat(draftID: draft.id) }
+                self.respond.dismiss(prID: item.id)
+            }
+            if mode == .ciFix { self.startCIFix(item) } else { self.startRespond(item) }
+        }
+        guard respond.unpushedWork.contains(item.id) else { return restart() }
+        ConfirmAlert.present(title: RespondDiscardCopy.title,
+                             message: RespondDiscardCopy.message(worktree: respond.records[item.id]?.draft.worktree.path),
+                             action: "Discard and Start Over", perform: restart)
     }
 
     func dismissRespond(prID: String) {

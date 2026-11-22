@@ -229,6 +229,14 @@ enum CLIIntegrationTests {
         try expectEqual(push.code, CLIExit.invalidState)
         try expect(push.err.contains("isn’t a Fix CI"), push.err)
         try expectEqual(harness.fake.calls, ["ciList", "ciFix api#12 wait=false", "usage 2026-10", "usage -", "respondShow api#12"])
+        // Con --yes no hay pregunta: el pedido lleva el modo y la app no pushea una corrida que no sea Fix CI.
+        _ = try await runCLI(["ci", "push", "api#12", "--yes"], socket: harness.url)
+        try expectEqual(harness.fake.calls.last, "respondPush api#12 wait=false mode=ciFix")
+        try expectEqual(RespondPushGate.modeCheck(expected: .ciFix, actual: .feedback, prID: "acme/api#12")?.message,
+                        "acme/api#12 isn’t a Fix CI: use `prbar respond push acme/api#12`.")
+        try expectEqual(RespondPushGate.modeCheck(expected: .feedback, actual: .ciFix, prID: "acme/api#12")?.code, .invalidState)
+        try expect(RespondPushGate.modeCheck(expected: .ciFix, actual: .ciFix, prID: "acme/api#12") == nil)
+        try expect(RespondPushGate.modeCheck(expected: nil, actual: .feedback, prID: "acme/api#12") == nil)
     }
 
     @MainActor
@@ -318,6 +326,17 @@ enum CLIIntegrationTests {
         let asked = try await runCLI(["cleanup", "--older-than", "30d"], socket: harness.url, interactive: true)
         try expectEqual(asked.code, 0)
         try expect(harness.fake.calls.contains("cleanup 30 confirmed=true paths=/w/a,/w/b"), "\(harness.fake.calls)")
+        // Sin terminal ni --yes: sale con 4 sin imprimir la tabla de lo que no va a borrar (L17).
+        let script = try await runCLI(["cleanup"], socket: harness.url)
+        try expectEqual(script.code, 4)
+        try expect(!script.out.contains("Delete"), script.out)
+        // `runners remove` pregunta en la terminal como Settings; "no" no borra (L13).
+        let declined = try await runCLI(["runners", "remove", "devbox"], socket: harness.url, interactive: true, answer: false)
+        try expectEqual(declined.code, CLIExit.cancelled)
+        try expect(!harness.fake.calls.contains("runnerRemove devbox"), "\(harness.fake.calls)")
+        let removed = try await runCLI(["runners", "remove", "devbox"], socket: harness.url)
+        try expectEqual(removed.code, 0)
+        try expect(harness.fake.calls.contains("runnerRemove devbox"), "\(harness.fake.calls)")
     }
 
     @MainActor

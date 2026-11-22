@@ -74,10 +74,6 @@ public enum CIState: String, Codable, Sendable {
     case success, failure, pending, none
 }
 
-public enum ReviewDecision: String, Codable, Sendable {
-    case approved, changesRequested, reviewRequired, none
-}
-
 public struct PullRequest: Hashable, Codable, Sendable, Identifiable {
     public let repo: RepoRef
     public let number: Int
@@ -102,13 +98,18 @@ public struct PullRequest: Hashable, Codable, Sendable, Identifiable {
     public let requestedReviewers: [String]
     /// Si se puede mergear (spec F.2). `.unknown` en `state.json` viejos.
     public let merge: PRMergeState
+    /// El nombre visible del autor ("Laura Méndez"); nil sin nombre o en `state.json` viejos.
+    public let authorName: String?
+    /// Archivos que cambia; nil en `state.json` viejos.
+    public let changedFiles: Int?
 
     public init(
         repo: RepoRef, number: Int, title: String, url: URL, isDraft: Bool,
         author: String, authorAvatarURL: URL?, baseRef: String, headRef: String, headOid: String,
         additions: Int, deletions: Int, createdAt: Date, updatedAt: Date, lastCommitAt: Date,
         ciState: CIState, reviewDecision: ReviewDecision,
-        reviews: [PRReview], comments: [PRComment], requestedReviewers: [String], merge: PRMergeState = .unknown
+        reviews: [PRReview], comments: [PRComment], requestedReviewers: [String], merge: PRMergeState = .unknown,
+        authorName: String? = nil, changedFiles: Int? = nil
     ) {
         self.repo = repo
         self.number = number
@@ -131,6 +132,8 @@ public struct PullRequest: Hashable, Codable, Sendable, Identifiable {
         self.comments = comments
         self.requestedReviewers = requestedReviewers
         self.merge = merge
+        self.authorName = authorName
+        self.changedFiles = changedFiles
     }
 
     public var id: String { "\(repo.fullName)#\(number)" }
@@ -138,6 +141,7 @@ public struct PullRequest: Hashable, Codable, Sendable, Identifiable {
     private enum CodingKeys: String, CodingKey {
         case repo, number, title, url, isDraft, author, authorAvatarURL, baseRef, headRef, headOid, additions, deletions
         case createdAt, updatedAt, lastCommitAt, ciState, reviewDecision, reviews, comments, requestedReviewers, merge
+        case authorName, changedFiles
     }
 
     /// Los `state.json` de antes de Ready to Merge no tienen `merge`: se leen con `.unknown`.
@@ -164,28 +168,9 @@ public struct PullRequest: Hashable, Codable, Sendable, Identifiable {
         comments = try c.decode([PRComment].self, forKey: .comments)
         requestedReviewers = try c.decode([String].self, forKey: .requestedReviewers)
         merge = (try? c.decodeIfPresent(PRMergeState.self, forKey: .merge)) ?? .unknown
+        authorName = try c.decodeIfPresent(String.self, forKey: .authorName)
+        changedFiles = try c.decodeIfPresent(Int.self, forKey: .changedFiles)
     }
-}
-
-public enum PRCategory: String, Codable, Sendable, CaseIterable, Comparable, Identifiable {
-    case toReview, updatedSinceMyReview, myFeedback, readyToMerge, other
-
-    public var id: String { rawValue }
-    public var countsForBadge: Bool { self != .other }
-
-    public var title: String {
-        switch self {
-        case .toReview: "To Review"
-        case .updatedSinceMyReview: "Updated Since My Review"
-        case .myFeedback: "My PRs with Feedback"
-        case .readyToMerge: "Ready to Merge"
-        case .other: "Other"
-        }
-    }
-
-    private var order: Int { Self.allCases.firstIndex(of: self)! }
-
-    public static func < (lhs: PRCategory, rhs: PRCategory) -> Bool { lhs.order < rhs.order }
 }
 
 public struct ClassifiedPR: Hashable, Codable, Sendable, Identifiable {

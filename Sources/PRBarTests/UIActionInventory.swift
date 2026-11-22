@@ -53,7 +53,7 @@ enum UIActionInventory {
         .init("Components/WindowCommands.swift", "Component:WindowAccessor", "-", 1, .viewOnly("finds the window a View menu command acts on")),
         .init("Components/WindowCommands.swift", "Component:WindowCommandModifier", "-", 1, .viewOnly("registers a window’s View menu commands (Show Chat, Refresh)")),
         // PRBar Activity (plan 13, spec I)
-        .init("Activity/ActivityWindow.swift", "Button", "Stop", 2, .cli(["review cancel", "respond cancel", "chat", "rules chat", "update"])),   // por tarea; el de update deshabilitado
+        .init("Activity/ActivityWindow.swift", "Button", "Stop", 2, .cli(["review cancel", "respond cancel", "ci cancel", "chat", "rules chat", "update"])),   // por tarea; el de update deshabilitado
         .init("Activity/ActivityWindow.swift", "Button", "Refresh", 1, .cli(["resources"])),
         .init("Activity/ActivityWindow.swift", "Toggle", "Also delete history and logs older than", 1, .cli(["cleanup"])),   // --older-than
         .init("Activity/ActivityWindow.swift", "Stepper", #"\(olderThanDays) days"#, 1, .cli(["cleanup"])),
@@ -322,6 +322,21 @@ enum UIActionInventory {
         .init("Settings/SlackTab.swift", "Toggle", "Reply “Merged” in the thread when I merge from PRBar", 1, .cli(["slack set"])),
         .init("Settings/SlackTab.swift", "TextField", "Emoji", 1, .cli(["slack emoji"])),
         .init("Settings/SlackTab.swift", "Stepper", "-", 1, .cli(["slack search-days"])),
+        // Settings › iPhone (spec Q.2)
+        .init("Settings/IPhoneTab.swift", "Toggle", "-", 3, .cli(["remote enable", "remote disable", "remote keep-awake", "remote mailbox"])),   // Allow…, Keep awake, mailbox
+        .init("Settings/IPhoneTab.swift", "Button", "Pair iPhone…", 1, .cli(["remote pair"])),
+        .init("Settings/IPhoneTab.swift", "Component:PairIPhoneSheet", "-", 1, .cli(["remote pair"])),
+        .init("Settings/IPhoneTab.swift", "Component:EnableRemoteSheet", "-", 1, .cli(["remote enable"])),
+        .init("Settings/IPhoneTab.swift", "Toggle", "Require Face ID", 1, .cli(["remote devices"])),   // --require-face-id
+        .init("Settings/IPhoneTab.swift", "Button", "Revoke…", 1, .cli(["remote revoke"])),
+        .init("Settings/IPhoneTab.swift", "Button", "Reset iPhone Access…", 1, .cli(["remote reset"])),
+        .init("Settings/IPhoneTab.swift", "ConfirmAlert", "-", 2, .cli(["remote revoke", "remote reset"])),
+        .init("Settings/PairIPhoneSheet.swift", "Button", "Codes Match", 1, .cli(["remote pair"])),   // y
+        .init("Settings/PairIPhoneSheet.swift", "Button", "Cancel", 1, .cli(["remote pair"])),   // n closes the slot
+        .init("Settings/EnableRemoteSheet.swift", "TextField", "Relay server", 1, .cli(["remote enable"])),   // --relay
+        .init("Settings/EnableRemoteSheet.swift", "SecureField", "Enrollment token", 1, .cli(["remote enable"])),   // asked without echo
+        .init("Settings/EnableRemoteSheet.swift", "Button", "Enable", 1, .cli(["remote enable"])),
+        .init("Settings/EnableRemoteSheet.swift", "Button", "Cancel", 1, .viewOnly("closes the sheet")),
         .init("Settings/SlackTemplateEditor.swift", "TextField", "-", 1, .cli(["slack template set"])),
         .init("Settings/SlackTemplateEditor.swift", "Button", "-", 1, .cli(["slack template set"])),   // Insert Variable
         .init("Settings/SlackTemplateEditor.swift", "Button", "Reset to Default", 1, .cli(["slack template reset"])),
@@ -337,6 +352,8 @@ enum UIActionInventory {
         .init("WindowPresenter.swift", "NSAlertButton", "Cancel", 1, .viewOnly("keeps the window open")),
         .init("AppModel+Updates.swift", "Component:UpdateWindow", "-", 1, .cli(["update"])),
         .init("AppModel.swift", "Component:ReviewWindow", "-", 1, .viewOnly("window plumbing (unsaved state, close)")),
+        // Descartar trabajo sin pushear (Dismiss, Analyze Again / Fix CI Again): la CLI pregunta lo mismo.
+        .init("AppModel.swift", "ConfirmAlert", "-", 1, .cli(["respond dismiss", "ci dismiss"])),   // --yes
         .init("AppModel.swift", "Component:RespondWindow", "-", 1, .viewOnly("window plumbing (unsaved state, close)")),
         .init("Popover/PRRowView.swift", "Component:ReviewButtonActions", "-", 2,
               .cli(["review start", "review cancel", "open", "review dismiss"])),
@@ -399,6 +416,7 @@ enum UIActionInventory {
         .init("Settings/RunOnSection.swift", "Button", "Test Connection", 1, .cli(["runners test"])),
         .init("Settings/RunOnSection.swift", "Button", "-", 1, .cli(["runners remove"])),   // Remove (red label)
         .init("Settings/RunOnSection.swift", "ConfirmAlert", "-", 1, .cli(["runners remove"])),
+        .init("Update/UpdateWindow.swift", "ConfirmAlert", "Update while fixes aren’t pushed?", 1, .cli(["update"])),   // la pregunta lo dice
         .init("Settings/RunOnSection.swift", "Component:AddRunnerSheet", "-", 1, .cli(["runners add"])),
         .init("Settings/RunOnSection.swift", "Picker", "From ~/.ssh/config", 1, .cli(["runners add"])),
         .init("Settings/RunOnSection.swift", "TextField", "Host", 1, .cli(["runners add"])),

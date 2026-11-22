@@ -479,6 +479,17 @@ public final class ChatCoordinator: ObservableObject {
         }
     }
 
+    /// Its review or respond goes away (discarded, replaced by a new run): a running turn is stopped first and the
+    /// workspace deleted once it really ended (Claude may still be in the worktree).
+    public func discard() {
+        if turnID != nil {
+            discardWhenIdle = true
+            stop()
+        } else {
+            discardWorkspace()
+        }
+    }
+
     /// Deletes the chat's worktree (Review) or context and snapshot refs (Respond), in the background.
     public func discardWorkspace() {
         let backend = self.backend

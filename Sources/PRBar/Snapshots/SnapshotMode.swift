@@ -379,12 +379,15 @@ private final class SnapshotSession {
     private func settings() async throws {
         let model = try makeModel("settings", snapshot: fixtures.snapshot)
         model.updates.applySnapshotState(available: SnapshotFixtures.updateRelease)
+        // Settings › iPhone: conectado, con dos iPhones y el link de instalación (spec Q.2).
+        try SnapshotFixtures.applyIPhone(model, .connected)
         let sizes: [SettingsWindow.Tab: NSSize] = [
             .general: NSSize(width: 700, height: 905),
             .claude: NSSize(width: 700, height: 2470),
             .instructions: NSSize(width: 700, height: 1330),
             .repos: NSSize(width: 700, height: 1330),
             .slack: NSSize(width: 700, height: 1260),
+            .iphone: NSSize(width: 700, height: 880),
         ]
         for tab in SettingsWindow.Tab.allCases {
             for appearance in options.appearances {
@@ -407,6 +410,60 @@ private final class SnapshotSession {
                 }
                 try write(SnapshotRenderer.capture(window, includeFrame: true, cornerRadius: 16), "settings-\(tab.rawValue)", appearance)
             }
+        }
+        try await iphoneSettings(model)
+    }
+
+    /// Los otros estados de Settings › iPhone y las dos caras de "Pair iPhone…" (spec Q.2).
+    private func iphoneSettings(_ model: AppModel) async throws {
+        for (state, name) in [(SnapshotFixtures.IPhoneState.off, "settings-iphone-off")] {
+            try SnapshotFixtures.applyIPhone(model, state)
+            for appearance in options.appearances {
+                let tab = SettingsWindow.Tab.iphone
+                let size = NSSize(width: 700, height: 720)
+                let controller = SettingsWindow.makeController(model: model, tab: tab)
+                if let tabs = controller as? NSTabViewController {
+                    for item in tabs.tabViewItems { item.viewController?.preferredContentSize = size }
+                }
+                let window = SnapshotRenderer.makeWindow(
+                    controller: controller, size: size,
+                    style: [.titled, .closable], title: tab.title, toolbarStyle: .preference,
+                    appearance: SnapshotRenderer.appearance(appearance)
+                )
+                window.setContentSize(size)
+                await SnapshotRenderer.settle(window, seconds: 1)
+                if appearance == .dark {
+                    window.toolbar?.selectedItemIdentifier = nil
+                    await SnapshotRenderer.settle(window, seconds: 0.2)
+                }
+                try write(SnapshotRenderer.capture(window, includeFrame: true, cornerRadius: 16), name, appearance)
+            }
+        }
+        for (state, name) in [(SnapshotFixtures.IPhoneState.pairingQR, "iphone-pair-qr"), (.pairingCode, "iphone-pair-code")] {
+            try SnapshotFixtures.applyIPhone(model, state)
+            try await sheet(name, size: NSSize(width: 420, height: 400)) {
+                PairIPhoneSheet(model: model, remote: model.remoteAccess, startsPairing: false) {}
+            }
+        }
+        try await sheet("iphone-enable", size: NSSize(width: 460, height: 300)) {
+            EnableRemoteSheet(model: model, initialHost: RemoteSettings.defaultRelayHost) {}
+        }
+    }
+
+    /// Una hoja sola, como se ve sobre su ventana (sin barra de título).
+    private func sheet<Content: View>(_ name: String, size: NSSize, content: @escaping () -> Content) async throws {
+        for appearance in options.appearances {
+            let controller = NSHostingController(rootView: content()
+                .background(Color(nsColor: .windowBackgroundColor))
+                .environment(\.controlActiveState, .key))
+            let window = SnapshotRenderer.makeWindow(
+                controller: controller, size: size, style: [.titled], title: "",
+                appearance: SnapshotRenderer.appearance(appearance)
+            )
+            await SnapshotRenderer.settle(window, seconds: 0.5)
+            window.setContentSize(controller.view.fittingSize)
+            await SnapshotRenderer.settle(window, seconds: 0.3)
+            try write(SnapshotRenderer.capture(window, includeFrame: false), name, appearance)
         }
     }
 

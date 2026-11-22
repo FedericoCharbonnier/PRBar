@@ -253,12 +253,32 @@ public struct RemoteFixImport: Sendable {
             throw PRBarError.respond("The origin remote of \(repository) no longer points only to github.com/\(draft.repo.fullName) "
                                      + "(\(urls.joined(separator: ", "))): not pushing.")
         }
-        let pushed = try await withCredentials(token, temporary: objects.temporary) { credentials in
+        let localRunner = self.localRunner, localGit = self.localGit, gitEnvironment = self.gitEnvironment
+        let pushed = try await withCredentials(token, temporary: objects.temporary) { credentials -> ProcessResult? in
+            // Un push anterior que se cortó tarde (o este, cortado) ya dejó la rama en lo revisado (M6).
+            let alreadyPushed: @Sendable () async -> Bool = {
+                await Task.detached {
+                    let args = ["-C", repository] + GitHardening.arguments + credentials
+                        + RespondPublisher.lsRemoteArguments(headRef: draft.headRef)
+                    guard let result = try? await localRunner.run(localGit, args, environment: gitEnvironment, currentDirectory: nil,
+                                                                  timeout: ProcessTimeouts.standard), result.status == 0 else { return false }
+                    return RespondPublisher.remoteHead(fromLsRemote: result.stdout, headRef: draft.headRef) == reviewed
+                }.value
+            }
             let args = ["-C", repository] + RespondPublisher.pushHardening + credentials
                 + RespondPublisher.pushArguments(reviewed: reviewed, headRef: draft.headRef, startHeadOid: draft.startHeadOid)
-            return try await localRunner.run(localGit, args, environment: gitEnvironment, currentDirectory: nil,
-                                             timeout: RespondPublisher.pushTimeout)
+            let result: ProcessResult
+            do {
+                result = try await localRunner.run(localGit, args, environment: gitEnvironment, currentDirectory: nil,
+                                                   timeout: RespondPublisher.pushTimeout)
+            } catch {
+                if await alreadyPushed() { return nil }
+                throw error
+            }
+            if result.status != 0, await alreadyPushed() { return nil }
+            return result
         }
+        guard let pushed else { return }
         guard pushed.status == 0 else {
             let stderr = [pushed.stderr, pushed.stdout].joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
             throw PRBarError.respond(RespondPublisher.pushFailureMessage(stderr: Redactor.redact(stderr, secrets: [token].compactMap { $0 })))

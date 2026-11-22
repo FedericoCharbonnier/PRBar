@@ -92,6 +92,12 @@ private func finished(_ keys: String...) -> Set<QueueEvent> { Set(keys.map { .fi
 
 private struct Kaboom: Error {}
 
+@MainActor
+private final class OriginLog {
+    var values: [String: CommandOrigin] = [:]
+    func set(_ key: String, _ origin: CommandOrigin) { values[key] = origin }
+}
+
 /// Síncrona a propósito: `Thread.isMainThread` no se puede leer desde un contexto async.
 private func onMainThread() -> Bool { Thread.isMainThread }
 
@@ -111,6 +117,32 @@ enum JobSchedulerTests {
             try expectEqual(h.starts, ["a", "b", "c"])
             try expect(!h.scheduler.isActive("a"))
             try expect(h.scheduler.isActive("c") && !h.scheduler.isQueued("c"))
+        },
+        TestCase("job scheduler: un trabajo que arrancó un iPhone corre, termina y arranca el siguiente como la Mac (H1)") { @MainActor in
+            let events = QueueEventLog()
+            let scheduler = JobScheduler<String>(maxConcurrent: 1)
+            let origins = OriginLog()
+            let jobs = FakeJobs(events: events)
+            @MainActor func enqueue(_ key: String) {
+                scheduler.enqueue(key, onStart: {}, work: { [jobs] in
+                    let origin = CommandOrigin.current
+                    await origins.set("work " + key, origin)
+                    try await jobs.work(key)()
+                }, onComplete: { _ in
+                    origins.set("done " + key, CommandOrigin.current)
+                    events.record(.finished(key))
+                })
+            }
+            CommandOrigin.$current.withValue(.phone(device: "d", mayRunRepoCode: false)) { enqueue("phone") }
+            enqueue("mac")
+            try await events.wait(for: started("phone"))
+            jobs.complete("phone")
+            try await events.wait(for: started("mac").union(finished("phone")))
+            jobs.complete("mac")
+            try await events.wait(for: finished("mac"))
+            for key in ["work phone", "done phone", "work mac", "done mac"] {
+                try expect(origins.values[key] == .mac, key)
+            }
         },
         TestCase("job scheduler: arranca en orden FIFO cuando corre de a uno") { @MainActor in
             let h = SchedulerHarness(maxConcurrent: 1)

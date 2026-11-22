@@ -157,7 +157,9 @@ struct CIPush: RemoteCommand {
     }
 
     func appCommand(confirmed: Bool) -> AppCommand {
-        anyway ? .respondPushAnyway(pr: pr, confirmed: confirmed, wait: wait) : .respondPush(pr: pr, confirmed: confirmed, wait: wait)
+        // Con el modo: con --yes no hay `confirmation()`, y la app no pushea una corrida que no sea Fix CI (K.6.14).
+        anyway ? .respondPushAnyway(pr: pr, confirmed: confirmed, wait: wait, mode: .ciFix)
+            : .respondPush(pr: pr, confirmed: confirmed, wait: wait, mode: .ciFix)
     }
     func render(_ result: JSONValue, _ output: Output) throws { CIRender.info(try result.decode(), output) }
 }
@@ -176,6 +178,9 @@ struct CIDismiss: RemoteCommand {
     @Argument(help: prHelp) var pr: String
     @OptionGroup var global: GlobalOptions
 
+    func confirmation(_ connection: AppConnection, _ output: Output) throws -> String? {
+        try RespondDiscardQuestion.ask(pr: pr, connection)
+    }
     func appCommand(confirmed: Bool) -> AppCommand { .respondDismiss(pr: pr) }
     func render(_ result: JSONValue, _ output: Output) throws { output.line("Dismissed.") }
 }

@@ -140,6 +140,28 @@ let allTests: [TestCase] = []
     + RemoteFlowTests.cases
     + RunnerCoordinatorTests.cases
     + RunnerDispatchTests.cases
+    + WireTests.cases
+    + NoiseTests.cases
+    + SealedTests.cases
+    + SASTests.cases
+    + PairingQRTests.cases
+    + PresenceTests.cases
+    + WebVectorsTests.cases
+    + FramingTests.cases
+    + RemotePolicyTests.cases
+    + RemoteEndToEndTests.cases
+    + RelayIntegrationTests.cases
+    + RemoteHardeningTests.cases
+    + RemoteConnectionTests.cases
+    + RemoteContinuationTests.cases
+    + RemoteSettingsTests.cases
+    + RemoteBridgeTests.cases
+    + RemoteRedactorTests.cases
+    + RemoteReconcileTests.cases
+    + RemoteFeedExtrasTests.cases
+    + RemoteCLITests.cases
+    + RemoteMacIntegrationTests.cases
+    + RemoteSmokeTests.cases
     + ClaudeUsageTests.cases
     + CIFixTests.cases
 

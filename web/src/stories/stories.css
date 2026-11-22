@@ -1,0 +1,101 @@
+/* Estilos solo del arnés de historias. */
+
+#app {
+  padding: 0;
+}
+
+.story-index {
+  padding: 24px 16px;
+  font-size: 14px;
+}
+
+.story-index li {
+  margin: 6px 0;
+}
+
+.story-index a {
+  color: var(--accentfg);
+}
+
+.story-index small {
+  color: var(--fg3);
+}
+
+/* La captura de página entera de review no lleva la barra fija de abajo. */
+html[data-story="review-full"] .bottom-bar {
+  display: none;
+}
+
+html[data-story="review-full"] .screen {
+  padding-bottom: 24px;
+}
+
+/* Guía de estilos (espeja styleguide-*.png de la app nativa). */
+.styleguide {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding-top: 16px;
+}
+
+.sg-swatches {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px 8px;
+}
+
+.sg-swatches figure {
+  margin: 0;
+  text-align: center;
+  color: var(--fg2);
+  font-size: 10px;
+}
+
+.sg-swatch {
+  display: block;
+  height: 40px;
+  margin-bottom: 4px;
+  border: 0.5px solid var(--sep);
+  border-radius: 10px;
+}
+
+.sg-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sg-grow {
+  flex: 1;
+}
+
+.sg-swatch--bg { background: var(--bg); }
+.sg-swatch--bg2 { background: var(--bg2); }
+.sg-swatch--bg3 { background: var(--bg3); }
+.sg-swatch--fg { background: var(--fg); }
+.sg-swatch--fg2 { background: var(--fg2); }
+.sg-swatch--fg3 { background: var(--fg3); }
+.sg-swatch--sep { background: var(--sep); }
+.sg-swatch--fill { background: var(--fill); }
+.sg-swatch--fill2 { background: var(--fill2); }
+.sg-swatch--accent { background: var(--accent); }
+.sg-swatch--accentfg { background: var(--accentfg); }
+.sg-swatch--accentbg { background: var(--accentbg); }
+.sg-swatch--green { background: var(--green); }
+.sg-swatch--greenbg { background: var(--greenbg); }
+.sg-swatch--orange { background: var(--orange); }
+.sg-swatch--orangebg { background: var(--orangebg); }
+.sg-swatch--red { background: var(--red); }
+.sg-swatch--redbg { background: var(--redbg); }
+.sg-swatch--violet { background: var(--violet); }
+.sg-swatch--violetbg { background: var(--violetbg); }
+.sg-swatch--blue { background: var(--blue); }
+.sg-swatch--bluebg { background: var(--bluebg); }
+.sg-swatch--codebg { background: var(--codebg); }
+.sg-swatch--addbg { background: var(--addbg); }
+.sg-swatch--delbg { background: var(--delbg); }
+
+.styleguide > .mac-pill {
+  align-self: flex-start;
+}

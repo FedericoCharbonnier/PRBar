@@ -14,7 +14,7 @@ import Foundation
 /// - Un push o una publicación en curso no se cancelan con `cancel` (no se pueden deshacer a medias): solo
 ///   `cancelAll`, al salir de la app.
 /// - El worktree de PRBar (y su ref) se borra al llegar a `done` y con `dismiss`; después de un fallo queda para
-///   que el usuario lo revise (lo borra `dismiss` o la limpieza del próximo arranque).
+///   que el usuario lo revise (lo borra `dismiss`, o la limpieza del próximo arranque si no tiene trabajo sin pushear).
 @MainActor
 public final class RespondQueue: ObservableObject {
     @Published public private(set) var phases: [String: RespondPhase] = [:]   // por prID
@@ -31,6 +31,9 @@ public final class RespondQueue: ObservableObject {
     /// Fix CI: PRs whose push PRBar stopped because the failing checks pass now (spec K.6.6), with the reason. The
     /// window offers "Push Anyway".
     @Published public private(set) var pushBlockedByCI: [String: String] = [:]
+    /// PRs whose implementation was canceled with commits or changes left in the worktree (`RespondCancellation`), or
+    /// failed (it may have committed some fixes), until `dismiss`.
+    @Published public private(set) var leftWork: Set<String> = []
     /// Set only while `onEvent` hears the `readyToPush` of a push the CI stopped (the checks pass now).
     private var reportingCIBlock: String?
     public func isReportingCIBlock(_ prID: String) -> Bool { reportingCIBlock == prID }
@@ -59,6 +62,18 @@ public final class RespondQueue: ObservableObject {
         self.history = history
         self.scheduler = JobScheduler(maxConcurrent: maxConcurrent)
         self.onEvent = onEvent
+    }
+
+    /// PRs with work that isn't pushed: fixes ready to push (or whose push failed) and implementations canceled or
+    /// failed with commits or changes left. Quitting or updating warns about them: the records live in memory only
+    /// (the worktree stays on disk, `WorktreeResolver.cleanupOrphans` keeps it).
+    public var unpushedWork: Set<String> {
+        var prIDs = leftWork
+        for (prID, record) in records where record.result != nil && !record.pushed {
+            if case .done? = phases[prID] { continue }
+            prIDs.insert(prID)
+        }
+        return prIDs
     }
 
     // MARK: - Acciones
@@ -98,16 +113,24 @@ public final class RespondQueue: ObservableObject {
     }
 
     /// → queued → preparing → analyzing → ready | failed. Se ignora si el PR tiene un job, o está en
-    /// `implementing`/`readyToPush`/`pushing` (hay fixes sin publicar).
+    /// `implementing`/`readyToPush`/`pushing`, o la corrida anterior dejó trabajo sin pushear (`unpushedWork`: hay que
+    /// descartarla antes). La corrida anterior (lista o fallida) se reemplaza: su worktree se borra como con `dismiss`.
+    /// Devuelve si arrancó.
     /// `localPath == nil`: solo un repo que corre en un host (el análisis arma su worktree allá).
     /// `mode == .ciFix` (spec K): reads the failing checks and, once the worktree is ready, implements the fix on its own.
-    public func analyze(_ item: ClassifiedPR, localPath: String?, worktreeDir: String?, mode: RespondMode = .feedback) {
+    @discardableResult
+    public func analyze(_ item: ClassifiedPR, localPath: String?, worktreeDir: String?, mode: RespondMode = .feedback) -> Bool {
         let prID = item.id
         switch phases[prID] {
         case nil, .ready?, .failed?, .done?: break
-        default: return
+        default: return false
         }
-        guard canStart(prID), openRunConflict(prID: prID, starting: mode) == nil else { return }
+        guard canStart(prID), openRunConflict(prID: prID, starting: mode) == nil, !unpushedWork.contains(prID) else { return false }
+        // El worktree de la corrida anterior (la de `done` ya se borró) no se vuelve a usar (M5).
+        if let old = records[prID] {
+            if case .done? = phases[prID] {} else { cleanupWorktree(old.draft) }
+            records[prID] = nil
+        }
         modes[prID] = mode
         pushBlockedByCI[prID] = nil
         let request = RespondRequest(item: item, localPath: localPath, worktreeDir: worktreeDir, mode: mode)
@@ -148,6 +171,7 @@ public final class RespondQueue: ObservableObject {
                 self.finish(prID, .failed(error.localizedDescription, logURL: self.existingLog(draftID)))
             }
         })
+        return true
     }
 
     /// Fix CI: implements its only item with the default selection (never a reply).
@@ -200,7 +224,7 @@ public final class RespondQueue: ObservableObject {
                   guard let self else { return }
                   switch result {
                   case .success(let result): self.reachReadyToPush(prID, draft: draft, result: result)
-                  case .failure(let error): self.fail(prID, error)
+                  case .failure(let error): self.failImplementation(prID, error)
                   }
               })
     }
@@ -208,9 +232,11 @@ public final class RespondQueue: ObservableObject {
     /// En `readyToPush`: corre el `testCommand` y guarda el `TestRun` en el resultado y en el registro. Lo que
     /// ejecuta lo escribió Claude: la UI lo llama solo cuando el usuario lo pide, después de ver el diff.
     /// Returns whether they started (not if something else runs on the PR, or the command is empty).
+    /// Never from an iPhone without a fresh Face ID proof (`CommandOrigin`, decision H1): what runs was written by Claude.
     @discardableResult
     public func runTests(prID: String, testCommand: String) -> Bool {
-        startTests(prID: prID, testCommand: testCommand, afterwards: nil)
+        guard CommandOrigin.mayRunRepoCode else { return false }
+        return startTests(prID: prID, testCommand: testCommand, afterwards: nil)
     }
 
     /// "Run tests before pushing" (spec E.5): runs the tests and, if they pass, pushes and replies (like `publish`).
@@ -219,10 +245,12 @@ public final class RespondQueue: ObservableObject {
     /// or the command is empty; the caller tells the user.
     @discardableResult
     public func pushAfterTests(prID: String, testCommand: String) -> Bool {
-        startTests(prID: prID, testCommand: testCommand) { [weak self] run in
+        guard CommandOrigin.mayRunRepoCode else { return false }
+        return startTests(prID: prID, testCommand: testCommand) { [weak self] run in
             guard let self else { return }
             if run.passed {
-                self.publish(prID: prID)
+                // The push was already allowed when the tests were asked for (the completion runs as the Mac's job).
+                self.startPush(prID: prID, ignoringCI: false)
             } else {
                 self.pushBlockedByTests.insert(prID)
             }
@@ -254,7 +282,14 @@ public final class RespondQueue: ObservableObject {
     /// readyToPush → pushing → done | failed. Desde `failed`, con fixes ya implementados, reintenta: no vuelve a
     /// pushear si ya se pusheó y solo publica las respuestas que faltan.
     /// `ignoringCI`: Fix CI's "Push Anyway" when its failing checks pass now (spec K.6.6).
+    /// A push runs the user's git hooks (a `pre-push` from a `core.hooksPath` inside the repo runs what Claude may have
+    /// written): never from an iPhone without a fresh Face ID proof (`CommandOrigin`, decision H1).
     public func publish(prID: String, ignoringCI: Bool = false) {
+        guard CommandOrigin.mayRunRepoCode else { return }
+        startPush(prID: prID, ignoringCI: ignoringCI)
+    }
+
+    private func startPush(prID: String, ignoringCI: Bool) {
         pushBlockedByTests.remove(prID)
         guard let record = records[prID], record.result != nil, canStart(prID) else { return }
         switch phases[prID] {
@@ -337,6 +372,7 @@ public final class RespondQueue: ObservableObject {
         pushBlockedByCI[prID] = nil
         modes[prID] = nil
         phases[prID] = nil
+        leftWork.remove(prID)
         if let record = records[prID] { cleanupWorktree(record.draft) }
         records[prID] = nil
     }
@@ -422,6 +458,17 @@ public final class RespondQueue: ObservableObject {
         phases[prID] = .failed(error.localizedDescription, logURL: existingLog(draftID))
     }
 
+    /// Una implementación que falló o se canceló puede haber dejado commits o cambios en el worktree: salvo que la
+    /// cancelación diga que no quedó nada, cuenta como trabajo sin pushear hasta `dismiss`.
+    private func failImplementation(_ prID: String, _ error: Error) {
+        if let cancellation = error as? RespondCancellation, !cancellation.dirty, cancellation.unpushedCommits == 0 {
+            // Nada que cuidar.
+        } else {
+            leftWork.insert(prID)
+        }
+        fail(prID, error)
+    }
+
     private func fail(_ prID: String, _ error: Error) {
         let message = error.localizedDescription
         var logURL: URL?
@@ -435,6 +482,7 @@ public final class RespondQueue: ObservableObject {
     }
 
     private func reachReadyToPush(_ prID: String, draft: RespondDraft, result: RespondResult) {
+        leftWork.remove(prID)
         records[prID]?.result = result
         records[prID]?.errorMessage = nil
         if let record = records[prID] { save(record) }
@@ -454,7 +502,7 @@ public final class RespondQueue: ObservableObject {
             if let record = records[prID] { save(record) }
             finish(prID, .ready(draft))
         case .failure(let error):
-            fail(prID, error)
+            failImplementation(prID, error)
         }
     }
 

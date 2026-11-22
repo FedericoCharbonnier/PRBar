@@ -254,19 +254,47 @@ enum WorktreeResolverTests {
             try expectEqual(try repo.git(repo.local, ["for-each-ref", "refs/prbar/"]), "")
             try expect(!(try repo.git(repo.local, ["worktree", "list", "--porcelain"])).contains("respond"))
 
-            // Huérfanos: uno de Responder (con cambios sin commitear), uno del usuario en la misma carpeta y otro afuera.
+            // Huérfanos: uno de Responder limpio, uno con cambios sin commitear, uno con un commit sin pushear (como
+            // "Ready to push"), uno del usuario en la misma carpeta y otro afuera.
             let orphan = try await resolver().prepare(localPath: repo.local.path, repo: repoRef, number: 8, headRef: "feature/x",
                                                       worktreeDir: nil, runID: "ffffffff").worktree
-            try repo.write("feature.txt", "a medias\n", in: URL(fileURLWithPath: orphan.path))
+            let dirty = try await resolver().prepare(localPath: repo.local.path, repo: repoRef, number: 9, headRef: "feature/x",
+                                                     worktreeDir: nil, runID: "eeeeeeee").worktree
+            try repo.write("feature.txt", "a medias\n", in: URL(fileURLWithPath: dirty.path))
+            let committed = try await resolver().prepare(localPath: repo.local.path, repo: repoRef, number: 10, headRef: "feature/x",
+                                                         worktreeDir: nil, runID: "dddddddd").worktree
+            let committedURL = URL(fileURLWithPath: committed.path)
+            try repo.write("feature.txt", "fix\n", in: committedURL)
+            try repo.git(committedURL, ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-am", "fix"])
             let userInDir = repo.defaultWorktreeDir.appendingPathComponent("feature-x")
             try repo.git(repo.local, ["worktree", "add", "-q", "--detach", userInDir.path, "origin/feature/x"])
             let userNamedLikeUs = repo.base.appendingPathComponent("elsewhere/r-9-respond-0a1b2c3d")
             try repo.git(repo.local, ["worktree", "add", "-q", "--detach", userNamedLikeUs.path, "origin/feature/x"])
             await resolver().cleanupOrphans(localPath: repo.local.path, worktreeDir: nil)
             try expect(!FileManager.default.fileExists(atPath: orphan.path))
+            try expect(FileManager.default.fileExists(atPath: dirty.path), "con cambios sin commitear no se borra")
+            try expect(FileManager.default.fileExists(atPath: committed.path), "con commits sin pushear no se borra")
             try expect(FileManager.default.fileExists(atPath: userInDir.path))
             try expect(FileManager.default.fileExists(atPath: userNamedLikeUs.path))
-            try expectEqual(try repo.git(repo.local, ["for-each-ref", "refs/prbar/"]), "")
+            // Quedan las refs de los worktrees guardados; la del limpio se borra.
+            let refs = try repo.git(repo.local, ["for-each-ref", "--format=%(refname)", "refs/prbar/"])
+                .split(separator: "\n").map(String.init).sorted()
+            try expectEqual(refs, ["refs/prbar/respond-10-dddddddd", "refs/prbar/respond-9-eeeeeeee"])
+
+            // La limpieza del arranque de los worktrees de review (`WorktreeManager`) tampoco las borra.
+            let manager = WorktreeManager(runner: SystemProcessRunner(), gitPath: TempGitRepo.git,
+                                          root: repo.base.appendingPathComponent("prbar-worktrees"))
+            await manager.cleanupOrphans(localPaths: [repo.local.path])
+            try expectEqual(try repo.git(repo.local, ["for-each-ref", "--format=%(refname)", "refs/prbar/"])
+                .split(separator: "\n").map(String.init).sorted(), refs)
+            // Ya pusheado (el commit está en un remoto): se borra con su ref.
+            try repo.git(committedURL, ["push", "-q", "origin", "HEAD:refs/heads/feature/x"])
+            try repo.git(repo.local, ["fetch", "-q", "origin"])
+            await resolver().cleanupOrphans(localPath: repo.local.path, worktreeDir: nil)
+            try expect(!FileManager.default.fileExists(atPath: committed.path))
+            try expect(FileManager.default.fileExists(atPath: dirty.path))
+            try expectEqual(try repo.git(repo.local, ["for-each-ref", "--format=%(refname)", "refs/prbar/"])
+                .trimmingCharacters(in: .whitespacesAndNewlines), "refs/prbar/respond-9-eeeeeeee")
         },
         TestCase("config: worktreeDir y testCommand son opcionales y tienen setters") {
             let json = #"{"accounts":[{"login":"me","repos":[{"owner":"o","name":"r"}]}]}"#

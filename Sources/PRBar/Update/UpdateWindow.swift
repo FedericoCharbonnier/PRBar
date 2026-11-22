@@ -197,16 +197,26 @@ struct UpdateWindow: View {
         let retry = updates.installState != .idle
         HStack(spacing: 8) {
             if jobs == 0 {
-                Button(retry ? "Try Again" : "Update") { updates.startInstall(release, whenBusy: .wait) }
+                Button(retry ? "Try Again" : "Update") { install(release, whenBusy: .wait) }
                     .keyboardShortcut(.defaultAction)
             } else {
-                Button("Cancel Jobs and Update") { updates.startInstall(release, whenBusy: .cancelJobs) }
+                Button("Cancel Jobs and Update") { install(release, whenBusy: .cancelJobs) }
                     .help("Cancels running reviews, analyses and fixes. Posting and pushing finish first.")
-                Button("Update When Done") { updates.startInstall(release, whenBusy: .wait) }
+                Button("Update When Done") { install(release, whenBusy: .wait) }
                     .keyboardShortcut(.defaultAction)
                     .help("\(jobs) job\(jobs == 1 ? " is" : "s are") running.")
             }
         }
         .disabled(updates.installedApp == nil)
+    }
+
+    /// With Respond fixes that aren't pushed it asks first: the restart forgets them (their worktrees stay).
+    private func install(_ release: ReleaseInfo, whenBusy: UpdateBusyPolicy) {
+        let unpushed = updates.unpushedFixes()
+        guard unpushed > 0 else { return updates.startInstall(release, whenBusy: whenBusy) }
+        ConfirmAlert.present(title: "Update while fixes aren’t pushed?", message: QuitConfirmation.unpushedMessage(unpushed),
+                             action: "Update") {
+            updates.startInstall(release, whenBusy: whenBusy)
+        }
     }
 }

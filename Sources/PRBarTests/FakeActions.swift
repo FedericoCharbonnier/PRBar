@@ -5,7 +5,16 @@ import PRBarCore
 @MainActor
 final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActions, ConfigActions, SlackActions,
     ChatCommandActions, UpdateCommandActions, InstructionCommandActions, ResourceActions, RunnerActions, CIFixUsageActions {
-    var calls: [String] = []
+    var calls: [String] = [] {
+        didSet {
+            // Cada llamada con su `CommandOrigin` (vaciar `calls` vacía también los orígenes).
+            if calls.count > oldValue.count {
+                origins.append(contentsOf: repeatElement(CommandOrigin.current, count: calls.count - oldValue.count))
+            } else {
+                origins = Array(origins.prefix(calls.count))
+            }
+        }
+    }
     /// Si no es nil, los métodos que pueden fallar la lanzan.
     var failure: Error?
     /// Eventos que mandan los comandos con `wait`.
@@ -24,6 +33,14 @@ final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActi
 
     private let link = PRLink(pr: "acme/api#1", url: URL(string: "https://github.com/acme/api/pull/1")!)
 
+    /// `CommandOrigin.current` de cada entrada de `calls` (el puente del iPhone lo pone alrededor del comando).
+    private(set) var origins: [CommandOrigin] = []
+
+    /// Los orígenes de las llamadas cuyo nombre empieza con alguno de `prefixes` (el feed también llama a la app).
+    func origins(of prefixes: [String]) -> [CommandOrigin] {
+        zip(calls, origins).filter { call, _ in prefixes.contains { call.hasPrefix($0 + " ") } }.map(\.1)
+    }
+
     private func record(_ call: String) throws {
         calls.append(call)
         if let failure { throw failure }
@@ -32,7 +49,12 @@ final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActi
     private func emit(_ events: CommandEventSink) { waitEvents.forEach(events) }
 
     // MARK: StatusActions
-    func status() async throws -> StatusInfo { try record("status"); return StatusInfo(appVersion: "test") }
+    /// Lo que devuelve `status()` (el feed del iPhone mira si cambió).
+    var statusVersion = "test"
+    var badge = 0
+    func status() async throws -> StatusInfo {
+        try record("status"); return StatusInfo(appVersion: statusVersion, badgeCount: badge)
+    }
     func listPRs(list: PRListFilter?, account: String?, tab: PopoverTab?) throws -> [PRInfo] {
         try record("listPRs \(list?.rawValue ?? "-") \(account ?? "-") \(tab?.rawValue ?? "-")"); return []
     }
@@ -103,11 +125,11 @@ final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActi
     func respondDiff(pr: String) throws -> RespondDiff {
         try record("respondDiff \(pr)"); return RespondDiff(pr: pr, diffStat: "", diff: nil, truncated: false, sensitiveChanges: [])
     }
-    func respondPush(pr: String, wait: Bool, events: CommandEventSink) async throws -> RespondInfo {
-        try record("respondPush \(pr) wait=\(wait)"); return respondInfo(pr)
+    func respondPush(pr: String, wait: Bool, mode: RespondMode?, events: CommandEventSink) async throws -> RespondInfo {
+        try record("respondPush \(pr) wait=\(wait)\(mode.map { " mode=\($0.rawValue)" } ?? "")"); return respondInfo(pr)
     }
-    func respondPushAnyway(pr: String, wait: Bool, events: CommandEventSink) async throws -> RespondInfo {
-        try record("respondPushAnyway \(pr) wait=\(wait)"); return respondInfo(pr)
+    func respondPushAnyway(pr: String, wait: Bool, mode: RespondMode?, events: CommandEventSink) async throws -> RespondInfo {
+        try record("respondPushAnyway \(pr) wait=\(wait)\(mode.map { " mode=\($0.rawValue)" } ?? "")"); return respondInfo(pr)
     }
     func respondReplyOnly(pr: String, wait: Bool, events: CommandEventSink) async throws -> RespondInfo {
         try record("respondReplyOnly \(pr) wait=\(wait)"); return respondInfo(pr)
@@ -275,8 +297,11 @@ final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActi
     }
 
     // MARK: ResourceActions
+    /// Si no es nil, `resources()` tarda esto (como el muestreo real cuando está viejo).
+    var resourcesDelay: Duration?
     func resources() async -> ResourcesInfo {
         calls.append("resources")
+        if let resourcesDelay { try? await Task.sleep(for: resourcesDelay) }
         return ResourcesInfo(usage: ResourceUsage(cpuPercent: 0, memoryBytes: 0, processes: [], sampledAt: t0),
                              disk: DiskUsage(items: [], scannedAt: t0))
     }
@@ -328,4 +353,52 @@ final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActi
                          tasks: [UsageTask(id: UUID(), activity: .review("acme/api#7"), stages: ["review", "filter"],
                                            startedAt: t0, finishedAt: t0, usage: usage)])
     }
+}
+
+// MARK: RemoteActions
+extension FakeActions: RemoteActions {
+    private var remoteInfo: RemoteStatusInfo {
+        RemoteStatusInfo(enabled: true, relayHost: "relay.example.com", state: "connected", devices: 1, devicesOnline: 1,
+                         keepAwake: false, keepingAwake: false, mailbox: true, accountPrefix: "abcd")
+    }
+    private var remoteDevice: RemoteDeviceInfo {
+        RemoteDeviceInfo(id: "dev1abcdefgh", name: "Federico’s iPhone", model: "iPhone 17 Pro", pairedAt: t0, lastSeen: nil,
+                         online: true, requirePresence: true, notifications: true)
+    }
+    private var pairingInfo: RemotePairingInfo {
+        RemotePairingInfo(pairing: "p1", qr: "https://prbar.example.com/#pair?v=1", expiresAt: t0.addingTimeInterval(300))
+    }
+
+    func remoteStatus() -> RemoteStatusInfo { calls.append("remoteStatus"); return remoteInfo }
+    func remoteEnable(relay: String, enrollToken: String) async throws -> RemoteStatusInfo {
+        try record("remoteEnable \(relay)")
+        try await network()
+        return remoteInfo
+    }
+    func remoteDisable() async throws -> RemoteStatusInfo { try record("remoteDisable"); return remoteInfo }
+    func remotePairStart() async throws -> RemotePairingInfo { try record("remotePairStart"); return pairingInfo }
+    func remotePairWait(pairing: String, events: CommandEventSink) async throws -> RemotePairingInfo {
+        try record("remotePairWait \(pairing)")
+        waitEvents.forEach(events)
+        var info = pairingInfo
+        info.code = "123 456"
+        info.deviceName = "Federico’s iPhone"
+        info.model = "iPhone 17 Pro"
+        return info
+    }
+    func remotePairConfirm(pairing: String, accepted: Bool) async throws -> RemotePairResult {
+        try record("remotePairConfirm \(pairing) \(accepted)")
+        return RemotePairResult(device: accepted ? remoteDevice : nil)
+    }
+    func remoteDevices() -> [RemoteDeviceInfo] { calls.append("remoteDevices"); return [remoteDevice] }
+    func remoteRevoke(device: String) async throws -> RemoteDeviceInfo { try record("remoteRevoke \(device)"); return remoteDevice }
+    func remoteSetKeepAwake(enabled: Bool) throws -> RemoteStatusInfo { try record("remoteSetKeepAwake \(enabled)"); return remoteInfo }
+    func remoteReset() async throws -> RemoteStatusInfo { try record("remoteReset"); return remoteInfo }
+    func remoteSetPresenceRequirement(device: String, enabled: Bool) async throws -> RemoteDeviceInfo {
+        try record("remoteSetPresenceRequirement \(device) \(enabled)")
+        var info = remoteDevice
+        info.requirePresence = enabled
+        return info
+    }
+    func remoteSetMailbox(enabled: Bool) async throws -> RemoteStatusInfo { try record("remoteSetMailbox \(enabled)"); return remoteInfo }
 }

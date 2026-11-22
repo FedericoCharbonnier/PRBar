@@ -92,16 +92,20 @@ public final class JobScheduler<Key: Hashable & Sendable> {
         // Cada trabajo es una tarea de Activity (spec O.4.3): las corridas de Claude de adentro se suman a su sink.
         let sink = ClaudeUsageSink(id: id, parent: nil)
         usageCenter.beginJob(id, activity: activity)
+        // A job runs as the Mac's: its completion (and the next job it starts) must not inherit the `CommandOrigin` of
+        // whoever happened to start it (an iPhone request), or a later push asked for on the Mac would be refused.
         let task = Task { [weak self] in
-            let result: Result<Void, Error>
-            do {
-                try await ProcessActivity.$current.withValue(activity) { try await sink.measure { try await work() } }
-                result = .success(())
-            } catch {
-                result = .failure(error)
+            await CommandOrigin.$current.withValue(.mac) {
+                let result: Result<Void, Error>
+                do {
+                    try await ProcessActivity.$current.withValue(activity) { try await sink.measure { try await work() } }
+                    result = .success(())
+                } catch {
+                    result = .failure(error)
+                }
+                usageCenter.endJob(id)
+                self?.finish(key, id: id, result: result, onComplete: onComplete, onCancelledEnd: onCancelledEnd)
             }
-            usageCenter.endJob(id)
-            self?.finish(key, id: id, result: result, onComplete: onComplete, onCancelledEnd: onCancelledEnd)
         }
         running[key] = Running(id: id, task: task)
         job.onStart()

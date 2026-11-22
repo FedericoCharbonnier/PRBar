@@ -1,0 +1,36 @@
+{
+  "name": "prbar-web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "build:e2e": "tsc --noEmit && vite build --mode e2e",
+    "test": "vitest run",
+    "e2e": "playwright test",
+    "snapshots": "playwright test -c playwright.stories.config.ts",
+    "stories": "vite --config vite.stories.config.ts"
+  },
+  "dependencies": {
+    "@noble/ciphers": "2.4.0",
+    "@noble/curves": "2.4.0",
+    "@noble/hashes": "2.4.0",
+    "@preact/signals": "2.11.4",
+    "jsqr": "1.4.0",
+    "preact": "10.29.8"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.0",
+    "@testing-library/preact": "3.2.6",
+    "@types/node": "26.6.6",
+    "fake-indexeddb": "6.2.7",
+    "happy-dom": "21.0.4",
+    "typescript": "7.0.2",
+    "vite": "8.3.6",
+    "vitest": "5.1.0"
+  }
+}

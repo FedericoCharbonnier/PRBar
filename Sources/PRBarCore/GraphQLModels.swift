@@ -9,9 +9,9 @@ enum Queries {
         pullRequests(states: OPEN, first: 50, after: $cursor, orderBy: {field: UPDATED_AT, direction: DESC}) {
           pageInfo { hasNextPage endCursor }
           nodes {
-            id number title url isDraft createdAt updatedAt additions deletions
+            id number title url isDraft createdAt updatedAt additions deletions changedFiles
             baseRefName headRefName headRefOid reviewDecision mergeable mergeStateStatus viewerCanUpdate
-            author { login avatarUrl __typename }
+            author { login avatarUrl __typename ... on User { name } }
             reviewRequests(first: 20) { nodes { requestedReviewer { ... on User { login } } } }
             reviews(last: 50) { nodes { author { login __typename } state submittedAt commit { oid } } }
             comments(last: 50) { nodes { author { login __typename } createdAt } }
@@ -137,9 +137,11 @@ struct ActorNode: Decodable {
     let login: String
     let avatarUrl: URL?
     let typename: String?
+    /// Solo un `User`, y solo donde la consulta lo pide (el autor de cada PR).
+    var name: String? = nil
 
     enum CodingKeys: String, CodingKey {
-        case login, avatarUrl
+        case login, avatarUrl, name
         case typename = "__typename"
     }
 
@@ -214,6 +216,7 @@ struct PRNode: Decodable {
     let updatedAt: Date
     let additions: Int
     let deletions: Int
+    let changedFiles: Int?
     let baseRefName: String
     let headRefName: String
     let headRefOid: String
@@ -250,7 +253,9 @@ struct PRNode: Decodable {
             merge: PRMergeState(
                 nodeID: id, mergeable: MergeableState(graphQL: mergeable), status: MergeStateStatus(graphQL: mergeStateStatus),
                 viewerCanUpdate: viewerCanUpdate, commitCount: commits.totalCount
-            )
+            ),
+            authorName: author?.name.flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 },
+            changedFiles: changedFiles
         )
     }
 }

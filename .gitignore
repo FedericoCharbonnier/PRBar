@@ -4,3 +4,20 @@ build/
 *.xcodeproj
 .swiftpm/
 .claude/
+# Relay: secretos y datos locales (nunca al repo)
+relay/deploy/prbar-relay.env
+relay/**/*.db
+relay/prbar-relay
+# wsprobe guarda ahí la clave privada de su cuenta (una credencial de Mac del relay).
+relay/wsprobe-state.json
+
+# Web app (plan 20)
+web/node_modules/
+web/dist/
+# Salidas de las pruebas: Playwright (e2e e historias) y el build de las historias.
+web/test/e2e/.results/
+web/test/stories/.results/
+web/test/.stories-dist/
+# Web app embebida en el relay: solo el placeholder va al repo (la real la copia el Dockerfile o web-build).
+relay/internal/web/dist/*
+!relay/internal/web/dist/index.html

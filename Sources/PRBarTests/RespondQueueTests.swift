@@ -287,9 +287,12 @@ enum RespondQueueTests {
             try await h.events.wait(for: reached(1, "readyToPush"))
             try expectEqual(h.queue.phases[prID(1)], .readyToPush(draft, fixResult))
             try expectEqual(try h.saved(1).result, fixResult)
+            // "Ready to push": salir o actualizar avisa (H1).
+            try expectEqual(h.queue.unpushedWork, [prID(1)])
 
             h.queue.publish(prID: prID(1))
             try await h.events.wait(for: reached(1, "done"))
+            try expectEqual(h.queue.unpushedWork, [])
             guard case .done(let record)? = h.queue.phases[prID(1)] else { throw TestFailure(description: "esperaba .done") }
             try expect(record.pushed)
             try expectEqual(Set(record.posted.keys), ["thread:A", "thread:B"])
@@ -368,6 +371,7 @@ enum RespondQueueTests {
             try expect(!saved.pushed)
             try expectEqual(saved.posted, [:])
             try expectEqual(saved.errorMessage, RespondPublisher.rejectedMessage)
+            try expectEqual(h.queue.unpushedWork, [prID(1)])
 
             h.pipeline.pushError = nil
             h.queue.publish(prID: prID(1))
@@ -440,6 +444,34 @@ enum RespondQueueTests {
             try expectEqual(try h.saved(1).errorMessage, message)
             try expectEqual(h.pipeline.pushes, [])
             try expectEqual(h.pipeline.api.posts, [])
+            // Los commits que quedaron cuentan como trabajo sin pushear hasta descartarlo.
+            try expectEqual(h.queue.unpushedWork, [prID(1)])
+            h.queue.dismiss(prID: prID(1))
+            try expectEqual(h.queue.unpushedWork, [])
+        },
+        TestCase("respond queue: analizar de nuevo borra el worktree anterior; con trabajo sin pushear no arranca (M5)") { @MainActor in
+            let h = try Harness()
+            try await h.toReady(1)
+            let first = try h.draft(1)
+            // Desde ready: el worktree viejo se borra y arranca otro análisis.
+            try expect(h.queue.analyze(classified(1), localPath: "/repos/r", worktreeDir: nil))
+            try await waitUntil { h.pipeline.cleanups == [first.id] }
+            try await h.events.wait(for: [.started("analyze:\(prID(1))")])
+            h.pipeline.completeAnalysis(1)
+            try await waitUntil { h.queue.phases[prID(1)]?.name == "ready" }
+            let second = try h.draft(1)
+            // Una implementación que falló puede haber dejado commits: no se reemplaza sin descartarla.
+            h.queue.implement(prID: prID(1), selections: bothSelected)
+            try await h.events.wait(for: [.started("implement:\(prID(1))")])
+            h.pipeline.completeImplementation(prID(1), .failure(Boom()))
+            try await waitUntil { h.queue.phases[prID(1)]?.name == "failed" }
+            try expectEqual(h.queue.unpushedWork, [prID(1)])
+            try expect(!h.queue.analyze(classified(1), localPath: "/repos/r", worktreeDir: nil))
+            await h.settle()
+            try expectEqual(h.pipeline.cleanups, [first.id])
+            h.queue.dismiss(prID: prID(1))
+            try await waitUntil { h.pipeline.cleanups == [first.id, second.id] }
+            try expect(h.queue.analyze(classified(1), localPath: "/repos/r", worktreeDir: nil))
         },
         TestCase("respond queue: cancelar implementing sin commits vuelve a ready") { @MainActor in
             let h = try Harness()
@@ -985,6 +1017,33 @@ enum RespondPipelineTests {
             try expect(!h.queue.pushAfterTests(prID: prID(1), testCommand: "  "))
             try expect(h.queue.pushAfterTests(prID: prID(1), testCommand: "make test"))
             try await h.events.wait(for: reached(1, "done"))
+        },
+        TestCase("respond queue: desde un iPhone sin Face ID implementar no corre tests y ni tests ni push arrancan (H1)") { @MainActor in
+            let h = try Harness()
+            h.pipeline.testsPass = true
+            let phone = CommandOrigin.phone(device: "d1", mayRunRepoCode: false)
+            // Implementar desde el teléfono llega a readyToPush sin correr nada.
+            try await CommandOrigin.$current.withValue(phone) { try await h.toReadyToPush(1) }
+            await h.settle()
+            try expectEqual(h.pipeline.tests, [])
+            CommandOrigin.$current.withValue(phone) {
+                try? expect(!h.queue.runTests(prID: prID(1), testCommand: "make test"))
+                try? expect(!h.queue.pushAfterTests(prID: prID(1), testCommand: "make test"))
+                h.queue.publish(prID: prID(1))
+                h.queue.publish(prID: prID(1), ignoringCI: true)
+            }
+            try expect(h.queue.runningTests.isEmpty)
+            await h.settle()
+            try expectEqual(h.pipeline.tests, [])
+            try expectEqual(h.pipeline.pushes.count, 0)
+            guard case .readyToPush? = h.queue.phases[prID(1)] else { throw TestFailure(description: "esperaba readyToPush") }
+            // Con Face ID (o desde la Mac) sí, y el push de después de los tests no hereda el origen del teléfono.
+            let signed = CommandOrigin.phone(device: "d1", mayRunRepoCode: true)
+            let started = CommandOrigin.$current.withValue(signed) { h.queue.pushAfterTests(prID: prID(1), testCommand: "make test") }
+            try expect(started)
+            try await h.events.wait(for: reached(1, "done"))
+            try expectEqual(h.pipeline.tests, ["make test"])
+            try expectEqual(h.pipeline.pushes.count, 1)
         },
         TestCase("respond queue: si los tests fallan no pushea; Push Anyway pushea y limpia el bloqueo") { @MainActor in
             let h = try Harness()

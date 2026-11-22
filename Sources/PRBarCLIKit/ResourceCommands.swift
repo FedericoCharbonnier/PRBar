@@ -66,7 +66,8 @@ struct CleanupCommand: RemoteCommand {
 
     func confirmation(_ connection: AppConnection, _ output: Output) throws -> String? {
         guard let plan = shown, !plan.isEmpty else { return nil }
-        if !output.json {
+        // Sin terminal (y sin --yes) sale con 4 enseguida: la tabla solo cuando se va a preguntar (L17).
+        if output.terminal.isInteractive && !output.json {
             output.table(["Delete", "Size"], plan.candidates.map { [$0.title, Bytes.text($0.bytes)] })
         }
         return "Delete \(plan.candidates.count) item\(plan.candidates.count == 1 ? "" : "s") and free \(Bytes.text(plan.totalBytes))?"

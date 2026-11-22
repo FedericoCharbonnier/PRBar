@@ -118,6 +118,18 @@ let dispatchSamples: [(command: AppCommand, call: String)] = [
     (.ciList, "ciList"),
     (.ciFix(pr: "api#12", wait: false), "ciFix"),
     (.usage(month: "2026-10"), "usage"),
+    (.remoteStatus, "remoteStatus"),
+    (.remoteEnable(relay: "relay.example.com", enrollToken: "t0k3n"), "remoteEnable"),
+    (.remoteDisable, "remoteDisable"),
+    (.remotePairStart, "remotePairStart"),
+    (.remotePairWait(pairing: "p1"), "remotePairWait"),
+    (.remotePairConfirm(pairing: "p1", confirmed: true), "remotePairConfirm"),
+    (.remoteDevices, "remoteDevices"),
+    (.remoteRevoke(device: "dev1", confirmed: true), "remoteRevoke"),
+    (.remoteSetKeepAwake(enabled: true), "remoteSetKeepAwake"),
+    (.remoteReset(confirmed: true), "remoteReset"),
+    (.remoteSetPresenceRequirement(device: "dev1", enabled: false), "remoteSetPresenceRequirement"),
+    (.remoteSetMailbox(enabled: false), "remoteSetMailbox"),
 ]
 
 enum CommandDispatcherTests {
@@ -177,6 +189,7 @@ enum CommandDispatcherTests {
             .reviewPublish(pr: "a#1", event: .comment, only: nil, withComments: true, allInBody: false, confirmed: true),
             .slackSelfTest(confirmed: true),
             .slackTokenSet(token: "xoxp-1"),
+            .remoteEnable(relay: "relay.example.com", enrollToken: "t0k3n"),
         ]
         for command in commands {
             let fake = FakeActions()
@@ -200,6 +213,8 @@ enum CommandDispatcherTests {
             .updateInstall(confirmed: false, cancelJobs: false),
             .respondReplyOnly(pr: "a#1", confirmed: false, wait: false),
             .slackSelfTest(confirmed: false),
+            .remoteRevoke(device: "dev1", confirmed: false),
+            .remoteReset(confirmed: false),
         ]
         for command in unconfirmed {
             let fake = FakeActions()
