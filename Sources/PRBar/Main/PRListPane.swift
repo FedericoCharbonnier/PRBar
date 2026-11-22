@@ -108,8 +108,9 @@ struct PRListPane: View {
                             NSPasteboard.general.setString(item.pr.url.absoluteString, forType: .string)
                         }
                     }
-                } primaryAction: { _ in
-                    // Doble clic: la ventana de PR (Task 14).
+                } primaryAction: { ids in
+                    // Doble clic: el PR en una ventana aparte (spec M.2).
+                    if let prID = ids.first { model.openPRWindow(prID: prID) }
                 }
             }
         }

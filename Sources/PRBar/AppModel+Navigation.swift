@@ -29,6 +29,23 @@ extension AppModel {
         }
     }
 
+    static func prWindowID(_ prID: String) -> String { "pr-\(prID)" }
+
+    /// ⇧⌘O, doble clic en una fila, el botón de la toolbar (spec M.2). Una por PR; si ya hay, al frente. Se agrupan
+    /// como pestañas nativas entre ellas (`PRBar.pr`).
+    func openPRWindow(prID: String, tab: PRTab? = nil) {
+        closePopover?()
+        if let tab { main.choose(tab, for: prID) }
+        WindowPresenter.shared.show(
+            id: Self.prWindowID(prID), title: ClaudeTasksSidebar.shortName(prID), size: PRWindow.size,
+            options: WindowOptions(sharedFrameKey: "PRWindowFrame", tabbingIdentifier: "PRBar.pr", bridgesToolbar: true,
+                                   toolbarStyle: .unified, minContentSize: PRWindow.minSize),
+            contentID: prID
+        ) {
+            PRWindow(model: self, prID: prID)
+        }
+    }
+
     /// Las pestañas del PR; nil si no hay nada que mostrar (ni en la lista, ni review, ni Respond).
     func tabContext(prID: String) -> PRTabContext? {
         let task: RespondMode? = respond.phases[prID] != nil || respond.records[prID] != nil ? respond.mode(of: prID) : nil

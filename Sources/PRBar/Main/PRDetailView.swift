@@ -12,11 +12,13 @@ struct PRDetailView: View {
     @ObservedObject var prStore: PRStore
     @ObservedObject var detail: PRDetailState
     let prID: String
-    /// false: el chat lo pone quien contiene la vista (la ventana principal lo pone a la derecha de lista + detalle:
-    /// un `.inspector` adentro de la columna de un `NavigationSplitView` desarma su layout).
-    let hostsInspector: Bool
+    /// Pone sus pestañas y el botón del chat en la toolbar (la ventana de PR); en la principal los pone `MainWindow`. El
+    /// chat lo pone siempre quien contiene la vista: la principal, a la derecha de lista + detalle (un `.inspector`
+    /// adentro de la columna de un `NavigationSplitView` desarma su layout); la de PR, al lado en un `HStack` (un
+    /// `.inspector` en una ventana sin split view deja la cabecera del pane debajo de la toolbar).
+    let ownsToolbar: Bool
 
-    init(model: AppModel, prID: String, detail: PRDetailState, hostsInspector: Bool = true) {
+    init(model: AppModel, prID: String, detail: PRDetailState, ownsToolbar: Bool = false) {
         self.model = model
         state = model.main
         reviews = model.reviews
@@ -24,7 +26,7 @@ struct PRDetailView: View {
         prStore = model.prStore
         self.detail = detail
         self.prID = prID
-        self.hostsInspector = hostsInspector
+        self.ownsToolbar = ownsToolbar
     }
 
     var body: some View {
@@ -48,14 +50,13 @@ struct PRDetailView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 // Modo foco (spec M.1): mientras Claude trabaja en Respond o Fix CI del PR que se ve.
                 .onChange(of: claudeWorking(tab), initial: true) { _, working in detail.focus.setClaudeWorking(working) }
-                .modifier(ChatInspectorModifier(model: model, detail: detail, prID: prID, tab: tab, enabled: hostsInspector))
                 // View › Show Chat in the menu bar.
                 .windowCommand(.toggleChat, enabled: model.chatEnabled, isOn: detail.focus.chatShown && model.chatEnabled) {
                     detail.focus.toggleChat()
                 }
                 .toolbar {
                     // En la ventana principal las pone `MainWindow` (en orden: pestañas al centro, después los botones).
-                    if hostsInspector {
+                    if ownsToolbar {
                         ToolbarItem(placement: .principal) {
                             PRDetailToolbar.tabBar(model: model, state: state, prID: prID, context: context, tab: tab)
                         }

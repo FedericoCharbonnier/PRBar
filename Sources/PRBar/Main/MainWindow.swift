@@ -73,7 +73,7 @@ struct MainWindow: View {
     @ViewBuilder
     private var detailView: some View {
         if let prID = state.nav.place.prID {
-            PRDetailView(model: model, prID: prID, detail: detail, hostsInspector: false)
+            PRDetailView(model: model, prID: prID, detail: detail)
                 .id(prID)
         } else {
             EmptyDetailView()
@@ -121,8 +121,10 @@ struct MainWindow: View {
                 Button { Task { await prStore.refresh() } } label: { Label("Refresh", systemImage: "arrow.clockwise") }
                     .help("Refresh (⌘R)")
             }
-            Button {} label: { Label("Open in New Window", systemImage: "macwindow.badge.plus") }
-                .disabled(true)   // Task 14
+            Button("Open in New Window", systemImage: "macwindow.badge.plus") {
+                if let prID = selectedPRID { model.openPRWindow(prID: prID) }
+            }
+                .disabled(selectedPRID == nil)
                 .help("Open in New Window (⇧⌘O)")
             Button {
                 if let url = selectedPRURL { NSWorkspace.shared.open(url) }
@@ -141,6 +143,12 @@ struct MainWindow: View {
         guard case .section = state.nav.place.sidebar, let prID = state.nav.place.prID,
               let context = model.tabContext(prID: prID) else { return nil }
         return (prID, context, state.nav.tab(for: prID, context: context))
+    }
+
+    /// El PR elegido en To Review / My PRs (aunque ya no esté en la lista).
+    private var selectedPRID: String? {
+        guard case .section = state.nav.place.sidebar else { return nil }
+        return state.nav.place.prID
     }
 
     private var selectedPRURL: URL? {

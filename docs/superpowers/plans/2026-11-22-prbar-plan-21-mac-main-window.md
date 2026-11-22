@@ -2313,6 +2313,11 @@ struct PRWindow: View {
 ```
 
   `PRDetailView` en la ventana de PR no oculta ninguna lista (no hay): el modo foco solo abre el chat.
+  **Hecho (implementación):** `PRDetailView(model:prID:detail:ownsToolbar:)` ya no tiene `hostsInspector` ni pone el
+  chat: lo pone quien la contiene. La ventana de PR lo pone al lado en un `HStack` (300 pt) y no como `.inspector`: un
+  `.inspector` en una ventana sin `NavigationSplitView` dejaba la cabecera del pane debajo de la toolbar unificada (se
+  vio en la captura). Sin `navigationSubtitle` (el título lo pone `openPRWindow`). El botón de la toolbar es
+  `Button("Open in New Window", systemImage:)` (así lo ve la paridad UI).
 - [ ] **Step 2:** Cablear: botón Open in New Window de la toolbar (con PR elegido), doble clic de `PRListPane`
   (`primaryAction`), y `mergeFinished` cierra `prWindowID(item.id)`. El menú (⇧⌘O) en la Task 16.
 - [ ] **Step 3:** Captura `pr-window` (PR propio en Merge, 900×760). Paridad UI. **Commit** `"Add PR windows"`.

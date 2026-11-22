@@ -333,6 +333,10 @@ private final class SnapshotSession {
             window: MergeWindowModel(prID: item.id, recordID: record.id, detail: detail) { detail }, record: record)
         model.main.go(to: .pr(prID: item.id, tab: .merge), snapshot: model.prStore.snapshot)
         try await window("main-merge", title: "PRBar", size: Theme.MainLayout.defaultSize) { MainWindow(model: model) }
+        // El mismo PR en su ventana (⇧⌘O, spec M.2): solo el detalle, sin barra lateral ni lista.
+        try await window("pr-window", title: ClaudeTasksSidebar.shortName(item.id), size: PRWindow.size) {
+            PRWindow(model: model, prID: item.id)
+        }
 
         let other = fixtures.rateLimiting
         var otherDetail = detail

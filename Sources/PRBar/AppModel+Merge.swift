@@ -273,7 +273,8 @@ extension AppModel {
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(2))
             guard let self else { return }
-            // La ventana de PR, si hay, se cierra (Task 14).
+            // La ventana de PR, si hay, se cierra.
+            WindowPresenter.shared.close(id: Self.prWindowID(item.id))
             self.endMergeSession(item.id)
             // Espera un refresco en curso (pudo empezar antes del merge) y refresca de nuevo; el snapshot nuevo
             // descarta la fase "Merged" (`mergePruneObserver`).
