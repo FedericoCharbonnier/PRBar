@@ -13,7 +13,7 @@ import type { Active, Shell } from "../app/shell";
 import { Camera } from "./Camera";
 import { ActionMenu, Banner, Button, Sheet, TabBar } from "./components";
 import {
-  Activity, Chat, Edit, FixCI, Home, Install, Merge, Merged, PairConfirm, PairPaired, PairSas, PairScan, PairWelcome,
+  Activity, BootError, Chat, Edit, FixCI, Home, Install, Merge, Merged, PairConfirm, PairPaired, PairSas, PairScan, PairWelcome,
   Respond, RespondDiff, Review, ReviewPosted, Settings,
 } from "./screens";
 import { ghost, reducedMotion } from "./motion/animate";
@@ -49,6 +49,9 @@ export function InstallGate({ platform, prompt }: { platform: Platform; prompt: 
 
 export function App({ shell }: { shell: Shell }) {
   if (!shell.ready.value) return <div class="boot" aria-busy="true" />;
+  if (shell.bootFailed.value) {
+    return <BootError onRetry={() => location.reload()} onReset={() => void shell.resetAfterBootFailure()} />;
+  }
   const active = shell.active.value;
   const step = shell.pairing.step.value.kind;
   const pairing = !active || shell.pairingOpen.value || step === "paired";
@@ -84,6 +87,7 @@ function PairingFlow({ shell, model }: { shell: Shell; model: PairingModel }) {
           busy={model.busy.value}
           onDeviceNameChange={(name) => model.setDeviceName(name)}
           onPair={() => void model.pair()}
+          onCancel={shell.active.value ? () => shell.closePairing() : undefined}
         />
       );
     case "scanning":
@@ -161,7 +165,10 @@ function Paired({ shell, active }: { shell: Shell; active: Active }) {
           );
         }
         const screen = screenOf(route);
-        return <PRScreen key={`${route.pr}|${screen}|${route.chat ?? ""}`} ctx={ctx} pr={route.pr} screen={screen} chat={route.chat} />;
+        return (
+          <PRScreen key={`${route.pr}|${screen}|${route.chat ?? ""}|${route.file ?? ""}`} ctx={ctx} pr={route.pr} screen={screen}
+                    chat={route.chat} file={route.file} />
+        );
       }}
     />
   );
@@ -204,14 +211,16 @@ function SettingsScreen({ active, visible }: { active: Active; visible: boolean 
   return <Settings {...active.settings.props.value} />;
 }
 
-function PRScreen({ ctx, pr, screen, chat }: { ctx: AppContext; pr: string; screen: PRScreenId; chat?: ChatKind | undefined }) {
+function PRScreen({ ctx, pr, screen, chat, file }: {
+  ctx: AppContext; pr: string; screen: PRScreenId; chat?: ChatKind | undefined; file?: string | undefined;
+}) {
   switch (screen) {
     case "review":
       return <ReviewScreen ctx={ctx} pr={pr} />;
     case "respond":
     case "fixci":
     case "diff":
-      return <RespondScreen ctx={ctx} pr={pr} screen={screen} />;
+      return <RespondScreen ctx={ctx} pr={pr} screen={screen} file={file} />;
     case "merge":
       return <MergeScreen ctx={ctx} pr={pr} />;
     case "chat":
@@ -232,9 +241,11 @@ function ReviewScreen({ ctx, pr }: { ctx: AppContext; pr: string }) {
   );
 }
 
-function RespondScreen({ ctx, pr, screen }: { ctx: AppContext; pr: string; screen: "respond" | "fixci" | "diff" }) {
+function RespondScreen({ ctx, pr, screen, file }: {
+  ctx: AppContext; pr: string; screen: "respond" | "fixci" | "diff"; file?: string | undefined;
+}) {
   const fallback: RespondMode = screen === "fixci" || ctx.store.home.value?.ci.some((c) => c.pr === pr) ? "ciFix" : "feedback";
-  const model = useMemo(() => createRespondModel(ctx, pr, fallback), [ctx, pr]);
+  const model = useMemo(() => createRespondModel(ctx, pr, fallback, file), [ctx, pr]);
   useEffect(() => model.open(), [model]);
   const view = model.view(screen === "diff" ? "diff" : "main");
   const done = !!view.props.progress?.done;

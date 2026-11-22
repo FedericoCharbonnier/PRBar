@@ -29,6 +29,99 @@ export function openDatabase(options: DatabaseOptions = {}): Promise<IDBDatabase
   });
 }
 
+/** La conexión se perdió (WebKit suelta la de una página en segundo plano: "Connection to Indexed Database server
+ *  lost") o se cerró: abrir otra puede andar. */
+function connectionLost(error: unknown): boolean {
+  const name = (error as { name?: unknown } | null)?.name;
+  return name === "InvalidStateError" || name === "UnknownError";
+}
+
+/** La base `prbar` con una conexión que se rehace: si el navegador la cierra (`close`, `versionchange`) o una
+ *  operación falla porque se perdió, se abre otra y se reintenta una vez. */
+export class Database {
+  readonly #options: DatabaseOptions;
+  #db: IDBDatabase | null = null;
+  #opening: Promise<IDBDatabase> | null = null;
+
+  private constructor(options: DatabaseOptions) {
+    this.#options = options;
+  }
+
+  static async open(options: DatabaseOptions = {}): Promise<Database> {
+    const database = new Database(options);
+    await database.connection();
+    return database;
+  }
+
+  /** La conexión actual (abre una si hace falta). */
+  connection(): Promise<IDBDatabase> {
+    if (this.#db) return Promise.resolve(this.#db);
+    this.#opening ??= openDatabase(this.#options).then(
+      (db) => {
+        this.#opening = null;
+        this.#db = db;
+        const lost = () => {
+          if (this.#db === db) this.#db = null;
+        };
+        db.onclose = lost;
+        // Otra conexión quiere borrar o actualizar la base: se suelta esta (la próxima operación abre otra).
+        db.onversionchange = () => {
+          lost();
+          db.close();
+        };
+        return db;
+      },
+      (error: unknown) => {
+        this.#opening = null;
+        throw error;
+      },
+    );
+    return this.#opening;
+  }
+
+  /** Corre `fn` con la conexión; si falla porque la conexión se perdió, abre otra y reintenta una vez. */
+  async run<T>(fn: (db: IDBDatabase) => Promise<T>): Promise<T> {
+    const db = await this.connection();
+    try {
+      return await fn(db);
+    } catch (error) {
+      if (!connectionLost(error)) throw error;
+      if (this.#db === db) this.#db = null;
+      try {
+        db.close();
+      } catch {
+        // Ya estaba cerrada.
+      }
+      return fn(await this.connection());
+    }
+  }
+
+  /** Suelta la conexión (la próxima operación abre otra). */
+  close(): void {
+    const db = this.#db;
+    this.#db = null;
+    db?.close();
+  }
+}
+
+/** Borra la base entera (último recurso al desemparejar si no se pudo vaciar). Falla si queda bloqueada. */
+export function deleteDatabase(options: DatabaseOptions = {}): Promise<void> {
+  const factory = options.indexedDB ?? globalThis.indexedDB;
+  return new Promise((resolve, reject) => {
+    const request = factory.deleteDatabase(options.name ?? DB_NAME);
+    // Con `blocked` sigue esperando a que las otras conexiones se suelten (lo hacen con `versionchange`); si no, falla.
+    const timer = setTimeout(() => reject(new Error("IndexedDB is blocked by another tab")), 5000);
+    request.onsuccess = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    request.onerror = () => {
+      clearTimeout(timer);
+      reject(request.error);
+    };
+  });
+}
+
 function done(transaction: IDBTransaction): Promise<void> {
   return new Promise((resolve, reject) => {
     transaction.oncomplete = () => resolve();

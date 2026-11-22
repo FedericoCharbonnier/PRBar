@@ -1,23 +1,18 @@
-import { Banner, Button, GlassButton, HeroCircle, Icon, LargeTitle, MacPill, PRRow, Screen, Section, Spinner, TopBar } from "../components";
+import { Banner, Button, HeroCircle, Icon, LargeTitle, MacPill, PRRow, Screen, Section, TopBar } from "../components";
 import type { HomeProps } from "./types";
 import "./screens.css";
 
-// home (To Review), home:mine (My PRs) y home:offline: píldora de la Mac + filtro, título grande y secciones.
+// home (To Review), home:mine (My PRs) y home:offline: píldora de la Mac, título grande y secciones. El botón Filter de
+// DESIGN.md no tiene comportamiento definido: no se muestra hasta que lo tenga (un botón que no hace nada confunde).
 export function Home({
-  mac, title, sections, offline, banner, refreshing, onOpen, onAction, onToggleSection, onFilter, onRetry, onBannerAction,
+  mac, title, sections, offline, banner, onOpen, onAction, onToggleSection, onRetry, onBannerAction,
 }: HomeProps) {
   return (
     <Screen label={title}>
       <TopBar title={title}>
         <MacPill mac={mac} />
-        <GlassButton icon="line.3.horizontal.decrease" label="Filter" onClick={onFilter} iconSize={21} />
       </TopBar>
       <LargeTitle>{title}</LargeTitle>
-      {refreshing && (
-        <div class="home-refresh" role="status" aria-label="Refreshing">
-          <Spinner size={20} />
-        </div>
-      )}
       {banner && <Banner banner={banner} onAction={onBannerAction} />}
       {offline && (
         <div class="card offline-card">

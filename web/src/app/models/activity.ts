@@ -29,9 +29,10 @@ export function createActivityModel(ctx: AppContext): ActivityModel {
   const { store } = ctx;
   const tasks = computed(() => {
     const activity = store.activity.value;
-    const now = store.now.value;
     const ci = new Set(store.home.value?.ci.map((c) => c.pr) ?? []);
     if (activity?.running) {
+      // Solo con tareas corriendo hace falta el reloj de cada segundo (sus cronómetros).
+      const now = activity.running.length > 0 ? store.now.value : 0;
       return activity.running.map((job) => {
         const parts = [job.phase];
         const start = parseDate(job.startedAt);

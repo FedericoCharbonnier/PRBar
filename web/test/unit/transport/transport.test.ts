@@ -4,7 +4,8 @@ import { passkeyAuthorizer } from "../../../src/presence/webauthn";
 import { ed25519PublicKey, generateEd25519, generateX25519, x25519PublicKey } from "../../../src/crypto/curves";
 import { sessionPrologue } from "../../../src/crypto/noise";
 import type { RemoteFrame } from "../../../src/protocol/appFrames";
-import { FakeTransport, LiveTransport, type LinkState } from "../../../src/transport/Transport";
+import { FakeTransport } from "../../../src/transport/FakeTransport";
+import { LiveTransport, type LinkState } from "../../../src/transport/Transport";
 import { CommandError, RemoteError } from "../../../src/transport/types";
 import { fixture, type AppFixtureFile } from "../fixtures";
 import { FakeRelay, flush, MacPeer, ManualClock } from "./harness";
@@ -162,6 +163,56 @@ describe("LiveTransport", () => {
     const pending = t.transport.send({ status: {} });
     await flush();
     expect((await pending).id).toBeGreaterThan(0);
+  });
+
+  it("con la conexión en duda (página congelada), un comando gated falla enseguida y la comprueba", async () => {
+    const t = setup();
+    t.transport.start();
+    await flush();
+    expect(t.transport.state.kind).toBe("online");
+    // iOS congeló la página un rato y el socket murió sin avisar.
+    t.clock.jump(5 * 60_000);
+    const first = t.relay.last;
+    first.dead = true;
+    let asked = false;
+    const merge = { merge: { pr: "a/b#1", confirmed: true, expectedHeadOid: "x" } };
+    const error = await t.transport.send(merge, { authorize: async () => { asked = true; throw new Error("no"); } })
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(RemoteError);
+    expect(error).toMatchObject({ code: "connecting", message: "Still connecting to your Mac. Try again in a moment." });
+    expect(asked).toBe(false);
+    expect(first.sent.at(-1)).toEqual({ t: "ping" });
+    // Sin pong: a los 5 s, conexión y sesión nuevas.
+    await t.clock.advance(5000);
+    expect(first.closed).toBe(true);
+    expect(t.transport.state.kind).toBe("online");
+    expect(t.sessions).toHaveLength(2);
+  });
+
+  it("con la conexión en duda, lo que no es gated espera la comprobación y sale por la conexión nueva", async () => {
+    const t = setup();
+    t.transport.start();
+    await flush();
+    t.clock.jump(5 * 60_000);
+    t.relay.last.dead = true;
+    const pending = t.transport.send({ status: {} });
+    await t.clock.advance(5000);
+    const { id } = await pending;
+    expect(id).toBe(1);
+    expect(t.sessions).toHaveLength(2);
+    expect(t.sessions[1]!.mac.received.at(-1)).toMatchObject({ t: "req", id: 1 });
+  });
+
+  it("un pedido en un socket que murió en primer plano falla en segundos, no en 60", async () => {
+    const t = setup();
+    t.transport.start();
+    await flush();
+    t.clock.jump(10_000);
+    t.relay.last.dead = true;
+    const { result } = await t.transport.send({ status: {} });
+    const failure = result.catch((e: unknown) => e);
+    await t.clock.advance(5000);
+    expect(await failure).toBeInstanceOf(RemoteError);
   });
 
   it("sin sesión y con la Mac offline, un comando gated dice que la Mac está offline", async () => {

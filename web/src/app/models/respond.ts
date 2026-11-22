@@ -44,12 +44,13 @@ export function logLine(text: string): CheckLogLine {
   return { text, tone: "plain" };
 }
 
-export function createRespondModel(ctx: AppContext, pr: string, fallback: RespondMode): RespondModel {
+/** `file`: el archivo que se tocó en Fix CI (llega en la ruta de respond:diff, que arma otro modelo). */
+export function createRespondModel(ctx: AppContext, pr: string, fallback: RespondMode, file?: string): RespondModel {
   const { store } = ctx;
   const busy = signal(false);
   const startedAt = signal<number | null>(null);
   const diff = signal<{ files: DiffFile[]; truncated: boolean } | null>(null);
-  const selectedFile = signal<string | null>(null);
+  const selectedFile = signal<string | null>(file ?? null);
 
   const respond = computed((): RespondInfo | undefined => store.details.value[pr]?.respond);
   const mode = computed((): RespondMode => respond.value?.mode ?? fallback);
@@ -184,7 +185,8 @@ export function createRespondModel(ctx: AppContext, pr: string, fallback: Respon
             files: isDone.value ? changedFiles() : undefined,
             onOpenFile: (id) => {
               selectedFile.value = id;
-              ctx.nav.go({ kind: "pr", pr, screen: "diff" });
+              // respond:diff es otra pantalla con su propio modelo: el archivo va en la ruta.
+              ctx.nav.go({ kind: "pr", pr, screen: "diff", file: id });
             },
           },
         };

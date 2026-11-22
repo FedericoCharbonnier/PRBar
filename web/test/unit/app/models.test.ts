@@ -1,3 +1,4 @@
+import { effect } from "@preact/signals";
 import { describe, expect, it } from "vitest";
 import { createActivityModel } from "../../../src/app/models/activity";
 import { createChatModel } from "../../../src/app/models/chat";
@@ -232,6 +233,30 @@ describe("respond y fix CI", () => {
     expect(diff.props.files[0]!.lines.map((l) => l.kind)).toEqual(["hunk", "del", "add"]);
   });
 
+  it("fix CI: tocar un archivo abre respond:diff en ese archivo (no en el primero)", async () => {
+    const app = makeApp();
+    setRespond(app, "acme/web-app#488", { phase: "readyToPush" });
+    const twoFiles = [
+      "diff --git a/src/a.ts b/src/a.ts", "--- a/src/a.ts", "+++ b/src/a.ts", "@@ -1 +1 @@", "-a", "+b",
+      "diff --git a/src/b.ts b/src/b.ts", "--- a/src/b.ts", "+++ b/src/b.ts", "@@ -1 +1 @@", "-c", "+d", "",
+    ].join("\n");
+    app.transport.respond("respondDiff", () => ({ diff: twoFiles, truncated: false }));
+    const fixci = createRespondModel(app, "acme/web-app#488", "ciFix");
+    await fixci.loadDiff();
+    const main = fixci.view("main");
+    if (main.kind !== "fixci") throw new Error(main.kind);
+    main.props.onOpenFile("src/b.ts");
+    const route = app.nav.last;
+    expect(route).toEqual({ kind: "pr", pr: "acme/web-app#488", screen: "diff", file: "src/b.ts" });
+    // La pantalla de diff arma su propio modelo con lo que trae la ruta.
+    if (route?.kind !== "pr") throw new Error("route");
+    const diffModel = createRespondModel(app, "acme/web-app#488", "ciFix", route.file);
+    await diffModel.loadDiff();
+    const diff = diffModel.view("diff");
+    if (diff.kind !== "diff") throw new Error(diff.kind);
+    expect(diff.props.selectedFileId).toBe("src/b.ts");
+  });
+
   it("feedback: Respond with Claude, Implement, Reply y Push Anyway", async () => {
     const app = makeApp();
     const model = createRespondModel(app, "acme/web-app#475", "feedback");
@@ -411,6 +436,31 @@ describe("settings", () => {
     await model.unpair();
     expect(unpaired).toBe(1);
     expect(app.ui.confirms[0]!.title).toBe("Unpair from Studio?");
+  });
+});
+
+describe("reloj", () => {
+  it("cada segundo cambia `now`; `minute` (y lo que muestra minutos, como Home) solo al pasar el minuto", () => {
+    const app = makeApp();
+    const home = createHomeModel(app);
+    let renders = 0;
+    const stop = effect(() => {
+      home.props("review");
+      renders++;
+    });
+    app.clock.ms = Math.ceil(NOW / 60_000) * 60_000 + 1000;
+    app.store.tick();
+    const start = renders;
+    for (let i = 0; i < 30; i++) {
+      app.clock.ms += 1000;
+      app.store.tick();
+    }
+    expect(app.store.now.value).toBe(app.clock.ms);
+    expect(renders).toBe(start);
+    app.clock.ms += 30_000;
+    app.store.tick();
+    expect(renders).toBe(start + 1);
+    stop();
   });
 });
 

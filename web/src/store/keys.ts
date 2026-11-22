@@ -1,6 +1,6 @@
 import { utf8, type Bytes } from "../crypto/bytes";
 import type { DeviceKeys, PairedMac, PresenceCredential } from "../transport/types";
-import { getValue, openDatabase, write, type DatabaseOptions } from "./db";
+import { Database, getValue, write, type DatabaseOptions } from "./db";
 
 // Las claves del teléfono (spec W.3): las privadas (`deviceRelayKey`, `deviceStatic`, `devicePushKey`) se guardan
 // cifradas con una clave AES-GCM-256 de WebCrypto creada con `extractable: false` y guardada como `CryptoKey` en
@@ -48,14 +48,14 @@ const KEY_NAMES = ["relay", "noise", "push"] as const;
 const aad = (name: string) => utf8(`PRBar key v1|${name}`);
 
 export class KeyStore {
-  readonly #db: IDBDatabase;
+  readonly #db: Database;
 
-  private constructor(db: IDBDatabase) {
+  private constructor(db: Database) {
     this.#db = db;
   }
 
   static async open(options: DatabaseOptions = {}): Promise<KeyStore> {
-    return new KeyStore(await openDatabase(options));
+    return new KeyStore(await Database.open(options));
   }
 
   /** Guarda un emparejamiento nuevo (reemplaza el anterior). */
@@ -70,12 +70,12 @@ export class KeyStore {
     }
     const record: PairingRecord = { mac: pairing.mac, presence: pairing.presence, deviceName: pairing.deviceName,
                                     pairedAt: pairing.pairedAt, wrapped };
-    await write(this.#db, ["keys"], (store) => store("keys").put(record, PAIRING));
+    await this.#db.run((db) => write(db, ["keys"], (store) => store("keys").put(record, PAIRING)));
   }
 
   /** El emparejamiento guardado, o `null` si no hay (o si iOS borró algo y ya no se puede usar). */
   async loadPairing(): Promise<StoredPairing | null> {
-    const record = await getValue<PairingRecord>(this.#db, "keys", PAIRING);
+    const record = await this.#db.run((db) => getValue<PairingRecord>(db, "keys", PAIRING));
     if (!record) return null;
     const keys = await this.#unwrapAll(record);
     if (!keys) return null;
@@ -84,12 +84,12 @@ export class KeyStore {
 
   /** `true` si hay un emparejamiento guardado (aunque no se pueda abrir: "este dispositivo perdió el vínculo"). */
   async hasPairing(): Promise<boolean> {
-    return (await getValue(this.#db, "keys", PAIRING)) !== undefined;
+    return (await this.#db.run((db) => getValue(db, "keys", PAIRING))) !== undefined;
   }
 
   /** Solo lo que necesita el service worker para descifrar un push. */
   async pushKeys(): Promise<PushKeys | null> {
-    const record = await getValue<PairingRecord>(this.#db, "keys", PAIRING);
+    const record = await this.#db.run((db) => getValue<PairingRecord>(db, "keys", PAIRING));
     const wrapKey = await this.#wrapKey(false);
     if (!record || !wrapKey) return null;
     const devicePush = await this.#unwrap(wrapKey, "push", record.wrapped.push);
@@ -99,7 +99,7 @@ export class KeyStore {
 
   /** Desemparejar o revocado: borra el emparejamiento y la clave de envoltura (la próxima vez se crea otra). */
   async clear(): Promise<void> {
-    await write(this.#db, ["keys"], (store) => store("keys").clear());
+    await this.#db.run((db) => write(db, ["keys"], (store) => store("keys").clear()));
   }
 
   close(): void {
@@ -107,10 +107,10 @@ export class KeyStore {
   }
 
   async #wrapKey(create: boolean): Promise<CryptoKey | null> {
-    const existing = await getValue<CryptoKey>(this.#db, "keys", WRAP_KEY);
+    const existing = await this.#db.run((db) => getValue<CryptoKey>(db, "keys", WRAP_KEY));
     if (existing || !create) return existing ?? null;
     const key = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
-    await write(this.#db, ["keys"], (store) => store("keys").put(key, WRAP_KEY));
+    await this.#db.run((db) => write(db, ["keys"], (store) => store("keys").put(key, WRAP_KEY)));
     return key;
   }
 

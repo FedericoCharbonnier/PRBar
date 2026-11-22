@@ -908,20 +908,6 @@ export function decodeActivity(value: unknown): RemoteActivity {
 
 // --- Push y buzón (Sealed.swift) ---
 
-/** El contenido descifrado de una notificación (spec P.9). */
-export interface PushPayload {
-  v: 1;
-  id: string;
-  createdAt: ISODate;
-  kind: string;
-  title: string;
-  body: string;
-  threadId: string;
-  pr?: string;
-  deepLink: string;
-  badge?: number;
-}
-
 /** Un estado guardado en el buzón del relay (Q.1): `data` son los bytes JSON del tópico. */
 export interface MailboxBlob {
   slot: string;

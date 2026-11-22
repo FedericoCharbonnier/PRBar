@@ -2,8 +2,6 @@
 // hacen red ni guardan estado; el que las conecta (router + modelos) arma estos objetos.
 import type { ComponentChildren } from "preact";
 
-export type Tone = "accent" | "violet" | "green" | "orange" | "red" | "blue" | "neutral";
-
 /** Persona (autor, revisor). `color` es el del avatar, determinístico por login (lo calcula `avatarColor`). */
 export interface Person {
   name: string;
@@ -91,11 +89,11 @@ export interface HomeProps {
   offline?: OfflineCardVM | undefined;
   /** Aviso fino (datos viejos, sin red) arriba de la lista. */
   banner?: BannerVM | undefined;
+  /** Actualizando (lo muestra el pull-to-refresh de la pantalla). */
   refreshing?: boolean | undefined;
   onOpen: (rowId: string) => void;
   onAction: (rowId: string) => void;
   onToggleSection: (sectionId: string) => void;
-  onFilter: () => void;
   onRetry?: (() => void) | undefined;
   onBannerAction?: (() => void) | undefined;
 }
@@ -116,6 +114,14 @@ export interface PairWelcomeProps {
   busy?: boolean | undefined;
   /** Error o aviso arriba del botón ("This device lost its pairing. Pair it again from your Mac."). */
   notice?: string | undefined;
+  /** Abierto sobre una sesión que sigue andando (un link nuevo, o un emparejamiento que falló): volver a ella. */
+  onCancel?: (() => void) | undefined;
+}
+
+export interface BootErrorProps {
+  onRetry: () => void;
+  /** Borra lo guardado y vuelve a pair:welcome (si el arranque llegó a abrir el almacenamiento). */
+  onReset?: (() => void) | undefined;
 }
 
 export interface PasteCodeVM {

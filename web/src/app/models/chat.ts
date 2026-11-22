@@ -75,7 +75,7 @@ export function createChatModel(ctx: AppContext, pr: string, kind: ChatKind): Ch
       return {
         context: `${shortRef(pr)} · ${TITLES[kind]}`,
         readOnly: kind === "merge",
-        timestamp: first === null ? undefined : chatStamp(first, store.now.value, ctx.locale),
+        timestamp: first === null ? undefined : chatStamp(first, store.minute.value, ctx.locale),
         items,
         typing: streaming.value && (list.at(-1)?.text ?? "") === "",
         draft: draft.value,

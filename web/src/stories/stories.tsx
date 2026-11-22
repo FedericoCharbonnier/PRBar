@@ -20,7 +20,7 @@ export interface Story {
   fullPage?: boolean;
 }
 
-const homeBase = { onOpen: noop1, onAction: noop1, onToggleSection: noop1, onFilter: noop };
+const homeBase = { onOpen: noop1, onAction: noop1, onToggleSection: noop1 };
 
 const review = (extra: Partial<Parameters<typeof Review>[0]> = {}) => (
   <Review

@@ -91,9 +91,9 @@ describe("CSP", () => {
 
 describe("callbacks", () => {
   it("home: abrir fila, acción y plegar sección", () => {
-    const onOpen = vi.fn(), onAction = vi.fn(), onToggleSection = vi.fn(), onFilter = vi.fn();
+    const onOpen = vi.fn(), onAction = vi.fn(), onToggleSection = vi.fn();
     render(<Home mac={d.macOnline} title="To Review" sections={d.reviewSections} onOpen={onOpen} onAction={onAction}
-      onToggleSection={onToggleSection} onFilter={onFilter} />);
+      onToggleSection={onToggleSection} />);
     fireEvent.click(screen.getByLabelText(/Add CSV export to the monthly reports page, web-app#491/));
     expect(onOpen).toHaveBeenCalledWith("web-app#491");
     fireEvent.click(screen.getByRole("button", { name: "Review" }));
@@ -101,13 +101,15 @@ describe("callbacks", () => {
     expect(onOpen).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "To Review, 2, expanded" }));
     expect(onToggleSection).toHaveBeenCalledWith("review");
-    fireEvent.click(screen.getByRole("button", { name: "Filter" }));
-    expect(onFilter).toHaveBeenCalled();
+    // Sin botones que no hacen nada: ni Filter (sin comportamiento en DESIGN.md) ni la píldora de la Mac.
+    expect(screen.queryByRole("button", { name: "Filter" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Diego/ })).toBeNull();
+    expect(screen.getByRole("img", { name: /Diego's MacBook Pro, connected/ })).toBeTruthy();
   });
 
   it("home:offline: la acción queda deshabilitada y se anuncia", () => {
     render(<Home mac={d.macOffline} title="To Review" sections={d.reviewSectionsOffline} onOpen={noop} onAction={noop}
-      onToggleSection={noop} onFilter={noop} offline={{ title: "x", message: "y" }} onRetry={noop} />);
+      onToggleSection={noop} offline={{ title: "x", message: "y" }} onRetry={noop} />);
     const btn = screen.getByRole("button", { name: "Review, unavailable" }) as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
   });

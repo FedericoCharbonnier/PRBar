@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/preact";
 import { afterEach, describe, expect, it } from "vitest";
-import { Shell } from "../../../src/app/shell";
+import { FORGET_FAILED_MESSAGE, Shell } from "../../../src/app/shell";
+import type { Storage } from "../../../src/app/session";
 import { pairingURL } from "../../../src/protocol/pairingQR";
 import { App, InstallGate } from "../../../src/ui/app";
 import { flush, makeApp } from "../app/helpers";
@@ -88,5 +89,81 @@ describe("App", () => {
     app.transport.setState({ kind: "macOffline", since: null });
     shell.ui.alert("Your Mac is offline.");
     await waitFor(() => expect(screen.getByText("Your Mac is offline.")).toBeTruthy());
+  });
+
+  it("punto seguro para recargar con una versión nueva: pestaña raíz, sin hojas ni comandos en curso", async () => {
+    const { shell } = shellWithFake();
+    render(<App shell={shell} />);
+    expect(shell.isSafeToReload()).toBe(true);
+    void shell.ui.confirm({ title: "Sure?", confirmLabel: "OK", cancelLabel: "Cancel" });
+    expect(shell.isSafeToReload()).toBe(false);
+    shell.ui.confirmation.value!.resolve(false);
+    expect(shell.isSafeToReload()).toBe(true);
+    shell.router.go({ kind: "pr", pr: "acme/api#322", screen: "merge" });
+    expect(shell.isSafeToReload()).toBe(false);
+  });
+
+  it("un emparejamiento que falla sobre una sesión se puede cancelar desde welcome", async () => {
+    const { shell } = shellWithFake();
+    shell.pairingOpen.value = true;
+    shell.pairing.openLink("not a pairing link");
+    render(<App shell={shell} />);
+    expect(screen.getByText("Welcome to PRBar")).toBeTruthy();
+    fireEvent.click(screen.getByText("Cancel"));
+    expect(shell.pairingOpen.value).toBe(false);
+    await waitFor(() => expect(screen.getAllByText("To Review").length).toBeGreaterThan(0));
+  });
+
+  it("sin sesión, welcome no tiene Cancel", () => {
+    const shell = new Shell({ mode: "test", window });
+    shell.ready.value = true;
+    render(<App shell={shell} />);
+    expect(screen.queryByText("Cancel")).toBeNull();
+  });
+
+  it("si el arranque tira, muestra el error con Try Again (no una pantalla en blanco)", async () => {
+    const stored = { mac: { macName: "Studio" } };
+    const storage = {
+      keys: { loadPairing: async () => stored, hasPairing: async () => true },
+    } as unknown as Storage;
+    const shell = new Shell({
+      mode: "test", window, openStorage: async () => storage,
+      openSession: async () => { throw new Error("corrupt pairing"); },
+    });
+    const errors = console.error;
+    console.error = () => {};
+    try {
+      await shell.boot();
+    } finally {
+      console.error = errors;
+    }
+    expect(shell.ready.value).toBe(true);
+    expect(shell.bootFailed.value).toBe(true);
+    render(<App shell={shell} />);
+    expect(screen.getByText("PRBar couldn’t start")).toBeTruthy();
+    expect(screen.getByText("Try Again")).toBeTruthy();
+  });
+
+  it("desemparejar: si las claves no se pueden borrar, lo dice en welcome", async () => {
+    const fail = async () => { throw new DOMException("lost", "UnknownError"); };
+    const storage = {
+      keys: { clear: fail, close: () => {} },
+      cache: { clear: async () => {}, close: () => {} },
+      seen: { clear: async () => {}, close: () => {} },
+    } as unknown as Storage;
+    const shell = new Shell({ mode: "test", window, openStorage: async () => storage });
+    const app = makeApp();
+    shell.use({ pairing: { mac: { macName: "Studio" } } as never, transport: app.transport, store: app.store,
+                runner: app.runner });
+    shell.ready.value = true;
+    const errors = console.error;
+    console.error = () => {};
+    try {
+      await shell.unpair();
+    } finally {
+      console.error = errors;
+    }
+    expect(shell.active.value).toBeNull();
+    expect(shell.pairing.notice.value).toBe(FORGET_FAILED_MESSAGE);
   });
 });

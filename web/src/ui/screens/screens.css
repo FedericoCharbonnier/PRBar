@@ -14,13 +14,6 @@
   padding-top: 0;
 }
 
-.home-refresh {
-  display: flex;
-  justify-content: center;
-  padding: 8px 0 0;
-  color: var(--fg2);
-}
-
 .offline-card {
   display: flex;
   flex-direction: column;
@@ -1236,7 +1229,7 @@
   background: none;
   color: var(--fg2);
   font: inherit;
-  font-size: 15px;
+  font-size: 17px;
   text-align: right;
 }
 
@@ -1425,6 +1418,11 @@
   margin: 0;
   color: var(--fg2);
   font-size: 13px;
+}
+
+.paste__hint code {
+  font-family: var(--font-mono);
+  font-size: 12px;
 }
 
 .paste__input {

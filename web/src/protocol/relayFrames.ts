@@ -58,8 +58,6 @@ export type RelayMessage =
   /** Un tipo que esta versión no conoce: se ignora. */
   | { t: "unknown"; type: string };
 
-export type RelayMessageType = RelayMessage["t"];
-
 /** El texto del marco de WebSocket. */
 export function encodeRelayMessage(message: RelayMessage): string {
   const out: Record<string, unknown> = {};

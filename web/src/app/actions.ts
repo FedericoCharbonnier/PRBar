@@ -47,6 +47,7 @@ export class ActionRunner {
   readonly #transport: () => Transport;
   readonly #authorize: () => Authorize | null;
   readonly #faceIdPending = signal(false);
+  #running = 0;
 
   /** `authorize`: la passkey guardada (`null` si se emparejó sin passkey). */
   constructor(transport: () => Transport, authorize: () => Authorize | null) {
@@ -57,6 +58,11 @@ export class ActionRunner {
   /** Esperando el aviso de Face ID (`review:faceid`, `merge:faceid`). */
   get faceIdPending(): ReadonlySignal<boolean> {
     return this.#faceIdPending;
+  }
+
+  /** Hay comandos en curso (no es momento de recargar la app para una versión nueva). */
+  get busy(): boolean {
+    return this.#running > 0;
   }
 
   /** `true` si este comando va a pedir Face ID. */
@@ -81,6 +87,7 @@ export class ActionRunner {
         }
       };
     }
+    this.#running++;
     try {
       const pending = await transport.send(command, {
         ...(authorize ? { authorize } : {}),
@@ -91,6 +98,7 @@ export class ActionRunner {
     } catch (error) {
       throw new ActionFailure(toActionError(error));
     } finally {
+      this.#running--;
       this.#faceIdPending.value = false;
     }
   }

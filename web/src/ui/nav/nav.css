@@ -226,11 +226,6 @@
   transition: transform 0.45s cubic-bezier(0.32, 0.72, 0, 1);
 }
 
-/* El indicador propio de Home queda reemplazado por el de arriba. */
-.page .home-refresh {
-  display: none;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .ptr--spinning .ptr__spinner {
     animation-duration: 2.4s;

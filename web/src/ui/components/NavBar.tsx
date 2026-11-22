@@ -96,32 +96,40 @@ export function LargeTitle({ children }: { children: ComponentChildren }) {
   return <h1 class="large-title">{children}</h1>;
 }
 
-/** Píldora de vidrio con la Mac: círculo con `laptopcomputer`, nombre y estado. */
+/** Píldora de vidrio con la Mac: círculo con `laptopcomputer`, nombre y estado. Sin `onClick` no es un botón (DESIGN.md
+ *  no le da acción): VoiceOver la lee como un solo elemento con el nombre y el estado. */
 export function MacPill({ mac, onClick }: { mac: MacInfo; onClick?: (() => void) | undefined }) {
   const state = mac.online ? "connected" : "offline";
+  const label = `${mac.name}, ${state}, ${mac.detail.split(" · ").slice(1).join(" ")}`;
+  const content = (
+    <>
+      <span class="mac-pill__icon">
+        <Icon name="laptopcomputer" size={22} />
+      </span>
+      <span class="mac-pill__text">
+        <span class="mac-pill__name">{mac.name}</span>
+        <span class="mac-pill__detail">
+          <StatusDot online={mac.online} />
+          {mac.detail}
+        </span>
+      </span>
+    </>
+  );
   return (
     <>
       <span class="mac-pill-mini" aria-hidden="true">
         <Icon name="laptopcomputer" size={22} />
         <StatusDot online={mac.online} size={8} />
       </span>
-      <button
-        type="button"
-        class="mac-pill"
-        aria-label={`${mac.name}, ${state}, ${mac.detail.split(" · ").slice(1).join(" ")}`}
-        onClick={onClick}
-      >
-        <span class="mac-pill__icon">
-          <Icon name="laptopcomputer" size={22} />
+      {onClick ? (
+        <button type="button" class="mac-pill" aria-label={label} onClick={onClick}>
+          {content}
+        </button>
+      ) : (
+        <span class="mac-pill mac-pill--static" role="img" aria-label={label}>
+          {content}
         </span>
-        <span class="mac-pill__text">
-          <span class="mac-pill__name">{mac.name}</span>
-          <span class="mac-pill__detail">
-            <StatusDot online={mac.online} />
-            {mac.detail}
-          </span>
-        </span>
-      </button>
+      )}
     </>
   );
 }

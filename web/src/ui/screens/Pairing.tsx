@@ -1,7 +1,7 @@
 import type { ComponentChildren } from "preact";
-import { AppTile, Button, Card, GlassButton, HeroCircle, Icon, ListRow, SASCode, Screen, Sheet, Spinner } from "../components";
+import { AppTile, Button, GlassButton, HeroCircle, Icon, ListRow, SASCode, Screen, Sheet, Spinner } from "../components";
 import type { IconName } from "../components";
-import type { InstallProps, PairConfirmProps, PairPairedProps, PairSasProps, PairScanProps, PairWelcomeProps } from "./types";
+import type { BootErrorProps, InstallProps, PairConfirmProps, PairPairedProps, PairSasProps, PairScanProps, PairWelcomeProps } from "./types";
 import "./screens.css";
 
 // Instalación y emparejamiento: install, pair:welcome, pair:scan, pair:confirm, pair:sas, pair:paired.
@@ -50,7 +50,7 @@ export function Install({ platform, canInstall, onInstall }: InstallProps) {
   );
 }
 
-export function PairWelcome({ deviceName, onDeviceNameChange, onPair, busy, notice }: PairWelcomeProps) {
+export function PairWelcome({ deviceName, onDeviceNameChange, onPair, onCancel, busy, notice }: PairWelcomeProps) {
   return (
     <Screen variant="plain" class="onboard" label="Welcome to PRBar">
       <div class="onboard__body">
@@ -89,7 +89,13 @@ export function PairWelcome({ deviceName, onDeviceNameChange, onPair, busy, noti
         <Button size="xl" block icon="qrcode.viewfinder" busy={busy} disabled={!deviceName.trim()} onClick={onPair}>
           Scan QR on your Mac
         </Button>
-        <p class="onboard__caption">On your Mac, open PRBar › Settings › Pair iPhone.</p>
+        {onCancel ? (
+          <Button variant="plain" size="lg" block onClick={onCancel}>
+            Cancel
+          </Button>
+        ) : (
+          <p class="onboard__caption">On your Mac, open PRBar › Settings › Pair iPhone.</p>
+        )}
       </div>
     </Screen>
   );
@@ -134,7 +140,7 @@ export function PairScan({ camera, error, onCancel, onPasteCode, paste }: PairSc
                 Pair
               </Button>
             </div>
-            <p class="paste__hint">Paste the pairing link that `prbar remote pair` prints on your Mac.</p>
+            <p class="paste__hint">Paste the pairing link that <code>prbar remote pair</code> prints on your Mac.</p>
             <textarea
               class="paste__input"
               value={paste.value}
@@ -247,6 +253,30 @@ export function PairPaired({ macName, notifications, busy, onAllowNotifications,
         <Button variant={asked ? "filled" : "plain"} size={asked ? "xl" : "lg"} block onClick={onContinue}>
           {asked ? "Continue" : "Not Now"}
         </Button>
+      </div>
+    </Screen>
+  );
+}
+
+/** El arranque falló (la base local no abre, un emparejamiento guardado que no sirve…): en vez de una pantalla en
+ *  blanco, el error con "Try Again" y, si se puede, empezar de cero. */
+export function BootError({ onRetry, onReset }: BootErrorProps) {
+  return (
+    <Screen variant="plain" class="onboard onboard--center" label="PRBar couldn’t start">
+      <div class="onboard__body onboard__body--center">
+        <HeroCircle icon="exclamationmark.triangle.fill" tone="fill" size={88} iconSize={46} />
+        <h1 class="result__title result__title--pair">PRBar couldn’t start</h1>
+        <p class="result__text">Something went wrong while opening PRBar on this device. Try again in a moment.</p>
+      </div>
+      <div class="onboard__footer">
+        <Button size="xl" block icon="arrow.clockwise" onClick={onRetry}>
+          Try Again
+        </Button>
+        {onReset && (
+          <Button variant="plain" size="lg" block onClick={onReset}>
+            Unpair and Start Over
+          </Button>
+        )}
       </div>
     </Screen>
   );
