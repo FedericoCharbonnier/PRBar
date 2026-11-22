@@ -2149,6 +2149,12 @@ Layout: spec M.1 "Activity"; boceto `MacActivity.dc.html`.
     `ConfirmAlert` ("Remove this worktree?").
 - [ ] **Step 3:** `openActivityWindow()` → `navigate(to: .activity)` (el nombre queda: lo usan la notificación de disco y
   el popover). Borrar `activityWindowID`.
+  **Hecho (implementación):** orden: tiles · Claude tasks · Claude this month · Worktrees · Recent tasks (la tabla de
+  hoy, abajo para que Worktrees entre en 1280×800) · Disk (lo que no son worktrees, con el Clean Up general y "Also
+  delete history and logs older than"). "Clean Up Finished…" limita el plan a los worktrees; Clean Up por fila solo en
+  los terminados (`.orphan`) y con `paths: [row.path]`; `prbar cleanup` no acepta rutas (el mapeo dice eso). En una
+  tarea lista, el estado es un link a su pestaña. El Refresh de la toolbar mide el disco en Activity y el subtítulo es
+  `ActivityPane.subtitle` ("CPU x% · RAM y"; `MainWindow` observa `model.resources`).
 - [ ] **Step 4:** Capturas `activity` → `main-activity` (1280×800). Paridad UI ("Clean Up" por fila → `.cli(["cleanup"])`
   con `// --path`, si `prbar cleanup` acepta rutas; si no, el mismo mapeo que el Clean Up general). **Commit**
   `"Move Activity into the main window"`.

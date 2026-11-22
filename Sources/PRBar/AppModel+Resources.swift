@@ -3,8 +3,6 @@ import PRBarCore
 import SwiftUI
 
 extension AppModel: ResourceActions {
-    static let activityWindowID = "activity"
-
     func makeResourceMonitor() -> ResourceMonitor {
         // Lo que se mide se lee en el main actor; el escaneo corre fuera (lo lanza `ResourceMonitor` en segundo plano).
         let readInput: @MainActor @Sendable () -> DiskScanInput? = { [weak self] in self?.diskScanInput() }
@@ -44,15 +42,9 @@ extension AppModel: ResourceActions {
         notifications?.deliver([planned])
     }
 
+    /// Activity en la ventana principal (spec M.4). El nombre queda: lo usan la notificación de disco y el popover.
     func openActivityWindow() {
-        WindowPresenter.shared.show(
-            id: Self.activityWindowID, title: "PRBar Activity", size: ActivityWindow.size,
-            options: WindowOptions(autosaveName: "ActivityWindow", miniaturizable: true, resizable: true, allowsTabbing: false,
-                                   kind: .utility, bridgesToolbar: true, toolbarStyle: .unified),
-            contentID: "activity"
-        ) {
-            ActivityWindow(model: self, monitor: self.resources)
-        }
+        navigate(to: .activity)
     }
 
     /// Stop de una tarea de la ventana Activity (decisión I.1.10). `nil` = no se puede parar. Se llama desde el body

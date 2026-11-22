@@ -10,6 +10,8 @@ struct MainWindow: View {
     @ObservedObject var state: MainWindowState
     @ObservedObject var prStore: PRStore
     @ObservedObject var detail: PRDetailState
+    /// CPU y RAM del subtítulo en Activity (solo muestrea mientras se ve Activity).
+    @ObservedObject var resources: ResourceMonitor
     @State private var columns = NavigationSplitViewVisibility.all
 
     init(model: AppModel) {
@@ -17,6 +19,7 @@ struct MainWindow: View {
         state = model.main
         prStore = model.prStore
         detail = model.main.detail
+        resources = model.resources
     }
 
     var body: some View {
@@ -60,8 +63,7 @@ struct MainWindow: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         case .activity:
-            Text("Activity")   // Task 10
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            ActivityPane(model: model, monitor: resources)
         }
     }
 
@@ -102,7 +104,15 @@ struct MainWindow: View {
             }
         }
         ToolbarItemGroup(placement: .primaryAction) {
-            if prStore.isRefreshing {
+            if state.nav.place.sidebar == .activity {
+                // En Activity, Refresh vuelve a medir el disco (como su ⌘R).
+                if resources.scanningDisk {
+                    ProgressView().controlSize(.small).frame(width: 28)
+                } else {
+                    Button { resources.refreshDisk(force: true) } label: { Label("Refresh", systemImage: "arrow.clockwise") }
+                        .help("Measure the disk again (⌘R)")
+                }
+            } else if prStore.isRefreshing {
                 ProgressView().controlSize(.small).frame(width: 28)
             } else {
                 Button { Task { await prStore.refresh() } } label: { Label("Refresh", systemImage: "arrow.clockwise") }
@@ -147,6 +157,7 @@ struct MainWindow: View {
 
     /// "8 PRs · updated 2 min ago", "updating…", "offline" (como el popover).
     private var subtitle: String {
+        if state.nav.place.sidebar == .activity { return ActivityPane.subtitle(resources) }
         if state.nav.place.sidebar == .history {
             let count = state.history.all.count
             return count == 1 ? "1 record" : "\(count) records"

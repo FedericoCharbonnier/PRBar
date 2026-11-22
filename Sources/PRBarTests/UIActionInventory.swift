@@ -53,20 +53,22 @@ enum UIActionInventory {
         .init("Components/WindowCommands.swift", "Component:WindowAccessor", "-", 1, .viewOnly("finds the window a View menu command acts on")),
         .init("Components/WindowCommands.swift", "Component:WindowCommandModifier", "-", 1, .viewOnly("registers a window’s View menu commands (Show Chat, Refresh)")),
         // PRBar Activity (plan 13, spec I)
-        .init("Activity/ActivityWindow.swift", "Button", "Stop", 2, .cli(["review cancel", "respond cancel", "ci cancel", "chat", "rules chat", "update"])),   // por tarea; el de update deshabilitado
-        .init("Activity/ActivityWindow.swift", "Button", "Refresh", 1, .cli(["resources"])),
-        .init("Activity/ActivityWindow.swift", "Toggle", "Also delete history and logs older than", 1, .cli(["cleanup"])),   // --older-than
-        .init("Activity/ActivityWindow.swift", "Stepper", #"\(olderThanDays) days"#, 1, .cli(["cleanup"])),
-        .init("Activity/ActivityWindow.swift", "Button", "-", 1, .cli(["cleanup"])),   // Clean Up… (frees X)
-        .init("Activity/ActivityWindow.swift", "ConfirmAlert", "-", 1, .cli(["cleanup"])),   // --yes
-        .init("Activity/ActivityWindow.swift", "Component:WindowAccessor", "-", 1, .viewOnly("tracks whether the window is on screen to sample")),
+        .init("Activity/ActivityPane.swift", "Button", "Stop", 2, .cli(["review cancel", "respond cancel", "ci cancel", "chat", "rules chat", "update"])),   // por tarea; el de update deshabilitado
+        .init("Activity/ActivityPane.swift", "Button", "Clean Up Finished…", 1, .cli(["cleanup"])),   // only the worktrees of finished runs
+        .init("Activity/ActivityPane.swift", "Button", "Clean Up", 1, .cli(["cleanup"])),   // one worktree: `prbar cleanup` has no --path, it cleans every finished one
+        .init("Activity/ActivityPane.swift", "Button", " · ", 1, .viewOnly("navigation in the main window")),   // a ready task's status opens its tab
+        .init("Activity/ActivityPane.swift", "Toggle", "Also delete history and logs older than", 1, .cli(["cleanup"])),   // --older-than
+        .init("Activity/ActivityPane.swift", "Stepper", #"\(olderThanDays) days"#, 1, .cli(["cleanup"])),
+        .init("Activity/ActivityPane.swift", "Button", "-", 1, .cli(["cleanup"])),   // Clean Up… (frees X)
+        .init("Activity/ActivityPane.swift", "ConfirmAlert", "-", 2, .cli(["cleanup"])),   // --yes (Clean Up, and one worktree's Clean Up)
+        .init("Activity/ActivityPane.swift", "Component:WindowAccessor", "-", 1, .viewOnly("tracks whether the window is on screen to sample")),
         // Ventana principal (plan 21, spec M.1)
         .init("Main/MainSidebar.swift", "ListSelection", "-", 1, .viewOnly("navigation in the main window")),   // To Review, My PRs, History, Activity
         .init("Main/MainSidebar.swift", "Component:ClaudeTaskSidebarRow", "-", 1, .viewOnly("navigation in the main window")),   // opens the task's tab
         .init("Main/MainSidebar.swift", "Button", "-", 2, .cli(["app settings"])),   // the task row, the iPhone row (--tab iphone)
         .init("Main/MainSidebar.swift", "IconButton", "gearshape", 1, .cli(["app settings"])),
         .init("Main/MainWindow.swift", "Button", "Back", 1, .viewOnly("navigation in the main window")),
-        .init("Main/MainWindow.swift", "Button", "Refresh", 1, .cli(["refresh"])),
+        .init("Main/MainWindow.swift", "Button", "Refresh", 2, .cli(["refresh", "resources"])),   // the PRs; in Activity, the disk
         .init("Main/MainWindow.swift", "Button", "Open in New Window", 1, .viewOnly("opens the PR in its own window")),
         .init("Main/MainWindow.swift", "Button", "-", 1, .cli(["open"])),   // Open on GitHub
         .init("Main/EmptyDetailView.swift", "Component:MessageView", "sidebar.squares.right", 1, .viewOnly("no PR selected, no action")),

@@ -108,9 +108,8 @@ private final class SnapshotSession {
         try await ciFixWindows()
         let activity = try makeModel("activity", snapshot: fixtures.snapshot)
         activity.snapshotLiveUsage = fixtures.liveUsage
-        try await window("activity", title: "PRBar Activity", size: NSSize(width: 760, height: 1050)) {
-            ActivityWindow(model: activity, monitor: activity.resources)
-        }
+        activity.main.go(to: .activity, snapshot: activity.prStore.snapshot)
+        try await window("main-activity", title: "PRBar", size: Theme.MainLayout.defaultSize) { MainWindow(model: activity) }
         return written
     }
 
