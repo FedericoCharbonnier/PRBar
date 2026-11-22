@@ -65,6 +65,7 @@ struct MainWindow: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .animation(.easeInOut(duration: 0.2), value: detail.focus.isFocused)
+            .modifier(SearchField(text: $state.search))
         case .history:
             HStack(spacing: 0) {
                 HistoryListPane(model: model, state: state)
@@ -73,6 +74,7 @@ struct MainWindow: View {
                 HistoryDetailPane(model: model, state: state)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .modifier(SearchField(text: $state.search))
         case .activity:
             ActivityPane(model: model, monitor: resources)
         }
@@ -143,7 +145,8 @@ struct MainWindow: View {
                 PRDetailToolbar.chatButton(detail: detail)
             }
         }
-        // La búsqueda (170 pt, "Search ⌘F") va a la derecha de este grupo: la suma la Task 18.
+        // La búsqueda (170 pt, "Search ⌘F") va a la derecha de este grupo: la pone `SearchField` en To Review, My PRs
+        // y History (en Activity no hay campo).
     }
 
     /// El PR elegido en To Review / My PRs con sus pestañas (nil si no hay o ya no está).
@@ -189,5 +192,28 @@ struct MainWindow: View {
         let updated = Date().timeIntervalSince(snapshot.fetchedAt) < 60
             ? "updated just now" : "updated \(RelativeAge.short(from: snapshot.fetchedAt)) ago"
         return "\(count == 1 ? "1 PR" : "\(count) PRs") · \(updated)"
+    }
+}
+
+/// El campo de búsqueda de la toolbar (spec M.1, ⌘F): `.searchable` lo pone a la derecha, después del grupo de botones,
+/// sin mover las pestañas centradas. SwiftUI no deja fijar su ancho: se lo pone al `NSSearchToolbarItem` de la ventana.
+/// ⌘F (View › Find) lo enfoca con `WindowCommandCenter.find`.
+private struct SearchField: ViewModifier {
+    @Binding var text: String
+
+    func body(content: Content) -> some View {
+        content
+            .searchable(text: $text, placement: .toolbar, prompt: "Search ⌘F")
+            .background(WindowAccessor { window in
+                // La toolbar de SwiftUI suma el ítem después de que la vista entra en la ventana.
+                DispatchQueue.main.async { Self.setWidth(in: window) }
+            })
+    }
+
+    @MainActor
+    private static func setWidth(in window: NSWindow?) {
+        for case let item as NSSearchToolbarItem in window?.toolbar?.items ?? [] {
+            item.preferredWidthForSearchField = Theme.MainLayout.searchWidth
+        }
     }
 }

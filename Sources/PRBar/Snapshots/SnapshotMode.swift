@@ -91,6 +91,10 @@ private final class SnapshotSession {
         // La ventana principal (plan 21): To Review con la review lista de react-query elegida y la otra corriendo.
         main.main.go(to: .pr(prID: fixtures.reactQuery.id, tab: nil), snapshot: main.prStore.snapshot)
         try await window("main-list", title: "PRBar", size: Theme.MainLayout.defaultSize) { MainWindow(model: main) }
+        // ⌘F (spec M.1): la lista filtrada por "web-app", con las secciones que tienen resultados desplegadas.
+        main.main.search = "web-app"
+        try await window("main-search", title: "PRBar", size: Theme.MainLayout.defaultSize) { MainWindow(model: main) }
+        main.main.search = ""
         main.reviews.cancelAll()
 
         let empty = try makeModel("empty", snapshot: fixtures.caughtUpSnapshot)

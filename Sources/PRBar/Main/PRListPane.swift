@@ -63,12 +63,20 @@ struct PRListPane: View {
     // MARK: Lista
 
     private func list(_ snapshot: Snapshot) -> some View {
-        let sections = MainList.sections(section).map { ($0, MainList.items($0, in: snapshot)) }
-        let loudEmpty = sections.allSatisfy { $0.0.isQuiet || $0.1.isEmpty }
+        let query = state.search
+        let searching = !query.trimmingCharacters(in: .whitespaces).isEmpty
+        let sections = MainList.sections(section).map { ($0, MainList.items($0, in: snapshot, query: query)) }
+        // Buscando: solo las secciones con resultados, desplegadas, y sin los avisos de vacío (spec M.1, ⌘F).
+        let loudEmpty = !searching && sections.allSatisfy { $0.0.isQuiet || $0.1.isEmpty }
         // Las vacías quedan (plegadas) salvo las quietas, que sin PRs no aparecen.
-        let shown = sections.filter { !$0.1.isEmpty || !$0.0.isQuiet }
+        let shown = sections.filter { !$0.1.isEmpty || (!$0.0.isQuiet && !searching) }
         return Group {
-            if loudEmpty && sections.allSatisfy({ !$0.0.isQuiet || $0.1.isEmpty }) {
+            if searching && shown.isEmpty {
+                Text("No Results")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if loudEmpty && sections.allSatisfy({ !$0.0.isQuiet || $0.1.isEmpty }) {
                 emptyState(snapshot)
             } else {
                 List(selection: Binding(get: { state.nav.place.prID }, set: { state.select(prID: $0) })) {
@@ -81,7 +89,7 @@ struct PRListPane: View {
                             .selectionDisabled()
                     }
                     ForEach(loudEmpty ? shown.filter { $0.0.isQuiet } : shown, id: \.0) { listSection, items in
-                        Section(isExpanded: expanded(listSection, count: items.count)) {
+                        Section(isExpanded: searching ? .constant(true) : expanded(listSection, count: items.count)) {
                             ForEach(items) { item in
                                 PRListRow(item: item, model: model, section: listSection)
                                     .tag(item.id)

@@ -83,6 +83,8 @@ enum UIActionInventory {
         .init("Main/MainWindow.swift", "Button", "Refresh", 2, .cli(["refresh", "resources"])),   // the PRs; in Activity, the disk
         .init("Main/MainWindow.swift", "Button", "Open in New Window", 1, .viewOnly("opens the PR in its own window")),
         .init("Main/MainWindow.swift", "Button", "-", 1, .cli(["open"])),   // Open on GitHub
+        .init("Main/MainWindow.swift", "searchable", "Search ⌘F", 1, .viewOnly("filters the list")),
+        .init("Main/MainWindow.swift", "Component:WindowAccessor", "-", 1, .viewOnly("sets the search field's width")),
         .init("Main/EmptyDetailView.swift", "Component:MessageView", "sidebar.squares.right", 1, .viewOnly("no PR selected, no action")),
         .init("Main/PRListPane.swift", "ListSelection", "-", 1, .viewOnly("navigation in the main window")),
         .init("Main/PRListPane.swift", "onKeyPress", "-", 1, .cli(["review start", "respond start", "ci fix", "open"])),   // ↩: the pill's action

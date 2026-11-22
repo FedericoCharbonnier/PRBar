@@ -2519,6 +2519,13 @@ en `PRBarURLTests`.
   filtra con `ListSearch` (Task 9). ⌘F: el `find` de `WindowCommandCenter` (Task 16) enfoca el campo.
 - [ ] **Step 3:** Paridad UI (el campo de búsqueda → `.viewOnly("filters the list")`). Captura `main-search` opcional.
   **Commit** `"Search the PR list and History"`.
+  **Hecho (implementación):** `.searchable` lo pone el modificador `SearchField` (en `MainWindow.swift`) en el
+  contenido de To Review / My PRs y de History, no en Activity, así el campo aparece y desaparece sin rearmar el
+  `NavigationSplitView`. SwiftUI no deja fijar el ancho: `SearchField` busca el `NSSearchToolbarItem` de la ventana
+  (SwiftUI usa uno) y le pone `preferredWidthForSearchField = Theme.MainLayout.searchWidth`; por eso ⌘F
+  (`WindowCommandCenter.find` → `beginSearchInteraction()`) no necesita handler propio. Las pestañas del PR siguen
+  centradas en la columna de detalle (comparado con la captura de antes). Buscando, la lista muestra solo las secciones
+  con resultados, desplegadas, sin "All caught up"; sin resultados, "No Results". Captura `main-search` ("web-app").
 
 ---
 
