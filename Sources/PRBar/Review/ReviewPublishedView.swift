@@ -49,12 +49,13 @@ struct PublishedReview: Equatable {
 /// Estado final de la ventana de Review, una vez publicada.
 struct ReviewPublishedView: View {
     let result: PublishedReview
-    let close: () -> Void
+    /// nil: sin "Close" (la pestaña Review de la ventana principal).
+    let close: (() -> Void)?
     let model: AppModel
     let repo: RepoRef
     @ObservedObject private var instructions: InstructionsStore
 
-    init(result: PublishedReview, close: @escaping () -> Void, model: AppModel, repo: RepoRef) {
+    init(result: PublishedReview, close: (() -> Void)?, model: AppModel, repo: RepoRef) {
         self.result = result
         self.close = close
         self.model = model
@@ -80,9 +81,11 @@ struct ReviewPublishedView: View {
             HStack(spacing: 8) {
                 ExternalLink("View on GitHub", destination: result.url)
                     .padding(.trailing, 8)
-                Button("Close", action: close)
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
+                if let close {
+                    Button("Close", action: close)
+                        .buttonStyle(.borderedProminent)
+                        .keyboardShortcut(.defaultAction)
+                }
             }
             .padding(.top, 14)
             let suggestions = model.ruleSuggestions(for: repo)

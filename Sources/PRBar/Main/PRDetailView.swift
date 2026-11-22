@@ -12,8 +12,11 @@ struct PRDetailView: View {
     @ObservedObject var prStore: PRStore
     @ObservedObject var detail: PRDetailState
     let prID: String
+    /// false: el chat lo pone quien contiene la vista (la ventana principal lo pone a la derecha de lista + detalle:
+    /// un `.inspector` adentro de la columna de un `NavigationSplitView` desarma su layout).
+    let hostsInspector: Bool
 
-    init(model: AppModel, prID: String, detail: PRDetailState) {
+    init(model: AppModel, prID: String, detail: PRDetailState, hostsInspector: Bool = true) {
         self.model = model
         state = model.main
         reviews = model.reviews
@@ -21,6 +24,7 @@ struct PRDetailView: View {
         prStore = model.prStore
         self.detail = detail
         self.prID = prID
+        self.hostsInspector = hostsInspector
     }
 
     var body: some View {
@@ -28,11 +32,24 @@ struct PRDetailView: View {
             let tab = state.nav.tab(for: prID, context: context)
             pane(tab)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .modifier(ChatInspectorModifier(model: model, detail: detail, prID: prID, tab: tab, enabled: hostsInspector))
+                // View › Show Chat in the menu bar.
+                .windowCommand(.toggleChat, enabled: model.chatEnabled, isOn: detail.focus.chatShown && model.chatEnabled) {
+                    detail.focus.toggleChat()
+                }
                 .toolbar {
                     ToolbarItem(placement: .principal) {
                         PRTabBar(tabs: PRTabs.tabs(context), selected: tab,
                                  indicator: { ClaudeTasksSidebar.indicator(prID: prID, tab: $0, rows: model.claudeTaskRows()) },
                                  choose: { state.choose($0, for: prID) })
+                    }
+                    if model.chatEnabled {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button { detail.focus.toggleChat() } label: {
+                                Label("Chat", systemImage: "bubble.left.and.bubble.right")
+                            }
+                            .help(detail.focus.chatShown ? "Hide Chat (⌥⌘I)" : "Show Chat (⌥⌘I)")
+                        }
                     }
                 }
         } else {
@@ -44,8 +61,10 @@ struct PRDetailView: View {
     @ViewBuilder
     private func pane(_ tab: PRTab) -> some View {
         switch tab {
-        case .review, .details:
-            LegacyPaneButton(title: "Open Review Window") { model.openReview(prID: prID) }
+        case .review:
+            ReviewPane(model: model, prID: prID)
+        case .details:
+            LegacyPaneButton(title: "Open Merge Window") { if let item = model.currentItem(prID) { model.requestMerge(item) } }
         case .merge:
             LegacyPaneButton(title: "Open Merge Window") { if let item = model.currentItem(prID) { model.requestMerge(item) } }
         case .respond, .fixCI:
@@ -78,5 +97,27 @@ private struct PRGoneView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// El chat de la pestaña como inspector de 300 pt (spec M.1), abierto según el modo foco del detalle.
+struct ChatInspectorModifier: ViewModifier {
+    @ObservedObject var model: AppModel
+    @ObservedObject var detail: PRDetailState
+    let prID: String
+    let tab: PRTab
+    var enabled = true
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content.inspector(isPresented: Binding(get: { detail.focus.chatShown && model.chatEnabled },
+                                                   set: { detail.focus.setChatShown($0) })) {
+                ChatInspector(model: model, prID: prID, tab: tab)
+                    .inspectorColumnWidth(min: Theme.MainLayout.inspectorWidth, ideal: Theme.MainLayout.inspectorWidth,
+                                          max: 480)
+            }
+        } else {
+            content
+        }
     }
 }

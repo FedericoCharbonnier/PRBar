@@ -80,13 +80,31 @@ enum UIActionInventory {
         .init("Main/PRListPane.swift", "Component:MessageView", "checkmark.seal", 1, .viewOnly("the list’s empty state, no action")),
         .init("Main/PRDetailView.swift", "Component:PRTabBar", "-", 1, .viewOnly("navigation in the main window")),
         .init("Main/PRTabBar.swift", "Button", "-", 1, .viewOnly("navigation in the main window")),   // a tab
-        .init("Main/PRDetailView.swift", "Button", "-", 1, .viewOnly("temporary, removed in plan 21")),   // LegacyPaneButton
-        .init("Main/PRDetailView.swift", "Component:LegacyPaneButton", "Open Review Window", 1, .viewOnly("temporary, removed in plan 21")),
-        .init("Main/PRDetailView.swift", "Component:LegacyPaneButton", "Open Merge Window", 1, .viewOnly("temporary, removed in plan 21")),
+        .init("Main/PRDetailView.swift", "Button", "-", 2, .cli(["chat"])),   // LegacyPaneButton (temporary) and Chat (toggles the inspector)
+        .init("Main/PRDetailView.swift", "Component:LegacyPaneButton", "Open Merge Window", 2, .viewOnly("temporary, removed in plan 21")),
         .init("Main/PRDetailView.swift", "Component:LegacyPaneButton", "Open Respond Window", 1, .viewOnly("temporary, removed in plan 21")),
         .init("Main/PRDetailView.swift", "Button", "Open on GitHub", 1, .cli(["open"])),   // a PR that's no longer in the list
         .init("Main/PRDetailView.swift", "Component:MessageView", "questionmark.folder", 1, .viewOnly("a message; its action is a Button in this file")),
         .init("Popover/PopoverView.swift", "Button", "Open PRBar Window", 1, .viewOnly("temporary, replaced in plan 21 task 12")),
+        // Pestaña Review (plan 21, spec M.1): Review/ReviewEditor.swift (antes ReviewWindow.swift) y ReviewPane.swift
+        .init("Review/ReviewEditor.swift", "Button", "-", 2, .cli(["review publish", "review show"])),   // discarded / hidden sections
+        .init("Review/ReviewEditor.swift", "Button", "All", 1, .cli(["review include"])),
+        .init("Review/ReviewEditor.swift", "Button", "None", 1, .cli(["review exclude"])),
+        .init("Review/ReviewEditor.swift", "Button", "Post Everything in the Review Body", 1, .cli(["review publish"])),
+        .init("Review/ReviewEditor.swift", "Button", "Approve Without Comments…", 1, .cli(["review publish"])),
+        .init("Review/ReviewEditor.swift", "Button", "Post Review", 1, .cli(["review publish"])),   // ⌘↩, with the decision
+        .init("Review/ReviewEditor.swift", "Picker", "Decision", 1, .cli(["review publish"])),   // --approve / --request-changes
+        .init("Review/ReviewEditor.swift", "Button", "Review Again", 1, .cli(["review start"])),
+        .init("Review/ReviewEditor.swift", "TextField", "General comment (optional)", 1, .cli(["review comment"])),
+        .init("Review/ReviewEditor.swift", "ExternalLink", "Open on GitHub", 1, .cli(["open"])),
+        .init("Review/ReviewEditor.swift", "Component:OutdatedReviewBanner", "-", 1, .cli(["review start"])),
+        .init("Review/ReviewEditor.swift", "Component:ReviewPublishedView", "-", 1, .viewOnly("closes the window")),
+        .init("Review/ReviewEditor.swift", "ConfirmAlert", "Approve this PR?", 1, .cli(["review publish"])),
+        .init("Review/ReviewPane.swift", "Button", "Start Review", 1, .cli(["review start"])),
+        .init("Review/ReviewPane.swift", "Button", "Cancel", 1, .cli(["review cancel"])),
+        .init("Review/ReviewPane.swift", "Button", "Show Log", 1, .cli(["app logs"])),
+        .init("Review/ReviewPane.swift", "Component:ReviewEditor", "-", 2, .viewOnly("the Review tab's editor (its controls are in ReviewEditor.swift)")),
+        .init("Review/ReviewPane.swift", "Component:MessageView", "questionmark.folder", 1, .viewOnly("a message without an action")),
         // Componentes genéricos
         .init("Components/Chips.swift", "Button", "-", 1, .cli(["repo set"])),   // RemovableChip: quitar una rama base
         .init("Components/PointingHandCursor.swift", "Button", "-", 1, .viewOnly(generic)),
@@ -189,15 +207,6 @@ enum UIActionInventory {
         .init("Respond/RespondButton.swift", "Button", "Fix CI", 1, .cli(["ci fix"])),   // FixCIButton
         // Ventana de Review
         // Discarded y "Hidden by your settings" (vista; `review show` los lista), "Approve with N comments" y el botón Chat
-        .init("Review/ReviewWindow.swift", "Button", "-", 4, .cli(["review publish", "review show", "chat"])),
-        .init("Review/ReviewWindow.swift", "Button", "Select All", 1, .cli(["review include"])),
-        .init("Review/ReviewWindow.swift", "Button", "Select None", 1, .cli(["review exclude"])),
-        .init("Review/ReviewWindow.swift", "Button", "Post Everything in the Review Body", 1, .cli(["review publish"])),
-        .init("Review/ReviewWindow.swift", "Button", "Request Changes", 1, .cli(["review publish"])),
-        .init("Review/ReviewWindow.swift", "Button", "Approve Without Comments…", 1, .cli(["review publish"])),
-        .init("Review/ReviewWindow.swift", "Button", "Comment", 1, .cli(["review publish"])),
-        .init("Review/ReviewWindow.swift", "Button", "Review Again", 1, .cli(["review start"])),
-        .init("Review/ReviewWindow.swift", "TextField", "General comment (optional)", 1, .cli(["review comment"])),
         .init("Review/FindingCard.swift", "Toggle", "-", 2, .cli(["review include", "review exclude"])),
         .init("Review/FindingCard.swift", "Button", "-", 1, .viewOnly("expands the comment; `prbar review show --full` prints it")),
         .init("Review/FindingCard.swift", "Button", "Remove", 1, .cli(["review include", "review exclude"])),
@@ -378,7 +387,6 @@ enum UIActionInventory {
         .init("WindowPresenter.swift", "NSAlertButton", "Close", 1, .viewOnly("closes a window with unsaved edits")),
         .init("WindowPresenter.swift", "NSAlertButton", "Cancel", 1, .viewOnly("keeps the window open")),
         .init("AppModel+Updates.swift", "Component:UpdateWindow", "-", 1, .cli(["update"])),
-        .init("AppModel.swift", "Component:ReviewWindow", "-", 1, .viewOnly("window plumbing (unsaved state, close)")),
         // Descartar trabajo sin pushear (Dismiss, Analyze Again / Fix CI Again): la CLI pregunta lo mismo.
         .init("AppModel.swift", "ConfirmAlert", "-", 1, .cli(["respond dismiss", "ci dismiss"])),   // --yes
         .init("AppModel.swift", "Component:RespondWindow", "-", 1, .viewOnly("window plumbing (unsaved state, close)")),
@@ -407,10 +415,6 @@ enum UIActionInventory {
         .init("Review/HistoryWindow.swift", "Component:HistoryDetailView", "-", 1, .cli(["history reopen"])),
         .init("Review/HistoryWindow.swift", "Component:RespondHistoryDetailView", "-", 1, .cli(["open"])),
         .init("Review/HistoryWindow.swift", "Component:MessageView", "-", 1, .viewOnly("an empty-state message without an action")),
-        .init("Review/ReviewWindow.swift", "Component:OutdatedReviewBanner", "-", 1, .cli(["review start"])),
-        .init("Review/ReviewWindow.swift", "Component:ReviewPublishedView", "-", 1, .viewOnly("closes the window")),
-        .init("Review/ReviewWindow.swift", "ConfirmAlert", "Approve this PR?", 1, .cli(["review publish"])),
-        .init("Review/ReviewWindow.swift", "primaryAction", "-", 1, .cli(["review publish"])),   // Approve with N comments
         .init("Settings/ClaudeTab.swift", "Component:CategoryChip", "-", 1, .cli(["claude review set"])),   // --category
         .init("Settings/ClaudeTab.swift", "Component:ClaudeStageRow", "Review", 1, .cli(["claude stage", "claude prompt edit"])),
         .init("Settings/ClaudeTab.swift", "Component:ClaudeStageRow", "Filter", 1, .cli(["claude stage", "claude prompt edit"])),

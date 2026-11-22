@@ -25,8 +25,11 @@ struct MainWindow: View {
                 .navigationSplitViewColumnWidth(Theme.MainLayout.sidebarWidth)
         } detail: {
             GeometryReader { geometry in
-                content(windowWidth: geometry.size.width + (columns == .detailOnly ? 0 : Theme.MainLayout.sidebarWidth))
+                // Con el chat abierto el detalle se queda angosto: la lista toma su mínimo (280 pt).
+                let chatOpen = detail.focus.chatShown && model.chatEnabled
+                content(windowWidth: geometry.size.width + (columns == .detailOnly || chatOpen ? 0 : Theme.MainLayout.sidebarWidth))
             }
+            .modifier(chatInspector)
         }
         .navigationTitle(title)
         .navigationSubtitle(subtitle)
@@ -59,11 +62,19 @@ struct MainWindow: View {
     @ViewBuilder
     private var detailView: some View {
         if let prID = state.nav.place.prID {
-            PRDetailView(model: model, prID: prID, detail: detail)
+            PRDetailView(model: model, prID: prID, detail: detail, hostsInspector: false)
                 .id(prID)
         } else {
             EmptyDetailView()
         }
+    }
+
+    /// El chat del PR elegido, a la derecha de lista + detalle (en la columna de detalle de `NavigationSplitView`).
+    private var chatInspector: ChatInspectorModifier {
+        let prID = state.nav.section == nil ? nil : state.nav.place.prID
+        let tab = prID.flatMap { id in model.tabContext(prID: id).map { state.nav.tab(for: id, context: $0) } }
+        return ChatInspectorModifier(model: model, detail: detail, prID: prID ?? "", tab: tab ?? .review,
+                                     enabled: prID != nil && tab != nil)
     }
 
     // MARK: Toolbar

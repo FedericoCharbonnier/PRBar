@@ -98,7 +98,7 @@ private final class SnapshotSession {
         empty.popoverTab.selected = .mine
         try await popover("popover-empty-mine", model: empty)
 
-        try await reviewWindows(model: main)
+        try await reviewTab()
         try await respondWindows(model: main)
         try await mergeWindows(model: main)
         try await history()
@@ -238,39 +238,26 @@ private final class SnapshotSession {
         }
     }
 
-    private func reviewWindows(model: AppModel) async throws {
+    /// The Review tab of api#317 in the main window: the editor with the discarded findings open and one expanded, and
+    /// then with the chat open and a rule proposed in it.
+    private func reviewTab() async throws {
+        let model = try makeModel("review", snapshot: fixtures.snapshot)
         let draft = fixtures.loginRedirectDraft
-        let title = "Review · \(draft.repo.name)#\(draft.number)"
-        let chat = model.reviewChat(for: draft)
-        chat.reviewEdits.generalComment = SnapshotFixtures.generalComment
-        try await window("review-window", title: title, size: NSSize(width: 760, height: 980)) {
-            ReviewWindow(model: model, draft: draft, chat: chat, published: nil, close: {}, initialState: .init(
-                showsDiscarded: true, expandedFindings: ["open-redirect"]
-            ))
-        }
-        var chatDraft = fixtures.loginRedirectDraft
-        chatDraft.chat = fixtures.reviewChat
-        chatDraft.edits = fixtures.reviewChatEdits
-        let reviewChat = model.reviewChat(for: chatDraft)
-        try await window("review-chat", title: title, size: NSSize(width: 1180, height: 980)) {
-            ReviewWindow(model: model, draft: chatDraft, chat: reviewChat, published: nil, close: {},
-                         initialState: .init(showsChat: true))
+        model.reviews.restore(draft)
+        model.reviewChat(for: draft).reviewEdits.generalComment = SnapshotFixtures.generalComment
+        model.main.go(to: .pr(prID: draft.prID, tab: .review), snapshot: model.prStore.snapshot)
+        try await window("main-review", title: "PRBar", size: Theme.MainLayout.defaultSize) {
+            MainWindow(model: model)
+                .environment(\.reviewEditorInitialState, .init(showsDiscarded: true, expandedFindings: ["open-redirect"]))
         }
         var ruleDraft = fixtures.loginRedirectDraft
         // Its own id: `reviewChat(for:)` keeps one coordinator per draft id.
         ruleDraft.id = UUID()
         ruleDraft.chat = fixtures.reviewChatWithRule
         ruleDraft.edits = fixtures.reviewChatEdits
-        let ruleChat = model.reviewChat(for: ruleDraft)
-        try await window("review-chat-rule", title: title, size: NSSize(width: 1180, height: 980)) {
-            ReviewWindow(model: model, draft: ruleDraft, chat: ruleChat, published: nil, close: {},
-                         initialState: .init(showsChat: true))
-        }
-        let published = PublishedReview(record: fixtures.publishedLoginRedirect)
-        let publishedDraft = fixtures.loginRedirectDraft
-        try await window("review-published", title: title, size: ReviewWindow.size) {
-            ReviewWindow(model: model, draft: publishedDraft, chat: model.reviewChat(for: publishedDraft), published: published, close: {})
-        }
+        model.reviews.restore(ruleDraft)
+        model.main.detail.focus.setChatShown(true)
+        try await window("main-review-chat", title: "PRBar", size: Theme.MainLayout.defaultSize) { MainWindow(model: model) }
     }
 
     private func respondWindows(model: AppModel) async throws {

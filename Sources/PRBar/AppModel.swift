@@ -650,39 +650,18 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Abre la ventana de Review de un PR con review listo o publicado. La ventana se identifica por PR;
-    /// si ya estaba abierta con otro draft (p. ej. el PR se revisó de nuevo), se reemplaza el contenido.
+    /// La pestaña Review del PR en la ventana principal (spec M.4): muestra lo que haya (Start Review, el progreso, el
+    /// editor o la review publicada).
     func openReview(prID: String) {
-        let draft: ReviewDraft
-        var published: PublishedReview?
-        switch reviews.phases[prID] {
-        case .ready(let ready)?:
-            draft = ready
-        case .published?:
-            guard let record = history.all().first(where: { $0.draft.prID == prID && $0.status == .published }) else { return }
-            draft = record.draft
-            published = PublishedReview(record: record)
-        default:
-            return
-        }
-        let windowID = Self.reviewWindowID(prID)
-        WindowPresenter.shared.show(
-            id: windowID, title: "Review · \(draft.repo.name)#\(draft.number)", size: ReviewWindow.size,
-            // Sin confirmación al cerrar: lo elegido vive en el coordinador del draft y no se pierde (plan 7, decisión 3).
-            options: WindowOptions(sharedFrameKey: "ReviewWindowFrame", tabbingIdentifier: "PRBar.review", bridgesToolbar: true,
-                                   toolbarStyle: .unified),
-            contentID: draft.id.uuidString,
-            replaceConfirmation: "The previous review has unposted changes. Replace it?"
-        ) {
-            ReviewWindow(model: self, draft: draft, chat: self.reviewChat(for: draft), published: published) { unsaved in
-                WindowPresenter.shared.setUnsavedChanges(unsaved, for: windowID)
-            } close: {
-                WindowPresenter.shared.close(id: windowID)
-            }
-        }
+        navigate(to: .pr(prID: prID, tab: .review))
     }
 
-    private static func reviewWindowID(_ prID: String) -> String { "review-\(prID)" }
+    /// El último registro publicado del PR (la pestaña Review de un PR con la review ya publicada).
+    func publishedReviewRecord(prID: String) -> ReviewRecord? {
+        history.all()
+            .filter { $0.draft.prID == prID && $0.status == .published }
+            .max { ($0.finishedAt ?? $0.startedAt) < ($1.finishedAt ?? $1.startedAt) }
+    }
 
     /// Publica la review en GitHub (spec §8.7). Si algo falla se lanza el error y no se toca nada:
     /// la ventana conserva la selección y lo editado para reintentar.

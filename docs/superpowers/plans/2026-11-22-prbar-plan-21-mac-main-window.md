@@ -1930,6 +1930,13 @@ struct ReviewPane: View {
                 }
 ```
 
+  **Hecho distinto (implementación):** un `.inspector` adentro de la columna de detalle del `NavigationSplitView`
+  (es decir, dentro del `HStack` lista + detalle) desarma el layout (la lista queda en blanco y el detalle se sale de la
+  ventana). El inspector es `ChatInspectorModifier` (en `PRDetailView.swift`): `PRDetailView(…, hostsInspector:)` lo
+  pone él mismo (ventana de PR, por defecto `true`) y la ventana principal pasa `false` y lo aplica en `MainWindow` a
+  todo el contenido de la columna de detalle (queda a la derecha de lista + detalle). Con el chat abierto la lista toma
+  su ancho mínimo. La barra inferior de Review: fila "Posting as @x · N comments" (+ "Approve Without Comments…" con
+  Approve elegido) y fila con el segmentado de decisión y Post Review.
   y en la toolbar (`.primaryAction`, junto al grupo de la ventana) el botón Chat (`bubble.left.and.bubble.right`, help
   "Show Chat (⌥⌘I)"; el atajo lo pone el menú en la Task 16). Cerrado por defecto.
 - [ ] **Step 4: Enrutar** (spec M.4): `openReview(prID:)` → `navigate(to: .pr(prID: prID, tab: .review))` (sin la

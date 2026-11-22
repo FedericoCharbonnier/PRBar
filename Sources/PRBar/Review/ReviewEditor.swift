@@ -1,18 +1,17 @@
 import PRBarCore
 import SwiftUI
 
-/// Ventana de Review: elegir y editar los hallazgos de Claude y publicarlos como una sola review
-/// (ver `docs/design/ReviewWindow.dc.html`).
-struct ReviewWindow: View {
+/// El editor de la pestaña Review (spec M.1 "Review"): elegir y editar los hallazgos de Claude y publicarlos como una
+/// sola review. Lo que se elige vive en el coordinador del draft (`chat.reviewEdits`): cambiar de PR o cerrar la
+/// ventana no lo pierde (spec M.7).
+struct ReviewEditor: View {
     @ObservedObject var model: AppModel
     @ObservedObject var prStore: PRStore
     let draft: ReviewDraft
-    /// Avisa si hay cambios sin publicar (selección, textos editados o comentario general).
-    let reportUnsaved: (Bool) -> Void
-    let close: () -> Void
+    /// nil: sin "Close" después de publicar (la pestaña de la ventana principal).
+    let close: (() -> Void)?
     /// The window's editable state (selection, texts, added findings, general comment), shared with the chat.
     @ObservedObject var chat: ChatCoordinator
-    private let initialEdits: ReviewEdits
 
     /// Esta ventana pidió publicar (hasta que termina).
     @State private var requestedPublish = false
@@ -22,41 +21,33 @@ struct ReviewWindow: View {
     @State private var result: PublishedReview?
     @State private var showDiscarded: Bool
     @State private var showHidden: Bool
-    @State private var showsChat: Bool
-    /// The panel's width, remembered between windows (320–480).
-    @AppStorage("ChatPanelWidth") private var chatWidth = 360.0
+    /// La decisión de la barra inferior (Approve / Comment / Request Changes).
+    @State private var decision: ReviewEvent = .comment
     /// Findings whose comment starts expanded (snapshot mode).
     private let initiallyExpanded: Set<String>
     @FocusState private var focus: ReviewFocus?
 
-    static let size = NSSize(width: 720, height: 640)
-
     init(
-        model: AppModel, draft: ReviewDraft, chat: ChatCoordinator, published: PublishedReview?,
-        reportUnsaved: @escaping (Bool) -> Void = { _ in }, close: @escaping () -> Void,
+        model: AppModel, draft: ReviewDraft, chat: ChatCoordinator, published: PublishedReview?, close: (() -> Void)?,
         initialState: InitialState = InitialState()
     ) {
         self.model = model
         prStore = model.prStore
         self.draft = draft
         self.chat = chat
-        self.reportUnsaved = reportUnsaved
         self.close = close
-        initialEdits = ReviewEdits.initial(for: draft)
         _result = State(initialValue: published)
         // Reopened with discarded or hidden findings chosen to post: their section starts open.
         _showDiscarded = State(initialValue: initialState.showsDiscarded || chat.reviewEdits.selectedInDiscarded(of: draft))
         _showHidden = State(initialValue: chat.reviewEdits.selectedInHidden(of: draft))
-        _showsChat = State(initialValue: initialState.showsChat)
         initiallyExpanded = initialState.expandedFindings
     }
 
-    /// How the window opens. The app always uses the defaults; snapshot mode opens the discarded section and an
+    /// How the editor opens. The app always uses the defaults; snapshot mode opens the discarded section and an
     /// expanded finding (its general comment goes in the coordinator's `reviewEdits`).
     struct InitialState {
         var showsDiscarded = false
         var expandedFindings: Set<String> = []
-        var showsChat = false
     }
 
     /// El PR tal como está en el último snapshot (`nil` si ya no aparece, p. ej. se mergeó).
@@ -78,11 +69,6 @@ struct ReviewWindow: View {
     /// Publicado desde esta ventana o desde la CLI (`prbar review publish`).
     private var shownResult: PublishedReview? { result ?? model.publishedReviews[draft.id] }
 
-    /// Something would be lost if the window is replaced: nothing was posted and the edits aren't the initial ones.
-    private var hasUnsavedChanges: Bool {
-        shownResult == nil && chat.reviewEdits != initialEdits
-    }
-
     private var items: [ReviewItem] { chat.reviewEdits.items(of: draft) }
     private var kept: [ReviewItem] { items.filter { $0.keep && !$0.isHidden } }
     private var discarded: [ReviewItem] { items.filter { !$0.keep && !$0.isHidden } }
@@ -97,47 +83,32 @@ struct ReviewWindow: View {
                 .padding(.horizontal, 20)
                 .padding(.top, 14)
                 .padding(.bottom, 12)
-            ClaudeSummary(summary: draft.summary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(RoundedRectangle(cornerRadius: Theme.Radius.card).fill(Theme.tint(Theme.violet)))
-                .padding(.horizontal, 20)
-                .padding(.bottom, 12)
+            VStack(alignment: .leading, spacing: 6) {
+                ClaudeSummary(summary: draft.summary)
+                if let usage = draft.usage, usage.runs > 0 {
+                    // "3 agents · 1:12 · $0.42"
+                    Text([usage.runs == 1 ? "1 agent" : "\(usage.runs) agents",
+                          ClaudeTasksSidebar.clock(usage.durationSeconds), UsageFormat.cost(usage)].joined(separator: " · "))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .help(UsageFormat.note)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(RoundedRectangle(cornerRadius: Theme.Radius.card).fill(Theme.tint(Theme.violet)))
+            .padding(.horizontal, 20)
+            .padding(.bottom, 12)
             if let result = shownResult {
                 ReviewPublishedView(result: result, close: close, model: model, repo: draft.repo)
             } else {
                 editor
             }
         }
-        .frame(minWidth: 600, maxWidth: .infinity, minHeight: 480, maxHeight: .infinity, alignment: .top)
-        .onChange(of: hasUnsavedChanges, initial: true) { _, unsaved in reportUnsaved(unsaved) }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         // Spec B.2: the chat waits while posting (`AppModel.publishReview` locks it); after posting it stays read only
         // and its worktree goes away.
         .onChange(of: shownResult != nil, initial: true) { _, posted in if posted { chat.markReadOnly() } }
-        // Opening the chat widens the window as needed, staying on the screen.
-        .growsWindowForInspector(isPresented: showsChat && model.chatEnabled, minContentWidth: 600, inspectorWidth: chatWidth)
-        // View › Show Chat (⇧⌘C) in the menu bar.
-        .windowCommand(.toggleChat, enabled: model.chatEnabled, isOn: showsChat && model.chatEnabled) { showsChat.toggle() }
-        .inspector(isPresented: Binding(get: { showsChat && model.chatEnabled }, set: { showsChat = $0 })) {
-            ChatPanel(chat: chat, unavailableReason: model.chatUnavailableReason(for: chat),
-                      notice: isOutdated ? "This review is for an older commit." : nil,
-                      host: model.chatHost(chat), logURL: model.history.logURL(for: draft.id))
-                .inspectorColumnWidth(min: 320, ideal: chatWidth, max: 480)
-                .background(GeometryReader { geometry in
-                    Color.clear.onChange(of: geometry.size.width) { _, width in chatWidth = min(max(width, 320), 480) }
-                })
-        }
-        .toolbar {
-            if model.chatEnabled {
-                ToolbarItem(placement: .primaryAction) {
-                    Button { showsChat.toggle() } label: {
-                        Label("Chat", systemImage: "bubble.left.and.bubble.right")
-                    }
-                    .keyboardShortcut("c", modifiers: [.command, .shift])
-                    .help("Chat with Claude (⇧⌘C)")
-                }
-            }
-        }
     }
 
     // MARK: Edición
@@ -147,7 +118,7 @@ struct ReviewWindow: View {
             if let pr = currentPR, isOutdated {
                 OutdatedReviewBanner(disabled: publishing || model.jobsBlockedReason != nil) {
                     model.startReview(pr)
-                    close()
+                    close?()
                 }
             }
             Divider()
@@ -179,15 +150,18 @@ struct ReviewWindow: View {
         }
     }
 
+    /// "Findings · 3 of 4 included" con All / None (entre los que mantuvo el filtro).
     private var selectionBar: some View {
         HStack {
-            (Text("\(selected.count) of \(kept.count + selectedDiscardedCount)").foregroundStyle(.primary).fontWeight(.semibold)
-                + Text(" selected"))
+            (Text("Findings").fontWeight(.semibold).foregroundColor(.primary)
+                + Text(" · \(selected.count) of \(kept.count + selectedDiscardedCount) included"))
                 .font(.callout)
                 .foregroundStyle(.secondary)
             Spacer()
-            Button("Select All") { chat.reviewEdits.selected.formUnion(kept.map(\.id)) }
-            Button("Select None") { chat.reviewEdits.selected.removeAll() }
+            Button("All") { chat.reviewEdits.selected.formUnion(kept.map(\.id)) }
+                .help("Include every finding")
+            Button("None") { chat.reviewEdits.selected.subtract(kept.map(\.id)) }
+                .help("Include no findings")
         }
         .controlSize(.small)
         .disabled(publishing)
@@ -278,16 +252,34 @@ struct ReviewWindow: View {
                 Text("Posting as @\(draft.account) · \(selected.count) comment\(selected.count == 1 ? "" : "s")")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                Spacer()
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                if decision == .approve {
+                    Button("Approve Without Comments…") { confirmApproval(withComments: false) }
+                        .buttonStyle(.link)
+                        .font(.subheadline)
+                        .lineLimit(1)
+                }
+            }
+            // Its own row: next to the chat inspector the detail can be ~440 pt wide.
+            HStack(spacing: 8) {
+                Picker("Decision", selection: $decision) {
+                    Text("Approve").tag(ReviewEvent.approve)
+                    Text("Comment").tag(ReviewEvent.comment)
+                    Text("Request Changes").tag(ReviewEvent.requestChanges)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(maxWidth: 340)
+                Spacer(minLength: 0)
                 if publishing { ProgressView().controlSize(.small) }
-                // Return never posts: the only action with a shortcut is Comment (⌘↩), and Approve asks for confirmation.
-                Button("Request Changes") { publish(.requestChanges) }
-                    .disabled(nothingToPublish)
-                approveMenu
-                Button("Comment") { publish(.comment) }
+                // Return never posts: Post Review is ⌘↩, and Approve asks for confirmation.
+                Button("Post Review") { post() }
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.return, modifiers: .command)
-                    .disabled(nothingToPublish)
+                    .disabled(decision != .approve && nothingToPublish)
+                    .help("Post Review (⌘↩)")
+                    .fixedSize()
             }
             .disabled(publishing)
         }
@@ -305,24 +297,13 @@ struct ReviewWindow: View {
 
     private var hasGeneralComment: Bool { !general.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
-    /// Approve como menú desplegable con un título fijo: el botón principal aprueba con lo elegido y el menú ofrece
-    /// las dos variantes con la cantidad de comentarios, o aprobar sin comentarios (sin tocar la selección ni lo editado). Siempre pide confirmación; Return nunca publica.
-    private var approveMenu: some View {
-        Menu {
-            Button(ReviewSummaryText.approveWithCommentsItem(inline: selected.count, hasGeneral: hasGeneralComment)) {
-                confirmApproval(withComments: true)
-            }
-            Button("Approve Without Comments…") { confirmApproval(withComments: false) }
-                .disabled(nothingToPublish)
-        } label: {
-            Text("Approve")
-        } primaryAction: {
+    /// Post Review con la decisión elegida. Approve siempre pide confirmación.
+    private func post() {
+        if decision == .approve {
             confirmApproval(withComments: true)
+        } else {
+            publish(decision)
         }
-        .menuStyle(.borderedButton)
-        .fixedSize()
-        .accessibilityLabel("Approve")
-        .accessibilityHint("Opens a menu to approve with or without your comments")
     }
 
     private func confirmApproval(withComments: Bool) {
@@ -371,8 +352,9 @@ struct ReviewWindow: View {
     }
 }
 
-/// Encabezado: `repo#N` + "Abrir en GitHub", título y autor · ramas · `+adds −dels`.
-private struct ReviewHeader: View {
+/// Encabezado (spec M.1 "Review"): `owner/repo #N` + Open on GitHub, título de 20 pt y autor · ramas · `+/−` ·
+/// archivos.
+struct ReviewHeader: View {
     let draft: ReviewDraft
     let pr: PullRequest?
     /// Where the review ran (spec J): "on devbox" or "Ran on this Mac — devbox unreachable"; nil = this Mac.
@@ -380,9 +362,17 @@ private struct ReviewHeader: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            PRReferenceLine(draft: draft, linkTitle: "Open on GitHub")
+            HStack {
+                Text("\(draft.repo.fullName) #\(draft.number)")
+                    .font(.system(.subheadline, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                Spacer()
+                ExternalLink("Open on GitHub", destination: draft.url)
+                    .font(.callout)
+            }
             Text(draft.title)
-                .font(.title2.weight(.semibold))
+                .font(.system(size: 20, weight: .semibold))
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 6) {
@@ -398,6 +388,10 @@ private struct ReviewHeader: View {
                     (Text("+\(pr.additions)").foregroundColor(Theme.greenText)
                         + Text(" −\(pr.deletions)").foregroundColor(Theme.redText))
                         .monospacedDigit()
+                    if let files = pr.changedFiles {
+                        dot
+                        Text(files == 1 ? "1 file" : "\(files) files")
+                    }
                 }
                 if let placement {
                     dot
