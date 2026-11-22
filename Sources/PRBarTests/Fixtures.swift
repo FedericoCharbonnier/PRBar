@@ -42,3 +42,12 @@ func makePR(
         reviews: reviews, comments: comments, requestedReviewers: requested, merge: merge
     )
 }
+
+/// Un draft y un resultado de Respond vacíos, para las fases que los llevan (grupo Claude, etapas).
+let draftStub: RespondDraft = {
+    let pr = makePR(number: 1, author: "me")
+    return RespondDraft(id: UUID(), prID: pr.id, repo: pr.repo, number: 1, title: pr.title, url: pr.url,
+                        headRef: pr.headRef, account: "me", worktree: ResolvedWorktree(path: "/wt/1", origin: .mainClone),
+                        startHeadOid: "", items: [])
+}()
+let resultStub = RespondResult(items: [], diffStat: "", tests: nil)

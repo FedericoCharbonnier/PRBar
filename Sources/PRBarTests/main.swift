@@ -166,6 +166,10 @@ let allTests: [TestCase] = []
     + CIFixTests.cases
     + MainNavigationTests.cases
     + MainListTests.cases
+    + ClaudeTasksSidebarTests.cases
+    + FocusModeTests.cases
+    + DockPolicyTests.cases
+    + RespondStagesTests.cases
 
 let filter = CommandLine.arguments.dropFirst().first
 let selected = allTests.filter { test in
