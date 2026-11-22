@@ -160,6 +160,7 @@ final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActi
     func configShow() -> AppConfig { calls.append("configShow"); return AppConfig() }
     func configSetRefreshInterval(minutes: Int) throws { try record("configSetRefreshInterval \(minutes)") }
     func configSetLaunchAtLogin(enabled: Bool) throws { try record("configSetLaunchAtLogin \(enabled)") }
+    func configSetAlwaysShowInDock(enabled: Bool) throws { try record("configSetAlwaysShowInDock \(enabled)") }
     func accountList() -> [AccountInfo] { calls.append("accountList"); return [] }
     func accountSetEnabled(login: String, enabled: Bool) throws { try record("accountSetEnabled \(login) \(enabled)") }
     func accountReload() async throws -> [AccountInfo] { try record("accountReload"); return [] }

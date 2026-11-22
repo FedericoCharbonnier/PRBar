@@ -75,6 +75,8 @@ public enum AppCommand: Codable, Equatable, Sendable {
     case configShow
     case setRefreshInterval(minutes: Int)
     case setLaunchAtLogin(enabled: Bool)
+    /// Settings › General › Always show in Dock (spec M.5).
+    case setAlwaysShowInDock(enabled: Bool)
     /// Settings › General › umbral de disco; nil = apagado.
     case setDiskWarning(gigabytes: Int?)
     case accountList
@@ -218,6 +220,7 @@ public enum AppCommand: Codable, Equatable, Sendable {
         case ciList, ciFix, usage
         case remoteStatus, remoteEnable, remoteDisable, remotePairStart, remotePairWait, remotePairConfirm, remoteDevices
         case remoteRevoke, remoteSetKeepAwake, remoteReset, remoteSetPresenceRequirement, remoteSetMailbox
+        case setAlwaysShowInDock
     }
 
     public var name: Name {
@@ -263,6 +266,7 @@ public enum AppCommand: Codable, Equatable, Sendable {
         case .configShow: .configShow
         case .setRefreshInterval: .setRefreshInterval
         case .setLaunchAtLogin: .setLaunchAtLogin
+        case .setAlwaysShowInDock: .setAlwaysShowInDock
         case .accountList: .accountList
         case .accountSetEnabled: .accountSetEnabled
         case .accountReload: .accountReload

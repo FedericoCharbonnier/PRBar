@@ -32,6 +32,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         WindowPresenter.shared.installMainMenu()
         model.showPopover = { [weak statusItem] in statusItem?.show() ?? false }
         model.closePopover = { [weak statusItem] in statusItem?.close() }
+        // With "Always show in Dock" the icon shows from launch (spec M.5).
+        WindowPresenter.shared.refreshActivationPolicy()
+    }
+
+    /// A click on the Dock icon with no windows open opens the main window (spec M.5).
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag { model?.openMainWindow() }
+        return true
     }
 
     /// ⌘Q (menu, popover, Dock) while jobs are running asks first: quitting cancels them. `prbar app quit`, the

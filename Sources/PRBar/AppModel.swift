@@ -319,6 +319,7 @@ final class AppModel: ObservableObject {
         WindowPresenter.shared.openActivity = { [weak self] in self?.openActivityWindow() }
         WindowPresenter.shared.checkForUpdates = { [weak self] in self?.checkForUpdatesFromMenu() }
         WindowPresenter.shared.availableUpdate = { [weak self] in self?.updates.available?.version.description }
+        WindowPresenter.shared.alwaysShowInDock = { [weak self] in self?.configStore.config.alwaysShowInDock ?? false }
         WindowCommandCenter.shared.refreshPRs = { [weak self] in
             guard let self else { return }
             Task { await self.prStore.refresh() }

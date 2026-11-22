@@ -3,6 +3,14 @@ import PRBarCore
 
 enum ConfigTests {
     static let cases: [TestCase] = [
+        TestCase("config: Always show in Dock apagado por defecto y con ida y vuelta") {
+            let old = try JSONCoding.decoder.decode(AppConfig.self, from: Data(#"{"launchAtLogin": true}"#.utf8))
+            try expectEqual(old.alwaysShowInDock, false)
+            var config = AppConfig()
+            config.alwaysShowInDock = true
+            let back = try JSONCoding.decoder.decode(AppConfig.self, from: JSONCoding.encoder.encode(config))
+            try expectEqual(back.alwaysShowInDock, true)
+        },
         TestCase("config: setBaseBranches reemplaza la lista sin duplicados") {
             var config = AppConfig()
             config.setAccountEnabled("me", true)

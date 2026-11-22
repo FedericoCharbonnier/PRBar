@@ -43,7 +43,7 @@ public enum RemotePolicy {
         // Ventanas y app, cuentas y repos, herramientas, Slack, actualizaciones, destinos SSH, reglas, Claude, prompts,
         // limpieza y ajustes de la Mac: nada de eso desde el teléfono.
         case .historyReopen, .open, .openSettings, .openHistory, .quit, .configShow, .setRefreshInterval,
-             .setLaunchAtLogin, .accountList, .accountSetEnabled, .accountReload, .repoList, .repoAvailable, .repoAdd,
+             .setLaunchAtLogin, .setAlwaysShowInDock, .accountList, .accountSetEnabled, .accountReload, .repoList, .repoAvailable, .repoAdd,
              .repoRemove, .repoSet, .repoBranches, .followList, .followAdd, .followRemove, .followSuggestions,
              .claudeShow, .claudeSet, .claudeReset, .claudeSkills, .toolsList, .toolsSet, .slackShow,
              .slackSetEnabled, .slackSetProvider, .slackTokenSet, .slackTokenClear, .slackSetToggle, .slackSetEmoji,

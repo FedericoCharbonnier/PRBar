@@ -53,6 +53,8 @@ final class WindowPresenter: NSObject, NSWindowDelegate {
     var openActivity: (() -> Void)?
     var checkForUpdates: (() -> Void)?
     var availableUpdate: (() -> String?)?
+    /// "Always show in Dock" (Settings › General; lo asigna `AppModel`).
+    var alwaysShowInDock: () -> Bool = { false }
 
     private var windows: [String: NSWindow] = [:]
     /// Qué contenido muestra cada ventana (ver `contentID` en `present`).
@@ -75,7 +77,7 @@ final class WindowPresenter: NSObject, NSWindowDelegate {
         spaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.updateActivationPolicy() }
+            MainActor.assumeIsolated { self?.refreshActivationPolicy() }
         }
     }
 
@@ -194,13 +196,15 @@ final class WindowPresenter: NSObject, NSWindowDelegate {
         NSApp.helpMenu = mainMenu.items.first { $0.submenu?.title == "Help" }?.submenu
     }
 
-    /// No windows: back to `.accessory` (no Dock icon). With windows: `.regular`, unless another app is in full
-    /// screen in front (see `WindowSpaces.Behavior.promotesToRegular`).
-    private func updateActivationPolicy() {
-        if windows.isEmpty {
-            if NSApp.activationPolicy() != .accessory { NSApp.setActivationPolicy(.accessory) }
-        } else if NSApp.activationPolicy() != .regular, !SpaceContext.otherAppIsFullScreen() {
-            NSApp.setActivationPolicy(.regular)
+    /// No windows: back to `.accessory` (no Dock icon), unless "Always show in Dock". With windows (or the switch):
+    /// `.regular`, unless another app is in full screen in front (see `WindowSpaces.Behavior.promotesToRegular`).
+    func refreshActivationPolicy() {
+        let current: DockPolicy.Policy = NSApp.activationPolicy() == .regular ? .regular : .accessory
+        switch DockPolicy.policy(openWindows: windows.count, alwaysShowInDock: alwaysShowInDock(),
+                                 otherAppFullScreen: SpaceContext.otherAppIsFullScreen(), current: current) {
+        case .regular?: NSApp.setActivationPolicy(.regular)
+        case .accessory?: NSApp.setActivationPolicy(.accessory)
+        case nil: break
         }
     }
 
@@ -288,7 +292,7 @@ final class WindowPresenter: NSObject, NSWindowDelegate {
         unsavedChanges.remove(id)
         window.delegate = nil
         // Después de que termine el cierre, para que AppKit no reactive la app al ceder el foco.
-        DispatchQueue.main.async { [weak self] in self?.updateActivationPolicy() }
+        DispatchQueue.main.async { [weak self] in self?.refreshActivationPolicy() }
     }
 
     func windowDidResize(_ notification: Notification) {

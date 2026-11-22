@@ -42,6 +42,7 @@ let dispatchSamples: [(command: AppCommand, call: String)] = [
     (.configShow, "configShow"),
     (.setRefreshInterval(minutes: 5), "configSetRefreshInterval"),
     (.setLaunchAtLogin(enabled: true), "configSetLaunchAtLogin"),
+    (.setAlwaysShowInDock(enabled: true), "configSetAlwaysShowInDock"),
     (.accountList, "accountList"),
     (.accountSetEnabled(login: "me", enabled: false), "accountSetEnabled"),
     (.accountReload, "accountReload"),

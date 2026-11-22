@@ -39,6 +39,7 @@ enum RemotePolicyTests {
             }
             try expectEqual(RemotePolicy.decide(.status), .allowed)
             try expectEqual(RemotePolicy.decide(.quit), .denied)
+            try expectEqual(RemotePolicy.decide(.setAlwaysShowInDock(enabled: true)), .denied)
             try expectEqual(RemotePolicy.decide(.slackTokenSet(token: "placeholder")), .denied)
             try expectEqual(RemotePolicy.decide(.respondPush(pr: "a/b#1", confirmed: true, wait: false)), .gated)
             try expectEqual(RemotePolicy.decide(.respondPushAnyway(pr: "a/b#1", confirmed: true, wait: false)), .gated)

@@ -145,6 +145,9 @@ public enum CommandDispatcher {
         case .setLaunchAtLogin(let enabled):
             try actions.configSetLaunchAtLogin(enabled: enabled)
             return .ok
+        case .setAlwaysShowInDock(let enabled):
+            try actions.configSetAlwaysShowInDock(enabled: enabled)
+            return .ok
         case .accountList:
             return try encode(actions.accountList())
         case .accountSetEnabled(let login, let enabled):

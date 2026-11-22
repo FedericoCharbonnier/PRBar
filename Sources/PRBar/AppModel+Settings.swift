@@ -105,6 +105,16 @@ extension AppModel: ConfigActions {
         if let settingsError { throw CommandFailure(.failed, settingsError) }
     }
 
+    func configSetAlwaysShowInDock(enabled: Bool) throws {
+        setAlwaysShowInDock(enabled)
+    }
+
+    /// Settings › General › Always show in Dock (spec M.5): el ícono queda aunque no haya ventanas.
+    func setAlwaysShowInDock(_ on: Bool) {
+        updateConfig(refresh: false) { $0.alwaysShowInDock = on }
+        WindowPresenter.shared.refreshActivationPolicy()
+    }
+
 
     func accountList() -> [AccountInfo] {
         let configured = configStore.config.accounts

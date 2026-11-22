@@ -478,6 +478,8 @@ public struct AppConfig: Hashable, Codable, Sendable {
     public var accounts: [AccountConfig] = []
     public var refreshIntervalMinutes = 2
     public var launchAtLogin = false
+    /// El ícono en el Dock aunque no haya ventanas abiertas (spec M.5).
+    public var alwaysShowInDock = false
     public var notifications = NotificationSettings()
     public var toolPaths = ToolPaths()
     public var slack = SlackSettings()
@@ -496,6 +498,7 @@ public struct AppConfig: Hashable, Codable, Sendable {
         case resources
         case runners
         case remote
+        case alwaysShowInDock
     }
 
     public init(from decoder: Decoder) throws {
@@ -503,6 +506,7 @@ public struct AppConfig: Hashable, Codable, Sendable {
         accounts = try c.decodeIfPresent([AccountConfig].self, forKey: .accounts) ?? []
         refreshIntervalMinutes = try c.decodeIfPresent(Int.self, forKey: .refreshIntervalMinutes) ?? 2
         launchAtLogin = try c.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? false
+        alwaysShowInDock = (try? c.decodeIfPresent(Bool.self, forKey: .alwaysShowInDock)) ?? false
         notifications = try c.decodeIfPresent(NotificationSettings.self, forKey: .notifications) ?? NotificationSettings()
         toolPaths = try c.decodeIfPresent(ToolPaths.self, forKey: .toolPaths) ?? ToolPaths()
         slack = try c.decodeIfPresent(SlackSettings.self, forKey: .slack) ?? SlackSettings()

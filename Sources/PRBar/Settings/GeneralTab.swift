@@ -21,6 +21,10 @@ struct GeneralTab: View {
                     get: { model.launchAtLoginEnabled },
                     set: { model.setLaunchAtLogin($0) }
                 ))
+                Toggle("Always show in Dock", isOn: Binding(
+                    get: { configStore.config.alwaysShowInDock },
+                    set: { model.setAlwaysShowInDock($0) }
+                ))
             }
 
             Section {

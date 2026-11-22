@@ -214,6 +214,7 @@ public final class FixtureActions: PRBarActions {
     public func configShow() -> AppConfig { AppConfig() }
     public func configSetRefreshInterval(minutes: Int) throws {}
     public func configSetLaunchAtLogin(enabled: Bool) throws {}
+    public func configSetAlwaysShowInDock(enabled: Bool) throws {}
     public func accountList() -> [AccountInfo] { [] }
     public func accountSetEnabled(login: String, enabled: Bool) throws {}
     public func accountReload() async throws -> [AccountInfo] { [] }

@@ -106,8 +106,9 @@ public enum CLIRouter {
               ["merge", "api#4", "--preview"], ["merge", "api#4", "--dismiss"]),
         // Configuración
         .init("config show", [.configShow], ["config", "show"]),
-        .init("config set", [.setRefreshInterval, .setLaunchAtLogin, .setUpdateInterval, .setDiskWarning],
+        .init("config set", [.setRefreshInterval, .setLaunchAtLogin, .setUpdateInterval, .setDiskWarning, .setAlwaysShowInDock],
               ["config", "set", "refresh-interval", "2"], ["config", "set", "launch-at-login", "off"],
+              ["config", "set", "always-show-in-dock", "on"],
               ["config", "set", "update-interval", "24"], ["config", "set", "disk-warning", "off"]),
         .init("account list", [.accountList], ["account", "list"]),
         .init("account enable", [.accountSetEnabled], ["account", "enable", "me"]),
