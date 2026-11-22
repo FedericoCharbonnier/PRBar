@@ -2173,7 +2173,8 @@ Layout: spec M.3; boceto `MacPopover.dc.html`.
   (`monitor.disk` por categoría) y costo del mes (`model.usageLedger`) si no están; clic → `openActivityWindow()`);
   aviso de actualización con botón **Update** (`UpdateButton` → `openUpdateWindow()`); **Open PRBar ⌘0**
   (`.keyboardShortcut("0", modifiers: .command)`) y **Settings… ⌘,**. Los atajos invisibles (`keyboardShortcuts`):
-  sacar ⌘Y, sumar ⌘0; quedan ⌘, ⌘Q ⌘1 ⌘2. Borrar el botón provisorio de la Task 5 y el menú ⚙︎.
+  sacar ⌘Y, sumar ⌘0; quedan ⌘, ⌘Q ⌘1 ⌘2. Borrar el botón provisorio de la Task 5 y el menú ⚙︎; **Quit PRBar ⌘Q** se queda como ítem del pie (pedido del
+  usuario, decisión 11).
 - [ ] **Step 6:** Capturas `popover`, `popover-mine`, `popover-update`, `popover-empty*`, `popover-mine-ci-fix` (mismos
   nombres, contenido nuevo); la de `popover` ya tiene una review corriendo → muestra la franja. Paridad UI ("Open
   PRBar" → `.viewOnly("opens the main window")`; "History…" deja de existir). **Commit** `"Open PRs from the popover
@@ -2590,7 +2591,8 @@ Spec M.8: la ventana principal en los ocho estados del boceto, claro y oscuro, y
    directo.
 10. **Back** guarda los lugares a los que se llegó con `navigate(to:)` (barra lateral, ⌘1–4, notificaciones, links,
     pills); elegir otra fila con ↑ ↓ no llena la pila.
-11. **Popover:** el menú ⚙︎ desaparece (Settings es un botón); Quit queda en ⌘Q y en el menú de la app.
+11. **Popover:** el menú ⚙︎ desaparece (Settings es un botón). Por pedido del usuario el popover conserva un ítem
+    **"Quit PRBar ⌘Q"** (en el pie, junto a Open PRBar y Settings…), además de ⌘Q en el menú de la app.
 12. **Links:** además de `/<tab>`, se entiende el `?screen=` de los links del iPhone; `prbar://history/<uuid>` no se
     implementa.
 13. **`prbar config set always-show-in-dock`**: el interruptor nuevo tiene su comando (regla de paridad), denegado al

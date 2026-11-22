@@ -20,6 +20,8 @@ final class WindowCommandCenter: NSObject, NSMenuItemValidation {
         /// For toggles: whether it's on now ("Hide Chat" / "Show Chat").
         var isOn: Bool?
         var perform: () -> Void
+        /// Quién lo registró (`WindowCommandModifier`): al irse borra solo el suyo, no el de la vista que lo reemplazó.
+        var owner: ObjectIdentifier? = nil
     }
 
     /// Refresh when the key window has no refresh of its own: the PR list (`prbar refresh`). Set by `AppModel`.
@@ -35,6 +37,13 @@ final class WindowCommandCenter: NSObject, NSMenuItemValidation {
         let box = handlers.object(forKey: window) ?? Box()
         box.commands[command] = handler
         handlers.setObject(box, forKey: window)
+    }
+
+    /// Lo borra si sigue siendo de `owner`. En la ventana principal los panes van y vienen: el handler de uno que ya no
+    /// está (p. ej. el ⌘R de Merge) no puede quedar colgado.
+    func unregister(_ command: WindowCommand, in window: NSWindow, owner: ObjectIdentifier) {
+        guard let box = handlers.object(forKey: window), box.commands[command]?.owner == owner else { return }
+        box.commands[command] = nil
     }
 
     private func handler(_ command: WindowCommand) -> Handler? {
@@ -85,16 +94,25 @@ private struct WindowCommandModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .background(WindowAccessor { window in
+                // Sale de la ventana (nil): se borra de la anterior.
+                if window == nil { unregister() }
                 box.window = window
                 register()
             })
             .onChange(of: enabled) { _, _ in register() }
             .onChange(of: isOn) { _, _ in register() }
+            .onDisappear { unregister() }
+    }
+
+    private func unregister() {
+        guard let window = box.window else { return }
+        WindowCommandCenter.shared.unregister(command, in: window, owner: ObjectIdentifier(box))
     }
 
     private func register() {
         guard let window = box.window else { return }
-        WindowCommandCenter.shared.register(command, in: window, .init(enabled: enabled, isOn: isOn, perform: perform))
+        WindowCommandCenter.shared.register(command, in: window, .init(enabled: enabled, isOn: isOn, perform: perform,
+                                                                       owner: ObjectIdentifier(box)))
     }
 }
 

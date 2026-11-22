@@ -1,0 +1,94 @@
+import PRBarCore
+import SwiftUI
+
+/// La fila ancha de la lista de la ventana principal (spec M.1 "Fila"): avatar (PR ajeno) o ícono de estado (PR propio),
+/// título en dos líneas, edad, `repo#N · base`, CI + `+adds −dels` y el pill de la acción a la derecha. La selección la
+/// pinta `List` (fondo de acento, texto blanco).
+struct PRListRow: View {
+    let item: ClassifiedPR
+    let model: AppModel
+    let section: MainListSection
+
+    private var pr: PullRequest { item.pr }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            leading
+                .frame(width: 28, height: 28)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(pr.title)
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(section.isQuiet ? .secondary : .primary)
+                        .lineLimit(2)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Text(RelativeAge.short(from: pr.updatedAt))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize()
+                }
+                HStack(spacing: 4) {
+                    Text("\(pr.repo.name)#\(pr.number)")
+                        .lineLimit(1)
+                        .layoutPriority(2)
+                    Text("·")
+                    Text(pr.baseRef)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    CIIcon(state: pr.ciState).font(.caption2.weight(.bold))
+                    Text("+\(pr.additions)").foregroundStyle(Theme.greenText)
+                    Text("−\(pr.deletions)").foregroundStyle(Theme.redText)
+                    Spacer(minLength: 6)
+                    PRRowAccessory(item: item, model: model, reviews: model.reviews, respond: model.respond,
+                                   merges: model.merges)
+                        .font(.subheadline.weight(.medium))
+                        .fixedSize()
+                }
+                .font(.system(.caption, design: .monospaced))
+            }
+        }
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(accessibilityLabel)
+        .help("\(pr.repo.fullName)#\(pr.number) · \(pr.title)")
+    }
+
+    @ViewBuilder
+    private var leading: some View {
+        if PopoverTabs.isMine(item) {
+            Image(systemName: statusIcon.name)
+                .font(.system(size: 17))
+                .foregroundStyle(statusIcon.color)
+                .accessibilityHidden(true)
+        } else {
+            AvatarView(login: pr.author, url: pr.authorAvatarURL, size: 28)
+        }
+    }
+
+    /// El estado de un PR propio según su sección.
+    private var statusIcon: (name: String, color: Color) {
+        switch section {
+        case .withFeedback: ("bubble.left.and.exclamationmark.bubble.right", Theme.orange)
+        case .ciFailing: ("xmark.octagon.fill", Theme.red)
+        case .readyToMerge: ("checkmark.circle.fill", Theme.green)
+        default: ("clock", .secondary)
+        }
+    }
+
+    private var accessibilityLabel: String {
+        var parts = [pr.title, "\(pr.repo.name) number \(pr.number)", "by \(pr.author)", "into \(pr.baseRef)",
+                     "updated \(RelativeAge.short(from: pr.updatedAt)) ago"]
+        if let ci = CIIcon.label(for: pr.ciState) { parts.append(ci) }
+        parts.append("\(pr.additions) \(pr.additions == 1 ? "line" : "lines") added, \(pr.deletions) removed")
+        if section == .withFeedback {
+            parts.append(FeedbackLabel.text(for: ActionClassifier.newFeedback(pr, me: item.account)))
+        }
+        return parts.joined(separator: ", ")
+    }
+}

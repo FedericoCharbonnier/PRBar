@@ -185,8 +185,10 @@ final class AppModel: ObservableObject {
     var diskWarning = DiskWarningState()
     /// Limpieza de worktrees huérfanos del arranque; cada review la espera antes de crear el suyo.
     private(set) var orphanCleanup: Task<Void, Never>?
-    /// Cuándo se pidió cada review (por prID), para el `ReviewRecord`.
-    private var reviewStarts: [String: Date] = [:]
+    /// Cuándo se pidió cada review (por prID) y si la pidió un iPhone: el `ReviewRecord` y el grupo Claude.
+    @Published private(set) var reviewRuns: [String: ClaudeRunInfo] = [:]
+    /// La ventana principal (spec M.1): sobrevive a cerrarla con ⌘W.
+    let main = MainWindowState()
     private var terminationObserver: NSObjectProtocol?
     /// Chats discarded while a turn was running, until it ends (`discardChat`).
     private var retiringChats: [UUID: ChatCoordinator] = [:]
@@ -564,7 +566,7 @@ final class AppModel: ObservableObject {
             historyRevision += 1
         }
         reviews.dismiss(prID: item.id)
-        reviewStarts[item.id] = Date()
+        reviewRuns[item.id] = ClaudeRunInfo(startedAt: Date(), requestedOnPhone: CommandOrigin.current.isPhone)
         let ignorePaths = repoConfig(account: item.account, repo: item.pr.repo)?.ignorePaths ?? []
         reviews.enqueue(ReviewRequest(item: item, localPath: localPath(for: item), baseRef: item.pr.baseRef,
                                       ignorePaths: ignorePaths))
@@ -575,7 +577,7 @@ final class AppModel: ObservableObject {
 
     func cancelReview(prID: String) {
         reviews.cancel(prID: prID)
-        reviewStarts[prID] = nil
+        reviewRuns[prID] = nil
     }
 
     /// Descarta el review del PR. Uno listo sin publicar queda `abandoned` en el historial (como al reemplazarlo en
@@ -610,8 +612,9 @@ final class AppModel: ObservableObject {
     private func reviewFinished(_ request: ReviewRequest, _ result: Result<ReviewDraft, Error>) {
         resources.jobFinished()
         let item = request.item
-        let startedAt = reviewStarts.removeValue(forKey: item.id) ?? Date()
-        let record: ReviewRecord
+        let run = reviewRuns.removeValue(forKey: item.id)
+        let startedAt = run?.startedAt ?? Date()
+        var record: ReviewRecord
         switch result {
         case .success(let draft):
             record = ReviewRecord(draft: draft, startedAt: startedAt, finishedAt: Date(), status: .ready)
@@ -630,6 +633,7 @@ final class AppModel: ObservableObject {
                 draft: draft, startedAt: startedAt, finishedAt: Date(), status: .failed, errorMessage: error.localizedDescription
             )
         }
+        if run?.requestedOnPhone == true { record.requestedOnPhone = true }
         do {
             try history.save(record)
         } catch {

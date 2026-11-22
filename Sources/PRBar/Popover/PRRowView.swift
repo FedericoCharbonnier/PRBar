@@ -131,47 +131,9 @@ struct PRRowView: View {
 
     /// The PR's Respond slot holds a Fix CI (spec K).
     private var hasCIFix: Bool { respond.modes[item.id] == .ciFix && respond.phases[item.id] != nil }
-    /// "Fix CI" goes on the row: a PR of mine whose CI failed, with nothing in its Respond slot.
-    private var offersFixCI: Bool { model.isCIFixCandidate(item) && respond.phases[item.id] == nil }
 
-    @ViewBuilder
     private var trailingAccessory: some View {
-        if hasCIFix {
-            RespondButton(
-                phase: respond.phases[item.id], runningTests: respond.runningTests.contains(item.id),
-                unavailableReason: model.ciFixUnavailableReason(item), hasRecord: respond.records[item.id] != nil,
-                actions: ciFixActions, isCI: true
-            )
-        } else {
-            categoryAccessory
-        }
-    }
-
-    @ViewBuilder
-    private var categoryAccessory: some View {
-        switch item.category {
-        case .myFeedback:
-            HStack(spacing: 6) {
-                if offersFixCI {
-                    FixCIButton(unavailableReason: model.ciFixUnavailableReason(item)) { model.startCIFix(item) }
-                }
-                RespondButton(
-                    phase: respond.phases[item.id], runningTests: respond.runningTests.contains(item.id),
-                    unavailableReason: model.respondUnavailableReason(item), hasRecord: respond.records[item.id] != nil,
-                    actions: respondActions
-                )
-            }
-        case .toReview, .updatedSinceMyReview:
-            ReviewButton(phase: reviews.phases[item.id], unavailableReason: model.jobsBlockedReason, actions: reviewActions)
-        case .readyToMerge:
-            MergeButton(phase: merges.phases[item.id], availability: model.mergeOptions(item).availability, actions: mergeActions)
-        default:
-            if offersFixCI {
-                FixCIButton(unavailableReason: model.ciFixUnavailableReason(item)) { model.startCIFix(item) }
-            } else {
-                EmptyView()
-            }
-        }
+        PRRowAccessory(item: item, model: model, reviews: reviews, respond: respond, merges: merges)
     }
 
     @ViewBuilder
@@ -183,7 +145,7 @@ struct PRRowView: View {
         }
         if hasReviewButton {
             Divider()
-            let actions = reviewActions
+            let actions = self.actions.review
             switch reviews.phases[item.id] {
             case nil:
                 Button("Review with Claude", action: actions.start)
@@ -202,10 +164,10 @@ struct PRRowView: View {
             Divider()
             if hasCIFix {
                 if respond.phases[item.id]?.isActive == true {
-                    Button("Cancel Fix CI") { confirmCancel("CI fix", "Cancel CI Fix", ciFixActions.cancel) }
+                    Button("Cancel Fix CI") { confirmCancel("CI fix", "Cancel CI Fix", actions.ciFix.cancel) }
                         .disabled(respond.phases[item.id] == .pushing)
                 }
-                Button("View Fix CI", action: ciFixActions.open).disabled(respond.records[item.id] == nil)
+                Button("View Fix CI", action: actions.ciFix.open).disabled(respond.records[item.id] == nil)
             } else {
                 Button("Fix CI with Claude") { model.startCIFix(item) }
                     .disabled(model.ciFixUnavailableReason(item) != nil)
@@ -213,7 +175,7 @@ struct PRRowView: View {
         }
         if item.category == .myFeedback && !hasCIFix {
             Divider()
-            let actions = respondActions
+            let actions = self.actions.respond
             let phase = respond.phases[item.id]
             if phase?.isActive == true {
                 Button("Cancel") { confirmCancel("response", "Cancel Response", actions.cancel) }
@@ -267,68 +229,7 @@ struct PRRowView: View {
         }
     }
 
-    private var respondActions: RespondButtonActions {
-        let model = self.model
-        let item = self.item
-        let respond = self.respond
-        return RespondButtonActions(
-            start: { model.startRespond(item) },
-            cancel: { model.cancelRespond(prID: item.id) },
-            open: { model.openRespond(prID: item.id) },
-            retry: {
-                // Con fixes hechos (o commits que dejó una implementación) no se vuelve a analizar: la ventana reintenta
-                // la publicación, o pregunta antes de descartarlos.
-                if respond.records[item.id]?.result != nil || respond.unpushedWork.contains(item.id) {
-                    model.openRespond(prID: item.id)
-                } else {
-                    model.startRespond(item)
-                }
-            },
-            dismiss: { model.confirmDismissRespond(prID: item.id) }
-        )
-    }
-
-    private var ciFixActions: RespondButtonActions {
-        let model = self.model
-        let item = self.item
-        let respond = self.respond
-        return RespondButtonActions(
-            start: { model.startCIFix(item) },
-            cancel: { model.cancelRespond(prID: item.id) },
-            open: { model.openRespond(prID: item.id) },
-            retry: {
-                // With a fix already made (or commits a canceled fix left), the window retries the push or asks before
-                // discarding it.
-                if respond.records[item.id]?.result != nil || respond.unpushedWork.contains(item.id) {
-                    model.openRespond(prID: item.id)
-                } else {
-                    model.startCIFix(item)
-                }
-            },
-            dismiss: { model.confirmDismissRespond(prID: item.id) }
-        )
-    }
-
-    private var reviewActions: ReviewButtonActions {
-        let model = self.model
-        let item = self.item
-        return ReviewButtonActions(
-            start: { model.startReview(item) },
-            cancel: { model.cancelReview(prID: item.id) },
-            open: { model.openReview(prID: item.id) },
-            retry: { model.startReview(item) },
-            dismiss: { model.dismissReview(prID: item.id) }
-        )
-    }
-
-    private var mergeActions: MergeButtonActions {
-        let model = self.model
-        let item = self.item
-        return MergeButtonActions(
-            open: { model.requestMerge(item) },
-            dismiss: { model.dismissMergeError(prID: item.id) }
-        )
-    }
+    private var actions: PRRowActions { model.rowActions(item) }
 }
 
 /// Dónde va el botón Review dentro de la fila (ver `PRRowView.body`).

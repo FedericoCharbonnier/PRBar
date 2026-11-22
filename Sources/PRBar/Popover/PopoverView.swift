@@ -78,6 +78,8 @@ struct PopoverView: View {
                 .disabled(prStore.isRefreshing || limitedUntil != nil)
             }
             Menu {
+                // Provisorio (plan 21): hasta que la cabecera tenga su botón (Task 12).
+                Button("Open PRBar Window") { model.openMainWindow() }
                 Button("History…") { model.openHistory() }
                     .keyboardShortcut("y", modifiers: .command)
                 Button("Settings…") { model.openSettings() }

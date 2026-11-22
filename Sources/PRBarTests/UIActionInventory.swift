@@ -60,6 +60,33 @@ enum UIActionInventory {
         .init("Activity/ActivityWindow.swift", "Button", "-", 1, .cli(["cleanup"])),   // Clean Up… (frees X)
         .init("Activity/ActivityWindow.swift", "ConfirmAlert", "-", 1, .cli(["cleanup"])),   // --yes
         .init("Activity/ActivityWindow.swift", "Component:WindowAccessor", "-", 1, .viewOnly("tracks whether the window is on screen to sample")),
+        // Ventana principal (plan 21, spec M.1)
+        .init("Main/MainSidebar.swift", "ListSelection", "-", 1, .viewOnly("navigation in the main window")),   // To Review, My PRs, History, Activity
+        .init("Main/MainSidebar.swift", "Component:ClaudeTaskSidebarRow", "-", 1, .viewOnly("navigation in the main window")),   // opens the task's tab
+        .init("Main/MainSidebar.swift", "Button", "-", 2, .cli(["app settings"])),   // the task row, the iPhone row (--tab iphone)
+        .init("Main/MainSidebar.swift", "IconButton", "gearshape", 1, .cli(["app settings"])),
+        .init("Main/MainWindow.swift", "Button", "Back", 1, .viewOnly("navigation in the main window")),
+        .init("Main/MainWindow.swift", "Button", "Refresh", 1, .cli(["refresh"])),
+        .init("Main/MainWindow.swift", "Button", "Open in New Window", 1, .viewOnly("opens the PR in its own window")),
+        .init("Main/MainWindow.swift", "Button", "-", 1, .cli(["open"])),   // Open on GitHub
+        .init("Main/EmptyDetailView.swift", "Component:MessageView", "sidebar.squares.right", 1, .viewOnly("no PR selected, no action")),
+        .init("Main/PRListPane.swift", "ListSelection", "-", 1, .viewOnly("navigation in the main window")),
+        .init("Main/PRListPane.swift", "onKeyPress", "-", 1, .cli(["review start", "respond start", "ci fix", "open"])),   // ↩: the pill's action
+        .init("Main/PRListPane.swift", "primaryAction", "-", 1, .viewOnly("opens the PR in its own window")),   // double click
+        .init("Main/PRListPane.swift", "Button", "Open on GitHub", 1, .cli(["open"])),
+        .init("Main/PRListPane.swift", "Button", "Copy Link", 1, .cli(["open"])),
+        .init("Main/PRListPane.swift", "Button", #"\(drafts == 1 ? "#, 1, .viewOnly("navigation in the main window")),   // N drafts hidden · Show
+        .init("Main/PRListPane.swift", "Component:MessageView", "-", 3, .cli(["app settings", "refresh"])),   // Open Settings, Try Again
+        .init("Main/PRListPane.swift", "Component:MessageView", "checkmark.seal", 1, .viewOnly("the list’s empty state, no action")),
+        .init("Main/PRDetailView.swift", "Component:PRTabBar", "-", 1, .viewOnly("navigation in the main window")),
+        .init("Main/PRTabBar.swift", "Button", "-", 1, .viewOnly("navigation in the main window")),   // a tab
+        .init("Main/PRDetailView.swift", "Button", "-", 1, .viewOnly("temporary, removed in plan 21")),   // LegacyPaneButton
+        .init("Main/PRDetailView.swift", "Component:LegacyPaneButton", "Open Review Window", 1, .viewOnly("temporary, removed in plan 21")),
+        .init("Main/PRDetailView.swift", "Component:LegacyPaneButton", "Open Merge Window", 1, .viewOnly("temporary, removed in plan 21")),
+        .init("Main/PRDetailView.swift", "Component:LegacyPaneButton", "Open Respond Window", 1, .viewOnly("temporary, removed in plan 21")),
+        .init("Main/PRDetailView.swift", "Button", "Open on GitHub", 1, .cli(["open"])),   // a PR that's no longer in the list
+        .init("Main/PRDetailView.swift", "Component:MessageView", "questionmark.folder", 1, .viewOnly("a message; its action is a Button in this file")),
+        .init("Popover/PopoverView.swift", "Button", "Open PRBar Window", 1, .viewOnly("temporary, replaced in plan 21 task 12")),
         // Componentes genéricos
         .init("Components/Chips.swift", "Button", "-", 1, .cli(["repo set"])),   // RemovableChip: quitar una rama base
         .init("Components/PointingHandCursor.swift", "Button", "-", 1, .viewOnly(generic)),
@@ -99,7 +126,7 @@ enum UIActionInventory {
         .init("Popover/PRRowView.swift", "Button", "Fix CI with Claude", 1, .cli(["ci fix"])),
         .init("Popover/PRRowView.swift", "Button", "Cancel Fix CI", 1, .cli(["ci cancel"])),
         .init("Popover/PRRowView.swift", "Button", "View Fix CI", 1, .cli(["open", "ci show"])),   // open --respond
-        .init("Popover/PRRowView.swift", "Component:FixCIButton", "-", 2, .cli(["ci fix"])),
+        .init("Popover/PRRowAccessory.swift", "Component:FixCIButton", "-", 2, .cli(["ci fix"])),
         .init("Popover/PRRowView.swift", "Button", "View Response", 1, .cli(["open", "respond show"])),
         // Ready to Merge (plan 10) y la ventana de Merge (plan 11)
         .init("Popover/MergeButton.swift", "Button", "Merge…", 1, .cli(["open", "merge"])),   // la ventana (open --merge)
@@ -355,11 +382,12 @@ enum UIActionInventory {
         // Descartar trabajo sin pushear (Dismiss, Analyze Again / Fix CI Again): la CLI pregunta lo mismo.
         .init("AppModel.swift", "ConfirmAlert", "-", 1, .cli(["respond dismiss", "ci dismiss"])),   // --yes
         .init("AppModel.swift", "Component:RespondWindow", "-", 1, .viewOnly("window plumbing (unsaved state, close)")),
-        .init("Popover/PRRowView.swift", "Component:ReviewButtonActions", "-", 2,
+        // AppModel.rowActions: los pills de las filas (popover y ventana principal).
+        .init("AppModel+Popover.swift", "Component:ReviewButtonActions", "-", 1,
               .cli(["review start", "review cancel", "open", "review dismiss"])),
-        .init("Popover/PRRowView.swift", "Component:RespondButtonActions", "-", 4,
+        .init("AppModel+Popover.swift", "Component:RespondButtonActions", "-", 2,
               .cli(["respond start", "respond cancel", "open", "respond dismiss", "ci fix", "ci cancel", "ci dismiss"])),   // Respond and Fix CI
-        .init("Popover/PRRowView.swift", "Component:MergeButtonActions", "-", 2, .cli(["merge"])),   // merge, retry, --dismiss
+        .init("AppModel+Popover.swift", "Component:MergeButtonActions", "-", 1, .cli(["merge"])),   // merge, retry, --dismiss
         .init("Popover/PopoverView.swift", "Component:MessageView", "-", 3, .cli(["app settings", "refresh"])),   // Open Settings, Try Again
         .init("Popover/PopoverView.swift", "Component:MessageView", "checkmark.seal", 1, .viewOnly("a tab’s empty state, no action")),
         .init("Popover/StatusItemController.swift", "Component:PopoverPanelContent", "-", 1, .viewOnly("hosts the popover in the menu bar panel")),

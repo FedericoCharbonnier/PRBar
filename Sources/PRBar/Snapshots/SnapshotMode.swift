@@ -88,6 +88,9 @@ private final class SnapshotSession {
         main.updates.applySnapshotState(available: SnapshotFixtures.updateRelease)
         try await popover("popover-update", model: main)
         main.updates.applySnapshotState(available: nil)
+        // La ventana principal (plan 21): To Review con la review lista de react-query elegida y la otra corriendo.
+        main.main.go(to: .pr(prID: fixtures.reactQuery.id, tab: nil), snapshot: main.prStore.snapshot)
+        try await window("main-list", title: "PRBar", size: Theme.MainLayout.defaultSize) { MainWindow(model: main) }
         main.reviews.cancelAll()
 
         let empty = try makeModel("empty", snapshot: fixtures.caughtUpSnapshot)

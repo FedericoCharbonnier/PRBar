@@ -35,6 +35,18 @@ enum Theme {
 
     static let popoverWidth: CGFloat = 380
     static let popoverMaxHeight: CGFloat = 640
+
+    /// Medidas fijas de la ventana principal (spec M.1). El ancho de la lista depende de la ventana: `MainLayout`
+    /// de PRBarCore.
+    enum MainLayout {
+        static let defaultSize = NSSize(width: 1280, height: 800)
+        static let minSize = NSSize(width: 960, height: 600)
+        static let sidebarWidth: CGFloat = 236
+        static let inspectorWidth: CGFloat = 300
+        static let searchWidth: CGFloat = 170
+        static let titleColumnWidth: CGFloat = 220
+        static let mergeSideColumnWidth: CGFloat = 240
+    }
 }
 
 /// Borde fino de una tarjeta. Con "Aumentar contraste" usa el color de separador del sistema.
