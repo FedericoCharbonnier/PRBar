@@ -106,4 +106,15 @@ extension AppModel {
             navigate(to: destination)
         }
     }
+
+    /// Un link `prbar://` (spec M.4). Uno que no se entiende abre la ventana sin moverse. No se loguea el link: puede
+    /// tener nombres de repos privados.
+    func openURL(_ url: URL) {
+        if let destination = PRBarURL.destination(url) {
+            navigate(to: destination)
+        } else {
+            AppLog.write("Couldn't understand a prbar:// link.")
+            openMainWindow()
+        }
+    }
 }

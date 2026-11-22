@@ -36,6 +36,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         WindowPresenter.shared.refreshActivationPolicy()
     }
 
+    /// `prbar://` links (spec M.4): each one opens its place in the main window.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls { model?.openURL(url) }
+    }
+
     /// A click on the Dock icon with no windows open opens the main window (spec M.5).
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if !flag { model?.openMainWindow() }

@@ -32,5 +32,10 @@ enum PRBarURLTests {
                 try expectEqual(PRBarURL.destination(url), destination)
             }
         },
+        TestCase("prbar://: Info.plist registra el esquema") {
+            let plist = try InfoPlist.read()
+            let types = try expectSome(plist["CFBundleURLTypes"] as? [[String: Any]])
+            try expect(types.contains { ($0["CFBundleURLSchemes"] as? [String])?.contains(PRBarURL.scheme) == true })
+        },
     ]
 }
