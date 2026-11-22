@@ -2176,6 +2176,9 @@ snapshots, `UIActionInventory.swift`.
 - [ ] **Step 3: Aviso en la barra lateral** (spec M.1 "Pie"): si `model.updates.available` → "PRBar X available" ·
   botón "What's new" (abre la hoja) · botón "Install" (abre la hoja; ver M.9). Mientras instala, el progreso compacto
   de `UpdateButton`.
+  **Hecho (implementación):** `UpdateSheet(updates:mode:close:)`; `UpdateWindowMode` conserva su nombre. La captura
+  `main-update-sheet` dibuja la hoja encima del contenido (la hoja de una ventana fuera de pantalla no sale en la
+  captura). El aviso de la barra lateral va arriba del separador del pie.
 - [ ] **Step 4:** Captura `update` → `main-update-sheet` (ventana principal con la hoja). Paridad UI (los botones de la
   hoja cambian de archivo; "What's new"/"Install" → `.cli(["update"])`). **Commit** `"Show the update as a sheet on the
   main window"`.

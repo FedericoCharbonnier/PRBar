@@ -2,7 +2,7 @@ import AppKit
 import PRBarCore
 import SwiftUI
 
-/// Lo que muestra la ventana de actualización.
+/// Lo que muestra la hoja de actualización.
 enum UpdateWindowMode: Equatable {
     /// Hay una versión nueva: notas, Update / Skip This Version / Later, y el progreso.
     case available(ReleaseInfo)
@@ -24,7 +24,9 @@ enum UpdateWindowMode: Equatable {
     }
 }
 
-struct UpdateWindow: View {
+/// La actualización como hoja sobre la ventana principal (spec M.2): notas, Update / Skip This Version / Later y el
+/// progreso; o, recién actualizada, qué cambió.
+struct UpdateSheet: View {
     static let size = NSSize(width: 540, height: 460)
 
     @ObservedObject var updates: UpdateController

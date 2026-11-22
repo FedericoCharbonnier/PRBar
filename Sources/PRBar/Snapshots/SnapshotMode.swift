@@ -173,8 +173,19 @@ private final class SnapshotSession {
     private func updateWindow() async throws {
         let model = try makeModel("update", snapshot: fixtures.snapshot)
         model.updates.applySnapshotState(available: SnapshotFixtures.updateRelease)
-        try await window("update", title: "Update PRBar", size: UpdateWindow.size) {
-            UpdateWindow(updates: model.updates, mode: .available(SnapshotFixtures.updateRelease), close: {})
+        // The sheet over the main window (spec M.2): a sheet of an offscreen window isn't captured, so it's drawn on
+        // top of the window's content, centered at the top and dimmed behind, the way it looks attached.
+        try await window("main-update-sheet", title: "PRBar", size: Theme.MainLayout.defaultSize) {
+            MainWindow(model: model)
+                .overlay {
+                    Color.black.opacity(0.12)
+                        .ignoresSafeArea()
+                        .overlay(alignment: .top) {
+                            UpdateSheet(updates: model.updates, mode: .available(SnapshotFixtures.updateRelease), close: {})
+                                .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+                                .shadow(color: .black.opacity(0.25), radius: 20, y: 8)
+                        }
+                }
         }
     }
 

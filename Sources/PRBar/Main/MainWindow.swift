@@ -37,6 +37,9 @@ struct MainWindow: View {
         .navigationTitle(title)
         .navigationSubtitle(subtitle)
         .toolbar { toolbar }
+        .sheet(item: $state.updateSheet) { mode in
+            UpdateSheet(updates: model.updates, mode: mode) { state.updateSheet = nil }
+        }
         .frame(minWidth: Theme.MainLayout.minSize.width, minHeight: Theme.MainLayout.minSize.height)
     }
 

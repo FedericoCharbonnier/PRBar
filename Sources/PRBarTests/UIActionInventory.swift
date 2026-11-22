@@ -170,15 +170,15 @@ enum UIActionInventory {
         .init("Settings/UpdatesSection.swift", "Picker", "Frequency", 1, .cli(["config set"])),   // update-interval N
         .init("Settings/UpdatesSection.swift", "Button", "Check for Updates", 1, .cli(["update"])),   // --check
         .init("Settings/UpdatesSection.swift", "Button", "Update…", 1, .cli(["update"])),
-        .init("Update/UpdateWindow.swift", "Button", "Try Again", 1, .cli(["update"])),   // "Update" / "Try Again"
-        .init("Update/UpdateWindow.swift", "Button", "Update When Done", 1, .cli(["update"])),
-        .init("Update/UpdateWindow.swift", "Button", "Cancel Jobs and Update", 1, .cli(["update"])),   // --cancel-jobs
-        .init("Update/UpdateWindow.swift", "Button", "Skip This Version", 1, .cli(["update"])),   // --skip
-        .init("Update/UpdateWindow.swift", "Button", "Cancel", 1, .cli(["update"])),   // --cancel
-        .init("Update/UpdateWindow.swift", "Button", "Show Log", 2, .cli(["app logs"])),   // --update
-        .init("Update/UpdateWindow.swift", "Button", "Later", 1, .viewOnly("closes the window")),
-        .init("Update/UpdateWindow.swift", "Button", "Hide", 1, .viewOnly("closes the window; the update keeps going")),
-        .init("Update/UpdateWindow.swift", "Button", "OK", 1, .viewOnly("closes the window")),
+        .init("Update/UpdateSheet.swift", "Button", "Try Again", 1, .cli(["update"])),   // "Update" / "Try Again"
+        .init("Update/UpdateSheet.swift", "Button", "Update When Done", 1, .cli(["update"])),
+        .init("Update/UpdateSheet.swift", "Button", "Cancel Jobs and Update", 1, .cli(["update"])),   // --cancel-jobs
+        .init("Update/UpdateSheet.swift", "Button", "Skip This Version", 1, .cli(["update"])),   // --skip
+        .init("Update/UpdateSheet.swift", "Button", "Cancel", 1, .cli(["update"])),   // --cancel
+        .init("Update/UpdateSheet.swift", "Button", "Show Log", 2, .cli(["app logs"])),   // --update
+        .init("Update/UpdateSheet.swift", "Button", "Later", 1, .viewOnly("closes the window")),
+        .init("Update/UpdateSheet.swift", "Button", "Hide", 1, .viewOnly("closes the window; the update keeps going")),
+        .init("Update/UpdateSheet.swift", "Button", "OK", 1, .viewOnly("closes the window")),
         // Chat (plan 6) e instrucciones (plan 9) en el chat del PR
         .init("Chat/ChatPanel.swift", "TextField", "-", 1, .cli(["chat"])),   // el mensaje
         .init("Chat/ChatPanel.swift", "Button", "-", 1, .cli(["chat"])),   // enviar
@@ -402,7 +402,10 @@ enum UIActionInventory {
         .init("WindowPresenter.swift", "NSAlertButton", "Keep Previous", 1, .viewOnly("keeps the window’s unsaved contents")),
         .init("WindowPresenter.swift", "NSAlertButton", "Close", 1, .viewOnly("closes a window with unsaved edits")),
         .init("WindowPresenter.swift", "NSAlertButton", "Cancel", 1, .viewOnly("keeps the window open")),
-        .init("AppModel+Updates.swift", "Component:UpdateWindow", "-", 1, .cli(["update"])),
+        .init("Main/MainWindow.swift", "Component:UpdateSheet", "-", 1, .cli(["update"])),
+        .init("Main/MainSidebar.swift", "Component:UpdateButton", "-", 1, .cli(["update"])),   // while installing
+        .init("Main/MainSidebar.swift", "Button", "What’s New", 1, .cli(["update"])),   // opens the Update sheet
+        .init("Main/MainSidebar.swift", "Button", "Install", 1, .cli(["update"])),   // opens the Update sheet (decision 9)
         // Descartar trabajo sin pushear (Dismiss, Analyze Again / Fix CI Again): la CLI pregunta lo mismo.
         .init("AppModel.swift", "ConfirmAlert", "-", 1, .cli(["respond dismiss", "ci dismiss"])),   // --yes
         // AppModel.rowActions: los pills de las filas (popover y ventana principal).
@@ -459,7 +462,7 @@ enum UIActionInventory {
         .init("Settings/RunOnSection.swift", "Button", "Test Connection", 1, .cli(["runners test"])),
         .init("Settings/RunOnSection.swift", "Button", "-", 1, .cli(["runners remove"])),   // Remove (red label)
         .init("Settings/RunOnSection.swift", "ConfirmAlert", "-", 1, .cli(["runners remove"])),
-        .init("Update/UpdateWindow.swift", "ConfirmAlert", "Update while fixes aren’t pushed?", 1, .cli(["update"])),   // la pregunta lo dice
+        .init("Update/UpdateSheet.swift", "ConfirmAlert", "Update while fixes aren’t pushed?", 1, .cli(["update"])),   // la pregunta lo dice
         .init("Settings/RunOnSection.swift", "Component:AddRunnerSheet", "-", 1, .cli(["runners add"])),
         .init("Settings/RunOnSection.swift", "Picker", "From ~/.ssh/config", 1, .cli(["runners add"])),
         .init("Settings/RunOnSection.swift", "TextField", "Host", 1, .cli(["runners add"])),

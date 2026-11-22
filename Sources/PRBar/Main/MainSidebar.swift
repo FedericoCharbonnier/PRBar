@@ -33,7 +33,7 @@ struct MainSidebar: View {
         }
         .listStyle(.sidebar)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            MainSidebarFooter(model: model, remote: model.remoteAccess)
+            MainSidebarFooter(model: model, remote: model.remoteAccess, updates: model.updates)
         }
     }
 
@@ -159,9 +159,11 @@ private struct ClaudeTaskSidebarRow: View {
 private struct MainSidebarFooter: View {
     let model: AppModel
     @ObservedObject var remote: RemoteAccessService
+    @ObservedObject var updates: UpdateController
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
+            updateNotice
             Divider().padding(.bottom, 4)
             if let device = remote.devices.first {
                 let online = remote.online.contains(device.device.deviceId)
@@ -193,6 +195,42 @@ private struct MainSidebarFooter: View {
         .foregroundStyle(.secondary)
         .padding(.horizontal, 10)
         .padding(.bottom, 8)
+    }
+}
+
+extension MainSidebarFooter {
+    /// "PRBar X available · What's new · Install" (spec M.1 "Pie"); los dos botones abren la hoja de Update, donde está
+    /// la política con trabajos en curso (plan 21, decisión 9). Mientras instala, el progreso compacto de `UpdateButton`.
+    @ViewBuilder
+    var updateNotice: some View {
+        if updates.isInstalling {
+            UpdateButton(updates: updates) { model.openUpdateWindow() }
+                .padding(.horizontal, 8)
+                .padding(.bottom, 8)
+        } else if let release = updates.available {
+            VStack(alignment: .leading, spacing: 6) {
+                Label {
+                    Text("PRBar \(release.version.description) available").foregroundStyle(Color(nsColor: .labelColor))
+                } icon: {
+                    Image(systemName: "arrow.down.circle.fill").foregroundStyle(Theme.accent)
+                }
+                .font(.callout.weight(.semibold))
+                HStack(spacing: 8) {
+                    Button("What’s New") { model.openUpdateWindow() }
+                        .buttonStyle(.link)
+                        .foregroundStyle(Theme.accent)
+                    Spacer(minLength: 0)
+                    Button("Install") { model.openUpdateWindow() }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .help("Shows what’s new and installs it")
+                }
+                .font(.callout)
+            }
+            .padding(10)
+            .background(RoundedRectangle(cornerRadius: Theme.Radius.card).fill(Theme.tint(Theme.accent)))
+            .padding(.bottom, 8)
+        }
     }
 }
 
