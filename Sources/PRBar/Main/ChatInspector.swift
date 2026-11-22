@@ -38,7 +38,11 @@ struct ChatInspector: View {
                 placeholder(tab == .fixCI ? "Start Fix CI to chat with Claude." : "Start Respond to chat with Claude.")
             }
         case .merge:
-            placeholder("The chat needs the PR in PRBar’s list.")   // Task 7
+            if let item = model.currentItem(prID) {
+                MergeChatPanel(model: model, session: model.mergeSession(for: item))
+            } else {
+                placeholder("The chat needs the PR in PRBar’s list.")
+            }
         }
     }
 

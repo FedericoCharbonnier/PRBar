@@ -35,7 +35,7 @@ struct PRTabBar: View {
                 }
             }
             .font(.callout.weight(isSelected ? .semibold : .regular))
-            .foregroundStyle(isSelected ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+            .foregroundStyle(isSelected ? Color.white : Color(nsColor: .labelColor))
             .padding(.horizontal, 12)
             .padding(.vertical, 4)
             .background(Capsule().fill(isSelected ? Theme.accent : .clear))

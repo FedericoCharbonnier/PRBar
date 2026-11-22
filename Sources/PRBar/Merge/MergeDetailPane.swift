@@ -2,30 +2,30 @@ import AppKit
 import PRBarCore
 import SwiftUI
 
-/// Ventana de Merge (spec G.2): el resumen del PR (descripción, reviews, checks, conversaciones y archivos) y, abajo, la
-/// barra con el motivo si no se puede, el método, el head que se va a mergear y el botón. El head es fijo (spec G.3):
-/// si llegan commits nuevos aparece un banner y Merge se deshabilita hasta recargar. Chat de solo lectura en el panel.
-struct MergeWindow: View {
+/// Qué muestra el detalle de merge: Details (PR ajeno, solo lectura) o Merge (PR propio, con el bloque de merge).
+enum MergePaneMode { case details, merge }
+
+/// Las pestañas Details y Merge (spec M.1, spec G.2): el resumen del PR (descripción, conversaciones y archivos a la
+/// izquierda; reviews y checks a la derecha) y, en Merge, el bloque de merge en la columna derecha: método con su nota,
+/// borrar la rama, aviso de Slack, el head que se va a mergear y el botón (⇧⌘M). El head es fijo (spec G.3): si llegan
+/// commits nuevos aparece un banner y Merge se deshabilita hasta recargar.
+struct MergeDetailPane: View {
     @ObservedObject var model: AppModel
     @ObservedObject var prStore: PRStore
     @ObservedObject var merges: MergeQueue
     @ObservedObject var session: MergeSession
     @ObservedObject var window: MergeWindowModel
+    let mode: MergePaneMode
 
-    @State private var showsChat: Bool
     @State private var descriptionExpanded = false
-    /// The panel's width, remembered between windows (320–480), shared with Review and Respond.
-    @AppStorage("ChatPanelWidth") private var chatWidth = 360.0
 
-    static let size = NSSize(width: 760, height: 820)
-
-    init(model: AppModel, session: MergeSession, showsChat: Bool = false) {
+    init(model: AppModel, session: MergeSession, mode: MergePaneMode) {
         self.model = model
         prStore = model.prStore
         merges = model.merges
         self.session = session
         window = session.window
-        _showsChat = State(initialValue: showsChat)
+        self.mode = mode
     }
 
     private var prID: String { session.prID }
@@ -35,10 +35,16 @@ struct MergeWindow: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            MergeHeader(record: record, detail: window.detail, pr: current?.pr)
-                .padding(.horizontal, 20)
-                .padding(.top, 14)
-                .padding(.bottom, 12)
+            HStack(alignment: .top, spacing: 12) {
+                MergeHeader(record: record, detail: window.detail, pr: current?.pr)
+                if mode == .merge, let badge = statusBadge {
+                    StatusPill(text: badge.text, color: badge.color, background: Theme.tint(badge.tint))
+                        .padding(.top, 2)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 14)
+            .padding(.bottom, 12)
             if window.isStale && !isFinished {
                 StaleHeadBanner(disabled: window.isLoading || phase?.isActive == true) {
                     Task { await model.reloadMergeWindow(prID: prID) }
@@ -47,46 +53,12 @@ struct MergeWindow: View {
             Divider()
             content
         }
-        .frame(minWidth: 620, maxWidth: .infinity, minHeight: 520, maxHeight: .infinity, alignment: .top)
-        // The chat is made when the panel first opens (not while drawing it).
-        .onChange(of: showsChat && model.chatEnabled, initial: true) { _, shown in
-            if shown && session.chat == nil { _ = model.mergeChat(prID: prID) }
-        }
-        // Opening the chat widens the window as needed, staying on the screen.
-        .growsWindowForInspector(isPresented: showsChat && model.chatEnabled, minContentWidth: 620, inspectorWidth: chatWidth)
-        // View › Show Chat (⇧⌘C) in the menu bar.
-        .windowCommand(.toggleChat, enabled: model.chatEnabled, isOn: showsChat && model.chatEnabled) { showsChat.toggle() }
-        // View › Refresh (⌘R).
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // La primera vez carga el resumen; al volver a la pestaña lo refresca con el head fijo.
+        .task(id: prID) { await model.loadMergeDetail(prID: prID) }
+        // View › Refresh (⌘R) mientras se ve la pestaña.
         .windowCommand(.refresh, enabled: !(window.isLoading || isFinished)) {
             Task { await model.refreshMergeWindow(prID: prID) }
-        }
-        .inspector(isPresented: Binding(get: { showsChat && model.chatEnabled }, set: { showsChat = $0 })) {
-            chatPanel
-                .inspectorColumnWidth(min: 320, ideal: chatWidth, max: 480)
-                .background(GeometryReader { geometry in
-                    Color.clear.onChange(of: geometry.size.width) { _, width in chatWidth = min(max(width, 320), 480) }
-                })
-        }
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    Task { await model.refreshMergeWindow(prID: prID) }
-                } label: {
-                    Label("Refresh", systemImage: "arrow.clockwise")
-                }
-                .keyboardShortcut("r", modifiers: .command)
-                .help("Refresh (⌘R)")
-                .disabled(window.isLoading || isFinished)
-            }
-            if model.chatEnabled {
-                ToolbarItem(placement: .primaryAction) {
-                    Button { showsChat.toggle() } label: {
-                        Label("Chat", systemImage: "bubble.left.and.bubble.right")
-                    }
-                    .keyboardShortcut("c", modifiers: [.command, .shift])
-                    .help("Chat with Claude (⇧⌘C)")
-                }
-            }
         }
     }
 
@@ -95,32 +67,36 @@ struct MergeWindow: View {
         return false
     }
 
+    /// "Ready", "Blocked", "Checks failing", "Merging…", "Merged" arriba a la derecha.
+    private var statusBadge: (text: String, color: Color, tint: Color)? {
+        switch phase {
+        case .merged?: return ("Merged", Theme.greenText, Theme.green)
+        case .merging?: return ("Merging…", .secondary, .secondary)
+        case .failed?: return ("Failed", Theme.redText, Theme.red)
+        default: break
+        }
+        guard window.detail != nil || current != nil else { return nil }
+        if window.isStale { return ("New commits", Theme.orangeText, Theme.orange) }
+        if model.mergeWindowProblem(prID: prID) == nil { return ("Ready", Theme.greenText, Theme.green) }
+        if window.detail?.checks.contains(where: { $0.state == .failed && $0.isRequired }) == true
+            || current?.pr.ciState == .failure {
+            return ("Checks failing", Theme.redText, Theme.red)
+        }
+        return ("Blocked", Theme.orangeText, Theme.orange)
+    }
+
     // MARK: Contenido
 
     @ViewBuilder
     private var content: some View {
         if let detail = window.detail {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    if let error = window.loadError {
-                        ErrorBanner(messages: ["Couldn’t refresh: \(error)"], horizontalInset: 0)
-                    }
-                    if let note = detail.incompleteNote {
-                        Label(note, systemImage: "exclamationmark.triangle")
-                            .font(.callout)
-                            .foregroundStyle(Theme.orangeText)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    descriptionSection(detail)
-                    MergeReviewsSection(detail: detail)
-                    MergeChecksSection(detail: detail, prURL: record.url)
-                    MergeConversationsSection(detail: detail, prURL: record.url)
-                    MergeFilesSection(detail: detail, prURL: record.url)
+            GeometryReader { geometry in
+                ScrollView {
+                    columns(detail, twoColumns: geometry.size.width >= 600)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 14)
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 14)
             }
-            .safeAreaInset(edge: .bottom, spacing: 0) { bar }
         } else if let error = window.loadError, !window.isLoading {
             VStack(spacing: 10) {
                 Image(systemName: "exclamationmark.triangle")
@@ -142,6 +118,50 @@ struct MergeWindow: View {
                 .padding(.vertical, 14)
                 .frame(maxHeight: .infinity, alignment: .top)
         }
+    }
+
+    /// Dos columnas (izquierda: descripción, conversaciones, archivos; derecha, 240 pt: reviews, checks y el bloque de
+    /// merge); en un detalle angosto (con el chat abierto), una sola.
+    @ViewBuilder
+    private func columns(_ detail: MergeDetail, twoColumns: Bool) -> some View {
+        if twoColumns {
+            HStack(alignment: .top, spacing: 18) {
+                VStack(alignment: .leading, spacing: 14) { mainSections(detail) }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 14) { sideSections(detail) }
+                    .frame(width: Theme.MainLayout.mergeSideColumnWidth)
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 14) {
+                if mode == .merge { mergeBlock }
+                mainSections(detail)
+                MergeReviewsSection(detail: detail)
+                MergeChecksSection(detail: detail, prURL: record.url)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func mainSections(_ detail: MergeDetail) -> some View {
+        if let error = window.loadError {
+            ErrorBanner(messages: ["Couldn’t refresh: \(error)"], horizontalInset: 0)
+        }
+        if let note = detail.incompleteNote {
+            Label(note, systemImage: "exclamationmark.triangle")
+                .font(.callout)
+                .foregroundStyle(Theme.orangeText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        descriptionSection(detail)
+        MergeConversationsSection(detail: detail, prURL: record.url)
+        MergeFilesSection(detail: detail, prURL: record.url)
+    }
+
+    @ViewBuilder
+    private func sideSections(_ detail: MergeDetail) -> some View {
+        MergeReviewsSection(detail: detail)
+        MergeChecksSection(detail: detail, prURL: record.url)
+        if mode == .merge { mergeBlock }
     }
 
     private func descriptionSection(_ detail: MergeDetail) -> some View {
@@ -168,7 +188,7 @@ struct MergeWindow: View {
         }
     }
 
-    // MARK: Barra
+    // MARK: Bloque de merge
 
     private var methods: [MergeMethod] { current.map { model.mergeOptions($0).methods } ?? MergeMethod.allCases }
 
@@ -177,30 +197,41 @@ struct MergeWindow: View {
                 set: { window.method = $0 })
     }
 
-    private var bar: some View {
-        VStack(alignment: .leading, spacing: 8) {
+    private var baseRef: String { window.detail?.baseRef ?? current?.pr.baseRef ?? "the base branch" }
+
+    /// Qué hace cada método (debajo del selector).
+    private func methodNote(_ method: MergeMethod) -> String {
+        switch method {
+        case .squash: "Combines all commits into one on \(baseRef)."
+        case .merge: "Adds all commits to \(baseRef) with a merge commit."
+        case .rebase: "Adds all commits on top of \(baseRef), without a merge commit."
+        }
+    }
+
+    private var mergeBlock: some View {
+        VStack(alignment: .leading, spacing: 10) {
             if case .failed(_, let error)? = phase {
-                HStack(alignment: .top, spacing: 8) {
-                    ErrorBanner(messages: [error.localizedDescription], horizontalInset: 0)
-                    VStack(spacing: 4) {
-                        Button("Retry") { model.retryMergeInWindow(prID: prID) }
-                        Button("Dismiss") { model.dismissMergeError(prID: prID) }
-                    }
-                    .controlSize(.small)
-                    .padding(.top, 4)
+                ErrorBanner(messages: [error.localizedDescription], horizontalInset: 0)
+                HStack {
+                    Button("Retry") { model.retryMergeInWindow(prID: prID) }
+                    Button("Dismiss") { model.dismissMergeError(prID: prID) }
                 }
+                .controlSize(.small)
             }
-            HStack(spacing: 10) {
-                statusLabel
-                Spacer(minLength: 8)
-                Picker("Method", selection: methodBinding) {
-                    ForEach(methods) { Text($0.actionTitle).tag($0) }
-                }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .fixedSize()
-                .disabled(busy)
-                .help("Merge method")
+            Picker("Method", selection: methodBinding) {
+                ForEach(methods) { Text($0.title).tag($0) }
+            }
+            .labelsHidden()
+            .pickerStyle(.segmented)
+            .disabled(busy)
+            .help("Merge method")
+            Text(methodNote(methodBinding.wrappedValue))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            infoRows
+            statusLabel
+            HStack(spacing: 8) {
                 if let head = window.shownHead {
                     Text(head.prefix(7))
                         .font(.system(.callout, design: .monospaced))
@@ -211,14 +242,36 @@ struct MergeWindow: View {
                         .help("The commit that will be merged: \(head)")
                         .accessibilityLabel("Head \(head.prefix(7))")
                 }
-                mergeButton
+                Spacer(minLength: 0)
+            }
+            mergeButton
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: Theme.Radius.card).fill(Color.primary.opacity(0.04)))
+        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.card).strokeBorder(Color.primary.opacity(0.08)))
+    }
+
+    /// "Delete branch after merge" y "Post in #canal": informativas (el ajuste del repo y el aviso automático de Slack;
+    /// decisión 6 del plan 21).
+    @ViewBuilder
+    private var infoRows: some View {
+        if let item = current {
+            let settings = prStore.snapshot?.repoMergeSettings[Snapshot.scope(account: item.account, repo: item.pr.repo)]
+            let deletes = settings?.deleteBranchOnMerge == true
+            Label(deletes ? "Delete branch after merge" : "Branch is kept after merge",
+                  systemImage: deletes ? "checkmark.circle" : "minus.circle")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .help("The repo’s setting on GitHub")
+            let config = model.configStore.config
+            if config.slack.enabled, config.slack.postMerged,
+               let channel = config.repoConfig(account: item.account, repo: item.pr.repo)?.slackChannelName {
+                Label("Post in #\(channel)", systemImage: "number")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .help("PRBar replies “Merged” in the PR’s Slack thread")
             }
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 12)
-        .padding(.bottom, 14)
-        .background(.bar)
-        .overlay(alignment: .top) { Divider() }
     }
 
     private var busy: Bool {
@@ -244,45 +297,58 @@ struct MergeWindow: View {
             Label(problem, systemImage: window.isStale ? "exclamationmark.triangle" : "lock")
                 .font(.callout)
                 .foregroundStyle(window.isStale ? Theme.orangeText : .secondary)
-                .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
         } else if let note = current.flatMap({ model.mergeOptions($0).availability.note }) {
             Label(note, systemImage: "exclamationmark.triangle")
                 .font(.callout)
                 .foregroundStyle(Theme.orangeText)
-                .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
         } else {
-            Label("Ready to merge into \(window.detail?.baseRef ?? current?.pr.baseRef ?? "the base branch")",
-                  systemImage: "checkmark.seal")
+            Label("Ready to merge into \(baseRef)", systemImage: "checkmark.seal")
                 .font(.callout)
                 .foregroundStyle(Theme.greenText)
-                .lineLimit(1)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
     private var mergeButton: some View {
-        Button(methodBinding.wrappedValue.actionTitle) { model.mergeFromWindow(prID: prID) }
-            .buttonStyle(.borderedProminent)
-            .keyboardShortcut(.return, modifiers: .command)
-            .disabled(busy || model.mergeWindowProblem(prID: prID) != nil)
-            .help("\(methodBinding.wrappedValue.actionTitle) (⌘↩)")
+        Button { model.mergeFromWindow(prID: prID) } label: {
+            Text(methodBinding.wrappedValue.actionTitle).frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
+        .keyboardShortcut("m", modifiers: [.command, .shift])
+        .disabled(busy || model.mergeWindowProblem(prID: prID) != nil)
+        .help("\(methodBinding.wrappedValue.actionTitle) (⇧⌘M)")
+    }
+}
+
+/// El chat de la pestaña Merge (spec G.4): se crea la primera vez que se abre el inspector.
+struct MergeChatPanel: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var session: MergeSession
+    @ObservedObject var window: MergeWindowModel
+
+    init(model: AppModel, session: MergeSession) {
+        self.model = model
+        self.session = session
+        window = session.window
     }
 
-    // MARK: Chat
-
-    @ViewBuilder
-    private var chatPanel: some View {
-        if let chat = session.chat {
-            ChatPanel(chat: chat, unavailableReason: model.chatUnavailableReason(for: chat), notice: chatNotice(chat),
-                      host: model.chatHost(chat), logURL: model.mergeHistory.logURL(for: record.id))
-        } else {
-            Text("The chat needs the PR in PRBar’s list.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .padding(20)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+    var body: some View {
+        Group {
+            if let chat = session.chat {
+                ChatPanel(chat: chat, unavailableReason: model.chatUnavailableReason(for: chat), notice: chatNotice(chat),
+                          host: model.chatHost(chat), logURL: model.mergeHistory.logURL(for: session.record.id))
+            } else {
+                Text("The chat needs the PR in PRBar’s list.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .padding(20)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
+        .onAppear { if session.chat == nil { _ = model.mergeChat(prID: session.prID) } }
     }
 
     private func chatNotice(_ chat: ChatCoordinator) -> String? {
@@ -454,6 +520,11 @@ private struct MergeReviewsSection: View {
 private struct MergeChecksSection: View {
     let detail: MergeDetail
     let prURL: URL
+    /// Las primeras 5 y "Show N more" (spec M.1 "Merge").
+    @State private var showsAll = false
+    private static let limit = 5
+
+    private var shownChecks: [MergeCheck] { showsAll ? detail.checks : Array(detail.checks.prefix(Self.limit)) }
 
     private var summaryColor: Color {
         if detail.checks.contains(where: { $0.state == .failed && $0.isRequired }) { return Theme.redText }
@@ -468,7 +539,7 @@ private struct MergeChecksSection: View {
                 if detail.checks.isEmpty {
                     Text("This PR has no checks").font(.callout).foregroundStyle(.secondary)
                 }
-                ForEach(Array(detail.checks.enumerated()), id: \.offset) { _, check in
+                ForEach(Array(shownChecks.enumerated()), id: \.offset) { _, check in
                     HStack(spacing: 8) {
                         icon(check.state)
                         if let url = check.url {
@@ -492,6 +563,11 @@ private struct MergeChecksSection: View {
                     }
                     .accessibilityElement(children: .combine)
                     .accessibilityLabel("\(check.name), \(check.state.title)\(check.isRequired ? ", required" : "")")
+                }
+                if detail.checks.count > Self.limit && !showsAll {
+                    Button("Show \(detail.checks.count - Self.limit) more") { showsAll = true }
+                        .buttonStyle(.link)
+                        .font(.callout)
                 }
                 if detail.moreChecks > 0 {
                     ExternalLink("and \(detail.moreChecks) more on GitHub", destination: prURL.appendingPathComponent("checks"))

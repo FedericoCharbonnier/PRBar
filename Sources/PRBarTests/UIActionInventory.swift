@@ -81,7 +81,6 @@ enum UIActionInventory {
         .init("Main/PRDetailView.swift", "Component:PRTabBar", "-", 1, .viewOnly("navigation in the main window")),
         .init("Main/PRTabBar.swift", "Button", "-", 1, .viewOnly("navigation in the main window")),   // a tab
         .init("Main/PRDetailView.swift", "Button", "-", 2, .cli(["chat"])),   // LegacyPaneButton (temporary) and Chat (toggles the inspector)
-        .init("Main/PRDetailView.swift", "Component:LegacyPaneButton", "Open Merge Window", 2, .viewOnly("temporary, removed in plan 21")),
         .init("Main/PRDetailView.swift", "Component:LegacyPaneButton", "Open Respond Window", 1, .viewOnly("temporary, removed in plan 21")),
         .init("Main/PRDetailView.swift", "Button", "Open on GitHub", 1, .cli(["open"])),   // a PR that's no longer in the list
         .init("Main/PRDetailView.swift", "Component:MessageView", "questionmark.folder", 1, .viewOnly("a message; its action is a Button in this file")),
@@ -105,6 +104,7 @@ enum UIActionInventory {
         .init("Review/ReviewPane.swift", "Button", "Show Log", 1, .cli(["app logs"])),
         .init("Review/ReviewPane.swift", "Component:ReviewEditor", "-", 2, .viewOnly("the Review tab's editor (its controls are in ReviewEditor.swift)")),
         .init("Review/ReviewPane.swift", "Component:MessageView", "questionmark.folder", 1, .viewOnly("a message without an action")),
+        .init("Merge/MergeDetailPane.swift", "Button", #"Show \(detail.checks.count - Self.limit) more"#, 1, .viewOnly("shows the rest of the checks")),
         // Componentes genéricos
         .init("Components/Chips.swift", "Button", "-", 1, .cli(["repo set"])),   // RemovableChip: quitar una rama base
         .init("Components/PointingHandCursor.swift", "Button", "-", 1, .viewOnly(generic)),
@@ -151,18 +151,18 @@ enum UIActionInventory {
         .init("Popover/MergeButton.swift", "Button", "-", 1, .cli(["merge"])),   // la pastilla de error
         .init("Popover/MergeButton.swift", "ClosureMenuItem", "Merge…", 1, .cli(["open", "merge"])),
         // Refresh (⌘R: el resumen de nuevo), Chat y "Squash and Merge"… (--yes)
-        .init("Merge/MergeWindow.swift", "Button", "-", 3, .cli(["merge", "refresh", "chat"])),
-        .init("Merge/MergeWindow.swift", "Picker", "Method", 1, .cli(["merge"])),   // --method
-        .init("Merge/MergeWindow.swift", "Button", "Retry", 1, .cli(["merge"])),
-        .init("Merge/MergeWindow.swift", "Button", "Dismiss", 1, .cli(["merge"])),   // --dismiss
-        .init("Merge/MergeWindow.swift", "Button", "Reload", 1, .cli(["merge"])),   // --preview shows the new head
-        .init("Merge/MergeWindow.swift", "Button", "Try Again", 1, .cli(["merge"])),   // --preview
-        .init("Merge/MergeWindow.swift", "Button", "Show Less", 1, .viewOnly("expands the description; `prbar merge --preview` prints it")),
-        .init("Merge/MergeWindow.swift", "Link", "-", 1, .viewOnly("a check’s page on the CI; `prbar merge --preview --json` has its URL")),
-        .init("Merge/MergeWindow.swift", "ExternalLink", "View on GitHub", 1, .cli(["open"])),
-        .init("Merge/MergeWindow.swift", "ExternalLink", #"and \(detail.moreChecks) more on GitHub"#, 1, .cli(["open"])),
-        .init("Merge/MergeWindow.swift", "ExternalLink", #"and \(detail.moreFiles) more on GitHub"#, 1, .cli(["open"])),
-        .init("Merge/MergeWindow.swift", "Component:StaleHeadBanner", "-", 1, .cli(["merge"])),   // Reload
+        .init("Merge/MergeDetailPane.swift", "Button", "-", 1, .cli(["merge"])),   // Squash and Merge (⇧⌘M); ⌘R and the chat are the main window’s
+        .init("Merge/MergeDetailPane.swift", "Picker", "Method", 1, .cli(["merge"])),   // --method
+        .init("Merge/MergeDetailPane.swift", "Button", "Retry", 1, .cli(["merge"])),
+        .init("Merge/MergeDetailPane.swift", "Button", "Dismiss", 1, .cli(["merge"])),   // --dismiss
+        .init("Merge/MergeDetailPane.swift", "Button", "Reload", 1, .cli(["merge"])),   // --preview shows the new head
+        .init("Merge/MergeDetailPane.swift", "Button", "Try Again", 1, .cli(["merge"])),   // --preview
+        .init("Merge/MergeDetailPane.swift", "Button", "Show Less", 1, .viewOnly("expands the description; `prbar merge --preview` prints it")),
+        .init("Merge/MergeDetailPane.swift", "Link", "-", 1, .viewOnly("a check’s page on the CI; `prbar merge --preview --json` has its URL")),
+        .init("Merge/MergeDetailPane.swift", "ExternalLink", "View on GitHub", 1, .cli(["open"])),
+        .init("Merge/MergeDetailPane.swift", "ExternalLink", #"and \(detail.moreChecks) more on GitHub"#, 1, .cli(["open"])),
+        .init("Merge/MergeDetailPane.swift", "ExternalLink", #"and \(detail.moreFiles) more on GitHub"#, 1, .cli(["open"])),
+        .init("Merge/MergeDetailPane.swift", "Component:StaleHeadBanner", "-", 1, .cli(["merge"])),   // Reload
         // Actualizaciones (plan 8)
         .init("Popover/UpdateButton.swift", "Button", "-", 1, .cli(["update"])),   // the header's "Update" capsule
         .init("Settings/UpdatesSection.swift", "Toggle", "Check automatically", 1, .cli(["config set"])),   // update-interval 0

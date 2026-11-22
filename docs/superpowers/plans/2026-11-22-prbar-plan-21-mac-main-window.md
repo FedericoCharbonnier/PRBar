@@ -1992,6 +1992,12 @@ Layout: spec M.1 "Details" y "Merge"; boceto `MacMerge.dc.html`.
   sesión `model.mergeSession(for: item)`; sin PR en la lista → `PRGoneView`). `ChatInspector` para `.merge` usa
   `model.mergeChat(prID:)` (lo crea la primera vez que se abre el inspector, como hacía `MergeWindow.onChange`) con
   `chatNotice` movido acá.
+  **Hecho (implementación):** `shownPRDetails` es una propiedad guardada de `AppModel` (una extensión no puede
+  tenerla). El chat de Merge es `MergeChatPanel` (en `MergeDetailPane.swift`; crea el chat en su `onAppear`, o sea la
+  primera vez que se abre el inspector). Debajo de 600 pt de ancho (chat abierto) el detalle pasa a una columna con el
+  bloque de merge arriba. La fila de borrar la rama dice "Delete branch after merge" o "Branch is kept after merge"
+  según `RepoMergeSettings.deleteBranchOnMerge`; "Post in #canal" sale con Slack prendido, "Merged" activado y canal
+  en el repo. El badge: Ready · Blocked · Checks failing · New commits · Merging… · Merged · Failed.
 - [ ] **Step 4:** Capturas `merge-window`, `merge-chat` → `main-merge` (PR propio Ready to Merge en la pestaña Merge) y
   `main-details` (PR ajeno en Details). Paridad UI ("Squash and Merge"/"Merge" conserva `.cli(["merge"])`; las filas
   informativas no son controles). **Commit** `"Move Merge into the main window's Details and Merge tabs"`.

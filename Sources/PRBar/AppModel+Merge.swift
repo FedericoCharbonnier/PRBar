@@ -32,8 +32,6 @@ extension AppModel {
         prStore.snapshot?.items.first { $0.id == prID }
     }
 
-    static func mergeWindowID(_ prID: String) -> String { "merge-\(prID)" }
-
     // MARK: Sesiones
 
     /// La sesión del PR, nueva si no había (el detalle se carga al abrir la ventana). `reusing`: el registro con que
@@ -53,13 +51,13 @@ extension AppModel {
         return session
     }
 
-    /// Con cada snapshot: una ventana cuyo PR tiene otro head muestra el banner (spec G.3); las sesiones de PRs que ya
-    /// no están, sin ventana abierta ni merge en curso, terminan.
+    /// Con cada snapshot: un detalle cuyo PR tiene otro head muestra el banner (spec G.3); las sesiones de PRs que ya
+    /// no están, sin detalle a la vista ni merge en curso, terminan.
     func updateMergeSessions(_ snapshot: Snapshot) {
         for (prID, session) in mergeSessions {
             if let item = snapshot.items.first(where: { $0.id == prID }) {
                 session.window.noteHead(item.pr.headOid)
-            } else if !WindowPresenter.shared.isOpen(id: Self.mergeWindowID(prID)), merges.phases[prID]?.isActive != true {
+            } else if shownPRDetails[prID, default: 0] == 0, merges.phases[prID]?.isActive != true {
                 endMergeSession(prID)
             }
         }
@@ -98,35 +96,36 @@ extension AppModel {
         saveMergeRecord(session)
     }
 
-    // MARK: Ventana
+    // MARK: Detalle
 
-    /// "Merge…" de la fila y del menú contextual, la notificación y `prbar open --merge`: abre la ventana (spec G.1). Un
-    /// PR ya mergeado no hace nada; el resto (también uno que todavía no se puede mergear) abre la ventana, que dice
-    /// por qué.
-    func requestMerge(_ item: ClassifiedPR) {
-        guard MergeFlow.request(phase: merges.phases[item.id]) == .open else { return }
-        openMergeWindow(item)
+    /// Un detalle de PR (pestañas de la ventana principal o de una ventana de PR) apareció o se fue: mientras se ve,
+    /// su sesión de merge no termina aunque el PR salga de la lista.
+    func detailAppeared(_ prID: String) { shownPRDetails[prID, default: 0] += 1 }
+
+    func detailDisappeared(_ prID: String) {
+        shownPRDetails[prID] = max(shownPRDetails[prID, default: 0] - 1, 0)
+        if shownPRDetails[prID] == 0 { shownPRDetails[prID] = nil }
     }
 
-    func openMergeWindow(_ item: ClassifiedPR) {
+    /// "Merge…" de la fila y del menú contextual, la notificación y `prbar open --merge`: la pestaña Merge del PR
+    /// (spec G.1, M.4). Un PR ya mergeado no hace nada; el resto (también uno que todavía no se puede mergear) abre la
+    /// pestaña, que dice por qué.
+    func requestMerge(_ item: ClassifiedPR) {
+        guard MergeFlow.request(phase: merges.phases[item.id]) == .open else { return }
+        navigate(to: .pr(prID: item.id, tab: .merge))
+    }
+
+    /// Lo llama `MergeDetailPane` al aparecer (Details o Merge): la sesión del PR y su resumen.
+    func loadMergeDetail(prID: String) async {
+        guard let item = currentItem(prID) else { return }
         let session = mergeSession(for: item)
-        let windowID = Self.mergeWindowID(item.id)
-        let alreadyOpen = WindowPresenter.shared.isOpen(id: windowID)
-        WindowPresenter.shared.show(
-            id: windowID, title: "Merge · \(item.pr.repo.name)#\(item.pr.number)", size: MergeWindow.size,
-            options: WindowOptions(sharedFrameKey: "MergeWindowFrame", tabbingIdentifier: "PRBar.merge", bridgesToolbar: true,
-                                   toolbarStyle: .unified),
-            contentID: session.record.id.uuidString
-        ) {
-            MergeWindow(model: self, session: session)
-        }
-        Task { await self.loadMergeWindow(session, alreadyOpen: alreadyOpen) }
+        await loadMergeWindow(session, alreadyOpen: session.window.detail != nil)
     }
 
     /// La primera vez carga el resumen; reabierta refresca con el head fijo (spec G.8, `MergeWindowModel.opened`). Si
     /// la primera carga trae otro head que la lista, la lista está atrasada: se refresca una vez (así el snapshot no
     /// pone el banner con un head viejo). Un chat vacío que se abrió antes de cargar se rehace con el head cargado.
-    private func loadMergeWindow(_ session: MergeSession, alreadyOpen: Bool) async {
+    func loadMergeWindow(_ session: MergeSession, alreadyOpen: Bool) async {
         let firstLoad = session.window.shownHead == nil
         // Lo que lance la carga (p. ej. `gh auth token`) va en la fila "Merge <repo>#N" de PRBar Activity.
         await ProcessActivity.$current.withValue(.merge(session.prID)) { await session.window.opened(alreadyOpen: alreadyOpen) }
@@ -281,11 +280,13 @@ extension AppModel {
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(2))
             guard let self else { return }
-            WindowPresenter.shared.close(id: Self.mergeWindowID(item.id))
+            // La ventana de PR, si hay, se cierra (Task 14).
             self.endMergeSession(item.id)
             // Espera un refresco en curso (pudo empezar antes del merge) y refresca de nuevo; el snapshot nuevo
             // descarta la fase "Merged" (`mergePruneObserver`).
             await self.prStore.refreshNow()
+            // El PR ya no está: la ventana principal deja de mostrarlo.
+            if self.main.nav.place.prID == item.id, self.currentItem(item.id) == nil { self.main.select(prID: nil) }
         }
     }
 

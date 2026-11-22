@@ -204,6 +204,8 @@ final class AppModel: ObservableObject {
     private var mergePruneObserver: AnyCancellable?
     /// Una sesión de merge por PR (ventana, chat y registro del historial; spec G, `AppModel+Merge`).
     var mergeSessions: [String: MergeSession] = [:]
+    /// Cuántos detalles de cada PR se ven ahora (`detailAppeared`): su sesión de merge no termina mientras tanto.
+    var shownPRDetails: [String: Int] = [:]
     /// Los merges hechos desde PRBar y sus chats (spec G.4).
     let mergeHistory: MergeHistory
     /// La pestaña elegida del popover (spec H).

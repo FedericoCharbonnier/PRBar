@@ -100,7 +100,7 @@ private final class SnapshotSession {
 
         try await reviewTab()
         try await respondWindows(model: main)
-        try await mergeWindows(model: main)
+        try await mergeTabs()
         try await history()
         try await settings()
         try await notification()
@@ -312,27 +312,38 @@ private final class SnapshotSession {
         }
     }
 
-    /// The Merge window of api#322 (spec G.2), with its summary loaded, without and with the chat (spec G.4).
-    private func mergeWindows(model: AppModel) async throws {
+    /// api#322 (mine, Ready to Merge) in the Merge tab with its summary loaded, and web-app#491 (someone else's) in
+    /// Details (spec M.1).
+    private func mergeTabs() async throws {
+        let model = try makeModel("merge", snapshot: fixtures.snapshot)
         let item = fixtures.idempotencyKeys
-        let title = "Merge · \(item.pr.repo.name)#\(item.pr.number)"
-        var record = MergeRecord(item: item, startedAt: fixtures.date(minutes: -8))
         let detail = fixtures.idempotencyDetail
-        let session = MergeSession(window: MergeWindowModel(prID: item.id, recordID: record.id, detail: detail) { detail },
-                                   record: record)
-        model.mergeSessions[item.id] = session
-        try await window("merge-window", title: title, size: NSSize(width: 760, height: 1100)) {
-            MergeWindow(model: model, session: session)
-        }
-        record = MergeRecord(item: item, startedAt: fixtures.date(minutes: -8))
-        record.chat = fixtures.mergeChat
-        let chatSession = MergeSession(window: MergeWindowModel(prID: item.id, recordID: record.id, detail: detail) { detail },
-                                       record: record)
-        model.mergeSessions[item.id] = chatSession
-        _ = model.mergeChat(prID: item.id)
-        try await window("merge-chat", title: title, size: NSSize(width: 1180, height: 1100)) {
-            MergeWindow(model: model, session: chatSession, showsChat: true)
-        }
+        let record = MergeRecord(item: item, startedAt: fixtures.date(minutes: -8))
+        model.mergeSessions[item.id] = MergeSession(
+            window: MergeWindowModel(prID: item.id, recordID: record.id, detail: detail) { detail }, record: record)
+        model.main.go(to: .pr(prID: item.id, tab: .merge), snapshot: model.prStore.snapshot)
+        try await window("main-merge", title: "PRBar", size: Theme.MainLayout.defaultSize) { MainWindow(model: model) }
+
+        let other = fixtures.rateLimiting
+        var otherDetail = detail
+        otherDetail.number = other.pr.number
+        otherDetail.title = other.pr.title
+        otherDetail.url = other.pr.url
+        otherDetail.author = other.pr.author
+        otherDetail.baseRef = other.pr.baseRef
+        otherDetail.headRef = other.pr.headRef
+        otherDetail.headOid = other.pr.headOid
+        otherDetail.additions = other.pr.additions
+        otherDetail.deletions = other.pr.deletions
+        otherDetail.body = "Adds a token bucket to `/sync` so a client that retries in a loop can’t starve the others."
+        otherDetail.reviews = []
+        otherDetail.reviewDecision = .reviewRequired
+        let otherRecord = MergeRecord(item: other, startedAt: fixtures.date(minutes: -3))
+        model.mergeSessions[other.id] = MergeSession(
+            window: MergeWindowModel(prID: other.id, recordID: otherRecord.id, detail: otherDetail) { otherDetail },
+            record: otherRecord)
+        model.main.go(to: .pr(prID: other.id, tab: .details), snapshot: model.prStore.snapshot)
+        try await window("main-details", title: "PRBar", size: Theme.MainLayout.defaultSize) { MainWindow(model: model) }
     }
 
     private func history() async throws {

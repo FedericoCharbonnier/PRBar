@@ -28,6 +28,13 @@ struct PRDetailView: View {
     }
 
     var body: some View {
+        content
+            .onAppear { model.detailAppeared(prID) }
+            .onDisappear { model.detailDisappeared(prID) }
+    }
+
+    @ViewBuilder
+    private var content: some View {
         if let context = model.tabContext(prID: prID) {
             let tab = state.nav.tab(for: prID, context: context)
             pane(tab)
@@ -63,10 +70,13 @@ struct PRDetailView: View {
         switch tab {
         case .review:
             ReviewPane(model: model, prID: prID)
-        case .details:
-            LegacyPaneButton(title: "Open Merge Window") { if let item = model.currentItem(prID) { model.requestMerge(item) } }
-        case .merge:
-            LegacyPaneButton(title: "Open Merge Window") { if let item = model.currentItem(prID) { model.requestMerge(item) } }
+        case .details, .merge:
+            // La sesión de merge del PR (detalle cargado, head fijo, chat); sin PR en la lista no hay qué mostrar.
+            if let item = model.currentItem(prID) {
+                MergeDetailPane(model: model, session: model.mergeSession(for: item), mode: tab == .merge ? .merge : .details)
+            } else {
+                PRGoneView(prID: prID)
+            }
         case .respond, .fixCI:
             LegacyPaneButton(title: "Open Respond Window") { model.openRespond(prID: prID) }
         }
