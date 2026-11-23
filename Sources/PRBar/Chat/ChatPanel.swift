@@ -68,7 +68,8 @@ struct ChatPanel: View {
                         .id(message.id)
                     }
                     if chat.isRunning {
-                        workingRow.id("working")
+                        ChatWorkingRow(stream: chat.stream) { proxy.scrollTo("working", anchor: .bottom) }
+                            .id("working")
                     }
                 }
                 .padding(12)
@@ -76,7 +77,6 @@ struct ChatPanel: View {
             .onChange(of: chat.session.messages.count) { _, _ in
                 if let last = chat.session.messages.last?.id { withAnimation { proxy.scrollTo(last, anchor: .bottom) } }
             }
-            .onChange(of: chat.partialText) { _, _ in proxy.scrollTo("working", anchor: .bottom) }
         }
     }
 
@@ -96,26 +96,6 @@ struct ChatPanel: View {
             Text("Claude never posts, pushes or approves: you do.").font(.caption).foregroundStyle(.tertiary)
         }
         .padding(.vertical, 8)
-    }
-
-    private var workingRow: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if !chat.partialText.isEmpty {
-                Text(ChatMarkdown.attributed(chat.partialText))
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            HStack(spacing: 6) {
-                ProgressView().controlSize(.small)
-                Text(chat.activity.map { "Claude is working… · \($0)" } ?? "Claude is working…")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-        }
     }
 
     private func summary(_ message: ChatMessage) -> String {
@@ -419,5 +399,32 @@ enum ChatUndo {
                 chat.undo(id)
             }
         }
+    }
+}
+
+/// Claude's text so far and what it's doing: the only view that observes `ChatStream`, which changes on every chunk.
+private struct ChatWorkingRow: View {
+    @ObservedObject var stream: ChatStream
+    let scrollToBottom: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if !stream.partialText.isEmpty {
+                Text(ChatMarkdown.attributed(stream.partialText))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text(stream.activity.map { "Claude is working… · \($0)" } ?? "Claude is working…")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+        }
+        .onChange(of: stream.partialText) { _, _ in scrollToBottom() }
     }
 }

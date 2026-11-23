@@ -93,7 +93,7 @@ extension AppModel {
         let key = chat.session.id
         guard remoteChatWatchers[key] == nil else { return }
         var last = ""
-        remoteChatWatchers[key] = chat.$partialText.removeDuplicates().sink { [weak self] text in
+        remoteChatWatchers[key] = chat.stream.$partialText.removeDuplicates().sink { [weak self] text in
             defer { last = text }
             guard let self, text.count > last.count, text.hasPrefix(last),
                   let delta = self.remoteAccess.chatDeltaText(previous: last, current: text) else { return }

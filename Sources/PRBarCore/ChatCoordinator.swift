@@ -64,6 +64,15 @@ private struct TurnResult: Sendable {
     let rulesText: String
 }
 
+/// The streaming part of a chat turn (`ChatCoordinator.stream`).
+@MainActor
+public final class ChatStream: ObservableObject {
+    @Published public fileprivate(set) var partialText = ""
+    @Published public fileprivate(set) var activity: String?
+
+    public init() {}
+}
+
 /// The chat of one Review or Respond window (spec B): the conversation and the window's editable state, which the
 /// window and Claude change alike. One turn at a time per PR and at most `maxConcurrentChats` in the app (the shared
 /// `JobScheduler`). Claude's actions are applied to the current state with `ChatActions`; each message with changes
@@ -86,10 +95,19 @@ public final class ChatCoordinator: ObservableObject {
     /// Respond: the decisions per comment.
     @Published public var selections: [String: RespondSelection]
     @Published public private(set) var isRunning = false
+    /// What changes on every streamed chunk, in its own object: only the chat panel observes it, so the Review and
+    /// Respond editors (which observe the coordinator) don't re-render while Claude writes.
+    public let stream = ChatStream()
     /// The text Claude wrote so far in this turn (assistant `text` blocks).
-    @Published public private(set) var partialText = ""
+    public private(set) var partialText: String {
+        get { stream.partialText }
+        set { if stream.partialText != newValue { stream.partialText = newValue } }
+    }
     /// "Reading src/api/users.ts", "Stopping…"…
-    @Published public private(set) var activity: String?
+    public private(set) var activity: String? {
+        get { stream.activity }
+        set { if stream.activity != newValue { stream.activity = newValue } }
+    }
     /// Ids of the findings or comments the last message changed (3 s).
     @Published public private(set) var highlighted: Set<String> = []
     /// Why no message can be sent now (posting, implementing…); set by the window.

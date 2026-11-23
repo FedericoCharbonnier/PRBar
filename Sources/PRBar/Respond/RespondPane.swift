@@ -374,6 +374,8 @@ struct RespondRunView: View {
     @State private var output = RespondOutput.diff
     /// El chip de archivo elegido en Diff (nil = todos).
     @State private var diffFile: String?
+    /// The chosen file's part of the diff, kept between renders.
+    @State private var diffSections = DiffSectionMemo()
 
     init(model: AppModel, prID: String, draft: RespondDraft, chat: ChatCoordinator, close: (() -> Void)? = nil) {
         self.model = model
@@ -867,7 +869,7 @@ struct RespondRunView: View {
     @ViewBuilder
     private func fullDiffSection(_ result: RespondResult) -> some View {
         if let diff = result.diff {
-            let shown = diffFile.map { DiffFiles.section(of: diff, file: $0) }.flatMap { $0.isEmpty ? nil : $0 } ?? diff
+            let shown = diffFile.map { diffSections.section(of: diff, file: $0) }.flatMap { $0.isEmpty ? nil : $0 } ?? diff
             VStack(alignment: .leading, spacing: 0) {
                 DiffTextView(diff: shown)
                     .frame(minHeight: 160, idealHeight: 360, maxHeight: 420)
