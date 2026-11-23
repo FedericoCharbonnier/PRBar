@@ -225,8 +225,10 @@ export interface ReviewProps {
   /** Post pide Face ID con la decisión elegida (ícono `faceid`); por defecto sí. Sin Face ID, el modelo confirma. */
   postFaceId?: boolean | undefined;
   disabled?: boolean | undefined;
-  /** Sin review todavía: el botón "Review with Claude" en lugar del resumen y los hallazgos. */
+  /** Sin review todavía: el botón "Review with Claude" en lugar del resumen y los hallazgos ("Try Again" si falló). */
   start?: StartVM | undefined;
+  /** El review falló: el motivo, en rojo arriba del botón. */
+  error?: string | undefined;
   onBack: () => void;
   onChat: () => void;
   onMore: () => void;

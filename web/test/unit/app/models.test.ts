@@ -202,6 +202,25 @@ describe("review", () => {
   });
 });
 
+describe("review fallido", () => {
+  it("muestra el motivo y Try Again vuelve a pedir el review", async () => {
+    const app = makeApp();
+    const failed = topicJSON("pr:acme/api#317");
+    failed.review = { ...(failed.review as Record<string, unknown>), phase: "failed", detail: "claude exited with code 1.",
+                      findings: [], summary: undefined };
+    app.transport.setTopic("pr:acme/api#317", failed);
+    const model = createReviewModel(app, "acme/api#317");
+    model.open();
+    const view = model.view.value;
+    if (view.kind !== "review") throw new Error(view.kind);
+    expect(view.props.error).toBe("claude exited with code 1.");
+    expect(view.props.start?.label).toBe("Try Again");
+    view.props.start!.onClick();
+    await flush();
+    expect(app.transport.sent.at(-1)!.command).toEqual({ reviewStart: { pr: "acme/api#317", wait: false } });
+  });
+});
+
 describe("respond y fix CI", () => {
   const setRespond = (app: ReturnType<typeof makeApp>, pr: string, patch: Record<string, unknown>) => {
     app.transport.setTopic(`pr:${pr}`, { respond: { ...respondInfo(), pr, ...patch } });

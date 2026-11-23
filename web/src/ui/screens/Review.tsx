@@ -1,6 +1,6 @@
 import type { ComponentChildren } from "preact";
 import {
-  ActionMenu, Avatar, BlockTitle, BottomBar, Button, Card, Chip, CodeBlock, DiffCount, FaceIdHud, Icon, ListRow, NavBar,
+  ActionMenu, Avatar, Banner, BlockTitle, BottomBar, Button, Card, Chip, CodeBlock, DiffCount, FaceIdHud, Icon, ListRow, NavBar,
   Screen, SeverityPill, Sheet, Toggle,
 } from "../components";
 import type { IconName, MenuItem } from "../components";
@@ -72,6 +72,7 @@ export function Review(props: ReviewProps) {
         </p>
         <Branches head={pr.head} base={pr.base} />
       </DetailHeader>
+      {props.error && <Banner banner={{ tone: "red", icon: "exclamationmark.triangle", text: props.error }} />}
       {props.start ? (
         <Button size="lg" block icon="sparkles" class="start-btn" busy={props.start.busy} disabled={props.start.disabled} onClick={props.start.onClick}>
           {props.start.label}

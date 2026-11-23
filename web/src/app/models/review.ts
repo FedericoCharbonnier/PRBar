@@ -74,7 +74,10 @@ export function createReviewModel(ctx: AppContext, pr: string): ReviewModel {
       const metaParts = [r?.detail, r?.usage?.durationSeconds ? duration(r.usage.durationSeconds) : undefined]
         .filter((p): p is string => !!p);
       const summaryText = running.value ? "Claude is reviewing this PR…" : r?.summary ?? "";
-      const hasReview = r !== undefined && phase.value !== "none";
+      // Un review que falló no tiene nada que mostrar ni publicar: el motivo y "Try Again" (`reviewStart` reemplaza
+      // al fallido, como "Retry" en la Mac).
+      const failed = phase.value === "failed";
+      const hasReview = r !== undefined && phase.value !== "none" && !failed;
       const props: ReviewProps = {
         pr: {
           ...prHeader(ctx, pr, r?.title),
@@ -95,8 +98,10 @@ export function createReviewModel(ctx: AppContext, pr: string): ReviewModel {
         postFaceId: showsFaceId(ctx, publishCommand(decision.value)),
         disabled: stale || phase.value !== "ready" || posting.value,
         start: hasReview ? undefined : {
-          label: "Review with Claude", busy: starting.value, disabled: stale, onClick: () => void model.start(),
+          label: failed ? "Try Again" : "Review with Claude", busy: starting.value, disabled: stale,
+          onClick: () => void model.start(),
         },
+        error: failed ? r?.detail || "The review failed." : undefined,
         onBack: () => ctx.nav.back(),
         onChat: () => ctx.nav.go({ kind: "pr", pr, screen: "chat", chat: "review" }),
         onMore: () => void more(),

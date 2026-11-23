@@ -160,6 +160,17 @@ describe("callbacks", () => {
     expect(screen.getByRole("button", { name: "Post review" })).toBeDefined();
   });
 
+  it("review fallido: el motivo y Try Again", () => {
+    const onStart = vi.fn();
+    render(<Review pr={d.reviewPR} summary={d.reviewSummary} findings={[]} decision="comment" error="claude exited with code 1."
+      start={{ label: "Try Again", onClick: onStart }} disabled onBack={noop} onChat={noop} onMore={noop}
+      onToggleFinding={noop} onEditFinding={noop} onOpenDecisionMenu={noop} onCloseDecisionMenu={noop}
+      onSelectDecision={noop} onPost={noop} />);
+    expect(screen.getByText("claude exited with code 1.")).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Try Again" }));
+    expect(onStart).toHaveBeenCalled();
+  });
+
   it("merge:faceid deshabilita el botón mientras espera", () => {
     render(<Merge {...d.mergeProps} faceIdPending onBack={noop} onChat={noop} onFiles={noop} onMethod={noop} onMerge={noop} />);
     expect((screen.getByRole("button", { name: "Merge, requires Face ID" }) as HTMLButtonElement).disabled).toBe(true);
