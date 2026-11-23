@@ -355,13 +355,13 @@ enum RespondPublisherTests {
             }
         },
         TestCase("respond publisher: si cambiaron los hooks o la config de git desde los fixes, no se pushea") {
-            for target in [".git/hooks/pre-push", ".git/config"] {
+            for (target, change) in [(".git/hooks/pre-push", "\n# cambio\n"), (".git/config", "\n[core]\n\tpager = cambio\n")] {
                 let repo = try PushRepo.make()
                 defer { repo.remove() }
                 let result = try await repo.result()
                 let url = repo.local.appendingPathComponent(target)
                 let old = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-                try Data((old + "\n# cambio\n").utf8).write(to: url)
+                try Data((old + change).utf8).write(to: url)
                 let error = try await expectThrows { try await publisher().push(draft: repo.draft(), result: result) }
                 try expect(try respondMessage(error).contains("git"), "\(error)")
                 try expectEqual(try repo.remoteHead(), repo.start)
@@ -387,6 +387,33 @@ enum RespondPublisherTests {
             try TempGitRepo.run(other, ["commit", "-q", "-m", "other"])
             try await publisher().push(draft: repo.draft(), result: result)
             try expectEqual(try repo.remoteHead(), result.headOid)
+        },
+        TestCase("respond publisher: upstream, vscode-merge-base, info/exclude y comentarios en la config del clone no frenan el push") {
+            let repo = try PushRepo.make()
+            defer { repo.remove() }
+            let common = repo.local.appendingPathComponent(".git")
+            let result = try await repo.result()
+            try TempGitRepo.run(repo.local, ["fetch", "-q", "origin"])
+            try TempGitRepo.run(repo.local, ["branch", "--set-upstream-to=origin/feature/7"])             // push -u / gh pr checkout
+            try TempGitRepo.run(repo.local, ["config", "branch.feature/7.vscode-merge-base", "origin/main"])  // VS Code
+            try TempGitRepo.run(repo.local, ["config", "branch.feature/7.gh-merge-base", "main"])            // gh
+            try writeFile(common.appendingPathComponent("config"), "# comentario\n", append: true)
+            try writeFile(common.appendingPathComponent("info/exclude"), "*.tmp\n", append: true)
+            try await publisher().push(draft: repo.draft(), result: result)
+            try expectEqual(try repo.remoteHead(), result.headOid)
+        },
+        TestCase("respond publisher: claves de config de riesgo cambiadas frenan el push (remote, url, alias, credential, core)") {
+            for (key, value) in [("core.sshCommand", "evil"), ("remote.origin.pushurl", "/tmp/x"), ("url./tmp/x.insteadOf", "y"),
+                                 ("alias.co", "!evil"), ("credential.helper", "evil"), ("filter.x.clean", "evil"),
+                                 ("commit.gpgSign", "true"), ("hook.x.command", "evil")] {
+                let repo = try PushRepo.make()
+                defer { repo.remove() }
+                let result = try await repo.result()
+                try TempGitRepo.run(repo.local, ["config", key, value])
+                let error = try await expectThrows { try await publisher().push(draft: repo.draft(), result: result) }
+                try expect(try respondMessage(error).contains("git configuration or hooks changed"), "\(key): \(error)")
+                try expectEqual(try repo.remoteHead(), repo.start)
+            }
         },
         TestCase("respond publisher: hooks, config, info/attributes, el admin dir de PRBar o un include cambiados frenan el push") {
             typealias Change = (name: String, setup: (PushRepo) throws -> Void, change: (PushRepo) throws -> Void)

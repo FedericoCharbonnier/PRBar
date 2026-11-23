@@ -104,7 +104,7 @@ public struct FixImplementer: Sendable {
             results = try await squash(results, draft: draft, worktree: worktree, start: start)
         }
 
-        return try await summarize(worktree, start: start, items: results, integrity: try await guarded.securityDigest(using: fs))
+        return try await summarize(worktree, start: start, items: results, integrity: try await guarded.securityDigest(using: fs, listConfig: configLister))
     }
 
     /// The result of the fixes (`start..HEAD`): diff stat, sensitive files, the full diff (capped), the commits with
@@ -192,7 +192,7 @@ public struct FixImplementer: Sendable {
         try await checkConfigOrigins(worktree)
         let headBefore = try await head(worktree)
         // Lo último antes de Claude: después, ningún git corre hasta revisar todo esto.
-        let before = try await guarded.fingerprint(using: fs)
+        let before = try await guarded.fingerprint(using: fs, listConfig: configLister)
         let nestedBefore = Set(try await fs.nestedGitEntries(worktree.path))
         let snapshot = try await fs.snapshot(worktree.path)
 
@@ -494,7 +494,7 @@ public struct FixImplementer: Sendable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         try await git(worktree, ["update-ref", ref, snapshotCommit])
         // The last thing before Claude: after it, no git runs until all of this is checked.
-        let before = try await guarded.fingerprint(using: fs)
+        let before = try await guarded.fingerprint(using: fs, listConfig: configLister)
         let nestedBefore = Set(try await fs.nestedGitEntries(worktree.path))
         let snapshot = try await fs.snapshot(worktree.path)
 
@@ -786,7 +786,7 @@ public struct FixImplementer: Sendable {
     /// de PRBar, y ahí cambian cosas todo el tiempo sin que Claude pueda tocarlas (Finder con `.DS_Store`, el
     /// fetch/checkout/commit/gc del usuario, sus otros worktrees). Solo se miran (contenido, modo y destino de
     /// los symlinks; ver `describe`):
-    /// - en el common dir: `config`, `config.worktree`, `hooks/` (recursivo), `info/attributes`, `info/exclude`,
+    /// - en el common dir: `config`, `config.worktree`, `hooks/` (recursivo), `info/attributes`,
     ///   `info/sparse-checkout`, `commondir`, `objects/info/alternates` y en `modules/` los `config`,
     ///   `config.worktree` y `hooks/` de cada submódulo;
     /// - en el admin dir del worktree de PRBar (`.git/worktrees/<el nuestro>/`): `config.worktree`, `commondir`,
@@ -796,7 +796,17 @@ public struct FixImplementer: Sendable {
     ///
     /// Dentro de las carpetas recursivas se ignoran los metadatos de macOS (`.DS_Store`, `._*`, `Icon\r`): git
     /// nunca los ejecuta ni los lee.
+    ///
+    /// De los archivos de config (los de arriba y sus includes) no cuenta el texto entero sino sus claves de riesgo
+    /// (`riskyConfigPrefixes`), leídas por git (`git config --file <ruta> --no-includes --list -z`, que solo parsea):
+    /// el usuario cambia su config todo el tiempo sin riesgo (`push -u`, `gh pr checkout`, `branch --set-upstream-to`,
+    /// el `branch.*.vscode-merge-base` de VS Code) y eso no puede frenar el push. Si git no la puede leer, cuenta el
+    /// contenido entero. `info/exclude` no está: solo cambia qué se ignora (no ejecuta nada ni cambia lo pusheado).
     struct GitPaths: Sendable {
+        /// Corre `git config --file <ruta> --no-includes --list -z` (endurecido, fuera del worktree) en la máquina del
+        /// worktree.
+        typealias ConfigLister = @Sendable (String) async throws -> ProcessResult
+
         /// El `.git` del worktree.
         let dotGit: String
         /// `git rev-parse --git-common-dir`: el `.git` del clone.
@@ -804,8 +814,18 @@ public struct FixImplementer: Sendable {
         /// `git rev-parse --git-dir` si es distinto del common dir (el admin dir de un worktree separado).
         let adminDir: String?
 
-        static let commonFiles = ["config", "config.worktree", "commondir", "info/attributes", "info/exclude",
+        static let commonFiles = ["config", "config.worktree", "commondir", "info/attributes",
                                   "info/sparse-checkout", "objects/info/alternates"]
+        /// Las claves de config que cuentan en la huella (en minúscula; las que terminan en `.` son secciones enteras):
+        /// las que ejecutan comandos, cambian a dónde o cómo habla git con un remoto, qué credenciales usa, cómo
+        /// firma o cómo lee el árbol. `branch.*`, `user.name`, `color.*`, etc. no.
+        static let riskyConfigPrefixes = [
+            "core.", "include.", "includeif.", "filter.", "diff.", "merge.", "difftool.", "mergetool.", "credential.",
+            "url.", "remote.", "alias.", "protocol.", "http.", "https.", "ssh.", "gpg.", "hook.", "submodule.",
+            "extensions.", "lfs.", "pager.", "sequence.", "trailer.", "transfer.", "fetch.", "push.", "receive.",
+            "uploadpack.", "safe.", "commit.gpgsign", "tag.gpgsign", "tag.forcesignannotated", "user.signingkey",
+        ]
+
         static let commonTrees = ["hooks"]
         static let adminFiles = ["config.worktree", "commondir", "gitdir", "HEAD"]
         static let adminTrees = ["info", "hooks"]
@@ -814,7 +834,7 @@ public struct FixImplementer: Sendable {
 
         /// Ruta → descripción de cada cosa de la lista de permitidos (ver el tipo), leída con `fs` (esta Mac o el host).
         /// Las que no existen también están, como `none`, para que aparecer cuente como cambio.
-        func fingerprint(using fs: any WorkspaceFS) async throws -> [String: String] {
+        func fingerprint(using fs: any WorkspaceFS, listConfig: ConfigLister) async throws -> [String: String] {
             var files = [dotGit, commonDir] + Self.commonFiles.map { Self.join(commonDir, $0) }
             var trees = Self.commonTrees.map { Self.join(commonDir, $0) }
             if let adminDir {
@@ -830,6 +850,7 @@ public struct FixImplementer: Sendable {
             // Los includes que caen dentro de las carpetas de git (y los includes de esos, sin ciclos).
             let roots = [commonDir] + (adminDir.map { [$0] } ?? [])
             var seen = Set(configs)
+            var described = configs
             while let config = configs.popLast() {
                 // Límite conocido (aceptado en la revisión de seguridad del Plan 14): un config de más de 1 MiB no se
                 // lee, así que sus includes no se siguen. El config mismo sí queda en la huella (cualquier cambio
@@ -842,16 +863,39 @@ public struct FixImplementer: Sendable {
                     guard roots.contains(where: { target.hasPrefix($0 + "/") }) else { continue }
                     entries.merge(try await fs.describe([target])) { _, new in new }
                     configs.append(target)
+                    described.append(target)
                 }
             }
+            for config in described {
+                guard let entry = entries[config], entry.hasPrefix("file:") else { continue }
+                let listed = try await listConfig(config)
+                guard listed.status == 0 else { continue }  // No es una config válida: cuenta el contenido entero.
+                let mode = entry.split(separator: ":")[1]
+                let risky = Self.riskyConfigEntries(listed.stdout).joined(separator: "\0")
+                entries[config] = "config:\(mode):" + SHA256.hash(data: Data(risky.utf8)).map { String(format: "%02x", $0) }.joined()
+            }
             return entries
+        }
+
+        /// De la salida de `git config --list -z` (`clave\nvalor\0`, o `clave\0` sin valor), las entradas de riesgo
+        /// (`riskyConfigPrefixes`), en su orden (con varias, la última gana).
+        static func riskyConfigEntries(_ output: String) -> [String] {
+            output.split(separator: "\0", omittingEmptySubsequences: true).compactMap { entry in
+                let key = entry.prefix { $0 != "\n" }.lowercased()
+                return riskyConfigPrefixes.contains { $0.hasSuffix(".") ? key.hasPrefix($0) : key == $0 } ? String(entry) : nil
+            }
+        }
+
+        /// Los argumentos de git de `ConfigLister`: endurecido y desde `/` (fuera de cualquier repo).
+        static func listConfigArguments(_ path: String) -> [String] {
+            ["-C", "/"] + GitHardening.arguments + ["config", "--file", path, "--no-includes", "--list", "-z"]
         }
 
         /// SHA-256 de `fingerprint` sin el `HEAD` del worktree (que cambia con cada commit de los fixes y que
         /// `RespondPublisher` compara aparte con el sha revisado). `RespondPublisher` lo recalcula justo antes
         /// del push, que corre los hooks del usuario.
-        func securityDigest(using fs: any WorkspaceFS) async throws -> String {
-            var entries = try await fingerprint(using: fs)
+        func securityDigest(using fs: any WorkspaceFS, listConfig: ConfigLister) async throws -> String {
+            var entries = try await fingerprint(using: fs, listConfig: listConfig)
             if let adminDir { entries[Self.join(adminDir, "HEAD")] = nil }
             let text = entries.sorted { $0.key < $1.key }.map { "\($0.key)\t\($0.value)" }.joined(separator: "\n")
             return SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
@@ -999,6 +1043,15 @@ public struct FixImplementer: Sendable {
         }
     }
 
+    /// `GitPaths.ConfigLister` con el git del trabajo (en un host, el de allá).
+    private var configLister: GitPaths.ConfigLister {
+        let (runner, gitPath, environment) = (runner, gitPath, environment)
+        return { path in
+            try await runner.run(gitPath, GitPaths.listConfigArguments(path), environment: environment,
+                                 currentDirectory: nil, timeout: ProcessTimeouts.standard)
+        }
+    }
+
     private func gitPaths(_ worktree: URL) async throws -> GitPaths {
         let output = try await git(worktree, ["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"])
         return try GitPaths.parse(output, worktree: worktree)
@@ -1007,7 +1060,7 @@ public struct FixImplementer: Sendable {
     /// Throws, without running git, if git's digest isn't `expected` (the fixes' `gitIntegrity`; nil = an older
     /// result, which can't be pushed anyway).
     private func checkIntegrity(_ paths: GitPaths, expected: String?, worktree: URL) async throws {
-        guard let expected, try await paths.securityDigest(using: fs) != expected else { return }
+        guard let expected, try await paths.securityDigest(using: fs, listConfig: configLister) != expected else { return }
         claude.appendLog("--- git configuration or hooks changed since the fixes were implemented ---\n")
         throw PRBarError.respond(
             "Git configuration or hooks changed since the fixes were implemented. PRBar stopped before running git. "
@@ -1015,7 +1068,7 @@ public struct FixImplementer: Sendable {
     }
 
     private func checkGitUntouched(_ paths: GitPaths, before: [String: String], worktree: URL) async throws {
-        let after = try await paths.fingerprint(using: fs)
+        let after = try await paths.fingerprint(using: fs, listConfig: configLister)
         guard after != before else { return }
         let changed = Set(before.keys).union(after.keys).filter { before[$0] != after[$0] }.sorted()
         claude.appendLog("--- git configuration or hooks changed during the run: \(changed.joined(separator: ", ")) ---\n")

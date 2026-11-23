@@ -146,7 +146,9 @@ public struct RespondPublisher: Sendable {
     /// La huella de git del worktree (`GitPaths.securityDigest`), como la deja `FixImplementer` en `gitIntegrity`.
     public func integrity(of worktree: URL) async throws -> String {
         let output = try await git(worktree.path, ["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"])
-        return try await FixImplementer.GitPaths.parse(output, worktree: worktree).securityDigest(using: LocalWorkspaceFS())
+        return try await FixImplementer.GitPaths.parse(output, worktree: worktree).securityDigest(using: LocalWorkspaceFS()) { path in
+            try await self.run(FixImplementer.GitPaths.listConfigArguments(path), timeout: ProcessTimeouts.standard)
+        }
     }
 
     /// "La rama avanzó" solo cuando git lo dice (non-fast-forward / fetch first); si no, el stderr tal cual

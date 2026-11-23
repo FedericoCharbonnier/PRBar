@@ -1518,9 +1518,11 @@ enum FixImplementerTests {
             try expect(changed)
             let error = try await expectThrows { _ = try await impl.undoChatTurn(draft: draft, snapshot: snapshot) }
             try expect(try respondMessage(error).contains("Git configuration or hooks changed"), "\(error)")
-            // Solo el rev-parse que ubica las carpetas de git (no lee el índice ni corre hooks).
-            let verbs = recorder.calls.dropFirst(before).map { $0.arguments.dropFirst(2 + GitHardening.arguments.count).first ?? "" }
-            try expect(verbs.allSatisfy { $0 == "rev-parse" }, "\(verbs)")
+            // Solo el rev-parse que ubica las carpetas de git y `config --file --list` (parsea, desde `/`): no lee el
+            // índice ni corre hooks.
+            let calls = recorder.calls.dropFirst(before).map { Array($0.arguments.dropFirst(2 + GitHardening.arguments.count)) }
+            try expect(calls.allSatisfy { $0.first == "rev-parse" || ($0.prefix(2) == ["config", "--file"] && $0.contains("--no-includes")) },
+                       "\(calls)")
             try expectEqual(repo.read("README.md"), "chat\n")
         },
         TestCase("fix implementer: reglas de Fixes, ajustes y prompt propio dentro de la parte fija") {
