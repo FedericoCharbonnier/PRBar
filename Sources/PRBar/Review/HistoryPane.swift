@@ -118,8 +118,7 @@ struct HistoryListPane: View {
     private func respondContextMenu(for record: RespondRecord) -> some View {
         Button("Open PR on GitHub") { NSWorkspace.shared.open(record.draft.url) }
         Button("Copy PR Link") {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(record.draft.url.absoluteString, forType: .string)
+            Pasteboard.copy(record.draft.url.absoluteString)
         }
         if entries.withLogs.contains(record.id) {
             let logURL = model.respondHistory.logURL(for: record.id)
@@ -136,8 +135,7 @@ struct HistoryListPane: View {
     private func mergeContextMenu(for record: MergeRecord) -> some View {
         Button("Open PR on GitHub") { NSWorkspace.shared.open(record.url) }
         Button("Copy PR Link") {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(record.url.absoluteString, forType: .string)
+            Pasteboard.copy(record.url.absoluteString)
         }
         if entries.withLogs.contains(record.id) {
             let logURL = model.mergeHistory.logURL(for: record.id)
@@ -153,8 +151,7 @@ struct HistoryListPane: View {
             Button("View Review on GitHub") { NSWorkspace.shared.open(url) }
         }
         Button("Copy PR Link") {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(record.draft.url.absoluteString, forType: .string)
+            Pasteboard.copy(record.draft.url.absoluteString)
         }
         if entries.withLogs.contains(record.id) {
             let logURL = model.history.logURL(for: record.id)

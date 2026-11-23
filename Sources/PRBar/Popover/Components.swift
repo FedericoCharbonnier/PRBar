@@ -2,6 +2,15 @@ import AppKit
 import PRBarCore
 import SwiftUI
 
+/// Copies text (a PR link, a command) to the general pasteboard: the code the context menus repeated.
+@MainActor
+enum Pasteboard {
+    static func copy(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+}
+
 struct AvatarView: View {
     let login: String
     let url: URL?
@@ -34,7 +43,7 @@ struct CIIcon: View {
         switch state {
         case .success: "CI OK"
         case .failure: "CI failing"
-        case .pending: "CI running"
+        case .pending: "CI pending"
         case .none: nil
         }
     }
@@ -229,8 +238,7 @@ struct CopyableCommand: View {
                     .transition(.opacity)
             }
             IconButton(systemImage: copied ? "checkmark" : "doc.on.doc", help: copied ? "Copied" : "Copy") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(command, forType: .string)
+                Pasteboard.copy(command)
                 withAnimation { copied = true }
                 Task {
                     try? await Task.sleep(for: .seconds(1.5))

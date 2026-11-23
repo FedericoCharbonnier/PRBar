@@ -69,8 +69,15 @@ struct PRListRow: View {
         }
         .padding(.vertical, 6)
         .contentShape(Rectangle())
-        .accessibilityElement(children: .contain)
+        // One element with one label (with `.contain` VoiceOver read the title again in the children); the pill is
+        // a custom action, the same one ↩ runs.
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel)
+        .accessibilityActions {
+            if let title = rowAction.title {
+                Button(title) { model.performPrimaryAction(prID: item.id) }
+            }
+        }
         .help("\(pr.repo.fullName)#\(pr.number) · \(pr.title)")
     }
 
@@ -94,6 +101,12 @@ struct PRListRow: View {
         case .readyToMerge: ("checkmark.circle.fill", Theme.green)
         default: ("clock", .secondary)
         }
+    }
+
+    private var rowAction: PRPrimaryAction {
+        let respondPhase = model.respond.phases[item.id]
+        return PRPrimaryAction.of(item, review: model.reviews.phases[item.id], respond: respondPhase,
+                                  respondMode: respondPhase == nil ? nil : model.respond.mode(of: item.id))
     }
 
     private var accessibilityLabel: String {

@@ -140,8 +140,7 @@ struct PRRowView: View {
     private var contextMenu: some View {
         Button("Open on GitHub") { NSWorkspace.shared.open(pr.url) }
         Button("Copy Link") {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(pr.url.absoluteString, forType: .string)
+            Pasteboard.copy(pr.url.absoluteString)
         }
         if hasReviewButton {
             Divider()

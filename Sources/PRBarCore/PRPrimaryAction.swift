@@ -14,6 +14,20 @@ public enum PRPrimaryAction: Equatable, Sendable {
         }
     }
 
+    /// The action's name for VoiceOver (the row's custom action); nil for `.none`.
+    public var title: String? {
+        switch self {
+        case .startReview: "Start Review"
+        case .openReview: "Open Review"
+        case .startRespond: "Start Respond"
+        case .openRespond: "Open Respond"
+        case .startCIFix: "Start Fix CI"
+        case .openCIFix: "Open Fix CI"
+        case .openMerge: "Open Merge"
+        case .none: nil
+        }
+    }
+
     public var startsJob: Bool { self == .startReview || self == .startRespond || self == .startCIFix }
 
     public static func of(_ item: ClassifiedPR, review: ReviewPhase?, respond: RespondPhase?,

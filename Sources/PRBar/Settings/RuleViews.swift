@@ -8,11 +8,26 @@ struct StageChip: View {
     let action: () -> Void
 
     var body: some View {
+        CapsuleToggle(title: stage.title, isOn: isOn, action: action)
+            .help(isOn ? "Applies to \(stage.title)" : "Doesn’t apply to \(stage.title)")
+    }
+}
+
+/// An on/off chip: a small capsule tinted with the accent when on (the rule stages, the reported finding categories).
+struct CapsuleToggle: View {
+    let title: String
+    let isOn: Bool
+    /// Off chips are struck through (a category Claude won't report).
+    var strikesThroughWhenOff = false
+    let action: () -> Void
+
+    var body: some View {
         Button(action: action) {
-            Text(stage.title)
+            Text(title)
                 .font(.caption.weight(.medium))
                 .lineLimit(1)
                 .fixedSize()
+                .strikethrough(strikesThroughWhenOff && !isOn)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 2)
                 .background(Capsule().fill(isOn ? Theme.tint(Theme.accent) : Color.primary.opacity(0.06)))
@@ -20,7 +35,6 @@ struct StageChip: View {
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(isOn ? .isSelected : [])
-        .help(isOn ? "Applies to \(stage.title)" : "Doesn’t apply to \(stage.title)")
     }
 }
 

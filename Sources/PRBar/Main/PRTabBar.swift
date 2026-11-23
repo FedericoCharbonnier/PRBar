@@ -17,6 +17,8 @@ struct PRTabBar: View {
         }
         .padding(3)
         .modifier(GlassCapsule())
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("PR tabs")
     }
 
     private func tabButton(_ item: PRTabItem) -> some View {
@@ -73,6 +75,8 @@ struct HistoryFilterBar: View {
         .labelsHidden()
         .fixedSize()
         .help("Which records History shows")
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("History filter")
     }
 }
 

@@ -511,17 +511,7 @@ private struct CategoryChip: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            Text(title)
-                .font(.caption.weight(.medium))
-                .padding(.horizontal, 7)
-                .padding(.vertical, 2)
-                .background(Capsule().fill(isOn ? Theme.tint(Theme.accent) : Color.primary.opacity(0.06)))
-                .foregroundStyle(isOn ? Color.accentColor : .secondary)
-                .strikethrough(!isOn)
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(isOn ? .isSelected : [])
-        .help(isOn ? "Claude reports \(title.lowercased()) findings" : "\(title) findings are hidden")
+        CapsuleToggle(title: title, isOn: isOn, strikesThroughWhenOff: true, action: action)
+            .help(isOn ? "Claude reports \(title.lowercased()) findings" : "\(title) findings are hidden")
     }
 }

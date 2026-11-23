@@ -97,6 +97,11 @@ enum MainListTests {
             try expectEqual(groups.map(\.title), ["Today", "Yesterday"])
             try expectEqual(groups.map(\.items.count), [2, 1])
         },
+        TestCase("pill: each action has a VoiceOver name; none has none") {
+            try expectEqual(PRPrimaryAction.startReview.title, "Start Review")
+            try expectEqual(PRPrimaryAction.openCIFix.title, "Open Fix CI")
+            try expectEqual(PRPrimaryAction.none.title, nil)
+        },
         TestCase("pill: qué hace ↩ en cada fila y qué pestaña abre") {
             try expectEqual(PRPrimaryAction.of(item(.toReview), review: nil, respond: nil, respondMode: nil), .startReview)
             try expectEqual(PRPrimaryAction.of(item(.toReview), review: .reviewing(agents: 3), respond: nil, respondMode: nil),

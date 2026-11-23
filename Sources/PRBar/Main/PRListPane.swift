@@ -112,8 +112,7 @@ struct PRListPane: View {
                     if let prID = ids.first, let item = model.currentItem(prID) {
                         Button("Open on GitHub") { NSWorkspace.shared.open(item.pr.url) }
                         Button("Copy Link") {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(item.pr.url.absoluteString, forType: .string)
+                            Pasteboard.copy(item.pr.url.absoluteString)
                         }
                     }
                 } primaryAction: { ids in

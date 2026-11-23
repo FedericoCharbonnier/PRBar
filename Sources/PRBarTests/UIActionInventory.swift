@@ -75,8 +75,7 @@ enum UIActionInventory {
         .init("Activity/ActivityPane.swift", "Component:WindowAccessor", "-", 1, .viewOnly("tracks whether the window is on screen to sample")),
         // Ventana principal (plan 21, spec M.1)
         .init("Main/MainSidebar.swift", "ListSelection", "-", 1, .viewOnly("navigation in the main window")),   // To Review, My PRs, History, Activity
-        .init("Main/MainSidebar.swift", "Component:ClaudeTaskSidebarRow", "-", 1, .viewOnly("navigation in the main window")),   // opens the task's tab
-        .init("Main/MainSidebar.swift", "Button", "-", 2, .cli(["app settings"])),   // the task row, the iPhone row (--tab iphone)
+        .init("Main/MainSidebar.swift", "Button", "-", 1, .cli(["app settings"])),   // the iPhone row (--tab iphone); task rows are list selection
         .init("Main/MainSidebar.swift", "IconButton", "gearshape", 1, .cli(["app settings"])),
         .init("Main/MainWindow.swift", "Button", "Back", 1, .viewOnly("navigation in the main window")),
         .init("Main/MainWindow.swift", "Button", "Refresh", 2, .cli(["refresh", "resources"])),   // the PRs; in Activity, the disk
@@ -84,8 +83,9 @@ enum UIActionInventory {
         .init("Main/MainWindow.swift", "Button", "Open on GitHub", 1, .cli(["open"])),   // only with a PR selected
         .init("Main/MainWindow.swift", "searchable", "-", 1, .viewOnly("filters the list")),   // Search PRs / Search History
         .init("Main/MainWindow.swift", "Component:WindowAccessor", "-", 1, .viewOnly("sets the search field's width")),
-        .init("Main/EmptyDetailView.swift", "Component:MessageView", "sidebar.squares.right", 1, .viewOnly("no PR selected, no action")),
+        .init("Main/EmptyDetailView.swift", "Component:MessageView", "No PR Selected", 1, .viewOnly("no PR selected, no action")),
         .init("Main/PRListPane.swift", "ListSelection", "-", 1, .viewOnly("navigation in the main window")),
+        .init("Main/PRListRow.swift", "Button", "-", 1, .cli(["review start", "respond start", "ci fix", "open"])),   // VoiceOver's action = ↩
         .init("Main/PRListPane.swift", "onKeyPress", "-", 1, .cli(["review start", "respond start", "ci fix", "open"])),   // ↩: the pill's action
         .init("Main/PRListPane.swift", "primaryAction", "-", 1, .viewOnly("opens the PR in its own window")),   // double click
         .init("Main/PRListPane.swift", "Button", "Open on GitHub", 1, .cli(["open"])),
@@ -307,7 +307,8 @@ enum UIActionInventory {
         .init("Settings/PathRow.swift", "Button", "Choose…", 1, .cli(["tools set", "repo set"])),
         // Settings › Claude
         // el selector de skill, "None", una fila de la lista de skills y los chips de categoría (Task 28)
-        .init("Settings/ClaudeTab.swift", "Button", "-", 4, .cli(["claude stage", "claude set", "claude skills", "claude review set"])),
+        .init("Settings/ClaudeTab.swift", "Button", "-", 3, .cli(["claude stage", "claude set", "claude skills"])),
+        .init("Settings/ClaudeTab.swift", "Component:CapsuleToggle", "-", 1, .cli(["claude review set"])),   // CategoryChip: Report
         .init("Settings/ClaudeTab.swift", "Toggle", "Filter findings", 1, .cli(["claude set"])),
         .init("Settings/ClaudeTab.swift", "Picker", "Model", 2, .cli(["claude set"])),   // --model y --chat-model
         .init("Settings/ClaudeTab.swift", "Toggle", "Chat with Claude in the Review, Respond and Merge tabs", 1, .cli(["claude set"])),   // --chat
@@ -339,7 +340,8 @@ enum UIActionInventory {
         .init("Settings/InstructionsTab.swift", "Button", "Add", 1, .cli(["rules add"])),
         .init("Settings/InstructionsTab.swift", "TextField", "-", 1, .cli(["rules chat"])),   // el mensaje del chat de instrucciones
         .init("Settings/InstructionsTab.swift", "Button", "Stop", 1, .cli(["rules chat"])),   // --stop
-        .init("Settings/RuleViews.swift", "Button", "-", 1, .cli(["rules edit", "rules add", "rules proposal save"])),   // StageChip: Review / Fixes
+        .init("Settings/RuleViews.swift", "Button", "-", 1, .viewOnly(generic)),   // CapsuleToggle
+        .init("Settings/RuleViews.swift", "Component:CapsuleToggle", "-", 1, .cli(["rules edit", "rules add", "rules proposal save"])),   // StageChip: Review / Fixes
         .init("Settings/RuleViews.swift", "TextField", "Rule", 1, .cli(["rules suggestions accept"])),   // la regla sugerida (--text)
         .init("Settings/RuleViews.swift", "Button", "Create Rule", 1, .cli(["rules suggestions accept"])),
         .init("Settings/RuleViews.swift", "Button", "Not Now", 1, .cli(["rules suggestions dismiss"])),
