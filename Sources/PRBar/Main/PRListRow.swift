@@ -42,6 +42,18 @@ struct PRListRow: View {
                 }
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+                // The popover's status line: what the feedback is, or what blocks the merge.
+                if item.category == .myFeedback {
+                    FeedbackLabel(summary: ActionClassifier.newFeedback(pr, me: item.account))
+                        .font(.subheadline)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                } else if item.category == .readyToMerge {
+                    MergeStatusLabel(availability: model.mergeOptions(item).availability)
+                        .font(.subheadline)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
                 HStack(spacing: 6) {
                     CIIcon(state: pr.ciState).font(.caption2.weight(.bold))
                     Text("+\(pr.additions)").foregroundStyle(Theme.greenText)
@@ -89,7 +101,7 @@ struct PRListRow: View {
                      "updated \(RelativeAge.short(from: pr.updatedAt)) ago"]
         if let ci = CIIcon.label(for: pr.ciState) { parts.append(ci) }
         parts.append("\(pr.additions) \(pr.additions == 1 ? "line" : "lines") added, \(pr.deletions) removed")
-        if section == .withFeedback {
+        if item.category == .myFeedback {
             parts.append(FeedbackLabel.text(for: ActionClassifier.newFeedback(pr, me: item.account)))
         }
         return parts.joined(separator: ", ")

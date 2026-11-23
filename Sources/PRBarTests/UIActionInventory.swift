@@ -90,6 +90,7 @@ enum UIActionInventory {
         .init("Main/PRListPane.swift", "primaryAction", "-", 1, .viewOnly("opens the PR in its own window")),   // double click
         .init("Main/PRListPane.swift", "Button", "Open on GitHub", 1, .cli(["open"])),
         .init("Main/PRListPane.swift", "Button", "Copy Link", 1, .cli(["open"])),
+        .init("Main/PRListPane.swift", "Button", "-", 1, .viewOnly("folds a section of the list")),   // the section header
         .init("Main/PRListPane.swift", "Button", #"\(drafts == 1 ? "#, 1, .viewOnly("navigation in the main window")),   // N drafts hidden · Show
         .init("Main/PRListPane.swift", "Component:MessageView", "-", 3, .cli(["app settings", "refresh"])),   // Open Settings, Try Again
         .init("Main/PRListPane.swift", "Component:MessageView", "checkmark.seal", 1, .viewOnly("the list’s empty state, no action")),

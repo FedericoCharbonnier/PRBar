@@ -299,10 +299,13 @@ public enum PopoverSection: String, Codable, CaseIterable, Sendable, Identifiabl
         }
     }
 
+    /// The section's title in the popover and the main window's list (inside the My PRs tab, "My PRs with
+    /// Feedback" would say "My PRs" twice).
     public var title: String {
         switch self {
         case .otherToReview: "Other"
         case .waitingForReview: "Waiting for Review"
+        case .myFeedback: "With Feedback"
         default: category.title
         }
     }
