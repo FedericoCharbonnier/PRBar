@@ -49,7 +49,7 @@ struct HistoryDetailView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 5) {
-            PRReferenceLine(draft: draft, linkTitle: "Open PR")
+            PRReferenceLine(draft: draft, linkTitle: "Open on GitHub")
             Text(draft.title)
                 .font(.title2.weight(.semibold))
                 .textSelection(.enabled)
@@ -141,7 +141,7 @@ struct HistoryDetailView: View {
     }
 
     private var footer: some View {
-        HistoryDetailBar(logURL: logURL, prURL: draft.url) {
+        HistoryDetailBar(logURL: logURL) {
             if let url = record.reviewURL {
                 ExternalLink("View Review", destination: url)
             }

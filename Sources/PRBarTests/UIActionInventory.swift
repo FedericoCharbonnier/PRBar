@@ -81,8 +81,8 @@ enum UIActionInventory {
         .init("Main/MainWindow.swift", "Button", "Back", 1, .viewOnly("navigation in the main window")),
         .init("Main/MainWindow.swift", "Button", "Refresh", 2, .cli(["refresh", "resources"])),   // the PRs; in Activity, the disk
         .init("Main/MainWindow.swift", "Button", "Open in New Window", 1, .viewOnly("opens the PR in its own window")),
-        .init("Main/MainWindow.swift", "Button", "-", 1, .cli(["open"])),   // Open on GitHub
-        .init("Main/MainWindow.swift", "searchable", "Search ⌘F", 1, .viewOnly("filters the list")),
+        .init("Main/MainWindow.swift", "Button", "Open on GitHub", 1, .cli(["open"])),   // only with a PR selected
+        .init("Main/MainWindow.swift", "searchable", "-", 1, .viewOnly("filters the list")),   // Search PRs / Search History
         .init("Main/MainWindow.swift", "Component:WindowAccessor", "-", 1, .viewOnly("sets the search field's width")),
         .init("Main/EmptyDetailView.swift", "Component:MessageView", "sidebar.squares.right", 1, .viewOnly("no PR selected, no action")),
         .init("Main/PRListPane.swift", "ListSelection", "-", 1, .viewOnly("navigation in the main window")),
@@ -109,7 +109,6 @@ enum UIActionInventory {
         .init("Review/ReviewEditor.swift", "Picker", "Decision", 1, .cli(["review publish"])),   // --approve / --request-changes
         .init("Review/ReviewEditor.swift", "Button", "Review Again", 1, .cli(["review start"])),
         .init("Review/ReviewEditor.swift", "TextField", "General comment (optional)", 1, .cli(["review comment"])),
-        .init("Review/ReviewEditor.swift", "ExternalLink", "Open on GitHub", 1, .cli(["open"])),
         .init("Review/ReviewEditor.swift", "Component:OutdatedReviewBanner", "-", 1, .cli(["review start"])),
         .init("Review/ReviewEditor.swift", "Component:ReviewPublishedView", "-", 1, .viewOnly("closes the window")),
         .init("Review/ReviewEditor.swift", "ConfirmAlert", "Approve this PR?", 1, .cli(["review publish"])),
@@ -278,7 +277,7 @@ enum UIActionInventory {
         .init("Respond/RespondItemCard.swift", "ExternalLink", "View on GitHub", 1, .cli(["respond show"])),
         // Historial
         .init("Review/HistoryPane.swift", "ListSelection", "-", 1, .cli(["history show"])),
-        .init("Review/HistoryPane.swift", "Button", "-", 2, .cli(["history show", "open"])),   // View Claude Log, Open on GitHub (the detail's bar)
+        .init("Review/HistoryPane.swift", "Button", "-", 1, .cli(["history show"])),   // View Claude Log (the detail's bar; GitHub is the header's link)
         .init("Review/HistoryPane.swift", "Button", "Open PR on GitHub", 3, .cli(["open"])),
         .init("Review/HistoryPane.swift", "Button", "Copy PR Link", 3, .cli(["open"])),
         .init("Review/HistoryPane.swift", "Button", "View Review on GitHub", 1, .cli(["open"])),

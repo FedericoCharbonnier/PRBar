@@ -49,7 +49,7 @@ struct RespondHistoryDetailView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 5) {
-            PRReferenceLine(repo: draft.repo, number: draft.number, url: draft.url, linkTitle: "Open PR")
+            PRReferenceLine(repo: draft.repo, number: draft.number, url: draft.url, linkTitle: "Open on GitHub")
             Text(draft.title)
                 .font(.title2.weight(.semibold))
                 .textSelection(.enabled)
@@ -57,7 +57,8 @@ struct RespondHistoryDetailView: View {
             HStack(spacing: 6) {
                 Image(systemName: draft.isCIFix ? "wrench.and.screwdriver" : "arrowshape.turn.up.left")
                     .accessibilityLabel(draft.isCIFix ? "Fix CI" : "Feedback response")
-                Text("@\(draft.account)").foregroundStyle(.primary)
+                AvatarView(login: draft.account, url: nil, size: 16)
+                Text(draft.account).foregroundStyle(.primary)
                 Text("·").foregroundStyle(.tertiary)
                 Text(ReviewDates.short(record.finishedAt ?? record.startedAt))
                 Text("·").foregroundStyle(.tertiary)
@@ -182,7 +183,7 @@ struct RespondHistoryDetailView: View {
     }
 
     private var footer: some View {
-        HistoryDetailBar(logURL: logURL, prURL: record.draft.url) {
+        HistoryDetailBar(logURL: logURL) {
             if canOpen {
                 Button(record.draft.isCIFix ? "Show Fix CI" : "Show Response", action: open)
                     .buttonStyle(.borderedProminent)

@@ -234,10 +234,10 @@ enum HistoryActions {
     }
 }
 
-/// La barra de abajo del detalle de History (spec M.1): View Claude Log · Open on GitHub y la acción del registro.
+/// La barra de abajo del detalle de History (spec M.1): View Claude Log y la acción del registro. GitHub is the
+/// header's link (one per screen).
 struct HistoryDetailBar<Trailing: View>: View {
     let logURL: URL
-    let prURL: URL
     @ViewBuilder let trailing: () -> Trailing
     /// Checked off the main thread when the record changes, not on every render.
     @State private var logExists = false
@@ -252,9 +252,6 @@ struct HistoryDetailBar<Trailing: View>: View {
                 Label("View Claude Log", systemImage: "terminal")
             }
             .disabled(!logExists)
-            Button { NSWorkspace.shared.open(prURL) } label: {
-                Label("Open on GitHub", systemImage: "arrow.up.right.square")
-            }
             Spacer()
             trailing()
         }

@@ -67,7 +67,7 @@ struct MainWindow: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .animation(.easeInOut(duration: 0.2), value: detail.focus.isFocused)
-            .modifier(SearchField(text: $state.search))
+            .modifier(SearchField(text: $state.search, prompt: "Search PRs"))
         case .history:
             HStack(spacing: 0) {
                 HistoryListPane(model: model, state: state)
@@ -76,7 +76,7 @@ struct MainWindow: View {
                 HistoryDetailPane(model: model, state: state)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .modifier(SearchField(text: $state.search))
+            .modifier(SearchField(text: $state.search, prompt: "Search History"))
         case .activity:
             ActivityPane(model: model, monitor: resources)
         }
@@ -133,16 +133,15 @@ struct MainWindow: View {
                 Button { Task { await prStore.refresh() } } label: { Label("Refresh", systemImage: "arrow.clockwise") }
                     .help("Refresh (⌘R)")
             }
-            Button("Open in New Window", systemImage: "macwindow.badge.plus") {
-                if let prID = selectedPRID { model.openPRWindow(prID: prID) }
+            // Only with a PR on screen (not on History or Activity, where they did nothing).
+            if let prID = selectedPRID {
+                Button("Open in New Window", systemImage: "macwindow.badge.plus") { model.openPRWindow(prID: prID) }
+                    .help("Open in New Window (⇧⌘O)")
             }
-                .disabled(selectedPRID == nil)
-                .help("Open in New Window (⇧⌘O)")
-            Button {
-                if let url = selectedPRURL { NSWorkspace.shared.open(url) }
-            } label: { Label("Open on GitHub", systemImage: "arrow.up.right.square") }
-                .disabled(selectedPRURL == nil)
-                .help("Open on GitHub")
+            if let url = selectedPRURL {
+                Button { NSWorkspace.shared.open(url) } label: { Label("Open on GitHub", systemImage: "arrow.up.right.square") }
+                    .help("Open on GitHub")
+            }
             if selectedTabs != nil && model.chatEnabled {
                 PRDetailToolbar.chatButton(detail: detail)
             }
@@ -214,10 +213,12 @@ private struct LiveSubtitle: ViewModifier {
 /// ⌘F (View › Find) lo enfoca con `WindowCommandCenter.find`.
 private struct SearchField: ViewModifier {
     @Binding var text: String
+    /// What it searches ("Search PRs", "Search History"); ⌘F is in View › Find.
+    let prompt: String
 
     func body(content: Content) -> some View {
         content
-            .searchable(text: $text, placement: .toolbar, prompt: "Search ⌘F")
+            .searchable(text: $text, placement: .toolbar, prompt: prompt)
             .background(WindowAccessor { window in
                 // La toolbar de SwiftUI suma el ítem después de que la vista entra en la ventana.
                 DispatchQueue.main.async { Self.setWidth(in: window) }

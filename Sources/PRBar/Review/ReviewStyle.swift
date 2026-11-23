@@ -101,17 +101,27 @@ struct PRReferenceLine: View {
         self.linkTitle = linkTitle
     }
 
+    /// false in a PR window: its title bar already says `repo#N`.
+    @Environment(\.showsPRReference) private var showsReference
+
     var body: some View {
         HStack {
-            Text("\(repo.name)#\(number)")
-                .font(.system(.subheadline, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .textSelection(.enabled)
+            if showsReference {
+                Text("\(repo.fullName) #\(number)")
+                    .font(.system(.subheadline, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
             Spacer()
             ExternalLink(linkTitle, destination: url)
                 .font(.callout)
         }
     }
+}
+
+extension EnvironmentValues {
+    /// Whether the PR headers start with `owner/repo #N` (not in a PR window, whose title already has it).
+    @Entry var showsPRReference = true
 }
 
 /// Link a una página web con la flecha ↗: sigue el color de acento del sistema y muestra la mano solo acá.

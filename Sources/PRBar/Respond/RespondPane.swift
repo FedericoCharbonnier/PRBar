@@ -1213,7 +1213,9 @@ private struct RespondHeader: View {
                 .font(.callout.weight(.semibold))
                 .foregroundStyle(draft.isCIFix ? Theme.redText : Theme.orangeText)
             HStack(spacing: 6) {
-                Text("@\(draft.account)").foregroundStyle(.primary)
+                // The PR is yours: your avatar and login, as the other tabs show the author.
+                AvatarView(login: draft.account, url: nil, size: 16)
+                Text(draft.account).foregroundStyle(.primary)
                 Text("·").foregroundStyle(.tertiary)
                 Image(systemName: "arrow.triangle.branch").imageScale(.small).fontWeight(.semibold)
                 Text(draft.headRef)

@@ -361,15 +361,7 @@ struct ReviewHeader: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            HStack {
-                Text("\(draft.repo.fullName) #\(draft.number)")
-                    .font(.system(.subheadline, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-                Spacer()
-                ExternalLink("Open on GitHub", destination: draft.url)
-                    .font(.callout)
-            }
+            PRReferenceLine(draft: draft, linkTitle: "Open on GitHub")
             Text(draft.title)
                 .font(.system(size: 20, weight: .semibold))
                 .textSelection(.enabled)
