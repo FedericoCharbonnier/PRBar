@@ -72,8 +72,8 @@ public enum RemoteEnv: Equatable, Sendable {
 }
 
 /// Un comando para el host, armado como script POSIX: `cd`, el pgid a un archivo (para Stop), y `exec env -i <lista
-/// blanca> <argv>` con stdin de `/dev/null`, de un archivo remoto o del de ssh. Nada se interpola: todo va con
-/// `ShellQuote`.
+/// blanca> <argv>` con stdin de `/dev/null`, de un archivo remoto o del de ssh (con pid, sin `exec`: el shell borra el
+/// archivo cuando el comando termina). Nada se interpola: todo va con `ShellQuote`.
 public struct RemoteExec: Sendable {
     public enum StandardInput: Equatable, Sendable {
         case null
@@ -127,7 +127,9 @@ public struct RemoteExec: Sendable {
             // Después de escribir el pid: un Stop que llegó antes (y no pudo leerlo) dejó la lápida.
             lines.append("[ -e \(try ShellQuote.posix(Self.cancelFile(forPidFile: pidFile))) ] && exit 99")
         }
-        var command = "exec "
+        // Con pid, el shell espera al comando para borrar el archivo (un Stop posterior ya no tiene nada que matar);
+        // sin pid, `exec`.
+        var command = pidFile == nil ? "exec " : ""
         if let environment {
             command += "/usr/bin/env -i " + (try environment.map { try $0.render() }.joined(separator: " ")) + " "
         }
@@ -138,6 +140,11 @@ public struct RemoteExec: Sendable {
         case .passThrough: break
         }
         lines.append(command)
+        if let pidFile {
+            lines.append("status=$?")
+            lines.append("rm -f -- \(try ShellQuote.posix(pidFile))")
+            lines.append("exit \"$status\"")
+        }
         return lines.joined(separator: "\n")
     }
 }

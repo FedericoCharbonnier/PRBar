@@ -439,7 +439,7 @@ public struct ChatService: ChatBackend {
                                                             environment: gitEnvironment)
         return FixImplementer(claude: claude, runner: remote.runner, gitPath: remote.gitPath,
                               environment: remote.gitEnvironment.merging(identity) { _, new in new }, fs: remote.fs,
-                              testShell: "/bin/sh", testRunner: RemoteLoginRunner(host: remote.host))
+                              testShell: "/bin/sh", testRunner: RemoteLoginRunner(host: remote.host, root: remote.root))
     }
 
     // MARK: Limpieza

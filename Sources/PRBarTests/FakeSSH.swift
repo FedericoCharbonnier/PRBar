@@ -8,7 +8,8 @@ import PRBarCore
 /// como lo haría sshd) y `FAKE_SSH_NOISE_FILE` lo que imprime su rc antes del comando.
 /// `-V` imprime `FAKE_SSH_VERSION` (por defecto un OpenSSH 9.6) en stderr, como el `ssh` de verdad.
 /// `FAKE_SSH_UNREACHABLE=1` simula un host caído (exit 255). Si existe el archivo `dropNext`, la próxima invocación
-/// cuyo comando contiene su texto deja el comando corriendo en el "host" y sale con 255 (se cayó la conexión).
+/// cuyo comando contiene su texto deja el comando corriendo en el "host" y sale con 255 (se cayó la conexión); si además
+/// existe `dropNext` + `.lock`, la carpeta que nombra queda de solo lectura en ese momento.
 struct FakeSSH {
     let base: URL
     var executable: URL { base.appendingPathComponent("bin/ssh") }
@@ -49,6 +50,8 @@ struct FakeSSH {
         /usr/bin/env -i HOME="$FAKE_SSH_HOME" USER=tester LOGNAME=tester LANG=en_US.UTF-8 SHELL=/bin/sh PATH=/usr/bin:/bin:/usr/sbin:/sbin \
         SSH_AUTH_SOCK=/remote/agent.sock "$login" -c "$cmd" < /dev/null > /dev/null 2>&1 &
       sleep 1
+      # `<drop>.lock`: una carpeta que queda de solo lectura al caerse (p. ej. `jobs/`, para que Stop no se confirme).
+      if [ -f "$FAKE_SSH_DROP.lock" ]; then chmod 500 "$(cat "$FAKE_SSH_DROP.lock")"; rm -f "$FAKE_SSH_DROP.lock"; fi
       echo "Connection to $host closed by remote host." >&2
       exit 255
     fi

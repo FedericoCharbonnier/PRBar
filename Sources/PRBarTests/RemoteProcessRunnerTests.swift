@@ -105,6 +105,60 @@ enum RemoteProcessRunnerTests {
             }
             try expect(!alive)
         },
+        TestCase("remote runner: cancelar o vencer un git (no Claude) también mata al grupo remoto y no deja restos") {
+            for cancel in [true, false] {
+                let (ssh, host, info, root) = try await verifiedFake()
+                defer { ssh.remove() }
+                try ssh.installTool("slow", "#!/bin/sh\nprintf '%s\\n' \"$$\" > \"$HOME/slow.pid\"\nexec sleep 60\n")
+                let runner = RemoteProcessRunner(host: host, root: root, toolDirectories: info.toolDirectories)
+                let task = Task {
+                    try await runner.run(ssh.home.appendingPathComponent("bin/slow").path, [], environment: nil, currentDirectory: nil,
+                                         timeout: cancel ? 120 : 1.5)
+                }
+                let pidFile = ssh.home.appendingPathComponent("slow.pid")
+                for _ in 0..<100 where !FileManager.default.fileExists(atPath: pidFile.path) { try await Task.sleep(for: .milliseconds(50)) }
+                let pid = Int32(try String(contentsOf: pidFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines))!
+                if cancel { task.cancel() }
+                _ = try? await task.value
+                var alive = true
+                for _ in 0..<80 where alive {
+                    try await Task.sleep(for: .milliseconds(100))
+                    alive = kill(pid, 0) == 0
+                }
+                try expect(!alive, "cancel=\(cancel): el proceso remoto \(pid) sigue vivo")
+                try expectEqual(try FileManager.default.contentsOfDirectory(atPath: root.jobs), [])
+            }
+        },
+        TestCase("remote runner: un testCommand remoto que vence mata al grupo remoto (RemoteLoginRunner)") {
+            let (ssh, host, _, root) = try await verifiedFake()
+            defer { ssh.remove() }
+            let runner = RemoteLoginRunner(host: host, root: root)
+            let started = Date()
+            _ = try await expectThrows {
+                _ = try await runner.run("/bin/sh", ["-lc", "printf '%s\\n' \"$$\" > \"$HOME/test.pid\"; sleep 60"], environment: nil,
+                                         currentDirectory: nil, timeout: 1.5)
+            }
+            try expect(Date().timeIntervalSince(started) < 30)
+            let pid = Int32(try String(contentsOf: ssh.home.appendingPathComponent("test.pid"), encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines))!
+            var alive = true
+            for _ in 0..<80 where alive {
+                try await Task.sleep(for: .milliseconds(100))
+                alive = kill(pid, 0) == 0
+            }
+            try expect(!alive, "el testCommand remoto \(pid) sigue vivo")
+            let ok = try await runner.run("/bin/sh", ["-lc", "exit 3"], environment: nil, currentDirectory: nil, timeout: 30)
+            try expectEqual(ok.status, 3)
+            try expectEqual(try FileManager.default.contentsOfDirectory(atPath: root.jobs), [])
+        },
+        TestCase("remote runner: un git que termina bien no deja el archivo del pgid") {
+            let (ssh, host, info, root) = try await verifiedFake()
+            defer { ssh.remove() }
+            let runner = RemoteProcessRunner(host: host, root: root, toolDirectories: info.toolDirectories)
+            let result = try await runner.run(info.gitPath!, ["--version"], environment: nil, currentDirectory: nil, timeout: 30)
+            try expectEqual(result.status, 0)
+            try expectEqual(try FileManager.default.contentsOfDirectory(atPath: root.jobs), [])
+        },
         TestCase("remote runner: Stop antes de que el trabajo escriba su pid: el trabajo no arranca") {
             let (ssh, host, _, root) = try await verifiedFake()
             defer { ssh.remove() }

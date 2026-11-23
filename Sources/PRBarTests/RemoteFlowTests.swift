@@ -28,7 +28,8 @@ private func stream(_ ssh: FakeSSH, _ output: [String: Any], call n: Int? = nil)
 /// `RemoteRunnerError.jobNotStopped`. `restore` vuelve a dejar escribir en `jobs/`.
 private func loseNextClaude(_ ssh: FakeSSH, _ remote: RemotePlacement) throws -> () -> Void {
     try Data("remote-home/bin/claude".utf8).write(to: ssh.dropNext)
-    try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: remote.root.jobs)
+    // `jobs/` de solo lectura recién cuando se cae Claude: los git de antes (también trabajos) escriben ahí su pgid.
+    try Data(remote.root.jobs.utf8).write(to: URL(fileURLWithPath: ssh.dropNext.path + ".lock"))
     return { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: remote.root.jobs) }
 }
 

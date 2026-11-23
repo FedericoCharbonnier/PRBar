@@ -8,8 +8,9 @@ public protocol StandardInputStreamingRunning: StreamingProcessRunning {
 }
 
 /// git y Claude en el host. `run`/`runStreaming`: git con el entorno de git (`RemoteEnvironment.git`);
-/// `runStreamingIsolated`: Claude con su lista blanca, el pgid en `<raíz>/jobs/<job>.pid` y Stop/timeout que matan al
-/// grupo remoto. El `environment` que manda `ClaudeRunner` (rutas de la Mac) se ignora: el remoto se arma acá.
+/// `runStreamingIsolated`: Claude con su lista blanca. Los dos corren como trabajos (`SSHHost.runJob`): el pgid en
+/// `<raíz>/jobs/<job>.pid` y Stop/timeout que matan al grupo remoto, no solo al `ssh` local. El `environment` que manda
+/// `ClaudeRunner` (rutas de la Mac) se ignora: el remoto se arma acá.
 public struct RemoteProcessRunner: ProcessRunning, StandardInputStreamingRunning {
     public let host: SSHHost
     public let root: RemoteRoot
@@ -25,14 +26,14 @@ public struct RemoteProcessRunner: ProcessRunning, StandardInputStreamingRunning
                     timeout: TimeInterval?) async throws -> ProcessResult {
         let exec = RemoteExec(argv: [executable] + arguments, cwd: currentDirectory?.path,
                               environment: try RemoteEnvironment.git(passing: environment, pathDirectories: toolDirectories, root: root))
-        return try await host.run(exec, timeout: timeout)
+        return try await host.runJob(exec, root: root, timeout: timeout)
     }
 
     public func runStreaming(_ executable: String, _ arguments: [String], environment: [String: String]?, currentDirectory: URL?,
                              timeout: TimeInterval?, onStdoutLine: @escaping @Sendable (String) -> Void) async throws -> ProcessResult {
         let exec = RemoteExec(argv: [executable] + arguments, cwd: currentDirectory?.path,
                               environment: try RemoteEnvironment.git(passing: environment, pathDirectories: toolDirectories, root: root))
-        return try await host.run(exec, timeout: timeout, onStdoutLine: onStdoutLine)
+        return try await host.runJob(exec, root: root, timeout: timeout, onStdoutLine: onStdoutLine)
     }
 
     public func runStreamingIsolated(_ executable: String, _ arguments: [String], environment: [String: String], currentDirectory: URL?,
@@ -50,7 +51,6 @@ public struct RemoteProcessRunner: ProcessRunning, StandardInputStreamingRunning
     private func isolated(_ executable: String, _ arguments: [String], currentDirectory: URL?, timeout: TimeInterval?,
                           standardInput: Data?, onStdoutLine: @escaping @Sendable (String) -> Void) async throws -> ProcessResult {
         let job = UUID().uuidString.lowercased()
-        let pidFile = try root.child(["jobs", job + ".pid"])
         var stdinPath: String?
         if let standardInput {
             let path = try root.child(["tmp", job + ".stdin"])
@@ -59,43 +59,68 @@ public struct RemoteProcessRunner: ProcessRunning, StandardInputStreamingRunning
         }
         let exec = RemoteExec(argv: [executable] + arguments, cwd: currentDirectory?.path,
                               environment: RemoteEnvironment.claude(pathDirectories: toolDirectories, root: root),
-                              standardInput: stdinPath.map { .remoteFile($0) } ?? .null, pidFile: pidFile)
+                              standardInput: stdinPath.map { .remoteFile($0) } ?? .null)
         let host = self.host
-        let root = self.root
-        let leftovers = [pidFile, RemoteExec.cancelFile(forPidFile: pidFile)] + (stdinPath.map { [$0] } ?? [])
+        return try await host.runJob(exec, root: root, job: job, leftovers: stdinPath.map { [$0] } ?? [], timeout: timeout,
+                                     onStdoutLine: onStdoutLine) { error in
+            AppLog.write("Remote (\(host.name)): couldn’t confirm the job stopped after: \((error as? LocalizedError)?.errorDescription ?? "\(error)")"
+                         + (currentDirectory.map { "; leaving \($0.path) as is" } ?? ""))
+            // Claude puede seguir escribiendo ahí: ninguna limpieza de esta sesión lo toca.
+            if let currentDirectory { RemoteUnstoppedJobs.shared.insert(host: host.name, path: currentDirectory.path) }
+            return RemoteRunnerError.jobNotStopped(host: host.name)
+        }
+    }
+}
+
+extension SSHHost {
+    /// Corre `exec` como un trabajo: su pgid en `<raíz>/jobs/<job>.pid` (que el script borra al terminar). Si la corrida
+    /// lanza (Stop, timeout, conexión caída), mata al grupo remoto (fuera de esta tarea, para que la cancelación no lo
+    /// corte) y espera la confirmación antes de devolver: quien llama puede mirar el worktree recién después. Sin
+    /// confirmación lanza `unconfirmed(error)` (por defecto, el error original, con un aviso en el log) y los restos
+    /// quedan para los huérfanos. `leftovers`: otros archivos del trabajo para borrar al final.
+    func runJob(_ exec: RemoteExec, root: RemoteRoot, job: String = UUID().uuidString.lowercased(), leftovers: [String] = [],
+                timeout: TimeInterval?, onStdoutLine: (@Sendable (String) -> Void)? = nil,
+                unconfirmed: (@Sendable (Error) -> Error)? = nil) async throws -> ProcessResult {
+        let pidFile = try root.child(["jobs", job + ".pid"])
+        var exec = exec
+        exec.pidFile = pidFile
+        let host = self
+        let all = [pidFile, RemoteExec.cancelFile(forPidFile: pidFile)] + leftovers
         do {
-            let result = try await host.run(exec, timeout: timeout, onStdoutLine: onStdoutLine)
-            Task.detached { await host.removeFiles(leftovers, root: root) }
+            let result = try await run(exec, timeout: timeout, onStdoutLine: onStdoutLine)
+            if !leftovers.isEmpty { Task.detached { await host.removeFiles(all, root: root) } }
             return result
         } catch {
-            // Stop, timeout, conexión caída o cualquier otro error: el grupo remoto puede seguir vivo. Se mata (fuera
-            // de esta tarea, para que la cancelación no lo corte) y se espera la confirmación antes de devolver: quien
-            // llama corre el guardián recién después. Sin confirmación, los restos quedan para los huérfanos.
             let stopped = await Task.detached { () -> Bool in
                 guard await host.killGroup(pidFile: pidFile, root: root) else { return false }
-                await host.removeFiles(leftovers, root: root)
+                await host.removeFiles(all, root: root)
                 return true
             }.value
             guard stopped else {
-                AppLog.write("Remote (\(host.name)): couldn’t confirm the job stopped after: \((error as? LocalizedError)?.errorDescription ?? "\(error)")"
-                             + (currentDirectory.map { "; leaving \($0.path) as is" } ?? ""))
-                // Claude puede seguir escribiendo ahí: ninguna limpieza de esta sesión lo toca.
-                if let currentDirectory { RemoteUnstoppedJobs.shared.insert(host: host.name, path: currentDirectory.path) }
-                throw RemoteRunnerError.jobNotStopped(host: host.name)
+                if let unconfirmed { throw unconfirmed(error) }
+                AppLog.write("Remote (\(name)): couldn’t confirm \(exec.argv.first ?? "a command") stopped after: "
+                             + ((error as? LocalizedError)?.errorDescription ?? "\(error)"))
+                throw error
             }
             throw error
         }
     }
 }
 
-/// Los tests del usuario en el host (decisión J.7.13): `/bin/sh -lc <cmd>` con el entorno de login, sin `env -i`.
+/// Los tests del usuario en el host (decisión J.7.13): `/bin/sh -lc <cmd>` con el entorno de login, sin `env -i`. Como
+/// trabajo (`SSHHost.runJob`): un timeout o un Stop matan al grupo remoto, no solo al `ssh` local.
 public struct RemoteLoginRunner: ProcessRunning {
     public let host: SSHHost
+    public let root: RemoteRoot
 
-    public init(host: SSHHost) { self.host = host }
+    public init(host: SSHHost, root: RemoteRoot) {
+        self.host = host
+        self.root = root
+    }
 
     public func run(_ executable: String, _ arguments: [String], environment: [String: String]?, currentDirectory: URL?,
                     timeout: TimeInterval?) async throws -> ProcessResult {
-        try await host.run(RemoteExec(argv: [executable] + arguments, cwd: currentDirectory?.path, environment: nil), timeout: timeout)
+        try await host.runJob(RemoteExec(argv: [executable] + arguments, cwd: currentDirectory?.path, environment: nil),
+                              root: root, timeout: timeout)
     }
 }

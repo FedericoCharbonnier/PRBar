@@ -17,6 +17,20 @@ func runLocalScript(_ script: String, environment: [String: String], stdin: URL?
     return String(decoding: data, as: UTF8.self)
 }
 
+/// El exit code de `/bin/sh -c <script>`.
+func runLocalScriptStatus(_ script: String) throws -> Int32 {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/bin/sh")
+    process.arguments = ["-c", script]
+    process.environment = ["PATH": "/usr/bin:/bin"]
+    process.standardOutput = FileHandle.nullDevice
+    process.standardError = FileHandle.nullDevice
+    process.standardInput = FileHandle.nullDevice
+    try process.run()
+    process.waitUntilExit()
+    return process.terminationStatus
+}
+
 private let dirty: [String: String] = [
     "PATH": "/usr/bin:/bin", "HOME": "/remote/home", "USER": "fede", "LANG": "en_US.UTF-8",
     "GH_TOKEN": "ghp_secret", "GITHUB_TOKEN": "ghp_secret2", "SLACK_TOKEN": "xoxp-1", "SSH_AUTH_SOCK": "/tmp/agent",
@@ -85,12 +99,16 @@ enum RemoteExecTests {
             let input = base.appendingPathComponent("prompt.txt")
             try Data("Review this PR".utf8).write(to: input)
             let pidFile = base.appendingPathComponent("job.pid").path
-            let exec = RemoteExec(argv: ["/bin/sh", "-c", "cat; umask"], environment: [.literal("PATH", "/usr/bin:/bin")],
+            let exec = RemoteExec(argv: ["/bin/sh", "-c", "cat; umask; cat \"$0\"; exit 7", pidFile], environment: [.literal("PATH", "/usr/bin:/bin")],
                                   standardInput: .remoteFile(input.path), pidFile: pidFile)
             let output = try runLocalScript(try exec.script(), environment: dirty)
-            try expectEqual(output, "Review this PR0077\n")
-            let pid = try String(contentsOfFile: pidFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
-            try expect(Int(pid).map { $0 > 1 } ?? false, pid)
+            let lines = output.split(separator: "\n").map(String.init)
+            try expectEqual(lines.first, "Review this PR0077")
+            try expect(lines.count == 2 && Int(lines[1]).map { $0 > 1 } == true, output)
+            // Al terminar, el shell borra el archivo del pgid (y sale con el código del comando).
+            try expect(!FileManager.default.fileExists(atPath: pidFile))
+            let status = try runLocalScriptStatus(try exec.script())
+            try expectEqual(status, 7)
         },
         TestCase("remote exec: programas y variables inválidos se rechazan") {
             // Con marcas combinantes: para `String` "=\u{301}" o "-\u{301}" no es "=" ni "-", pero los bytes sí.
