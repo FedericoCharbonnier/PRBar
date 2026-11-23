@@ -11,7 +11,7 @@ Para la CLI, `PRBAR_SOCKET` apuntando al socket de la app instalada.
 - [ ] ⌘W la cierra y PRBar sigue en la barra de menú sin cancelar nada (una review corriendo sigue en el popover).
 - [ ] Reabrirla conserva sección, PR, pestaña y Back.
 - [ ] ⌘0 y ⌘Q **desde el popover** (sin ventanas abiertas y con una abierta): ⌘0 abre la ventana y cierra el popover;
-      ⌘Q sale (con la confirmación de siempre si hay trabajo). El ítem "Quit PRBar ⌘Q" del pie del popover hace lo mismo.
+      ⌘Q sale (con la confirmación de siempre si hay trabajo). El ítem "Quit PRBar ⌘Q" del menú ⚙︎ del popover hace lo mismo.
 - [ ] Con una ventana abierta y el popover abierto encima, ⌘1 / ⌘2 cambian la pestaña **del popover** (no la sección
       de la ventana); con el popover cerrado y la ventana al frente, ⌘1 / ⌘2 cambian la sección de la ventana.
 
