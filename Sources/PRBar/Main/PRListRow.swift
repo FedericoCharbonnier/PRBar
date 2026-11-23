@@ -56,13 +56,15 @@ struct PRListRow: View {
                 }
                 HStack(spacing: 6) {
                     CIIcon(state: pr.ciState).font(.caption2.weight(.bold))
-                    Text("+\(pr.additions)").foregroundStyle(Theme.greenText)
-                    Text("−\(pr.deletions)").foregroundStyle(Theme.redText)
+                    // Never squeezed (they wrapped digit by digit next to a wide pill with the chat open).
+                    DiffStat(additions: pr.additions, deletions: pr.deletions)
                     Spacer(minLength: 6)
                     PRRowAccessory(item: item, model: model, reviews: model.reviews, respond: model.respond,
                                    merges: model.merges)
                         .font(.subheadline.weight(.medium))
-                        .fixedSize()
+                        // In a tight row (the chat open) the pill's text truncates; the +/− stats don't.
+                        .lineLimit(1)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .font(.system(.caption, design: .monospaced))
             }
@@ -118,5 +120,21 @@ struct PRListRow: View {
             parts.append(FeedbackLabel.text(for: ActionClassifier.newFeedback(pr, me: item.account)))
         }
         return parts.joined(separator: ", ")
+    }
+}
+
+/// "+46 −12" on one line, never compressed: when the row is tight, the title and the pill give way.
+struct DiffStat: View {
+    let additions: Int
+    let deletions: Int
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text("+\(additions)").foregroundStyle(Theme.greenText)
+            Text("−\(deletions)").foregroundStyle(Theme.redText)
+        }
+        .lineLimit(1)
+        .fixedSize()
+        .layoutPriority(2)
     }
 }

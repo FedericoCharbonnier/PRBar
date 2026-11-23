@@ -180,8 +180,13 @@ struct ReviewEditor: View {
                     Image(systemName: showDiscarded ? "chevron.down" : "chevron.right")
                         .imageScale(.small)
                         .fontWeight(.semibold)
-                    Text("Discarded by the filter (\(discarded.count))").fontWeight(.semibold)
-                    Text("· Claude marked them as not applicable").foregroundStyle(.secondary)
+                    // One line: the title stays whole and the caption truncates (wrapped, it was cut off).
+                    Text("Discarded by the filter (\(discarded.count))").fontWeight(.semibold).fixedSize()
+                    Text("· Claude marked them as not applicable")
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .help("Claude marked them as not applicable")
                     Spacer()
                 }
                 .font(.callout)
@@ -208,8 +213,8 @@ struct ReviewEditor: View {
                     Image(systemName: showHidden ? "chevron.down" : "chevron.right")
                         .imageScale(.small)
                         .fontWeight(.semibold)
-                    Text("Hidden by your settings (\(hiddenBySettings.count))").fontWeight(.semibold)
-                    Text("· Settings › Claude").foregroundStyle(.secondary)
+                    Text("Hidden by your settings (\(hiddenBySettings.count))").fontWeight(.semibold).fixedSize()
+                    Text("· Settings › Claude").foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
                     Spacer()
                 }
                 .font(.callout)

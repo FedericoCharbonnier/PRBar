@@ -211,9 +211,10 @@ struct PhasePill<Content: View>: View {
     }
 
     var body: some View {
+        // Its ideal width when there's room (the popover fixes its size); in a tight list row the text truncates.
         HStack(spacing: 4) { content }
             .lineLimit(1)
-            .fixedSize()
+            .fixedSize(horizontal: false, vertical: true)
             .padding(.leading, leading)
             .padding(.trailing, trailing)
             .frame(height: 20)

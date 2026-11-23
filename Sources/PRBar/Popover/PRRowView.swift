@@ -121,8 +121,7 @@ struct PRRowView: View {
                     .anchorPreference(key: AccessoryAnchorKey.self, value: .bounds) { $0 }
                 HStack(spacing: 6) {
                     CIIcon(state: pr.ciState).font(.caption2.weight(.bold))
-                    Text("+\(pr.additions)").foregroundStyle(Theme.greenText)
-                    Text("−\(pr.deletions)").foregroundStyle(Theme.redText)
+                    DiffStat(additions: pr.additions, deletions: pr.deletions)
                 }
                 .font(.system(.caption, design: .monospaced))
             }
