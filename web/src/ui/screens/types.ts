@@ -75,7 +75,7 @@ export interface OfflineCardVM {
 
 export interface BannerVM {
   tone: "neutral" | "orange" | "red";
-  icon?: "wifi.slash" | "clock" | "exclamationmark.triangle" | undefined;
+  icon?: "wifi.slash" | "clock" | "exclamationmark.triangle" | "checkmark.circle" | undefined;
   text: string;
   actionLabel?: string | undefined;
 }
@@ -334,6 +334,9 @@ export interface RespondBaseProps {
   faceIdPending?: boolean | undefined;
   /** Sin respuesta todavía: "Respond with Claude" / "Fix CI with Claude" en lugar del progreso y la lista. */
   start?: StartVM | undefined;
+  /** Arriba del progreso: por qué no se pusheó (los checks pasan ahora, fallaron los tests) o por qué falló. */
+  banner?: BannerVM | undefined;
+  onBannerAction?: (() => void) | undefined;
   /** Texto del primario si no es el de la pantalla ("Implement", "Reply", "Push Anyway"). */
   primaryLabel?: string | undefined;
   /** El primario pide Face ID (ícono `faceid`); por defecto sí. */

@@ -61,8 +61,9 @@ export interface PhoneCommandArgs {
   respondImplement: { pr: string; wait: boolean };
   respondTest: { pr: string; wait: boolean };
   respondDiff: { pr: string };
-  respondPush: { pr: string; confirmed: boolean; wait: boolean };
-  respondPushAnyway: { pr: string; confirmed: boolean; wait: boolean };
+  /** `mode`: lo que el teléfono cree que está pusheando; si la Mac tiene otra cosa, no pushea (`prbar ci push`). */
+  respondPush: { pr: string; confirmed: boolean; wait: boolean; mode?: RespondMode };
+  respondPushAnyway: { pr: string; confirmed: boolean; wait: boolean; mode?: RespondMode };
   respondReplyOnly: { pr: string; confirmed: boolean; wait: boolean };
   respondCancel: { pr: string };
   respondDismiss: { pr: string };
@@ -118,8 +119,8 @@ const FIELDS: { [K in PhoneCommandName]: Record<keyof PhoneCommandArgs[K] & stri
   respondImplement: { pr: S, wait: B },
   respondTest: { pr: S, wait: B },
   respondDiff: { pr: S },
-  respondPush: { pr: S, confirmed: B, wait: B },
-  respondPushAnyway: { pr: S, confirmed: B, wait: B },
+  respondPush: { pr: S, confirmed: B, wait: B, mode: OPT },
+  respondPushAnyway: { pr: S, confirmed: B, wait: B, mode: OPT },
   respondReplyOnly: { pr: S, confirmed: B, wait: B },
   respondCancel: { pr: S },
   respondDismiss: { pr: S },
@@ -151,6 +152,8 @@ const ENUMS: Partial<Record<string, readonly string[]>> = {
   "history.kind": ["review", "respond", "merge", "ci-fix"],
   "reviewPublish.event": ["COMMENT", "REQUEST_CHANGES", "APPROVE"],
   "merge.method": METHODS,
+  "respondPush.mode": ["feedback", "ciFix"],
+  "respondPushAnyway.mode": ["feedback", "ciFix"],
   "mergePreview.method": METHODS,
   "notifySet.kind": ["new-to-review", "reviewed-updated", "my-feedback", "review-finished", "approved-or-ci",
                      "ready-to-merge"],

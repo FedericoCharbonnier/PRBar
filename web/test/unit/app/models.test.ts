@@ -227,11 +227,39 @@ describe("respond y fix CI", () => {
     await model.runTests();
     expect(app.transport.sent.at(-1)).toEqual({ command: { respondTest: { pr: "acme/web-app#488", wait: false } }, presence: true });
     await model.push();
-    expect(app.transport.sent.at(-1)).toEqual({ command: { respondPush: { pr: "acme/web-app#488", confirmed: true, wait: false } }, presence: true });
+    expect(app.transport.sent.at(-1)).toEqual({ command: { respondPush: { pr: "acme/web-app#488", confirmed: true, wait: false, mode: "ciFix" } }, presence: true });
     expect(app.signed).toHaveLength(2);
     const diff = model.view("diff");
     if (diff.kind !== "diff") throw new Error(diff.kind);
     expect(diff.props.files[0]!.lines.map((l) => l.kind)).toEqual(["hunk", "del", "add"]);
+  });
+
+  it("fix CI frenado porque los checks pasan ahora: banner y Push Anyway (ciFix) con Face ID", async () => {
+    const app = makeApp();
+    const pr = "acme/web-app#488";
+    const reason = "The checks that failed (test) pass now on 9f3c2a1, so PRBar didn’t push.";
+    setRespond(app, pr, { phase: "readyToPush", pushBlockedByCI: reason });
+    const model = createRespondModel(app, pr, "ciFix");
+    model.open();
+    const view = model.view("main");
+    if (view.kind !== "fixci") throw new Error(view.kind);
+    expect(view.props.banner).toEqual({ tone: "orange", icon: "checkmark.circle", text: reason });
+    expect(view.props).toMatchObject({ primaryLabel: "Push Anyway", primaryFaceId: true, primaryDisabled: false });
+    view.props.onPrimary();
+    expect(app.signed).toHaveLength(1);
+    await flush();
+    expect(app.transport.sent.at(-1)).toEqual({
+      command: { respondPushAnyway: { pr, confirmed: true, wait: false, mode: "ciFix" } }, presence: true,
+    });
+    expect(app.ui.confirms).toEqual([]);
+
+    // Sin Face ID, pregunta lo mismo que la Mac antes de mandarlo.
+    app.transport.setPresencePolicy({ requirePresence: false, gated: app.transport.presencePolicy.gated });
+    app.ui.confirmAnswer = false;
+    await model.push();
+    expect(app.ui.confirms[0]).toMatchObject({ title: "The CI passes now", message: `${reason} Push Claude’s fix anyway?`,
+                                               confirmLabel: "Push Anyway" });
+    expect(app.transport.sent).toHaveLength(1);
   });
 
   it("fix CI: tocar un archivo abre respond:diff en ese archivo (no en el primero)", async () => {

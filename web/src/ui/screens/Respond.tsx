@@ -1,5 +1,5 @@
 import type { ComponentChildren } from "preact";
-import { Avatar, BlockTitle, BottomBar, Button, DiffCount, DiffView, FaceIdHud, Icon, LogBlock, NavBar, Screen, Spinner } from "../components";
+import { Avatar, Banner, BlockTitle, BottomBar, Button, DiffCount, DiffView, FaceIdHud, Icon, LogBlock, NavBar, Screen, Spinner } from "../components";
 import type { IconName } from "../components";
 import { DetailHeader } from "./Review";
 import type { FixCIProps, ProgressVM, RespondBaseProps, RespondDiffProps, RespondProps, StatusVM } from "./types";
@@ -74,6 +74,7 @@ function RespondFrame({ base, title, primaryLabel, children }: {
         </Button>
       ) : (
         <>
+          {base.banner && <Banner banner={base.banner} onAction={base.onBannerAction} />}
           {progress && <ProgressCard progress={progress} />}
           {children}
         </>

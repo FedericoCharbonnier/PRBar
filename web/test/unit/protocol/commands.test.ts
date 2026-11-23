@@ -65,6 +65,8 @@ describe("commands (app.json)", () => {
     expect(() => decodeCommand(`{"merge":{"pr":"a/b#1","method":"fast","confirmed":true,"expectedHeadOid":"x"}}`))
       .toThrow(DecodeError);
     expect(() => decodeCommand(`{"notifySet":{"kind":"spam","enabled":true}}`)).toThrow(DecodeError);
+    expect(() => decodeCommand(`{"respondPushAnyway":{"pr":"a/b#1","confirmed":true,"wait":false,"mode":"teleport"}}`))
+      .toThrow(DecodeError);
   });
 
   it("todo lo que publica en GitHub es gated; editar el borrador no", () => {

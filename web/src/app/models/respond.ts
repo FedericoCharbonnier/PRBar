@@ -1,7 +1,7 @@
 import { computed, signal, type ReadonlySignal } from "@preact/signals";
 import { prTopic, type AppCommand, type RespondInfo } from "../../protocol/commands";
 import type {
-  ChangedFileVM, CheckLogLine, FailedCheckVM, FeedbackCommentVM, FixCIProps, ProgressVM, RespondBaseProps,
+  BannerVM, ChangedFileVM, CheckLogLine, FailedCheckVM, FeedbackCommentVM, FixCIProps, ProgressVM, RespondBaseProps,
   RespondDiffProps, RespondProps, StageVM, StatusVM,
 } from "../../ui/screens/types";
 import type { AppContext, ConfirmRequest } from "../context";
@@ -104,15 +104,18 @@ export function createRespondModel(ctx: AppContext, pr: string, fallback: Respon
   const primaryLabel = (): string => {
     if (mode.value === "feedback" && !isRunning.value && !isDone.value) return "Implement";
     if (isReplyOnly.value) return "Reply";
-    if (respond.value?.pushBlockedByTests) return "Push Anyway";
+    if (respond.value?.pushBlockedByTests || respond.value?.pushBlockedByCI) return "Push Anyway";
     return mode.value === "feedback" ? "Push & Reply" : "Push";
   };
 
   /** Lo que manda el primario una vez implementado: responder, pushear o pushear igual. */
   const pushCommand = (): AppCommand => {
     if (isReplyOnly.value) return { respondReplyOnly: { pr, confirmed: true, wait: false } };
-    if (respond.value?.pushBlockedByTests) return { respondPushAnyway: { pr, confirmed: true, wait: false } };
-    return { respondPush: { pr, confirmed: true, wait: false } };
+    // Un Fix CI lleva el modo: si en la Mac el PR tiene otra cosa (un Responder), no pushea (`prbar ci push`).
+    const args = { pr, confirmed: true, wait: false, ...(mode.value === "ciFix" ? { mode: "ciFix" as const } : {}) };
+    // Frenado porque fallaron los tests, o (Fix CI) porque los checks que fallaban pasan ahora: "Push Anyway".
+    if (respond.value?.pushBlockedByTests || respond.value?.pushBlockedByCI) return { respondPushAnyway: args };
+    return { respondPush: args };
   };
 
   /** La pregunta antes de publicar sin Face ID (la de la Mac, `RespondPane.confirmPublish`). */
@@ -126,6 +129,11 @@ export function createRespondModel(ctx: AppContext, pr: string, fallback: Respon
       return { title: `Post ${count(replies, "reply", "replies")}?`, message: `They’ll be posted on GitHub${as}.`,
                confirmLabel: "Post", cancelLabel: "Cancel" };
     }
+    if ("respondPushAnyway" in command && r?.pushBlockedByCI) {
+      // `RespondPane.confirmPushAnywayCI`.
+      return { title: "The CI passes now", message: `${r.pushBlockedByCI} Push Claude’s fix anyway?`,
+               confirmLabel: "Push Anyway", cancelLabel: "Cancel", destructive: true };
+    }
     if ("respondPushAnyway" in command) {
       return { title: "The tests failed", confirmLabel: "Push Anyway", cancelLabel: "Cancel", destructive: true,
                message: `${r?.tests?.command ? `“${r.tests.command}”` : "The tests"} failed in PRBar’s worktree. Push the fixes${mode.value === "feedback" ? " and post the replies" : ""} anyway?` };
@@ -136,6 +144,18 @@ export function createRespondModel(ctx: AppContext, pr: string, fallback: Respon
     }
     return { title: `Push ${count(commits, "commit")} to ${branch} and post ${count(replies, "reply", "replies")}?`,
              message: `They’ll be posted on GitHub${as}.`, confirmLabel: "Push and Reply", cancelLabel: "Cancel" };
+  };
+
+  /** Por qué no se pusheó (`RespondPane`: `CIPassingBanner`, `TestsBlockedPushBanner`). El primario es "Push Anyway". */
+  const banner = (): BannerVM | undefined => {
+    const r = respond.value;
+    if (!r || isRunning.value) return undefined;
+    if (r.pushBlockedByCI) return { tone: "orange", icon: "checkmark.circle", text: r.pushBlockedByCI };
+    if (r.pushBlockedByTests) {
+      const command = r.tests?.command ? `“${r.tests.command}”` : "The tests";
+      return { tone: "orange", icon: "exclamationmark.triangle", text: `${command} failed, so PRBar didn’t push.` };
+    }
+    return undefined;
   };
 
   const base = (): RespondBaseProps => {
@@ -150,6 +170,7 @@ export function createRespondModel(ctx: AppContext, pr: string, fallback: Respon
       running: isRunning.value,
       disabled: stale || busy.value,
       faceIdPending: ctx.runner.faceIdPending.value,
+      banner: banner(),
       start: hasRun.value ? undefined : {
         label: mode.value === "feedback" ? "Respond with Claude" : "Fix CI with Claude",
         busy: busy.value, disabled: stale, onClick: () => void model.start(),
