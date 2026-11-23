@@ -496,11 +496,17 @@ private struct MergeReviewsSection: View {
                 ForEach(detail.reviews, id: \.author) { review in
                     HStack(spacing: 8) {
                         AvatarView(login: review.author, url: review.avatarURL, size: 18)
-                        Text(review.author).font(.callout)
+                        Text(review.author).font(.callout).lineLimit(1).truncationMode(.tail)
                         pill(review.state)
                         Spacer()
                         if let date = review.submittedAt {
-                            Text(ReviewDates.ago(date)).font(.caption).foregroundStyle(.secondary)
+                            // Short ("40 min", "2h", like the list's ages): "40 minutes ago" wrapped to three lines.
+                            Text(RelativeAge.short(from: date))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .fixedSize()
+                                .help(ReviewDates.ago(date))
                         }
                     }
                 }
