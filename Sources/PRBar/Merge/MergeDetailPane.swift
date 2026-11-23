@@ -453,13 +453,16 @@ private struct MergeSection<Content: View>: View {
             HStack(spacing: 6) {
                 Label(title, systemImage: systemImage)
                     .font(.headline)
+                    .fixedSize()
                 Spacer(minLength: 8)
                 if let trailing {
+                    // Wraps in the narrow side column rather than cutting the counts off.
                     Text(trailing)
                         .font(.callout)
                         .foregroundStyle(trailingColor)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                        .multilineTextAlignment(.trailing)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                         .help(trailingHelp ?? trailing)
                 }
             }
