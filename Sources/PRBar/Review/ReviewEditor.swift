@@ -392,14 +392,14 @@ struct ReviewHeader: View {
                         Text(files == 1 ? "1 file" : "\(files) files")
                     }
                 }
-                if let placement {
-                    dot
-                    PlacementLabel(text: placement)
-                }
             }
             .font(.callout)
             .foregroundStyle(.secondary)
             .lineLimit(1)
+            // On its own line (like the popover row): "Ran on this Mac — devbox unreachable" must not be cut off.
+            if let placement {
+                PlacementLabel(text: placement).font(.callout)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

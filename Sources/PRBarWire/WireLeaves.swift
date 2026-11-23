@@ -163,6 +163,17 @@ public struct MergeDetail: Codable, Equatable, Sendable {
         return parts.joined(separator: " · ")
     }
 
+    /// The Checks header: "4 passed · 1 failed · 1 running", without the "(not required)" qualifiers (the rows mark
+    /// the required checks; `checksSummary` goes in the header's help).
+    public var checksShortSummary: String {
+        guard !checks.isEmpty else { return "No checks" }
+        let counts: [(Int, String)] = [
+            (checks.filter { $0.state == .passed }.count, "passed"), (checks.filter { $0.state == .failed }.count, "failed"),
+            (checks.filter { $0.state == .running }.count, "running"), (checks.filter { $0.state == .skipped }.count, "skipped"),
+        ]
+        return counts.filter { $0.0 > 0 }.map { "\($0.0) \($0.1)" }.joined(separator: " · ")
+    }
+
     /// Hilos que no se miraron (había más de los que trae la consulta).
     public var uncheckedThreads: Int { checkedThreads.map { max(totalThreads - $0, 0) } ?? 0 }
 

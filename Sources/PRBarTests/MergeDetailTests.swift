@@ -93,6 +93,7 @@ enum MergeDetailTests {
             try expectEqual(detail.reviewDecision, ReviewDecision.none)
             try expectEqual(detail.commitCount, nil)
             try expectEqual(detail.checksSummary, "No checks")
+            try expectEqual(detail.checksShortSummary, "No checks")
         },
         TestCase("merge detail: un PR que no existe es un error de GraphQL") {
             let transport = FakeTransport([(200, [:], #"{"data":{"repository":{"pullRequest":null}}}"#)])
@@ -206,6 +207,7 @@ enum MergeDetailTests {
             detail.checks = [check(.passed, required: true), check(.passed, required: false), check(.failed, required: false),
                              check(.running, required: false), check(.skipped, required: false)]
             try expectEqual(detail.checksSummary, "2 passed · 1 failed (not required) · 1 running · 1 skipped")
+            try expectEqual(detail.checksShortSummary, "2 passed · 1 failed · 1 running · 1 skipped")
             detail.checks = [check(.failed, required: true), check(.failed, required: true), check(.failed, required: false)]
             try expectEqual(detail.checksSummary, "3 failed (1 not required)")
             detail.checks = [check(.failed, required: true)]

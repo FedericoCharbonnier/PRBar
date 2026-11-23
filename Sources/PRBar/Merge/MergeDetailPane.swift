@@ -444,6 +444,8 @@ private struct MergeSection<Content: View>: View {
     let systemImage: String
     var trailing: String?
     var trailingColor: Color = .secondary
+    /// The trailing text's tooltip (the longer form).
+    var trailingHelp: String? = nil
     @ViewBuilder let content: () -> Content
 
     var body: some View {
@@ -458,6 +460,7 @@ private struct MergeSection<Content: View>: View {
                         .foregroundStyle(trailingColor)
                         .lineLimit(1)
                         .truncationMode(.tail)
+                        .help(trailingHelp ?? trailing)
                 }
             }
             content()
@@ -538,7 +541,8 @@ private struct MergeChecksSection: View {
     }
 
     var body: some View {
-        MergeSection(title: "Checks", systemImage: "checklist", trailing: detail.checksSummary, trailingColor: summaryColor) {
+        MergeSection(title: "Checks", systemImage: "checklist", trailing: detail.checksShortSummary, trailingColor: summaryColor,
+                     trailingHelp: detail.checksSummary) {
             VStack(alignment: .leading, spacing: 7) {
                 if detail.checks.isEmpty {
                     Text("This PR has no checks").font(.callout).foregroundStyle(.secondary)

@@ -1220,14 +1220,14 @@ private struct RespondHeader: View {
                     .font(.system(.callout, design: .monospaced))
                     .foregroundStyle(.primary)
                     .truncationMode(.middle)
-                if let placement {
-                    Text("·").foregroundStyle(.tertiary)
-                    PlacementLabel(text: placement)
-                }
             }
             .font(.callout)
             .foregroundStyle(.secondary)
             .lineLimit(1)
+            // On its own line (like the popover row): a fallback warning must not be cut off.
+            if let placement {
+                PlacementLabel(text: placement).font(.callout)
+            }
             // El worktree va en la tarjeta de progreso.
         }
         .frame(maxWidth: .infinity, alignment: .leading)
