@@ -420,6 +420,7 @@ public enum WebVectors {
             .respondDiff(pr: ci),
             .respondReplyOnly(pr: ci, confirmed: true, wait: false),
             .respondPushAnyway(pr: ci, confirmed: true, wait: false),
+            .respondPushAnyway(pr: ci, confirmed: true, wait: false, mode: .ciFix),
             .respondPush(pr: ci, confirmed: true, wait: false),
             .respondCancel(pr: ci),
             .respondDismiss(pr: ci),

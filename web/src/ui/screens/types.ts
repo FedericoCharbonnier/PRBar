@@ -75,7 +75,7 @@ export interface OfflineCardVM {
 
 export interface BannerVM {
   tone: "neutral" | "orange" | "red";
-  icon?: "wifi.slash" | "clock" | "exclamationmark.triangle" | undefined;
+  icon?: "wifi.slash" | "clock" | "exclamationmark.triangle" | "checkmark.circle" | undefined;
   text: string;
   actionLabel?: string | undefined;
 }
@@ -222,9 +222,13 @@ export interface ReviewProps {
   /** review:faceid — esperando el aviso del sistema. */
   faceIdPending?: boolean | undefined;
   posting?: boolean | undefined;
+  /** Post pide Face ID con la decisión elegida (ícono `faceid`); por defecto sí. Sin Face ID, el modelo confirma. */
+  postFaceId?: boolean | undefined;
   disabled?: boolean | undefined;
-  /** Sin review todavía: el botón "Review with Claude" en lugar del resumen y los hallazgos. */
+  /** Sin review todavía: el botón "Review with Claude" en lugar del resumen y los hallazgos ("Try Again" si falló). */
   start?: StartVM | undefined;
+  /** El review falló: el motivo, en rojo arriba del botón. */
+  error?: string | undefined;
   onBack: () => void;
   onChat: () => void;
   onMore: () => void;
@@ -332,10 +336,15 @@ export interface RespondBaseProps {
   faceIdPending?: boolean | undefined;
   /** Sin respuesta todavía: "Respond with Claude" / "Fix CI with Claude" en lugar del progreso y la lista. */
   start?: StartVM | undefined;
+  /** Arriba del progreso: por qué no se pusheó (los checks pasan ahora, fallaron los tests) o por qué falló. */
+  banner?: BannerVM | undefined;
+  onBannerAction?: (() => void) | undefined;
   /** Texto del primario si no es el de la pantalla ("Implement", "Reply", "Push Anyway"). */
   primaryLabel?: string | undefined;
   /** El primario pide Face ID (ícono `faceid`); por defecto sí. */
   primaryFaceId?: boolean | undefined;
+  /** "Tests" pide Face ID; por defecto sí. */
+  testsFaceId?: boolean | undefined;
   primaryDisabled?: boolean | undefined;
   /** Sin Stop ni Undo (antes de implementar). */
   secondaryHidden?: boolean | undefined;
@@ -409,6 +418,8 @@ export interface MergeProps {
   merging?: boolean | undefined;
   /** merge:faceid. */
   faceIdPending?: boolean | undefined;
+  /** Merge pide Face ID (ícono `faceid`); por defecto sí. Sin Face ID, el modelo confirma. */
+  mergeFaceId?: boolean | undefined;
   disabled?: boolean | undefined;
   onBack: () => void;
   onChat: () => void;
@@ -448,9 +459,12 @@ export interface ChatProps {
   /** "Message Claude" / "Ask about this PR". */
   placeholder: string;
   disabled?: boolean | undefined;
+  /** Claude está contestando: el botón de enviar pasa a ser Stop. */
+  running?: boolean | undefined;
   onBack: () => void;
   onDraft: (text: string) => void;
   onSend: () => void;
+  onStop?: (() => void) | undefined;
   onUndo: (id: string) => void;
 }
 

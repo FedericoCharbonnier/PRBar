@@ -47,10 +47,13 @@ export function TypingIndicator() {
   );
 }
 
-export function Composer({ value, placeholder, disabled, onInput, onSend }: {
-  value: string; placeholder: string; disabled?: boolean | undefined; onInput: (v: string) => void; onSend: () => void;
+/** `onStop`: mientras Claude contesta (`running`), el botón de enviar es Stop. */
+export function Composer({ value, placeholder, disabled, running, onInput, onSend, onStop }: {
+  value: string; placeholder: string; disabled?: boolean | undefined; running?: boolean | undefined;
+  onInput: (v: string) => void; onSend: () => void; onStop?: (() => void) | undefined;
 }) {
   const canSend = !disabled && value.trim().length > 0;
+  const stop = running && onStop;
   return (
     <form
       class="composer"
@@ -69,9 +72,15 @@ export function Composer({ value, placeholder, disabled, onInput, onSend }: {
         enterKeyHint="send"
         onInput={(e) => onInput((e.currentTarget as HTMLInputElement).value)}
       />
-      <button type="submit" class={canSend ? "composer__send composer__send--on" : "composer__send"} disabled={!canSend} aria-label="Send">
-        <Icon name="arrow.up" size={20} />
-      </button>
+      {stop ? (
+        <button type="button" class="composer__send composer__send--on" aria-label="Stop" onClick={stop}>
+          <Icon name="stop.fill" size={16} />
+        </button>
+      ) : (
+        <button type="submit" class={canSend ? "composer__send composer__send--on" : "composer__send"} disabled={!canSend} aria-label="Send">
+          <Icon name="arrow.up" size={20} />
+        </button>
+      )}
     </form>
   );
 }

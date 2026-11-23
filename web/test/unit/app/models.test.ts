@@ -7,7 +7,7 @@ import { createMergeModel, methodNote } from "../../../src/app/models/merge";
 import { createRespondModel, logLine } from "../../../src/app/models/respond";
 import { createReviewModel } from "../../../src/app/models/review";
 import { createSettingsModel, REQUIRE_FACE_ID_LABEL } from "../../../src/app/models/settings";
-import { CommandError } from "../../../src/transport/types";
+import { CommandError, RemoteError } from "../../../src/transport/types";
 import { appFixture, flush, makeApp, NOW, sentNames } from "./helpers";
 
 const fx = appFixture();
@@ -107,7 +107,7 @@ describe("home", () => {
 });
 
 describe("review", () => {
-  it("muestra el review de la Mac y postea un Comment sin Face ID", async () => {
+  it("muestra el review de la Mac y postea un Comment con Face ID", async () => {
     const app = makeApp();
     const model = createReviewModel(app, "acme/api#317");
     const close = model.open();
@@ -123,8 +123,9 @@ describe("review", () => {
     await model.post();
     expect(app.transport.sent.at(-1)).toEqual({
       command: { reviewPublish: { pr: "acme/api#317", event: "COMMENT", withComments: true, allInBody: false, confirmed: true } },
-      presence: false,
+      presence: true,
     });
+    expect(app.ui.confirms).toEqual([]);
     const posted = model.view.value;
     expect(posted.kind).toBe("posted");
     if (posted.kind === "posted") {
@@ -201,6 +202,25 @@ describe("review", () => {
   });
 });
 
+describe("review fallido", () => {
+  it("muestra el motivo y Try Again vuelve a pedir el review", async () => {
+    const app = makeApp();
+    const failed = topicJSON("pr:acme/api#317");
+    failed.review = { ...(failed.review as Record<string, unknown>), phase: "failed", detail: "claude exited with code 1.",
+                      findings: [], summary: undefined };
+    app.transport.setTopic("pr:acme/api#317", failed);
+    const model = createReviewModel(app, "acme/api#317");
+    model.open();
+    const view = model.view.value;
+    if (view.kind !== "review") throw new Error(view.kind);
+    expect(view.props.error).toBe("claude exited with code 1.");
+    expect(view.props.start?.label).toBe("Try Again");
+    view.props.start!.onClick();
+    await flush();
+    expect(app.transport.sent.at(-1)!.command).toEqual({ reviewStart: { pr: "acme/api#317", wait: false } });
+  });
+});
+
 describe("respond y fix CI", () => {
   const setRespond = (app: ReturnType<typeof makeApp>, pr: string, patch: Record<string, unknown>) => {
     app.transport.setTopic(`pr:${pr}`, { respond: { ...respondInfo(), pr, ...patch } });
@@ -226,11 +246,39 @@ describe("respond y fix CI", () => {
     await model.runTests();
     expect(app.transport.sent.at(-1)).toEqual({ command: { respondTest: { pr: "acme/web-app#488", wait: false } }, presence: true });
     await model.push();
-    expect(app.transport.sent.at(-1)).toEqual({ command: { respondPush: { pr: "acme/web-app#488", confirmed: true, wait: false } }, presence: true });
+    expect(app.transport.sent.at(-1)).toEqual({ command: { respondPush: { pr: "acme/web-app#488", confirmed: true, wait: false, mode: "ciFix" } }, presence: true });
     expect(app.signed).toHaveLength(2);
     const diff = model.view("diff");
     if (diff.kind !== "diff") throw new Error(diff.kind);
     expect(diff.props.files[0]!.lines.map((l) => l.kind)).toEqual(["hunk", "del", "add"]);
+  });
+
+  it("fix CI frenado porque los checks pasan ahora: banner y Push Anyway (ciFix) con Face ID", async () => {
+    const app = makeApp();
+    const pr = "acme/web-app#488";
+    const reason = "The checks that failed (test) pass now on 9f3c2a1, so PRBar didn’t push.";
+    setRespond(app, pr, { phase: "readyToPush", pushBlockedByCI: reason });
+    const model = createRespondModel(app, pr, "ciFix");
+    model.open();
+    const view = model.view("main");
+    if (view.kind !== "fixci") throw new Error(view.kind);
+    expect(view.props.banner).toEqual({ tone: "orange", icon: "checkmark.circle", text: reason });
+    expect(view.props).toMatchObject({ primaryLabel: "Push Anyway", primaryFaceId: true, primaryDisabled: false });
+    view.props.onPrimary();
+    expect(app.signed).toHaveLength(1);
+    await flush();
+    expect(app.transport.sent.at(-1)).toEqual({
+      command: { respondPushAnyway: { pr, confirmed: true, wait: false, mode: "ciFix" } }, presence: true,
+    });
+    expect(app.ui.confirms).toEqual([]);
+
+    // Sin Face ID, pregunta lo mismo que la Mac antes de mandarlo.
+    app.transport.setPresencePolicy({ requirePresence: false, gated: app.transport.presencePolicy.gated });
+    app.ui.confirmAnswer = false;
+    await model.push();
+    expect(app.ui.confirms[0]).toMatchObject({ title: "The CI passes now", message: `${reason} Push Claude’s fix anyway?`,
+                                               confirmLabel: "Push Anyway" });
+    expect(app.transport.sent).toHaveLength(1);
   });
 
   it("fix CI: tocar un archivo abre respond:diff en ese archivo (no en el primero)", async () => {
@@ -281,9 +329,9 @@ describe("respond y fix CI", () => {
     expect(app.transport.sent.at(-1)!.command).toEqual({ respondCancel: { pr: "acme/web-app#475" } });
     const items = (respondInfo().items as Record<string, unknown>[]).map((i) => ({ ...i, implement: false }));
     setRespond(app, "acme/web-app#475", { phase: "readyToPush", mode: undefined, ciChecks: undefined, items });
-    expect(model.view("main").props.primaryLabel).toBe("Reply");
+    expect(model.view("main").props).toMatchObject({ primaryLabel: "Reply", primaryFaceId: true });
     await model.push();
-    expect(app.transport.sent.at(-1)).toEqual({ command: { respondReplyOnly: { pr: "acme/web-app#475", confirmed: true, wait: false } }, presence: false });
+    expect(app.transport.sent.at(-1)).toEqual({ command: { respondReplyOnly: { pr: "acme/web-app#475", confirmed: true, wait: false } }, presence: true });
     setRespond(app, "acme/web-app#475", { phase: "readyToPush", mode: undefined, ciChecks: undefined, pushBlockedByTests: true });
     expect(model.view("main").props.primaryLabel).toBe("Push Anyway");
     await model.push();
@@ -375,6 +423,56 @@ describe("chat", () => {
     close();
     app.transport.emitChatDelta("acme/api#317", " more");
     expect(model.props.value.items.at(-1)).toMatchObject({ text: "From the Mac" });
+  });
+
+  it("Send es Stop mientras Claude contesta", async () => {
+    const app = makeApp();
+    const model = createChatModel(app, "acme/api#317", "review");
+    model.open();
+    await flush();
+    expect(model.props.value.running).toBe(false);
+    app.transport.respond("chatSend", () => (fx.commands.find((c) => c.name === "chatShow")!.response as { result: never }).result);
+    model.props.value.onDraft("Why?");
+    const sending = model.send();
+    expect(model.props.value).toMatchObject({ running: true, disabled: true });
+    model.props.value.onStop!();
+    await sending;
+    await flush();
+    expect(sentNames(app)).toContain("chatStop");
+    expect(app.transport.sent.find((s) => "chatStop" in s.command)!.command).toEqual({ chatStop: { pr: "acme/api#317" } });
+    expect(model.props.value.running).toBe(false);
+  });
+
+  it("si el mensaje no llegó a la Mac, vuelve al cuadro y su burbuja se va", async () => {
+    const app = makeApp();
+    const model = createChatModel(app, "acme/api#317", "review");
+    model.open();
+    await flush();
+    const before = model.props.value.items.length;
+    app.transport.respond("chatSend", () => new CommandError({ code: "invalidState", message: "Claude is still answering." }));
+    model.props.value.onDraft("Why?");
+    await model.send();
+    await flush();
+    expect(app.ui.alerts).toEqual(["Claude is still answering."]);
+    expect(model.props.value.items).toHaveLength(before);
+    expect(model.props.value.draft).toBe("Why?");
+    expect(model.props.value.running).toBe(false);
+  });
+
+  it("si no contestó a tiempo pero el mensaje llegó, queda lo que tiene la Mac", async () => {
+    const app = makeApp();
+    const model = createChatModel(app, "acme/api#317", "review");
+    model.open();
+    await flush();
+    const shown = (fx.commands.find((c) => c.name === "chatShow")!.response as { result: { messages: { id: string; role: string; text: string }[] } }).result;
+    app.transport.respond("chatSend", () => new RemoteError("timeout"));
+    app.transport.respond("chatShow", () => ({ ...shown, messages: [...shown.messages,
+      { ...shown.messages[0]!, id: "new-1", role: "user", text: "Why?" }] }) as never);
+    model.props.value.onDraft("Why?");
+    await model.send();
+    await flush();
+    expect(model.props.value.items.at(-1)).toMatchObject({ kind: "mine", text: "Why?" });
+    expect(model.props.value.draft).toBe("");
   });
 
   it("chat:merge es solo lectura", () => {
@@ -533,5 +631,65 @@ describe("Face ID en el mismo toque", () => {
     settings.props.value.onToggleFaceId(false);
     expect(app.signed).toHaveLength(5);
     await flush();
+  });
+});
+
+// Con Face ID apagado para este teléfono (en la Mac) lo que publica o mergea no puede salir de un toque: se pregunta
+// antes, como en la Mac y la CLI, y los botones no dicen "requires Face ID".
+describe("sin Face ID: confirmar antes de publicar", () => {
+  const presenceOff = () => {
+    const app = makeApp();
+    app.transport.setPresencePolicy({ requirePresence: false, gated: app.transport.presencePolicy.gated });
+    return app;
+  };
+
+  it("Merge: sin ícono de Face ID, pregunta y, si se cancela, no manda nada", async () => {
+    const app = presenceOff();
+    const model = createMergeModel(app, "acme/api#322");
+    await model.load();
+    const view = model.view.value;
+    if (view.kind !== "merge") throw new Error(view.kind);
+    expect(view.props.mergeFaceId).toBe(false);
+    app.ui.confirmAnswer = false;
+    await model.merge();
+    expect(app.ui.confirms[0]).toMatchObject({ title: "Merge api#322?", confirmLabel: "Merge" });
+    expect(sentNames(app)).toEqual(["mergePreview"]);
+    app.ui.confirmAnswer = true;
+    await model.merge();
+    expect(app.transport.sent.at(-1)).toMatchObject({ command: { merge: {} }, presence: false });
+    expect(app.signed).toHaveLength(0);
+  });
+
+  it("Post (Approve) y Push: preguntan; con Face ID prendido, no", async () => {
+    const app = presenceOff();
+    const review = createReviewModel(app, "acme/api#317");
+    const view = review.view.value;
+    if (view.kind !== "review") throw new Error(view.kind);
+    view.props.onSelectDecision("approve");
+    expect((review.view.value as { props: { postFaceId?: boolean } }).props.postFaceId).toBe(false);
+    app.ui.confirmAnswer = false;
+    await review.post();
+    expect(app.ui.confirms.at(-1)).toMatchObject({ title: "Approve api#317?", confirmLabel: "Post" });
+    expect(app.transport.sent).toHaveLength(0);
+
+    const pr = "acme/web-app#488";
+    app.transport.setTopic(`pr:${pr}`, { respond: { ...respondInfo(), pr, phase: "readyToPush", testCommand: "npm test" } });
+    const respond = createRespondModel(app, pr, "feedback");
+    respond.open();
+    expect(respond.view("main").props).toMatchObject({ primaryFaceId: false, testsFaceId: false });
+    await respond.push();
+    expect(app.ui.confirms.at(-1)?.title).toMatch(/^Push 1 commit to /);
+    expect(app.transport.sent).toHaveLength(0);
+    app.ui.confirmAnswer = true;
+    await respond.push();
+    expect(app.transport.sent.at(-1)).toMatchObject({ command: { respondPush: {} }, presence: false });
+
+    // Con Face ID otra vez: el aviso del sistema es la confirmación.
+    app.transport.setPresencePolicy({ requirePresence: true, gated: app.transport.presencePolicy.gated });
+    const asked = app.ui.confirms.length;
+    expect(respond.view("main").props).toMatchObject({ primaryFaceId: true, testsFaceId: true });
+    await review.post();
+    expect(app.ui.confirms).toHaveLength(asked);
+    expect(app.signed).toHaveLength(1);
   });
 });

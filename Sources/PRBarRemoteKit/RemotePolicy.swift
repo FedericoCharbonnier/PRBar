@@ -9,7 +9,7 @@ public enum RemotePolicy {
         /// Pide Face ID (atestación de presencia, P.8).
         case gated
         case denied
-        /// Lo decide `decide(_:)` mirando los argumentos (`reviewPublish`: approve es gated).
+        /// Lo decide `decide(_:)` mirando los argumentos (`remoteSetPresenceRequirement`: apagarlo es gated).
         case dependsOnArguments
     }
 
@@ -31,14 +31,17 @@ public enum RemotePolicy {
         // Acciones (sin secretos, rutas ni destinos)
         case .refresh, .reviewStart, .reviewEdit, .reviewSetIncluded, .reviewSetComment, .reviewCancel,
              .reviewDismiss, .respondStart, .respondSelect, .respondReset, .respondImplement,
-             .respondReplyOnly, .respondCancel, .respondDismiss, .mergeDismiss, .chatSend, .chatUndo, .chatStop,
+             .respondCancel, .respondDismiss, .mergeDismiss, .chatSend, .chatUndo, .chatStop,
              .notifySet, .notifySetEnabled, .ciFix:
             return .allowed
         // Face ID (`prbar ci push [--anyway]` es `respondPush`/`respondPushAnyway`: también gated). `respondTest` corre
         // el comando de tests del repo en el worktree que Claude pudo cambiar (decisión H1): ejecuta código en la Mac.
-        case .merge, .respondPush, .respondPushAnyway, .respondTest:
+        // Todo lo que publica en GitHub como el usuario también: cualquier review (comment, request changes, approve),
+        // las respuestas solas y el push (que publica las respuestas). Editar el borrador (`respondSelect`, el texto de
+        // una respuesta) no publica nada: lo publica después un push o `respondReplyOnly`, que piden Face ID.
+        case .merge, .respondPush, .respondPushAnyway, .respondTest, .reviewPublish, .respondReplyOnly:
             return .gated
-        case .reviewPublish, .remoteSetPresenceRequirement:
+        case .remoteSetPresenceRequirement:
             return .dependsOnArguments
         // Ventanas y app, cuentas y repos, herramientas, Slack, actualizaciones, destinos SSH, reglas, Claude, prompts,
         // limpieza y ajustes de la Mac: nada de eso desde el teléfono.
@@ -68,8 +71,6 @@ public enum RemotePolicy {
         case .denied: return .denied
         case .dependsOnArguments:
             switch command {
-            case .reviewPublish(_, let event, _, _, _, _):
-                return event == .approve ? .gated : .allowed
             case .remoteSetPresenceRequirement(_, let enabled):
                 // Prenderlo no; apagarlo es en sí gated (spec P.8, revisión L5).
                 return enabled ? .allowed : .gated

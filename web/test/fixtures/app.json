@@ -1600,7 +1600,7 @@
         }
       },
       "name" : "respondReplyOnly",
-      "policy" : "allowed",
+      "policy" : "gated",
       "response" : {
         "id" : 1,
         "ok" : true,
@@ -1774,6 +1774,99 @@
       },
       "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"account\":\"diego\",\"ciChecks\":[{\"appName\":\"GitHub Actions\",\"conclusion\":\"failure\",\"detailsURL\":\"https://github.com/acme/web-app/actions/runs/1\",\"durationSeconds\":84,\"hasLog\":true,\"id\":\"c1\",\"logExcerpt\":[\"FAIL src/jobs/report.test.ts\",\"Expected 2, got 3\"],\"name\":\"test (ubuntu-latest)\"}],\"commits\":[{\"item\":\"c1\",\"sha\":\"4e1d0b7\",\"status\":\"committed\",\"summary\":\"Use the new queue name\"}],\"diffStat\":\"1 file changed, 2 insertions(+), 2 deletions(-)\",\"fixes\":1,\"headRef\":\"feature/488\",\"items\":[{\"assessment\":\"The queue name changed but the test still uses the old one.\",\"fixPlan\":\"Update the queue name in report.test.ts.\",\"id\":\"c1\",\"implement\":true,\"location\":\"src/jobs/report.ts:41\",\"number\":1,\"outdated\":false,\"reply\":false,\"replyText\":\"\",\"reviewer\":\"GitHub Actions\",\"suggested\":\"Use the new queue name in the test.\",\"thread\":[\"test (ubuntu-latest) failed\"]}],\"mode\":\"ciFix\",\"pendingReplies\":0,\"phase\":\"readyToPush\",\"pr\":\"acme/web-app#488\",\"pushBlockedByTests\":false,\"pushed\":false,\"replies\":0,\"runningTests\":false,\"sensitiveChanges\":[],\"testCommand\":\"npm test\",\"tests\":{\"command\":\"npm test\",\"outputTail\":\"Tests: 42 passed\",\"passed\":true},\"title\":\"Move report jobs to the new queue\",\"usage\":{\"cacheCreationTokens\":0,\"cacheReadTokens\":0,\"costUSD\":0.31,\"durationSeconds\":0,\"inputTokens\":0,\"outputTokens\":0,\"runs\":1,\"unknownRuns\":0}}}",
       "text" : "{\"respondPushAnyway\":{\"confirmed\":true,\"pr\":\"acme/web-app#488\",\"wait\":false}}"
+    },
+    {
+      "json" : {
+        "respondPushAnyway" : {
+          "confirmed" : true,
+          "mode" : "ciFix",
+          "pr" : "acme/web-app#488",
+          "wait" : false
+        }
+      },
+      "name" : "respondPushAnyway",
+      "policy" : "gated",
+      "response" : {
+        "id" : 1,
+        "ok" : true,
+        "result" : {
+          "account" : "diego",
+          "ciChecks" : [
+            {
+              "appName" : "GitHub Actions",
+              "conclusion" : "failure",
+              "detailsURL" : "https://github.com/acme/web-app/actions/runs/1",
+              "durationSeconds" : 84,
+              "hasLog" : true,
+              "id" : "c1",
+              "logExcerpt" : [
+                "FAIL src/jobs/report.test.ts",
+                "Expected 2, got 3"
+              ],
+              "name" : "test (ubuntu-latest)"
+            }
+          ],
+          "commits" : [
+            {
+              "item" : "c1",
+              "sha" : "4e1d0b7",
+              "status" : "committed",
+              "summary" : "Use the new queue name"
+            }
+          ],
+          "diffStat" : "1 file changed, 2 insertions(+), 2 deletions(-)",
+          "fixes" : 1,
+          "headRef" : "feature/488",
+          "items" : [
+            {
+              "assessment" : "The queue name changed but the test still uses the old one.",
+              "fixPlan" : "Update the queue name in report.test.ts.",
+              "id" : "c1",
+              "implement" : true,
+              "location" : "src/jobs/report.ts:41",
+              "number" : 1,
+              "outdated" : false,
+              "reply" : false,
+              "replyText" : "",
+              "reviewer" : "GitHub Actions",
+              "suggested" : "Use the new queue name in the test.",
+              "thread" : [
+                "test (ubuntu-latest) failed"
+              ]
+            }
+          ],
+          "mode" : "ciFix",
+          "pendingReplies" : 0,
+          "phase" : "readyToPush",
+          "pr" : "acme/web-app#488",
+          "pushBlockedByTests" : false,
+          "pushed" : false,
+          "replies" : 0,
+          "runningTests" : false,
+          "sensitiveChanges" : [
+
+          ],
+          "testCommand" : "npm test",
+          "tests" : {
+            "command" : "npm test",
+            "outputTail" : "Tests: 42 passed",
+            "passed" : true
+          },
+          "title" : "Move report jobs to the new queue",
+          "usage" : {
+            "cacheCreationTokens" : 0,
+            "cacheReadTokens" : 0,
+            "costUSD" : 0.31,
+            "durationSeconds" : 0,
+            "inputTokens" : 0,
+            "outputTokens" : 0,
+            "runs" : 1,
+            "unknownRuns" : 0
+          }
+        }
+      },
+      "responseText" : "{\"id\":1,\"ok\":true,\"result\":{\"account\":\"diego\",\"ciChecks\":[{\"appName\":\"GitHub Actions\",\"conclusion\":\"failure\",\"detailsURL\":\"https://github.com/acme/web-app/actions/runs/1\",\"durationSeconds\":84,\"hasLog\":true,\"id\":\"c1\",\"logExcerpt\":[\"FAIL src/jobs/report.test.ts\",\"Expected 2, got 3\"],\"name\":\"test (ubuntu-latest)\"}],\"commits\":[{\"item\":\"c1\",\"sha\":\"4e1d0b7\",\"status\":\"committed\",\"summary\":\"Use the new queue name\"}],\"diffStat\":\"1 file changed, 2 insertions(+), 2 deletions(-)\",\"fixes\":1,\"headRef\":\"feature/488\",\"items\":[{\"assessment\":\"The queue name changed but the test still uses the old one.\",\"fixPlan\":\"Update the queue name in report.test.ts.\",\"id\":\"c1\",\"implement\":true,\"location\":\"src/jobs/report.ts:41\",\"number\":1,\"outdated\":false,\"reply\":false,\"replyText\":\"\",\"reviewer\":\"GitHub Actions\",\"suggested\":\"Use the new queue name in the test.\",\"thread\":[\"test (ubuntu-latest) failed\"]}],\"mode\":\"ciFix\",\"pendingReplies\":0,\"phase\":\"readyToPush\",\"pr\":\"acme/web-app#488\",\"pushBlockedByTests\":false,\"pushed\":false,\"replies\":0,\"runningTests\":false,\"sensitiveChanges\":[],\"testCommand\":\"npm test\",\"tests\":{\"command\":\"npm test\",\"outputTail\":\"Tests: 42 passed\",\"passed\":true},\"title\":\"Move report jobs to the new queue\",\"usage\":{\"cacheCreationTokens\":0,\"cacheReadTokens\":0,\"costUSD\":0.31,\"durationSeconds\":0,\"inputTokens\":0,\"outputTokens\":0,\"runs\":1,\"unknownRuns\":0}}}",
+      "text" : "{\"respondPushAnyway\":{\"confirmed\":true,\"mode\":\"ciFix\",\"pr\":\"acme/web-app#488\",\"wait\":false}}"
     },
     {
       "json" : {
@@ -2149,7 +2242,7 @@
         }
       },
       "name" : "reviewPublish",
-      "policy" : "allowed",
+      "policy" : "gated",
       "response" : {
         "id" : 1,
         "ok" : true,
@@ -2282,6 +2375,7 @@
     "respondTest",
     "respondPush",
     "respondPushAnyway",
+    "respondReplyOnly",
     "merge",
     "remoteSetPresenceRequirement"
   ],

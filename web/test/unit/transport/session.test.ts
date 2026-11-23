@@ -106,16 +106,61 @@ describe("Session", () => {
     expect(req.cmd).toEqual(encodeCommand(command));
   });
 
-  it("un pedido sin respuesta vence y cierra la sesión", async () => {
+  it("un pedido sin respuesta vence solo; la sesión se prueba con un status y se cierra si tampoco contesta", async () => {
     const closed: RemoteError[] = [];
     const t = setup({ onClose: (e) => closed.push(e) });
     await openSession(t);
     const sent = await t.session.request({ refresh: {} });
     const result = sent.response.catch((e: unknown) => e);
+    t.fromPhone();
     await t.clock.advance(60_000);
     expect(await result).toMatchObject({ code: "timeout" });
+    await flush();
+    expect(t.session.isOpen).toBe(true);
+    const [probe] = t.fromPhone();
+    expect(probe).toMatchObject({ t: "req", id: 2 });
+    await t.clock.advance(15_000);
+    await flush();
     expect(t.session.isClosed).toBe(true);
     expect(closed.map((e) => e.code)).toEqual(["sessionClosed"]);
+  });
+
+  it("si el status de prueba contesta, la sesión sigue y los otros pedidos también", async () => {
+    const closed: RemoteError[] = [];
+    const t = setup({ onClose: (e) => closed.push(e) });
+    await openSession(t);
+    const slow = (await t.session.request({ refresh: {} })).response.catch((e: unknown) => e);
+    await t.clock.advance(30_000);
+    const other = (await t.session.request({ status: {} })).response;
+    await t.clock.advance(30_000);
+    expect(await slow).toMatchObject({ code: "timeout" });
+    await flush();
+    const frames = t.fromPhone().filter((f) => f.t === "req");
+    expect(frames.map((f) => f.t === "req" && f.id)).toEqual([1, 2, 3]);
+    t.toPhone({ t: "res", id: 3, ok: true, result: { ok: true } });
+    await flush();
+    t.toPhone({ t: "res", id: 2, ok: true, result: { ok: true } });
+    expect(await other).toMatchObject({ ok: true });
+    await t.clock.advance(60_000);
+    expect(t.session.isOpen).toBe(true);
+    expect(closed).toEqual([]);
+  });
+
+  it("cada evento reinicia el tiempo límite; timeoutMs por pedido; el deadline sigue en 60 s", async () => {
+    const t = setup();
+    await openSession(t);
+    const sent = await t.session.request({ chatSend: { pr: "acme/api#317", message: "hi" } }, { timeoutMs: 300_000 });
+    const [req] = t.fromPhone();
+    expect(req).toMatchObject({ t: "req", deadline: t.clock.now() + 60_000 });
+    let settled = false;
+    const result = sent.response.then((r) => { settled = true; return r; }, (e: unknown) => { settled = true; return e; });
+    await t.clock.advance(240_000);
+    t.toPhone({ t: "res", id: 1, event: { progress: { message: "Reading src/a.ts" } } });
+    await t.clock.advance(240_000);
+    await flush();
+    expect(settled).toBe(false);
+    t.toPhone({ t: "res", id: 1, ok: true, result: { ok: true } });
+    expect(await result).toMatchObject({ ok: true });
   });
 
   it("state no vuelve atrás; chatDelta se reenvía", async () => {

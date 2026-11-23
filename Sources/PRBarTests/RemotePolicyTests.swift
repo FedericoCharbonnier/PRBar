@@ -10,13 +10,14 @@ enum RemotePolicyTests {
             let allowed: Set<AppCommand.Name> = [.status, .listPRs, .resolvePR, .history, .historyShow, .reviewShow,
                 .respondShow, .respondDiff, .mergePreview, .chatShow, .resources, .usage, .ciList, .notifyList, .refresh,
                 .reviewStart, .reviewEdit, .reviewSetIncluded, .reviewSetComment, .reviewCancel, .reviewDismiss,
-                .respondStart, .respondSelect, .respondReset, .respondImplement, .respondReplyOnly,
+                .respondStart, .respondSelect, .respondReset, .respondImplement,
                 .respondCancel, .respondDismiss, .mergeDismiss, .chatSend, .chatUndo, .chatStop, .notifySet,
                 .notifySetEnabled, .ciFix]
-            let gated: Set<AppCommand.Name> = [.merge, .respondPush, .respondPushAnyway, .respondTest]
+            let gated: Set<AppCommand.Name> = [.merge, .respondPush, .respondPushAnyway, .respondTest, .reviewPublish,
+                                                .respondReplyOnly]
             for name in AppCommand.Name.allCases {
                 let expected: RemotePolicy.Class = allowed.contains(name) ? .allowed : gated.contains(name) ? .gated
-                    : [.reviewPublish, .remoteSetPresenceRequirement].contains(name) ? .dependsOnArguments : .denied
+                    : name == .remoteSetPresenceRequirement ? .dependsOnArguments : .denied
                 try expect(RemotePolicy.classify(name) == expected, "\(name)")
             }
         },
@@ -28,15 +29,16 @@ enum RemotePolicyTests {
             }
             try expectEqual(RemotePolicy.decide(.respondTest(pr: "a/b#1", wait: true)), .gated)
         },
-        TestCase("remote policy: approve pide Face ID; comment y request changes no") {
-            let approve = AppCommand.reviewPublish(pr: "a/b#1", event: .approve, only: nil, withComments: true,
-                                                   allInBody: false, confirmed: true)
-            try expectEqual(RemotePolicy.decide(approve), .gated)
-            for event in [ReviewEvent.comment, .requestChanges] {
-                let other = AppCommand.reviewPublish(pr: "a/b#1", event: event, only: nil, withComments: true,
-                                                     allInBody: false, confirmed: true)
-                try expectEqual(RemotePolicy.decide(other), .allowed)
+        TestCase("remote policy: todo lo que publica en GitHub como el usuario pide Face ID") {
+            for event in [ReviewEvent.approve, .comment, .requestChanges] {
+                let publish = AppCommand.reviewPublish(pr: "a/b#1", event: event, only: nil, withComments: true,
+                                                       allInBody: false, confirmed: true)
+                try expectEqual(RemotePolicy.decide(publish), .gated)
             }
+            try expectEqual(RemotePolicy.decide(.respondReplyOnly(pr: "a/b#1", confirmed: true, wait: false)), .gated)
+            // Editar el texto de una respuesta no publica: lo publica el push o reply-only (gated).
+            try expectEqual(RemotePolicy.decide(.respondSelect(pr: "a/b#1", items: ["1"],
+                                                               change: RespondSelectionChange(replyText: "x"))), .allowed)
             try expectEqual(RemotePolicy.decide(.status), .allowed)
             try expectEqual(RemotePolicy.decide(.quit), .denied)
             try expectEqual(RemotePolicy.decide(.setAlwaysShowInDock(enabled: true)), .denied)

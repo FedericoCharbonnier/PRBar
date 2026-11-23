@@ -8,7 +8,8 @@ import { perform, undoWithConfirmation } from "./common";
 
 // chat:review, chat:respond, chat:merge (ChatModel.swift): el mismo chat con Claude que el panel de la Mac. El texto
 // llega como eventos del `chatSend` propio; un chat que sigue en la Mac llega como `chatDelta` (se ignora mientras
-// corre el propio, que ya lo trae).
+// corre el propio, que ya lo trae). Mientras Claude contesta, Send es Stop (`chatStop`). Si el mensaje no llegó a la
+// Mac, vuelve al cuadro de texto y su burbuja se saca.
 
 interface Bubble {
   id: string;
@@ -62,6 +63,11 @@ export function createChatModel(ctx: AppContext, pr: string, kind: ChatKind): Ch
     const chat = await perform(ctx, { chatShow: { pr } });
     if (chat) apply(chat);
   };
+  /** El chat de la Mac, sin avisar si falla (para saber si un mensaje llegó). */
+  const peek = async (): Promise<ChatInfo | undefined> =>
+    perform<{ chatShow: { pr: string } }, ChatInfo>(ctx, { chatShow: { pr } }, { onError: () => true });
+  /** También un turno que empezó en la Mac (o el propio, si el pedido ya no espera la respuesta). */
+  const running = computed(() => streaming.value || !!store.details.value[pr]?.chat?.running);
 
   const model: ChatModel = {
     props: computed((): ChatProps => {
@@ -80,10 +86,12 @@ export function createChatModel(ctx: AppContext, pr: string, kind: ChatKind): Ch
         typing: streaming.value && (list.at(-1)?.text ?? "") === "",
         draft: draft.value,
         placeholder: kind === "merge" ? "Ask about this PR" : "Message Claude",
-        disabled: store.isStale.value || streaming.value,
+        disabled: store.isStale.value || running.value,
+        running: running.value,
         onBack: () => ctx.nav.back(),
         onDraft: (text) => (draft.value = text),
         onSend: () => void model.send(),
+        onStop: store.isStale.value ? undefined : () => void model.stop(),
         onUndo: () => void model.undo(),
       };
     }),
@@ -110,17 +118,35 @@ export function createChatModel(ctx: AppContext, pr: string, kind: ChatKind): Ch
       bubbles.value = [...bubbles.value, { id: mine, role: "me", text, createdAt: now, undoable: false },
                        { id: reply, role: "claude", text: "", createdAt: now, undoable: false }];
       streaming.value = true;
+      let failed = false;
       try {
         const chat = await perform(ctx, { chatSend: { pr, message: text } }, {
           onEvent: (event) => {
             if ("text" in event) append(reply, event.text.delta);
           },
+          onError: () => {
+            failed = true;
+          },
         });
         if (chat) apply(chat);
-        else bubbles.value = bubbles.value.filter((b) => !(b.id === reply && b.text === ""));
       } finally {
         streaming.value = false;
       }
+      if (!failed) return;
+      // La Mac dijo que no, o no contestó a tiempo (el turno pudo seguir allá): lo que diga `chatShow` manda. Si el
+      // mensaje no está, se saca la burbuja y el texto vuelve al cuadro (si no se escribió otro mientras tanto).
+      const known = new Set(bubbles.value.map((b) => b.id));
+      const chat = await peek();
+      const last = chat?.messages.filter((m) => m.role === "user").at(-1);
+      const delivered = !!last && last.text === text && !known.has(last.id);
+      if (chat && delivered) {
+        apply(chat);
+        return;
+      }
+      // Claude ya había empezado a contestar: el mensaje llegó aunque no se pueda leer el chat ahora.
+      if (bubbles.value.some((b) => b.id === reply && b.text !== "")) return;
+      bubbles.value = bubbles.value.filter((b) => b.id !== mine && !(b.id === reply && b.text === ""));
+      if (!draft.value.trim()) draft.value = text;
     },
     async undo() {
       await undoWithConfirmation(ctx, pr, refresh);

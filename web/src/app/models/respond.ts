@@ -1,13 +1,13 @@
 import { computed, signal, type ReadonlySignal } from "@preact/signals";
 import { prTopic, type AppCommand, type RespondInfo } from "../../protocol/commands";
 import type {
-  ChangedFileVM, CheckLogLine, FailedCheckVM, FeedbackCommentVM, FixCIProps, ProgressVM, RespondBaseProps,
+  BannerVM, ChangedFileVM, CheckLogLine, FailedCheckVM, FeedbackCommentVM, FixCIProps, ProgressVM, RespondBaseProps,
   RespondDiffProps, RespondProps, StageVM, StatusVM,
 } from "../../ui/screens/types";
-import type { AppContext } from "../context";
+import type { AppContext, ConfirmRequest } from "../context";
 import { parseUnifiedDiff, type DiffFile } from "../diff";
 import { clock, count, duration, parseDate, person } from "../format";
-import { perform, prHeader, undoWithConfirmation } from "./common";
+import { needsConfirmation, perform, prHeader, showsFaceId, undoWithConfirmation } from "./common";
 
 // respond, respond:fixci y respond:diff (RespondModel.swift): Claude contesta el feedback o arregla CI de un PR mío;
 // después miro el diff y empujo (Face ID). Correr los tests también pide Face ID (ejecuta código en la Mac, H1).
@@ -104,8 +104,58 @@ export function createRespondModel(ctx: AppContext, pr: string, fallback: Respon
   const primaryLabel = (): string => {
     if (mode.value === "feedback" && !isRunning.value && !isDone.value) return "Implement";
     if (isReplyOnly.value) return "Reply";
-    if (respond.value?.pushBlockedByTests) return "Push Anyway";
+    if (respond.value?.pushBlockedByTests || respond.value?.pushBlockedByCI) return "Push Anyway";
     return mode.value === "feedback" ? "Push & Reply" : "Push";
+  };
+
+  /** Lo que manda el primario una vez implementado: responder, pushear o pushear igual. */
+  const pushCommand = (): AppCommand => {
+    if (isReplyOnly.value) return { respondReplyOnly: { pr, confirmed: true, wait: false } };
+    // Un Fix CI lleva el modo: si en la Mac el PR tiene otra cosa (un Responder), no pushea (`prbar ci push`).
+    const args = { pr, confirmed: true, wait: false, ...(mode.value === "ciFix" ? { mode: "ciFix" as const } : {}) };
+    // Frenado porque fallaron los tests, o (Fix CI) porque los checks que fallaban pasan ahora: "Push Anyway".
+    if (respond.value?.pushBlockedByTests || respond.value?.pushBlockedByCI) return { respondPushAnyway: args };
+    return { respondPush: args };
+  };
+
+  /** La pregunta antes de publicar sin Face ID (la de la Mac, `RespondPane.confirmPublish`). */
+  const pushQuestion = (command: AppCommand): ConfirmRequest => {
+    const r = respond.value;
+    const commits = r?.commits.filter((c) => c.status === "committed" && c.sha).length ?? 0;
+    const replies = r?.pushed ? r.pendingReplies : r?.replies ?? 0;
+    const as = r?.account ? ` as @${r.account}` : "";
+    const branch = r?.headRef ?? "the branch";
+    if ("respondReplyOnly" in command || (r?.pushed && mode.value === "feedback")) {
+      return { title: `Post ${count(replies, "reply", "replies")}?`, message: `They’ll be posted on GitHub${as}.`,
+               confirmLabel: "Post", cancelLabel: "Cancel" };
+    }
+    if ("respondPushAnyway" in command && r?.pushBlockedByCI) {
+      // `RespondPane.confirmPushAnywayCI`.
+      return { title: "The CI passes now", message: `${r.pushBlockedByCI} Push Claude’s fix anyway?`,
+               confirmLabel: "Push Anyway", cancelLabel: "Cancel", destructive: true };
+    }
+    if ("respondPushAnyway" in command) {
+      return { title: "The tests failed", confirmLabel: "Push Anyway", cancelLabel: "Cancel", destructive: true,
+               message: `${r?.tests?.command ? `“${r.tests.command}”` : "The tests"} failed in PRBar’s worktree. Push the fixes${mode.value === "feedback" ? " and post the replies" : ""} anyway?` };
+    }
+    if (mode.value === "ciFix") {
+      return { title: `Push ${count(commits, "commit")} to ${branch}?`, confirmLabel: "Push", cancelLabel: "Cancel",
+               message: `PRBar pushes${as} after checking that the failing checks still fail. No comment is posted.` };
+    }
+    return { title: `Push ${count(commits, "commit")} to ${branch} and post ${count(replies, "reply", "replies")}?`,
+             message: `They’ll be posted on GitHub${as}.`, confirmLabel: "Push and Reply", cancelLabel: "Cancel" };
+  };
+
+  /** Por qué no se pusheó (`RespondPane`: `CIPassingBanner`, `TestsBlockedPushBanner`). El primario es "Push Anyway". */
+  const banner = (): BannerVM | undefined => {
+    const r = respond.value;
+    if (!r || isRunning.value) return undefined;
+    if (r.pushBlockedByCI) return { tone: "orange", icon: "checkmark.circle", text: r.pushBlockedByCI };
+    if (r.pushBlockedByTests) {
+      const command = r.tests?.command ? `“${r.tests.command}”` : "The tests";
+      return { tone: "orange", icon: "exclamationmark.triangle", text: `${command} failed, so PRBar didn’t push.` };
+    }
+    return undefined;
   };
 
   const base = (): RespondBaseProps => {
@@ -120,12 +170,14 @@ export function createRespondModel(ctx: AppContext, pr: string, fallback: Respon
       running: isRunning.value,
       disabled: stale || busy.value,
       faceIdPending: ctx.runner.faceIdPending.value,
+      banner: banner(),
       start: hasRun.value ? undefined : {
         label: mode.value === "feedback" ? "Respond with Claude" : "Fix CI with Claude",
         busy: busy.value, disabled: stale, onClick: () => void model.start(),
       },
       primaryLabel: primaryLabel(),
-      primaryFaceId: !implementing && !isReplyOnly.value,
+      primaryFaceId: !implementing && showsFaceId(ctx, pushCommand()),
+      testsFaceId: showsFaceId(ctx, { respondTest: { pr, wait: false } }),
       primaryDisabled: implementing ? stale || busy.value || items.value.length === 0 : !canPush,
       secondaryHidden: !isRunning.value && !isDone.value,
       onRunTests: canRunTests ? () => void model.runTests() : undefined,
@@ -226,10 +278,16 @@ export function createRespondModel(ctx: AppContext, pr: string, fallback: Respon
     },
     async push() {
       if (store.isStale.value || busy.value) return;
-      let command: AppCommand;
-      if (isReplyOnly.value) command = { respondReplyOnly: { pr, confirmed: true, wait: false } };
-      else if (respond.value?.pushBlockedByTests) command = { respondPushAnyway: { pr, confirmed: true, wait: false } };
-      else command = { respondPush: { pr, confirmed: true, wait: false } };
+      const command = pushCommand();
+      // Sin `await` antes de mandarlo si hay Face ID: el aviso tiene que salir dentro del toque.
+      if (needsConfirmation(ctx, command)) {
+        busy.value = true;
+        try {
+          if (!(await ctx.ui.confirm(pushQuestion(command)))) return;
+        } finally {
+          busy.value = false;
+        }
+      }
       await run(command);
     },
     async runTests() {

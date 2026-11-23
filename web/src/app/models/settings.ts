@@ -17,7 +17,7 @@ export const NOTIFICATION_ROWS: [string, NotificationSettingName][] = [
   ["CI failed on my PRs", "approved-or-ci"],
 ];
 
-export const REQUIRE_FACE_ID_LABEL = "Require Face ID for merge, push, approve and tests";
+export const REQUIRE_FACE_ID_LABEL = "Require Face ID for posting to GitHub, merge, push and tests";
 
 export interface SettingsModel {
   props: ReadonlySignal<SettingsProps>;

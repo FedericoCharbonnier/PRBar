@@ -246,7 +246,7 @@ enum RemoteEndToEndTests {
             try expectEqual(signed.ok, true)
             commands = await h.recorder.commands
             try expectEqual(commands, [merge])
-            // approve también; comment no.
+            // approve también, y un comment (todo lo que publica en GitHub como el usuario).
             let approve = AppCommand.reviewPublish(pr: "a/b#1", event: .approve, only: nil, withComments: true,
                                                    allInBody: false, confirmed: true)
             let approved = try await client.run(approve)
@@ -254,7 +254,13 @@ enum RemoteEndToEndTests {
             let comment = AppCommand.reviewPublish(pr: "a/b#1", event: .comment, only: nil, withComments: true,
                                                    allInBody: false, confirmed: true)
             let commented = try await client.run(comment)
-            try expectEqual(commented.ok, true)
+            try expectEqual(commented.error?.code, .unauthorized)
+            let replies = try await client.run(.respondReplyOnly(pr: "a/b#1", confirmed: true, wait: false))
+            try expectEqual(replies.error?.code, .unauthorized)
+            commands = await h.recorder.commands
+            try expectEqual(commands, [merge])
+            let signedComment = try await client.run(comment, presence: h.presence)
+            try expectEqual(signedComment.ok, true)
         },
         TestCase("remote: una prueba de presencia de otra sesión no sirve") {
             let h = try await RemoteHarness.make()

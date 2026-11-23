@@ -108,14 +108,15 @@ export class FakeTransport implements Transport {
     this.#eventLogs.set(id, log);
     const result = (async (): Promise<JSONValue> => {
       await Promise.resolve();
-      for (const raw of sample?.events ?? []) {
+      const override = this.#overrides.get(name);
+      // Una respuesta propia no trae los eventos de la muestra.
+      for (const raw of override ? [] : sample?.events ?? []) {
         const event = (raw as { event: CommandEvent }).event;
         log.events.push(event);
         options.onEvent?.(event);
         for (const listener of [...log.listeners]) listener(event);
       }
       this.#eventLogs.delete(id);
-      const override = this.#overrides.get(name);
       if (override) {
         const value = override(command);
         if (value instanceof Error) throw value;

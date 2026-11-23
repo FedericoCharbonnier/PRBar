@@ -46,7 +46,7 @@ const copy: Record<string, string[]> = {
   activity: ["Activity", "CPU", "38%", "Memory", "11.2 GB", "Disk", "212 GB", "Running", "Reviewing api#317",
     "Claude this month", "$48.20", "estimated · November", "Reviews", "$29.10", "46 msgs"],
   settings: ["Settings", "Unpair This Mac", "Notifications", "Review ready", "New PR to review", "Changes requested on my PRs",
-    "Ready to merge", "CI failed on my PRs", "Security", "Require Face ID for merge, push, approve and tests", "PRBar 0.1.0 (demo)"],
+    "Ready to merge", "CI failed on my PRs", "Security", "Require Face ID for posting to GitHub, merge, push and tests", "PRBar 0.1.0 (demo)"],
 };
 
 const noop = () => {};
@@ -149,6 +149,28 @@ describe("callbacks", () => {
     expect(onMerge).toHaveBeenCalled();
   });
 
+  it("sin Face ID, Merge y Post no lo prometen", () => {
+    render(<Merge {...d.mergeProps} mergeFaceId={false} onBack={noop} onChat={noop} onFiles={noop} onMethod={noop} onMerge={noop} />);
+    expect(screen.getByRole("button", { name: "Merge" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: /requires Face ID/ })).toBeNull();
+    cleanup();
+    render(<Review pr={d.reviewPR} summary={d.reviewSummary} findings={d.findings} decision="approve" postFaceId={false}
+      onBack={noop} onChat={noop} onMore={noop} onToggleFinding={noop} onEditFinding={noop}
+      onOpenDecisionMenu={noop} onCloseDecisionMenu={noop} onSelectDecision={noop} onPost={noop} />);
+    expect(screen.getByRole("button", { name: "Post review" })).toBeDefined();
+  });
+
+  it("review fallido: el motivo y Try Again", () => {
+    const onStart = vi.fn();
+    render(<Review pr={d.reviewPR} summary={d.reviewSummary} findings={[]} decision="comment" error="claude exited with code 1."
+      start={{ label: "Try Again", onClick: onStart }} disabled onBack={noop} onChat={noop} onMore={noop}
+      onToggleFinding={noop} onEditFinding={noop} onOpenDecisionMenu={noop} onCloseDecisionMenu={noop}
+      onSelectDecision={noop} onPost={noop} />);
+    expect(screen.getByText("claude exited with code 1.")).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Try Again" }));
+    expect(onStart).toHaveBeenCalled();
+  });
+
   it("merge:faceid deshabilita el botón mientras espera", () => {
     render(<Merge {...d.mergeProps} faceIdPending onBack={noop} onChat={noop} onFiles={noop} onMethod={noop} onMerge={noop} />);
     expect((screen.getByRole("button", { name: "Merge, requires Face ID" }) as HTMLButtonElement).disabled).toBe(true);
@@ -168,12 +190,21 @@ describe("callbacks", () => {
     expect(onSend).toHaveBeenCalled();
   });
 
+  it("chat: mientras Claude contesta, Send es Stop", () => {
+    const onStop = vi.fn();
+    render(<Chat context="api#317 · Review" readOnly={false} items={d.chatReview} draft="" running disabled
+      placeholder="Message Claude" onBack={noop} onDraft={noop} onSend={noop} onStop={onStop} onUndo={noop} />);
+    expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+    expect(onStop).toHaveBeenCalled();
+  });
+
   it("settings: interruptores", () => {
     const onToggleNotification = vi.fn(), onToggleFaceId = vi.fn(), onUnpair = vi.fn();
     render(<Settings {...d.settings} onUnpair={onUnpair} onToggleNotification={onToggleNotification} onToggleFaceId={onToggleFaceId} />);
     fireEvent.click(screen.getByRole("switch", { name: "Ready to merge" }));
     expect(onToggleNotification).toHaveBeenCalledWith("readyToMerge", false);
-    fireEvent.click(screen.getByRole("switch", { name: "Require Face ID for merge, push, approve and tests" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Require Face ID for posting to GitHub, merge, push and tests" }));
     expect(onToggleFaceId).toHaveBeenCalledWith(false);
     fireEvent.click(screen.getByRole("button", { name: "Unpair This Mac" }));
     expect(onUnpair).toHaveBeenCalled();

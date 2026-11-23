@@ -170,7 +170,7 @@ test("fixes CI and pushes with Face ID", async ({ world }) => {
 
 test("turning off the Face ID requirement needs Face ID", async ({ world }) => {
   await page.evaluate(() => (location.hash = "#/settings"));
-  const toggle = page.getByRole("switch", { name: "Require Face ID for merge, push, approve and tests" });
+  const toggle = page.getByRole("switch", { name: "Require Face ID for posting to GitHub, merge, push and tests" });
   await expect(toggle).toHaveAttribute("aria-checked", "true");
   await expect(toggle).toBeEnabled();
   const before = await signatures();
