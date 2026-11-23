@@ -207,6 +207,7 @@ enum UIActionInventory {
         .init("Chat/ChatPanel.swift", "Picker", "Scope", 1, .cli(["rules proposal save"])),   // --global / --this-repo
         .init("Chat/ChatPanel.swift", "Button", "Save", 1, .cli(["rules proposal save"])),
         .init("Chat/ChatPanel.swift", "Button", "Dismiss", 1, .cli(["rules proposal dismiss"])),
+        .init("Chat/ChatPanel.swift", "Component:ChatWorkingRow", "working", 1, .viewOnly("Claude's streamed text while it answers, no action")),
         // Botones Review / Respond de la fila
         .init("Review/ReviewButton.swift", "Button", "Review", 1, .cli(["review start"])),
         .init("Review/ReviewButton.swift", "Button", "-", 4, .cli(["open", "review cancel", "history show"])),
