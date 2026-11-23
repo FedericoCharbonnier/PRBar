@@ -49,3 +49,21 @@ export async function undoWithConfirmation(ctx: AppContext, pr: string, after?: 
   if (!ok) return;
   if (await perform(ctx, { chatUndo: { pr, confirmed: true } })) await after?.();
 }
+
+/**
+ * `true` si el comando hay que confirmarlo acá antes de mandarlo: lo que publica en GitHub o mergea, cuando este
+ * teléfono no pide Face ID (se apagó en la Mac), pregunta primero, como la Mac y la CLI. Con Face ID el aviso del
+ * sistema ya es la confirmación y tiene que pedirse dentro del toque (Safari no lo muestra después de un `await`), así
+ * que se usa en cortocircuito, sin `await` cuando hay Face ID:
+ * `if (needsConfirmation(ctx, command) && !(await ctx.ui.confirm(...))) return;`
+ */
+export function needsConfirmation(ctx: AppContext, command: AppCommand): boolean {
+  return !ctx.runner.needsPresence(command);
+}
+
+/** Para el ícono y el texto del botón: `true` si el comando va a pedir Face ID. Lee `requirePresence` para que la
+ *  vista se recalcule cuando la Mac prende o apaga Face ID para este teléfono. */
+export function showsFaceId(ctx: AppContext, command: AppCommand): boolean {
+  void ctx.store.requirePresence.value;
+  return ctx.runner.needsPresence(command);
+}

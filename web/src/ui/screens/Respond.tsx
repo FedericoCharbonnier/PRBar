@@ -89,7 +89,7 @@ function RespondFrame({ base, title, primaryLabel, children }: {
           </Button>
         )}
         {base.onRunTests && (
-          <Button variant="glass" size="lg" icon="faceid" class="bar-secondary" label="Run tests, requires Face ID" disabled={disabled || faceIdPending} onClick={base.onRunTests}>
+          <Button variant="glass" size="lg" icon={base.testsFaceId === false ? "checklist" : "faceid"} class="bar-secondary" label={base.testsFaceId === false ? "Run tests" : "Run tests, requires Face ID"} disabled={disabled || faceIdPending} onClick={base.onRunTests}>
             Tests
           </Button>
         )}

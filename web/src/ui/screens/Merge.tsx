@@ -46,9 +46,9 @@ export function Merge(props: MergeProps) {
       <Button
         size="lg"
         block
-        icon="faceid"
+        icon={props.mergeFaceId === false ? "arrow.triangle.merge" : "faceid"}
         class="merge-btn"
-        label="Merge, requires Face ID"
+        label={props.mergeFaceId === false ? "Merge" : "Merge, requires Face ID"}
         busy={merging}
         disabled={disabled || faceIdPending}
         onClick={props.onMerge}

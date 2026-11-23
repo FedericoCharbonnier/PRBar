@@ -1,9 +1,9 @@
 import { computed, signal, type ReadonlySignal } from "@preact/signals";
-import { prTopic, type FindingInfo, type ReviewEvent } from "../../protocol/commands";
+import { prTopic, type AppCommand, type FindingInfo, type ReviewEvent } from "../../protocol/commands";
 import type { EditProps, FindingVM, ReviewDecision, ReviewPostedProps, ReviewProps } from "../../ui/screens/types";
 import type { AppContext } from "../context";
 import { age, count, duration, lineOf, parseDate, person, shortRef, splitPRId } from "../format";
-import { perform, prHeader } from "./common";
+import { needsConfirmation, perform, prHeader, showsFaceId } from "./common";
 
 // review (+ :menu, :faceid), edit y review:posted (ReviewModel.swift). Solo Approve pide Face ID (V.1).
 
@@ -32,6 +32,9 @@ export function createReviewModel(ctx: AppContext, pr: string): ReviewModel {
   const overrides = signal<Record<string, boolean>>({});
   const editing = signal<{ id: string; text: string; saving: boolean } | null>(null);
   const posted = signal<{ decision: ReviewDecision; comments: number; url: string; mac: string } | null>(null);
+
+  const publishCommand = (chosen: ReviewDecision): Extract<AppCommand, { reviewPublish: unknown }> =>
+    ({ reviewPublish: { pr, event: EVENTS[chosen], withComments: true, allInBody: false, confirmed: true } });
 
   const review = computed(() => store.details.value[pr]?.review);
   const phase = computed(() => review.value?.phase ?? "none");
@@ -89,6 +92,7 @@ export function createReviewModel(ctx: AppContext, pr: string): ReviewModel {
         menuOpen: menuOpen.value,
         faceIdPending: ctx.runner.faceIdPending.value,
         posting: posting.value,
+        postFaceId: showsFaceId(ctx, publishCommand(decision.value)),
         disabled: stale || phase.value !== "ready" || posting.value,
         start: hasReview ? undefined : {
           label: "Review with Claude", busy: starting.value, disabled: stale, onClick: () => void model.start(),
@@ -160,11 +164,12 @@ export function createReviewModel(ctx: AppContext, pr: string): ReviewModel {
     async post() {
       if (posting.value || store.isStale.value) return;
       const chosen = decision.value;
+      const command = publishCommand(chosen);
       posting.value = true;
       try {
-        const result = await perform(ctx, {
-          reviewPublish: { pr, event: EVENTS[chosen], withComments: true, allInBody: false, confirmed: true },
-        });
+        // Sin `await` antes de `perform` si hay Face ID: el aviso tiene que salir dentro del toque.
+        if (needsConfirmation(ctx, command) && !(await ctx.ui.confirm(publishQuestion(chosen)))) return;
+        const result = await perform(ctx, command);
         if (result) {
           posted.value = { decision: chosen, comments: result.comments, url: result.url,
                            mac: store.macName.value ?? "your Mac" };
@@ -173,6 +178,17 @@ export function createReviewModel(ctx: AppContext, pr: string): ReviewModel {
         posting.value = false;
       }
     },
+  };
+
+  const publishQuestion = (chosen: ReviewDecision) => {
+    const ref = shortRef(pr);
+    const comments = findings.value.filter((f) => f.included).length;
+    const title = chosen === "approve" ? `Approve ${ref}?` : chosen === "request_changes" ? `Request changes on ${ref}?`
+      : `Post a review on ${ref}?`;
+    const account = store.prInfo(pr)?.account;
+    const parts = [comments > 0 ? `With ${count(comments, "inline comment")}.` : undefined,
+                   account ? `It’ll be posted on GitHub as @${account}.` : "It’ll be posted on GitHub."];
+    return { title, message: parts.filter(Boolean).join(" "), confirmLabel: "Post", cancelLabel: "Cancel" };
   };
 
   const more = async () => {

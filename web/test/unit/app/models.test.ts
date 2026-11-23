@@ -535,3 +535,63 @@ describe("Face ID en el mismo toque", () => {
     await flush();
   });
 });
+
+// Con Face ID apagado para este teléfono (en la Mac) lo que publica o mergea no puede salir de un toque: se pregunta
+// antes, como en la Mac y la CLI, y los botones no dicen "requires Face ID".
+describe("sin Face ID: confirmar antes de publicar", () => {
+  const presenceOff = () => {
+    const app = makeApp();
+    app.transport.setPresencePolicy({ requirePresence: false, gated: app.transport.presencePolicy.gated });
+    return app;
+  };
+
+  it("Merge: sin ícono de Face ID, pregunta y, si se cancela, no manda nada", async () => {
+    const app = presenceOff();
+    const model = createMergeModel(app, "acme/api#322");
+    await model.load();
+    const view = model.view.value;
+    if (view.kind !== "merge") throw new Error(view.kind);
+    expect(view.props.mergeFaceId).toBe(false);
+    app.ui.confirmAnswer = false;
+    await model.merge();
+    expect(app.ui.confirms[0]).toMatchObject({ title: "Merge api#322?", confirmLabel: "Merge" });
+    expect(sentNames(app)).toEqual(["mergePreview"]);
+    app.ui.confirmAnswer = true;
+    await model.merge();
+    expect(app.transport.sent.at(-1)).toMatchObject({ command: { merge: {} }, presence: false });
+    expect(app.signed).toHaveLength(0);
+  });
+
+  it("Post (Approve) y Push: preguntan; con Face ID prendido, no", async () => {
+    const app = presenceOff();
+    const review = createReviewModel(app, "acme/api#317");
+    const view = review.view.value;
+    if (view.kind !== "review") throw new Error(view.kind);
+    view.props.onSelectDecision("approve");
+    expect((review.view.value as { props: { postFaceId?: boolean } }).props.postFaceId).toBe(false);
+    app.ui.confirmAnswer = false;
+    await review.post();
+    expect(app.ui.confirms.at(-1)).toMatchObject({ title: "Approve api#317?", confirmLabel: "Post" });
+    expect(app.transport.sent).toHaveLength(0);
+
+    const pr = "acme/web-app#488";
+    app.transport.setTopic(`pr:${pr}`, { respond: { ...respondInfo(), pr, phase: "readyToPush", testCommand: "npm test" } });
+    const respond = createRespondModel(app, pr, "feedback");
+    respond.open();
+    expect(respond.view("main").props).toMatchObject({ primaryFaceId: false, testsFaceId: false });
+    await respond.push();
+    expect(app.ui.confirms.at(-1)?.title).toMatch(/^Push 1 commit to /);
+    expect(app.transport.sent).toHaveLength(0);
+    app.ui.confirmAnswer = true;
+    await respond.push();
+    expect(app.transport.sent.at(-1)).toMatchObject({ command: { respondPush: {} }, presence: false });
+
+    // Con Face ID otra vez: el aviso del sistema es la confirmación.
+    app.transport.setPresencePolicy({ requirePresence: true, gated: app.transport.presencePolicy.gated });
+    const asked = app.ui.confirms.length;
+    expect(respond.view("main").props).toMatchObject({ primaryFaceId: true, testsFaceId: true });
+    await review.post();
+    expect(app.ui.confirms).toHaveLength(asked);
+    expect(app.signed).toHaveLength(1);
+  });
+});

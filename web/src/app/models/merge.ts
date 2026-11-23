@@ -1,9 +1,9 @@
 import { computed, signal, type ReadonlySignal } from "@preact/signals";
-import { prTopic, type MergeInfo, type MergeMethod, type MergePreviewInfo } from "../../protocol/commands";
+import { prTopic, type AppCommand, type MergeInfo, type MergeMethod, type MergePreviewInfo } from "../../protocol/commands";
 import type { MergedProps, MergeProps } from "../../ui/screens/types";
 import type { AppContext } from "../context";
 import { count, person, shortRef } from "../format";
-import { perform, prHeader } from "./common";
+import { needsConfirmation, perform, prHeader, showsFaceId } from "./common";
 
 // merge (+ :faceid) y merge:merged (MergeModel.swift): la vista previa de la Mac, Face ID y `merge` con el head que se
 // mostró (si el PR se movió, la Mac lo rechaza y se recarga).
@@ -38,6 +38,8 @@ export function createMergeModel(ctx: AppContext, pr: string): MergeModel {
   const method = signal<MergeMethod>("squash");
   const merging = signal(false);
   const merged = signal<MergeInfo | null>(null);
+  const mergeCommand = (headOid: string): Extract<AppCommand, { merge: unknown }> =>
+    ({ merge: { pr, method: method.value, confirmed: true, expectedHeadOid: headOid } });
 
   const model: MergeModel = {
     view: computed((): MergeView => {
@@ -96,6 +98,7 @@ export function createMergeModel(ctx: AppContext, pr: string): MergeModel {
           },
           merging: merging.value,
           faceIdPending: ctx.runner.faceIdPending.value,
+          mergeFaceId: showsFaceId(ctx, mergeCommand(p?.headOid ?? "")),
           disabled: store.isStale.value || !p || !!p.problem || merging.value,
           onBack: () => ctx.nav.back(),
           onChat: () => ctx.nav.go({ kind: "pr", pr, screen: "chat", chat: "merge" }),
@@ -124,12 +127,18 @@ export function createMergeModel(ctx: AppContext, pr: string): MergeModel {
     async merge() {
       const p = preview.value;
       if (!p || merging.value || store.isStale.value) return;
+      const command = mergeCommand(p.headOid);
       merging.value = true;
       let reload = false;
       try {
-        const result = await perform(ctx, {
-          merge: { pr, method: method.value, confirmed: true, expectedHeadOid: p.headOid },
-        }, {
+        // Sin `await` antes de `perform` si hay Face ID: el aviso tiene que salir dentro del toque.
+        if (needsConfirmation(ctx, command) && !(await ctx.ui.confirm({
+          title: `Merge ${shortRef(pr)}?`,
+          message: methodNote(method.value, p.baseRef, p.commitCount ?? p.detail?.commitCount ?? 0),
+          confirmLabel: "Merge",
+          cancelLabel: "Cancel",
+        }))) return;
+        const result = await perform(ctx, command, {
           onError: (error) => {
             // El head cambió (u otra cosa): se muestra lo que hay ahora.
             if (error.kind !== "cancelled") reload = true;

@@ -123,9 +123,9 @@ export function Review(props: ReviewProps) {
           <Icon name="chevron.up.chevron.down" size={16} class="decision__chev" />
         </button>
         <Button
-          icon="faceid"
+          icon={props.postFaceId === false ? undefined : "faceid"}
           class="bar-primary"
-          label="Post review, requires Face ID"
+          label={props.postFaceId === false ? "Post review" : "Post review, requires Face ID"}
           busy={posting}
           disabled={disabled || faceIdPending}
           onClick={props.onPost}

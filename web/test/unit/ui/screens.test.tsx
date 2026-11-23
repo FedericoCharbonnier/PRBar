@@ -149,6 +149,17 @@ describe("callbacks", () => {
     expect(onMerge).toHaveBeenCalled();
   });
 
+  it("sin Face ID, Merge y Post no lo prometen", () => {
+    render(<Merge {...d.mergeProps} mergeFaceId={false} onBack={noop} onChat={noop} onFiles={noop} onMethod={noop} onMerge={noop} />);
+    expect(screen.getByRole("button", { name: "Merge" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: /requires Face ID/ })).toBeNull();
+    cleanup();
+    render(<Review pr={d.reviewPR} summary={d.reviewSummary} findings={d.findings} decision="approve" postFaceId={false}
+      onBack={noop} onChat={noop} onMore={noop} onToggleFinding={noop} onEditFinding={noop}
+      onOpenDecisionMenu={noop} onCloseDecisionMenu={noop} onSelectDecision={noop} onPost={noop} />);
+    expect(screen.getByRole("button", { name: "Post review" })).toBeDefined();
+  });
+
   it("merge:faceid deshabilita el botón mientras espera", () => {
     render(<Merge {...d.mergeProps} faceIdPending onBack={noop} onChat={noop} onFiles={noop} onMethod={noop} onMerge={noop} />);
     expect((screen.getByRole("button", { name: "Merge, requires Face ID" }) as HTMLButtonElement).disabled).toBe(true);

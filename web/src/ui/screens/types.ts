@@ -222,6 +222,8 @@ export interface ReviewProps {
   /** review:faceid — esperando el aviso del sistema. */
   faceIdPending?: boolean | undefined;
   posting?: boolean | undefined;
+  /** Post pide Face ID con la decisión elegida (ícono `faceid`); por defecto sí. Sin Face ID, el modelo confirma. */
+  postFaceId?: boolean | undefined;
   disabled?: boolean | undefined;
   /** Sin review todavía: el botón "Review with Claude" en lugar del resumen y los hallazgos. */
   start?: StartVM | undefined;
@@ -336,6 +338,8 @@ export interface RespondBaseProps {
   primaryLabel?: string | undefined;
   /** El primario pide Face ID (ícono `faceid`); por defecto sí. */
   primaryFaceId?: boolean | undefined;
+  /** "Tests" pide Face ID; por defecto sí. */
+  testsFaceId?: boolean | undefined;
   primaryDisabled?: boolean | undefined;
   /** Sin Stop ni Undo (antes de implementar). */
   secondaryHidden?: boolean | undefined;
@@ -409,6 +413,8 @@ export interface MergeProps {
   merging?: boolean | undefined;
   /** merge:faceid. */
   faceIdPending?: boolean | undefined;
+  /** Merge pide Face ID (ícono `faceid`); por defecto sí. Sin Face ID, el modelo confirma. */
+  mergeFaceId?: boolean | undefined;
   disabled?: boolean | undefined;
   onBack: () => void;
   onChat: () => void;
