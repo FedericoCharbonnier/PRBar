@@ -147,9 +147,9 @@ struct RemotePair: RemoteCommand {
         let paired: RemotePairResult = try result.decode()
         if let device = paired.device, device.faceIDSetUp == false {
             // Lo mismo que Settings: sin passkey, lo que pide Face ID queda bloqueado (L7).
-            output.line(output.paint("Paired \(device.name).", .green) + " It can now see your PRs. Face ID isn’t set up on it, so merge, push, approve and tests are blocked: pair it again to set it up.")
+            output.line(output.paint("Paired \(device.name).", .green) + " It can now see your PRs. Face ID isn’t set up on it, so posting to GitHub, merge, push and tests are blocked: pair it again to set it up.")
         } else if let device = paired.device {
-            output.line(output.paint("Paired \(device.name).", .green) + " It can now see your PRs and act for you; merge, push, approve and tests need Face ID.")
+            output.line(output.paint("Paired \(device.name).", .green) + " It can now see your PRs and act for you; posting to GitHub, merge, push and tests need Face ID.")
         } else {
             output.line("Pairing canceled.")
         }
@@ -159,7 +159,7 @@ struct RemotePair: RemoteCommand {
 struct RemoteDevices: RemoteCommand {
     static let configuration = CommandConfiguration(
         commandName: "devices", abstract: "Paired iPhones, or turn Face ID on or off for one (--require-face-id).")
-    @Option(name: .customLong("require-face-id"), help: "An iPhone (id, id prefix or name): set whether merge, push, approve and tests need Face ID on it.")
+    @Option(name: .customLong("require-face-id"), help: "An iPhone (id, id prefix or name): set whether posting to GitHub, merge, push and tests need Face ID on it.")
     var requireFaceID: String?
     @Argument(help: "With --require-face-id: on or off.") var setting: OnOff?
     @OptionGroup var global: GlobalOptions
@@ -180,7 +180,7 @@ struct RemoteDevices: RemoteCommand {
     func render(_ result: JSONValue, _ output: Output) throws {
         if let setting {
             let device: RemoteDeviceInfo = try result.decode()
-            output.line("Face ID for merge, push, approve and tests on \(device.name): \(setting == .on ? "required" : "off").")
+            output.line("Face ID for posting to GitHub, merge, push and tests on \(device.name): \(setting == .on ? "required" : "off").")
         } else {
             RemoteRender.devices(try result.decode(), output)
         }

@@ -246,6 +246,6 @@ export const settings: Omit<SettingsProps, "onUnpair" | "onToggleNotification" |
     { id: "readyToMerge", label: "Ready to merge", on: true },
     { id: "ciFailed", label: "CI failed on my PRs", on: true },
   ],
-  requireFaceId: { id: "faceid", label: "Require Face ID for merge, push, approve and tests", on: true },
+  requireFaceId: { id: "faceid", label: "Require Face ID for posting to GitHub, merge, push and tests", on: true },
   version: "PRBar 0.1.0 (demo)",
 };

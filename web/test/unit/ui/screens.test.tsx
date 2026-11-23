@@ -46,7 +46,7 @@ const copy: Record<string, string[]> = {
   activity: ["Activity", "CPU", "38%", "Memory", "11.2 GB", "Disk", "212 GB", "Running", "Reviewing api#317",
     "Claude this month", "$48.20", "estimated · November", "Reviews", "$29.10", "46 msgs"],
   settings: ["Settings", "Unpair This Mac", "Notifications", "Review ready", "New PR to review", "Changes requested on my PRs",
-    "Ready to merge", "CI failed on my PRs", "Security", "Require Face ID for merge, push, approve and tests", "PRBar 0.1.0 (demo)"],
+    "Ready to merge", "CI failed on my PRs", "Security", "Require Face ID for posting to GitHub, merge, push and tests", "PRBar 0.1.0 (demo)"],
 };
 
 const noop = () => {};
@@ -204,7 +204,7 @@ describe("callbacks", () => {
     render(<Settings {...d.settings} onUnpair={onUnpair} onToggleNotification={onToggleNotification} onToggleFaceId={onToggleFaceId} />);
     fireEvent.click(screen.getByRole("switch", { name: "Ready to merge" }));
     expect(onToggleNotification).toHaveBeenCalledWith("readyToMerge", false);
-    fireEvent.click(screen.getByRole("switch", { name: "Require Face ID for merge, push, approve and tests" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Require Face ID for posting to GitHub, merge, push and tests" }));
     expect(onToggleFaceId).toHaveBeenCalledWith(false);
     fireEvent.click(screen.getByRole("button", { name: "Unpair This Mac" }));
     expect(onUnpair).toHaveBeenCalled();

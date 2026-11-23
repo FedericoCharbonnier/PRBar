@@ -16,7 +16,7 @@ export const CANCELLED_MESSAGE = "Pairing was cancelled. Start again from PRBar 
 export const MISMATCH_MESSAGE = "Pairing was cancelled because the codes didn't match.";
 export const OTHER_SERVER_MESSAGE = "This code is for a different PRBar server.";
 export const LOST_PAIRING_MESSAGE = "This device lost its pairing. Pair it again from your Mac.";
-export const NO_PASSKEY_NOTICE = "Face ID couldn't be set up on this device. You can pair, but merge, push, approve and tests won't work until you pair again.";
+export const NO_PASSKEY_NOTICE = "Face ID couldn't be set up on this device. You can pair, but posting to GitHub, merge, push and tests won't work until you pair again.";
 export const CAMERA_DENIED_MESSAGE = "PRBar can't use the camera. Allow it in Settings, or paste the code.";
 export const revokedMessage = (mac: string) => `This iPhone was removed from ${mac}.`;
 
