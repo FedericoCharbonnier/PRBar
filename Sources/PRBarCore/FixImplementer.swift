@@ -799,11 +799,13 @@ public struct FixImplementer: Sendable {
     /// Dentro de las carpetas recursivas se ignoran los metadatos de macOS (`.DS_Store`, `._*`, `Icon\r`): git
     /// nunca los ejecuta ni los lee.
     ///
-    /// De los archivos de config (los de arriba y sus includes) no cuenta el texto entero sino sus claves de riesgo
-    /// (`riskyConfigPrefixes`), leídas por git (`git config --file <ruta> --no-includes --list -z`, que solo parsea):
-    /// el usuario cambia su config todo el tiempo sin riesgo (`push -u`, `gh pr checkout`, `branch --set-upstream-to`,
-    /// el `branch.*.vscode-merge-base` de VS Code) y eso no puede frenar el push. Si git no la puede leer, cuenta el
-    /// contenido entero. `info/exclude` no está: solo cambia qué se ignora (no ejecuta nada ni cambia lo pusheado).
+    /// De los archivos de config (los de arriba y sus includes) no cuenta el texto entero sino sus entradas, leídas por
+    /// git (`git config --file <ruta> --no-includes --list -z`, que solo parsea), **menos** una lista corta de claves
+    /// inofensivas (`isBenignConfigKey`): el usuario las cambia todo el tiempo (`push -u`, `gh pr checkout`,
+    /// `branch --set-upstream-to`, el `branch.*.vscode-merge-base` de VS Code) y eso no puede frenar el push. Falla
+    /// cerrada: cualquier otra clave cuenta, también las que nadie pensó (`gc.recentObjectsHook` corre en un
+    /// `gc --auto`). Si git no la puede leer, cuenta el contenido entero. `info/exclude` también cuenta: decide qué
+    /// repos anidados se aceptan como ignorados.
     struct GitPaths: Sendable {
         /// Corre `git config --file <ruta> --no-includes --list -z` (endurecido, fuera del worktree) en la máquina del
         /// worktree.
@@ -816,17 +818,19 @@ public struct FixImplementer: Sendable {
         /// `git rev-parse --git-dir` si es distinto del common dir (el admin dir de un worktree separado).
         let adminDir: String?
 
-        static let commonFiles = ["config", "config.worktree", "commondir", "info/attributes",
+        static let commonFiles = ["config", "config.worktree", "commondir", "info/attributes", "info/exclude",
                                   "info/sparse-checkout", "objects/info/alternates"]
-        /// Las claves de config que cuentan en la huella (en minúscula; las que terminan en `.` son secciones enteras):
-        /// las que ejecutan comandos, cambian a dónde o cómo habla git con un remoto, qué credenciales usa, cómo
-        /// firma o cómo lee el árbol. `branch.*`, `user.name`, `color.*`, etc. no.
-        static let riskyConfigPrefixes = [
-            "core.", "include.", "includeif.", "filter.", "diff.", "merge.", "difftool.", "mergetool.", "credential.",
-            "url.", "remote.", "alias.", "protocol.", "http.", "https.", "ssh.", "gpg.", "hook.", "submodule.",
-            "extensions.", "lfs.", "pager.", "sequence.", "trailer.", "transfer.", "fetch.", "push.", "receive.",
-            "uploadpack.", "safe.", "commit.gpgsign", "tag.gpgsign", "tag.forcesignannotated", "user.signingkey",
-        ]
+
+        /// Las únicas claves que no cuentan en la huella: `branch.*` (upstream, `gh-merge-base`, `vscode-merge-base`; el
+        /// push nombra `origin` y la rama explícitamente), `user.name`, `user.email`, `color.*` y cualquiera cuya última
+        /// parte diga `vscode`. `key` tal como la da `git config --list` (sección y nombre en minúscula).
+        static func isBenignConfigKey(_ key: String) -> Bool {
+            let key = key.lowercased()
+            let section = key.prefix { $0 != "." }
+            let name = key.split(separator: ".").last ?? ""
+            return section == "branch" || section == "color" || key == "user.name" || key == "user.email"
+                || name.contains("vscode")
+        }
 
         static let commonTrees = ["hooks"]
         static let adminFiles = ["config.worktree", "commondir", "gitdir", "HEAD"]
@@ -873,18 +877,17 @@ public struct FixImplementer: Sendable {
                 let listed = try await listConfig(config)
                 guard listed.status == 0 else { continue }  // No es una config válida: cuenta el contenido entero.
                 let mode = entry.split(separator: ":")[1]
-                let risky = Self.riskyConfigEntries(listed.stdout).joined(separator: "\0")
-                entries[config] = "config:\(mode):" + SHA256.hash(data: Data(risky.utf8)).map { String(format: "%02x", $0) }.joined()
+                let counted = Self.fingerprintedConfigEntries(listed.stdout).joined(separator: "\0")
+                entries[config] = "config:\(mode):" + SHA256.hash(data: Data(counted.utf8)).map { String(format: "%02x", $0) }.joined()
             }
             return entries
         }
 
-        /// De la salida de `git config --list -z` (`clave\nvalor\0`, o `clave\0` sin valor), las entradas de riesgo
-        /// (`riskyConfigPrefixes`), en su orden (con varias, la última gana).
-        static func riskyConfigEntries(_ output: String) -> [String] {
+        /// De la salida de `git config --list -z` (`clave\nvalor\0`, o `clave\0` sin valor), las entradas que cuentan
+        /// (todas menos `isBenignConfigKey`), en su orden (con varias, la última gana).
+        static func fingerprintedConfigEntries(_ output: String) -> [String] {
             output.split(separator: "\0", omittingEmptySubsequences: true).compactMap { entry in
-                let key = entry.prefix { $0 != "\n" }.lowercased()
-                return riskyConfigPrefixes.contains { $0.hasSuffix(".") ? key.hasPrefix($0) : key == $0 } ? String(entry) : nil
+                isBenignConfigKey(String(entry.prefix { $0 != "\n" })) ? nil : String(entry)
             }
         }
 

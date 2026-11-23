@@ -21,13 +21,14 @@ private func exists(_ url: URL) -> Bool { FileManager.default.fileExists(atPath:
 /// `GitHardening.arguments` (sin hooks, fsmonitor, submódulos ni untracked cache) y el entorno sin LFS ni prompts.
 private func gitArgs(_ runner: FakeProcessRunner, file: StaticString = #fileID, line: UInt = #line) throws -> [[String]] {
     try runner.calls.map { call in
-        try expectEqual(Array(call.arguments.prefix(8)), [
+        try expectEqual(Array(call.arguments.prefix(12)), [
             "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false",
             "-c", "submodule.recurse=false", "-c", "core.untrackedCache=false",
+            "-c", "maintenance.auto=false", "-c", "gc.auto=0",
         ], file: file, line: line)
         try expectEqual(call.environment?["GIT_LFS_SKIP_SMUDGE"], "1", file: file, line: line)
         try expectEqual(call.environment?["GIT_TERMINAL_PROMPT"], "0", file: file, line: line)
-        return Array(call.arguments.dropFirst(8))
+        return Array(call.arguments.dropFirst(12))
     }
 }
 

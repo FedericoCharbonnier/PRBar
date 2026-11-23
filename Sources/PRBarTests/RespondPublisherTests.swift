@@ -190,7 +190,7 @@ enum RespondPublisherTests {
             let calls = runner.calls
             let push = try calls.last ?? { throw TestFailure(description: "sin llamadas") }()
             try expectEqual(push.arguments, ["-C", "/tmp/wt", "-c", "core.fsmonitor=false", "-c", "submodule.recurse=false",
-                                             "-c", "core.untrackedCache=false", "push",
+                                             "-c", "core.untrackedCache=false", "-c", "maintenance.auto=false", "-c", "gc.auto=0", "push",
                                              "--force-with-lease=refs/heads/feature/7:\(String(repeating: "0", count: 40))", "origin", "\(reviewed):refs/heads/feature/7"])
             try expectEqual(push.timeout, RespondPublisher.pushTimeout)
             try expect(calls.allSatisfy { $0.executable == TempGitRepo.git })
@@ -388,7 +388,7 @@ enum RespondPublisherTests {
             try await publisher().push(draft: repo.draft(), result: result)
             try expectEqual(try repo.remoteHead(), result.headOid)
         },
-        TestCase("respond publisher: upstream, vscode-merge-base, info/exclude y comentarios en la config del clone no frenan el push") {
+        TestCase("respond publisher: upstream, vscode-merge-base, color, user.name y comentarios en la config del clone no frenan el push") {
             let repo = try PushRepo.make()
             defer { repo.remove() }
             let common = repo.local.appendingPathComponent(".git")
@@ -398,14 +398,19 @@ enum RespondPublisherTests {
             try TempGitRepo.run(repo.local, ["config", "branch.feature/7.vscode-merge-base", "origin/main"])  // VS Code
             try TempGitRepo.run(repo.local, ["config", "branch.feature/7.gh-merge-base", "main"])            // gh
             try writeFile(common.appendingPathComponent("config"), "# comentario\n", append: true)
-            try writeFile(common.appendingPathComponent("info/exclude"), "*.tmp\n", append: true)
+            try TempGitRepo.run(repo.local, ["config", "color.ui", "always"])
+            try TempGitRepo.run(repo.local, ["config", "user.name", "Otra Persona"])
             try await publisher().push(draft: repo.draft(), result: result)
             try expectEqual(try repo.remoteHead(), result.headOid)
         },
         TestCase("respond publisher: claves de config de riesgo cambiadas frenan el push (remote, url, alias, credential, core)") {
+            // Falla cerrada: cualquier clave fuera de la lista de inofensivas cuenta, también las que nadie listó (`gc.*`:
+            // `gc.recentObjectsHook` corre en el `gc --auto` de un commit endurecido).
             for (key, value) in [("core.sshCommand", "evil"), ("remote.origin.pushurl", "/tmp/x"), ("url./tmp/x.insteadOf", "y"),
                                  ("alias.co", "!evil"), ("credential.helper", "evil"), ("filter.x.clean", "evil"),
-                                 ("commit.gpgSign", "true"), ("hook.x.command", "evil")] {
+                                 ("commit.gpgSign", "true"), ("hook.x.command", "evil"), ("gc.recentObjectsHook", "touch pwned"),
+                                 ("gc.autoPackLimit", "1"), ("maintenance.auto", "true"), ("somefuture.key", "x"),
+                                 ("user.signingKey", "k")] {
                 let repo = try PushRepo.make()
                 defer { repo.remove() }
                 let result = try await repo.result()
@@ -423,6 +428,7 @@ enum RespondPublisherTests {
                 ("hook", { _ in }, { try writeFile(common($0).appendingPathComponent("hooks/pre-push"), "#!/bin/sh\n") }),
                 ("fsmonitor", { _ in }, { try writeFile(common($0).appendingPathComponent("config"), "[core]\n\tfsmonitor = x\n", append: true) }),
                 ("attributes", { _ in }, { try writeFile(common($0).appendingPathComponent("info/attributes"), "* filter=evil\n") }),
+                ("exclude", { _ in }, { try writeFile(common($0).appendingPathComponent("info/exclude"), "vendor/\n", append: true) }),
                 ("commondir", { _ in }, { try writeFile(admin($0).appendingPathComponent("commondir"), common($0).path + "\n") }),
                 ("gitdir", { _ in }, { try writeFile(admin($0).appendingPathComponent("gitdir"), "\n", append: true) }),
                 ("include", { repo in

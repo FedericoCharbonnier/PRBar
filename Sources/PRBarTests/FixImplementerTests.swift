@@ -744,10 +744,11 @@ enum FixImplementerTests {
                 try expect(!FileManager.default.fileExists(atPath: pwned.path))
             }
         },
-        TestCase("fix implementer: el endurecimiento de git cubre hooks, fsmonitor, submódulos y untracked cache") {
+        TestCase("fix implementer: el endurecimiento de git cubre hooks, fsmonitor, submódulos, untracked cache y gc --auto") {
             try expectEqual(GitHardening.arguments, [
                 "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false",
                 "-c", "submodule.recurse=false", "-c", "core.untrackedCache=false",
+                "-c", "maintenance.auto=false", "-c", "gc.auto=0",
             ])
         },
         TestCase("fix implementer: C3, editar un archivo ignorado existente corta toda la corrida") {

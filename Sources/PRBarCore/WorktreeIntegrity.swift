@@ -4,12 +4,14 @@ import Foundation
 /// spec §8.2) o lo que acaba de escribir Claude (Responder, spec §14). Ningún hook corre (ni los del usuario ni
 /// los que un gestor como lefthook arme a partir del árbol), no corre `core.fsmonitor` (un comando de la config,
 /// p. ej. la de un repo anidado), no se recorre ningún submódulo, no se usa la caché de archivos sin trackear,
-/// LFS no baja nada y git nunca pide credenciales. `status` y `diff` además llevan `--ignore-submodules=all`.
+/// LFS no baja nada, git nunca pide credenciales y ningún comando dispara `maintenance`/`gc --auto` (que corre, p. ej.,
+/// `gc.recentObjectsHook` de la config). `status` y `diff` además llevan `--ignore-submodules=all`.
 /// El único `git` de PRBar sin esto es el push de Responder, que corre los hooks del usuario a propósito.
 public enum GitHardening {
     public static let arguments = [
         "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false",
         "-c", "submodule.recurse=false", "-c", "core.untrackedCache=false",
+        "-c", "maintenance.auto=false", "-c", "gc.auto=0",
     ]
     /// Para `status` y `diff`.
     public static let ignoreSubmodules = "--ignore-submodules=all"

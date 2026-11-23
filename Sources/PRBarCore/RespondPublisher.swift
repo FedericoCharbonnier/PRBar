@@ -34,7 +34,8 @@ public struct RespondPublisher: Sendable {
     public static let rejectedMessage = "GitHub rejected the push: the branch moved ahead. Pull the changes and try again."
     static let maxQuoteLength = 200
     /// `GitHardening` sin `core.hooksPath`: el push corre los hooks del usuario.
-    static let pushHardening = ["-c", "core.fsmonitor=false", "-c", "submodule.recurse=false", "-c", "core.untrackedCache=false"]
+    static let pushHardening = ["-c", "core.fsmonitor=false", "-c", "submodule.recurse=false", "-c", "core.untrackedCache=false",
+                                "-c", "maintenance.auto=false", "-c", "gc.auto=0"]
 
     private let runner: ProcessRunning
     private let gitPath: String
