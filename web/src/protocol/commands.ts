@@ -232,15 +232,17 @@ export type PolicyDecision = "allowed" | "gated";
 
 /** Los comandos que pueden pedir Face ID, en el orden de `AppCommand.Name.allCases` (`RemotePolicy.gatedNames`). */
 export const GATED_NAMES: readonly PhoneCommandName[] = [
-  "reviewPublish", "respondTest", "respondPush", "respondPushAnyway", "merge", "remoteSetPresenceRequirement",
+  "reviewPublish", "respondTest", "respondPush", "respondPushAnyway", "respondReplyOnly", "merge",
+  "remoteSetPresenceRequirement",
 ];
 
 export function decidePolicy(command: AppCommand): PolicyDecision {
-  if ("merge" in command || "respondPush" in command || "respondPushAnyway" in command || "respondTest" in command) {
+  // Merge, push y tests (ejecutan código del repo en la Mac), y todo lo que publica en GitHub como el usuario: cualquier
+  // review (comment, request changes, approve) y las respuestas solas. Editar el borrador (`respondSelect`) no publica.
+  if ("merge" in command || "respondPush" in command || "respondPushAnyway" in command || "respondTest" in command ||
+      "reviewPublish" in command || "respondReplyOnly" in command) {
     return "gated";
   }
-  // Approve pide Face ID; comment y request changes no.
-  if ("reviewPublish" in command) return command.reviewPublish.event === "APPROVE" ? "gated" : "allowed";
   // Prender "Require Face ID" no; apagarlo sí (P.8, L5).
   if ("remoteSetPresenceRequirement" in command) return command.remoteSetPresenceRequirement.enabled ? "allowed" : "gated";
   return "allowed";

@@ -107,7 +107,7 @@ describe("home", () => {
 });
 
 describe("review", () => {
-  it("muestra el review de la Mac y postea un Comment sin Face ID", async () => {
+  it("muestra el review de la Mac y postea un Comment con Face ID", async () => {
     const app = makeApp();
     const model = createReviewModel(app, "acme/api#317");
     const close = model.open();
@@ -123,8 +123,9 @@ describe("review", () => {
     await model.post();
     expect(app.transport.sent.at(-1)).toEqual({
       command: { reviewPublish: { pr: "acme/api#317", event: "COMMENT", withComments: true, allInBody: false, confirmed: true } },
-      presence: false,
+      presence: true,
     });
+    expect(app.ui.confirms).toEqual([]);
     const posted = model.view.value;
     expect(posted.kind).toBe("posted");
     if (posted.kind === "posted") {
@@ -281,9 +282,9 @@ describe("respond y fix CI", () => {
     expect(app.transport.sent.at(-1)!.command).toEqual({ respondCancel: { pr: "acme/web-app#475" } });
     const items = (respondInfo().items as Record<string, unknown>[]).map((i) => ({ ...i, implement: false }));
     setRespond(app, "acme/web-app#475", { phase: "readyToPush", mode: undefined, ciChecks: undefined, items });
-    expect(model.view("main").props.primaryLabel).toBe("Reply");
+    expect(model.view("main").props).toMatchObject({ primaryLabel: "Reply", primaryFaceId: true });
     await model.push();
-    expect(app.transport.sent.at(-1)).toEqual({ command: { respondReplyOnly: { pr: "acme/web-app#475", confirmed: true, wait: false } }, presence: false });
+    expect(app.transport.sent.at(-1)).toEqual({ command: { respondReplyOnly: { pr: "acme/web-app#475", confirmed: true, wait: false } }, presence: true });
     setRespond(app, "acme/web-app#475", { phase: "readyToPush", mode: undefined, ciChecks: undefined, pushBlockedByTests: true });
     expect(model.view("main").props.primaryLabel).toBe("Push Anyway");
     await model.push();

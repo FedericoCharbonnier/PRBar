@@ -74,16 +74,18 @@ everything that needs Face ID stays blocked ("Face ID isn't set up on this devic
 
 ## Face ID
 
-By default, **merge, push, approve and running the tests need Face ID** on the phone. Each of those requests is signed
-with the passkey after Face ID (or the iPhone's passcode, if iOS offers it), and the **Mac checks the signature**: it
-has to come from this phone's passkey, for this relay's address, for this exact request, within the last minute, with
-the user verified. The relay can't fake it.
+By default, **merge, push, running the tests and everything that posts to GitHub as you need Face ID** on the phone:
+posting a review (comment, request changes or approve) and posting replies, alone or with a push. Each of those
+requests is signed with the passkey after Face ID (or the iPhone's passcode, if iOS offers it), and the **Mac checks the
+signature**: it has to come from this phone's passkey, for this relay's address, for this exact request, within the last
+minute, with the user verified. The relay can't fake it.
 
 You can turn the requirement off per phone (Settings › iPhone on the Mac,
 `prbar remote devices --require-face-id <phone> off`, or on the phone itself, which asks for Face ID to turn it off).
-The phone can ask Claude to implement fixes and edit them in the chat without Face ID, but that never runs anything:
-the repo's test command (and a push, which runs your git hooks) only runs on the Mac with a Face ID proof from that
-phone. A change of this setting on the Mac reaches a connected phone right away.
+With it off, the phone asks you to confirm before it merges, pushes or posts, like the Mac and the CLI do.
+The phone can ask Claude to implement fixes and edit them (and the replies) in the chat without Face ID, but that never
+posts or runs anything: the repo's test command (and a push, which runs your git hooks) only runs on the Mac with a
+Face ID proof from that phone. A change of this setting on the Mac reaches a connected phone right away.
 
 Passkeys sync through iCloud Keychain, so another of your Apple devices could produce the same signature, but it would
 also need this phone's session keys, which never leave it.

@@ -131,7 +131,7 @@ public struct PairedDevice: Codable, Equatable, Sendable {
     /// La passkey del teléfono (W.4.5). `nil`: se emparejó sin passkey y los comandos gated quedan bloqueados.
     public var presence: PresenceCredential?
     public var pairedAt: Date
-    /// Merge, push y approve piden Face ID (por defecto sí, spec P.8).
+    /// Merge, push, tests y lo que publica en GitHub (reviews, respuestas) piden Face ID (por defecto sí, spec P.8).
     public var requirePresence: Bool
 
     public init(deviceId: String, name: String, model: String, noise: Data, push: Data, presence: PresenceCredential?,

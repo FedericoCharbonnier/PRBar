@@ -1600,7 +1600,7 @@
         }
       },
       "name" : "respondReplyOnly",
-      "policy" : "allowed",
+      "policy" : "gated",
       "response" : {
         "id" : 1,
         "ok" : true,
@@ -2149,7 +2149,7 @@
         }
       },
       "name" : "reviewPublish",
-      "policy" : "allowed",
+      "policy" : "gated",
       "response" : {
         "id" : 1,
         "ok" : true,
@@ -2282,6 +2282,7 @@
     "respondTest",
     "respondPush",
     "respondPushAnyway",
+    "respondReplyOnly",
     "merge",
     "remoteSetPresenceRequirement"
   ],

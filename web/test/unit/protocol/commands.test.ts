@@ -67,6 +67,15 @@ describe("commands (app.json)", () => {
     expect(() => decodeCommand(`{"notifySet":{"kind":"spam","enabled":true}}`)).toThrow(DecodeError);
   });
 
+  it("todo lo que publica en GitHub es gated; editar el borrador no", () => {
+    for (const event of ["COMMENT", "REQUEST_CHANGES", "APPROVE"] as const) {
+      expect(decidePolicy({ reviewPublish: { pr: "a/b#1", event, withComments: true, allInBody: false, confirmed: true } }))
+        .toBe("gated");
+    }
+    expect(decidePolicy({ respondReplyOnly: { pr: "a/b#1", confirmed: true, wait: false } })).toBe("gated");
+    expect(decidePolicy({ respondSelect: { pr: "a/b#1", items: ["1"], change: { replyText: "x" } } })).toBe("allowed");
+  });
+
   it("apagar Face ID es gated; prenderlo no", () => {
     expect(decidePolicy({ remoteSetPresenceRequirement: { device: "", enabled: false } })).toBe("gated");
     expect(decidePolicy({ remoteSetPresenceRequirement: { device: "", enabled: true } })).toBe("allowed");

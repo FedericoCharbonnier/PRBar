@@ -5,7 +5,7 @@ import type { AppContext } from "../context";
 import { age, count, duration, lineOf, parseDate, person, shortRef, splitPRId } from "../format";
 import { needsConfirmation, perform, prHeader, showsFaceId } from "./common";
 
-// review (+ :menu, :faceid), edit y review:posted (ReviewModel.swift). Solo Approve pide Face ID (V.1).
+// review (+ :menu, :faceid), edit y review:posted (ReviewModel.swift). Postear (cualquier decisión) pide Face ID.
 
 const EVENTS: Record<ReviewDecision, ReviewEvent> = { comment: "COMMENT", request_changes: "REQUEST_CHANGES", approve: "APPROVE" };
 const RUNNING = ["queued", "preparing", "reviewing", "filtering"];
