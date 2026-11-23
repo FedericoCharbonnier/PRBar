@@ -1,3 +1,3 @@
 public enum PRBarCore {
-    public static let version = "1.4.2"
+    public static let version = "1.4.3"
 }
