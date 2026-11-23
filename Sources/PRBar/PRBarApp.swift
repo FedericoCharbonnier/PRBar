@@ -93,6 +93,10 @@ enum QuitRequest {
     /// `prbar app quit` and the updater's relaunch.
     static func terminateWithoutAsking() {
         skipsConfirmation = true
-        NSApp.terminate(nil)
+        // Not from here: callers run inside a main-queue block (a main-actor Task, `DispatchQueue.main`), and
+        // `applicationShouldTerminate` answers `.terminateLater` from a main-actor Task. Its nested event loop can't drain
+        // the main queue while that block is still running, so the reply never came and the app hung (the updater's
+        // relaunch, `prbar app quit`). A run loop block runs outside the main queue.
+        RunLoop.main.perform { NSApp.terminate(nil) }
     }
 }
