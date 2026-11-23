@@ -109,6 +109,27 @@ enum RunnerProbeTests {
             _ = try? await failCache.info(for: down, now: t0.addingTimeInterval(61))
             try expectEqual(ssh.invocations().count, afterFail + 1)
         },
+        TestCase("probe: una verificación cancelada no queda cacheada como falla (el próximo trabajo vuelve a verificar)") {
+            let ssh = try FakeSSH.make()
+            defer { ssh.remove() }
+            try ssh.installTool("claude", """
+            #!/bin/sh
+            [ -f "$HOME/slow" ] && sleep 5
+            echo '2.1.400 (Claude Code)'
+            """)
+            try Data().write(to: ssh.home.appendingPathComponent("slow"))
+            let cache = RunnerHealthCache()
+            let host = try ssh.host()
+            let probe = Task { try await cache.info(for: host, now: t0) }
+            try await Task.sleep(nanoseconds: 700_000_000)
+            probe.cancel()
+            _ = try? await probe.value
+            try FileManager.default.removeItem(at: ssh.home.appendingPathComponent("slow"))
+            let before = ssh.invocations().count
+            let info = try await cache.info(for: host, now: t0.addingTimeInterval(1))
+            try expect(info.isUsable, "\(info.problems)")
+            try expect(ssh.invocations().count > before, "devolvió la falla cacheada de la verificación cancelada")
+        },
         TestCase("probe: la salud se cachea por destino (host y carpeta) y una verificación en curso no vuelve después de forget") {
             let ssh = try FakeSSH.make()
             defer { ssh.remove() }

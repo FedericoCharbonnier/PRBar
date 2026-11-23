@@ -100,7 +100,7 @@ public enum RunnerProbe {
 /// Verificación antes de cada trabajo: 5 min si salió bien, 60 s si falló (decisión J.7.11). Una entrada vale solo
 /// para el mismo destino (nombre, dirección y carpeta): un destino editado o sacado y vuelto a agregar con el mismo
 /// nombre nunca recibe la raíz, las rutas o el login de otro. `forget` también descarta lo que traiga una
-/// verificación que ya estaba en curso.
+/// verificación que ya estaba en curso. Una verificación cancelada no se guarda.
 public actor RunnerHealthCache {
     public static let successTTL: TimeInterval = 300
     public static let failureTTL: TimeInterval = 60
@@ -135,7 +135,12 @@ public actor RunnerHealthCache {
             result = .failure(error)
         }
         // Un `forget` mientras verificaba: el destino cambió (o se sacó) y esto ya no vale para el próximo trabajo.
-        if generations[key, default: 0] == generation { entries[key] = Entry(destination: destination, at: now, result: result) }
+        // Una verificación cancelada (el trabajo que la pidió se canceló: el `ssh` cortado da cualquier error) no dice
+        // nada del host: no se guarda, y el próximo trabajo vuelve a verificar (o cae en esta Mac).
+        let cancelled = Task.isCancelled || { if case .failure(let error) = result { return error is CancellationError }; return false }()
+        if !cancelled, generations[key, default: 0] == generation {
+            entries[key] = Entry(destination: destination, at: now, result: result)
+        }
         return try result.get()
     }
 
