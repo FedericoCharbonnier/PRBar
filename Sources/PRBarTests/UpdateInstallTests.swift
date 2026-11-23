@@ -2,7 +2,7 @@ import Foundation
 import PRBarCore
 
 /// Un `.app` mínimo: Info.plist, un ejecutable que imprime `PRBar <version>`, `Contents/Helpers/prbar` y
-/// `Contents/Resources/marker.txt` para saber cuál es. `signed`: firmado ad-hoc como lo deja `bundle.sh`.
+/// `Contents/Resources/marker.txt` para saber cuál es. `signed`: firmado ad-hoc (como `bundle.sh` cuando no puede usar el certificado local).
 func makeFakeApp(at app: URL, version: String, identifier: String = "com.federico.prbar", marker: String,
                  helper: Bool = true, signed: Bool = false) throws {
     let contents = app.appendingPathComponent("Contents", isDirectory: true)
