@@ -221,8 +221,10 @@ struct ChatMessageRow: View {
                     .foregroundStyle(message.undone ? .secondary : .primary)
                 Spacer(minLength: 4)
                 if canUndo, let undo {
+                    // Drawn by SwiftUI, not an AppKit push button: in the inspector, in Dark Mode, that one came out
+                    // as a bright white block.
                     Button("Undo", action: undo)
-                        .controlSize(.small)
+                        .buttonStyle(ChatSecondaryButtonStyle())
                         .help("Undo this message’s changes")
                 }
             }
@@ -379,6 +381,7 @@ struct RuleProposalCard: View {
     @ViewBuilder
     private func buttons(_ actions: RuleProposalActions) -> some View {
         Button("Dismiss") { actions.dismiss(proposal.id) }
+            .buttonStyle(ChatSecondaryButtonStyle())
             .fixedSize()
         Button("Save") { error = actions.save(proposal.id, text, scope, stages) }
             .buttonStyle(.borderedProminent)
@@ -453,5 +456,21 @@ private struct ChatWorkingRow: View {
             }
         }
         .onChange(of: stream.partialText) { _, _ in scrollToBottom() }
+    }
+}
+
+/// A small secondary button for the chat's cards (Undo, Dismiss): a translucent fill that follows the appearance.
+struct ChatSecondaryButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.callout)
+            .foregroundStyle(Color(nsColor: isEnabled ? .labelColor : .tertiaryLabelColor))
+            .padding(.horizontal, 9)
+            .padding(.vertical, 3)
+            .background(RoundedRectangle(cornerRadius: 5)
+                .fill(Color.primary.opacity(configuration.isPressed ? 0.18 : 0.09)))
+            .contentShape(RoundedRectangle(cornerRadius: 5))
     }
 }
