@@ -22,7 +22,7 @@ public enum MainListSection: String, CaseIterable, Identifiable, Sendable {
     }
 
     /// Same titles and captions as the popover (`PopoverSection`).
-    public var title: String { popoverSection?.title ?? "CI Failing" }
+    public var title: String { popoverSection?.tabTitle ?? "CI Failing" }
 
     /// "drafts and nothing to do", "nothing to do right now"; nil for the sections that ask for something.
     public var subtitle: String? { popoverSection?.subtitle }

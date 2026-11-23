@@ -276,7 +276,7 @@ struct PopoverView: View {
     @ViewBuilder
     private func section(_ section: PopoverSection, items: [ClassifiedPR]) -> some View {
         SectionHeader(
-            title: section.title,
+            title: section.tabTitle,
             subtitle: section.subtitle,
             count: items.count,
             collapsed: collapsed.contains(section),

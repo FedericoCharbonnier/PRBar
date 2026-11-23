@@ -299,16 +299,18 @@ public enum PopoverSection: String, Codable, CaseIterable, Sendable, Identifiabl
         }
     }
 
-    /// The section's title in the popover and the main window's list (inside the My PRs tab, "My PRs with
-    /// Feedback" would say "My PRs" twice).
+    /// The title on its own (`prbar status` lists every section in one table).
     public var title: String {
         switch self {
         case .otherToReview: "Other"
         case .waitingForReview: "Waiting for Review"
-        case .myFeedback: "With Feedback"
         default: category.title
         }
     }
+
+    /// The title under its tab, in the popover and the main window's list: inside My PRs, "My PRs with Feedback"
+    /// would say "My PRs" twice.
+    public var tabTitle: String { self == .myFeedback ? "With Feedback" : title }
 
     public var subtitle: String? {
         switch self {

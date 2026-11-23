@@ -26,13 +26,14 @@ enum MainListTests {
         },
         TestCase("lista: section titles and captions are the popover's") {
             try expectEqual(MainListSection.withFeedback.title, "With Feedback")
-            try expectEqual(PopoverSection.myFeedback.title, "With Feedback")
+            try expectEqual(PopoverSection.myFeedback.tabTitle, "With Feedback")
+            try expectEqual(PopoverSection.myFeedback.title, "My PRs with Feedback")   // prbar status: no tab around it
             try expectEqual(MainListSection.otherToReview.subtitle, "drafts and nothing to do")
             try expectEqual(MainListSection.waitingForReview.subtitle, "nothing to do right now")
             try expectEqual(MainListSection.ciFailing.title, "CI Failing")
             for section in MainListSection.allCases {
                 guard let popover = section.popoverSection else { continue }
-                try expectEqual(section.title, popover.title)
+                try expectEqual(section.title, popover.tabTitle)
                 try expectEqual(section.subtitle, popover.subtitle)
             }
         },
