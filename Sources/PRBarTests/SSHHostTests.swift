@@ -24,6 +24,27 @@ enum SSHHostTests {
             try expectEqual(name, "devbox")
             try expect(detail.contains("Connection refused"))
         },
+        TestCase("ssh host: un exit 255 del comando remoto llega como 254 (255 queda solo para ssh: host caído)") {
+            let (ssh, host, info, root) = try await verifiedFake()
+            defer { ssh.remove() }
+            let exec = try await host.run(RemoteExec(argv: ["/bin/sh", "-c", "exit 255"], environment: [.literal("PATH", "/bin")]), timeout: 10)
+            try expectEqual(exec.status, 254)
+            let script = try await host.runScript("exit 255", timeout: 10)
+            try expectEqual(script.status, 254)
+            let three = try await host.runScript("exit 3", timeout: 10)
+            try expectEqual(three.status, 3)
+            // Un trabajo (git, tests) y un login runner también.
+            let git = try await RemoteProcessRunner(host: host, root: root, toolDirectories: info.toolDirectories)
+                .run("/bin/sh", ["-c", "exit 255"], environment: nil, currentDirectory: nil, timeout: 10)
+            try expectEqual(git.status, 254)
+            let tests = try await RemoteLoginRunner(host: host, root: root).run("/bin/sh", ["-lc", "exit 255"], environment: nil,
+                                                                              currentDirectory: nil, timeout: 10)
+            try expectEqual(tests.status, 254)
+            // Un `die` de Perl fuera de un eval sale con 255: el guardián falla, el host no está caído.
+            let perl = try await host.run(RemoteExec(argv: ["perl", "-e", "die qq(boom\\n)"], environment: RemoteEnvironment.perl()),
+                                          timeout: 10)
+            try expectEqual(perl.status, 254)
+        },
         TestCase("ssh host: subir y bajar binarios; nada fuera de la raíz") {
             let ssh = try FakeSSH.make()
             defer { ssh.remove() }

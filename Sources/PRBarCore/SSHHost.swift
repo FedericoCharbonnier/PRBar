@@ -38,10 +38,12 @@ public struct SSHHost: Sendable {
                             onStdoutLine: onStdoutLine)
     }
 
-    /// `script` ya tiene todo con comillas (`RemoteExec`, `ShellQuote`). Va como `/bin/sh -c '<script>'`.
+    /// `script` ya tiene todo con comillas (`RemoteExec`, `ShellQuote`). Va como `/bin/sh -c '<wrapper>'` (`wrapped`):
+    /// un 255 del script (un `die` de Perl, un comando que sale con 255) llega como 254, así que 255 solo puede venir
+    /// del `ssh` mismo (host caído, conexión cortada) y solo eso es `unreachable`.
     public func runScript(_ script: String, timeout: TimeInterval?, standardInput: URL? = nil, standardOutput: URL? = nil,
                           onStdoutLine: (@Sendable (String) -> Void)? = nil) async throws -> ProcessResult {
-        let command = "/bin/sh -c " + (try ShellQuote.posix(script))
+        let command = "/bin/sh -c " + (try ShellQuote.posix(try Self.wrapped(script)))
         guard command.utf8.count <= Self.maxScriptBytes else { throw RemoteRunnerError.commandTooLong(host: name) }
         let args = SSHCommandBuilder.arguments(destination, controlDirectory: controlDirectory, enforceHostKey: enforceHostKey,
                                                remoteCommand: command)
@@ -51,6 +53,11 @@ public struct SSHHost: Sendable {
             throw RemoteRunnerError.unreachable(host: name, detail: result.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
         }
         return result
+    }
+
+    /// `script` en un `/bin/sh -c` propio (mismo grupo de procesos, mismo stdin) cuyo exit 255 pasa a 254.
+    static func wrapped(_ script: String) throws -> String {
+        "/bin/sh -c \(try ShellQuote.posix(script))\nstatus=$?\n[ \"$status\" -ne 255 ] || status=254\nexit \"$status\""
     }
 
     /// Lanza si salió con error.
