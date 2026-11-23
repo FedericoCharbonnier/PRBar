@@ -30,13 +30,13 @@ struct PopoverView: View {
             }
             Divider().padding(.bottom, 4)
             content
-            // El pie (spec M.3): recursos (abre Activity), el aviso de actualización y los ítems de la app.
-            Divider()
+            // El pie (spec M.3): recursos (abre Activity) y el aviso de actualización. Open PRBar, Settings y Quit
+            // están en el menú ⚙︎ de la cabecera (pedido del usuario).
             if showsTabs {
+                Divider()
                 ResourceFooter(monitor: model.resources, monthCost: monthCost) { model.openActivityWindow() }
             }
             UpdateNotice(updates: model.updates) { model.openUpdateWindow() }
-            PopoverFooterMenu(model: model)
         }
         .frame(width: Theme.popoverWidth)
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { totalHeight = $0 }
@@ -85,7 +85,24 @@ struct PopoverView: View {
                 .keyboardShortcut("r", modifiers: .command)
                 .disabled(prStore.isRefreshing || limitedUntil != nil)
             }
-            IconButton(systemImage: "gearshape", help: "Settings (⌘,)", size: 13) { model.openSettings() }
+            Menu {
+                Button("Open PRBar") { model.openMainWindow() }
+                    .keyboardShortcut("0", modifiers: .command)
+                Button("Settings…") { model.openSettings() }
+                    .keyboardShortcut(",", modifiers: .command)
+                Divider()
+                Button("Quit PRBar") { NSApp.terminate(nil) }
+                    .keyboardShortcut("q", modifiers: .command)
+            } label: {
+                Image(systemName: "gearshape").font(.system(size: 13, weight: .medium))
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .frame(width: 22, height: 22)
+            .hoverHighlight(cornerRadius: Theme.Radius.button)
+            .help("More options")
+            .accessibilityLabel("More options")
         }
         .foregroundStyle(.secondary)
         .padding(.leading, 14)
@@ -119,21 +136,27 @@ struct PopoverView: View {
         .help("⌘1 To Review · ⌘2 My PRs")
     }
 
-    /// ⌘1/⌘2 cambian de pestaña sin un control propio: botones invisibles (⌘0, ⌘, y ⌘Q son de los ítems del pie).
-    @ViewBuilder
+    /// Los atajos del menú ⚙︎ también tienen que andar con el menú cerrado (un `Menu` solo atiende los de sus ítems
+    /// mientras está abierto), así que se repiten en botones invisibles; ⌘1/⌘2 cambian de pestaña sin control propio.
     private var keyboardShortcuts: some View {
-        // Solo cuando se ve el control (decisión H.4.6): sin él no hay pestañas que cambiar.
-        if showsTabs {
-            ZStack {
+        ZStack {
+            Button("Open PRBar") { model.openMainWindow() }
+                .keyboardShortcut("0", modifiers: .command)
+            Button("Settings…") { model.openSettings() }
+                .keyboardShortcut(",", modifiers: .command)
+            Button("Quit PRBar") { NSApp.terminate(nil) }
+                .keyboardShortcut("q", modifiers: .command)
+            // ⌘1/⌘2 solo cuando se ve el control (decisión H.4.6): sin él no hay pestañas que cambiar.
+            if showsTabs {
                 Button("To Review") { tabs.selected = .toReview }
                     .keyboardShortcut("1", modifiers: .command)
                 Button("My PRs") { tabs.selected = .mine }
                     .keyboardShortcut("2", modifiers: .command)
             }
-            .opacity(0)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
         }
+        .opacity(0)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
     /// Hora de reintento si GitHub nos limitó y todavía no pasó; `nil` si se puede refrescar.
@@ -319,6 +342,7 @@ private struct UpdateNotice: View {
 
     var body: some View {
         if let version = updates.available?.version.description {
+            Divider()
             HStack(spacing: 8) {
                 Image(systemName: "arrow.down.circle.fill").foregroundStyle(Theme.accent)
                 Text(updates.isInstalling ? "Installing PRBar \(version)…" : "PRBar \(version) available")
@@ -329,41 +353,6 @@ private struct UpdateNotice: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 7)
-            Divider()
         }
-    }
-}
-
-/// Open PRBar ⌘0 · Settings… ⌘, · Quit PRBar ⌘Q, como ítems de menú al pie del popover (spec M.3; Quit por pedido
-/// del usuario: la app no tiene Dock mientras no hay ventanas).
-private struct PopoverFooterMenu: View {
-    let model: AppModel
-
-    var body: some View {
-        VStack(spacing: 0) {
-            item("Open PRBar", "⌘0", key: "0") { model.openMainWindow() }
-            item("Settings…", "⌘,", key: ",") { model.openSettings() }
-            item("Quit PRBar", "⌘Q", key: "q") { NSApp.terminate(nil) }
-        }
-        .padding(.vertical, 5)
-    }
-
-    private func item(_ title: String, _ shortcut: String, key: KeyEquivalent, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack {
-                Text(title).foregroundStyle(.primary)
-                Spacer(minLength: 8)
-                Text(shortcut).foregroundStyle(.secondary)
-            }
-            .font(.system(size: 13))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .hoverHighlight(cornerRadius: Theme.Radius.row)
-        .padding(.horizontal, 6)
-        .keyboardShortcut(key, modifiers: .command)
-        .accessibilityLabel(title)
     }
 }

@@ -136,12 +136,12 @@ enum UIActionInventory {
         .init("Popover/Components.swift", "Button", "-", 2, .cli(["app settings", "refresh"])),   // colapsar sección (vista) y la acción de MessageView
         .init("Popover/Components.swift", "IconButton", "checkmark", 1, .viewOnly("copies `gh auth login --hostname github.com`; `prbar doctor` prints it")),
         .init("Popover/PopoverView.swift", "IconButton", "macwindow", 1, .viewOnly("opens the main window")),
-        .init("Popover/PopoverView.swift", "IconButton", "gearshape", 1, .cli(["app settings"])),
-        .init("Popover/PopoverView.swift", "MenuItem", "Open PRBar", 1, .viewOnly("opens the main window")),   // ⌘0
-        .init("Popover/PopoverView.swift", "MenuItem", "Settings…", 1, .cli(["app settings"])),   // ⌘,
-        .init("Popover/PopoverView.swift", "MenuItem", "Quit PRBar", 1, .cli(["app quit"])),   // ⌘Q
-        // La franja de Claude y el botón de cada ítem del pie (`item(_:_:key:action:)`).
-        .init("Popover/PopoverView.swift", "Button", "-", 2, .viewOnly("navigation in the main window")),
+        // El menú ⚙︎ y sus atajos repetidos en botones invisibles (⌘0, ⌘, y ⌘Q con el menú cerrado).
+        .init("Popover/PopoverView.swift", "Button", "Open PRBar", 2, .viewOnly("opens the main window")),
+        .init("Popover/PopoverView.swift", "Button", "Settings…", 2, .cli(["app settings"])),
+        .init("Popover/PopoverView.swift", "Button", "Quit PRBar", 2, .cli(["app quit"])),
+        // La franja de Claude.
+        .init("Popover/PopoverView.swift", "Button", "-", 1, .viewOnly("navigation in the main window")),
         .init("Popover/PopoverView.swift", "Component:UpdateNotice", "-", 1, .cli(["update"])),
         .init("Popover/PopoverView.swift", "IconButton", "-", 1, .cli(["refresh"])),
         .init("Popover/PopoverView.swift", "Picker", "Tab", 1, .cli(["app popover", "prs"])),   // --tab
