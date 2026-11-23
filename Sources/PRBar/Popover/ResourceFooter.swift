@@ -41,10 +41,10 @@ struct ResourceFooter: View {
     private var worktrees: Int? { monitor.disk.map { $0.items.filter { $0.kind == .worktrees }.count } }
 
     /// Disco: en unidades decimales, como Finder.
-    static func bytes(_ value: Int64) -> String { ByteCountFormatter.string(fromByteCount: value, countStyle: .file) }
+    static func bytes(_ value: Int64) -> String { ByteSize.file(value) }
     /// RAM: en unidades binarias, como Activity Monitor.
     static func memory(_ value: UInt64) -> String {
-        ByteCountFormatter.string(fromByteCount: Int64(clamping: value), countStyle: .memory)
+        ByteSize.memory(value)
     }
 
     private var accessibility: String {
