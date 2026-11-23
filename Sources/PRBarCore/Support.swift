@@ -157,37 +157,112 @@ public enum AppPaths {
 }
 
 /// Log de texto plano. Las escrituras se serializan en una cola propia porque llegan desde el main actor
-/// y desde tareas en segundo plano.
+/// y desde tareas en segundo plano. The file stays open between lines and rolls at `RollingLogFile.defaultLimit`.
 public enum AppLog {
     private static let queue = DispatchQueue(label: "PRBar.AppLog")
     /// Solo se accede desde `queue`.
-    nonisolated(unsafe) private static var destination: URL? = AppPaths.logFile
+    nonisolated(unsafe) private static var file: RollingLogFile? = RollingLogFile(url: AppPaths.logFile)
+    /// Solo se accede desde `queue` (a formatter per line was most of a write's cost).
+    nonisolated(unsafe) private static let formatter = ISO8601DateFormatter()
 
     /// Cambia el archivo de log; `nil` lo desactiva. Pensado para los tests.
     public static func setDestination(_ url: URL?) {
-        queue.sync { destination = url }
+        queue.sync {
+            file?.close()
+            file = url.map { RollingLogFile(url: $0) }
+        }
     }
 
     public static func write(_ message: String) {
-        let line = "[\(ISO8601DateFormatter().string(from: Date()))] \(message)\n"
+        let now = Date()
         queue.sync {
-            guard let url = destination else { return }
-            append(Data(line.utf8), to: url)
+            guard let file else { return }
+            let line = "[\(formatter.string(from: now))] \(message)\n"
+            do {
+                try file.append(Data(line.utf8))
+            } catch {
+                FileHandle.standardError.write(Data(line.utf8))
+            }
         }
     }
+}
 
-    private static func append(_ data: Data, to url: URL) {
-        do {
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            if let handle = try? FileHandle(forWritingTo: url) {
-                defer { try? handle.close() }
-                try handle.seekToEnd()
-                try handle.write(contentsOf: data)
-            } else {
-                try data.write(to: url)
+/// An append-only log file kept open between writes. Opened with `O_APPEND`, so several writers of the same file
+/// (two runners sharing a run log) never overwrite each other. When it passes `limit` bytes it's renamed to
+/// `<name>.1` (replacing the previous one) and a new file starts: at most about twice the limit on disk.
+public final class RollingLogFile: @unchecked Sendable {
+    public static let defaultLimit = 5 << 20
+
+    public let url: URL
+    public let limit: Int
+    private let lock = NSLock()
+    private var descriptor: Int32 = -1
+
+    public init(url: URL, limit: Int = RollingLogFile.defaultLimit) {
+        self.url = url
+        self.limit = limit
+    }
+
+    deinit { if descriptor >= 0 { Darwin.close(descriptor) } }
+
+    /// `prbar.log` → `prbar.log.1`.
+    public static func rolledURL(for url: URL) -> URL {
+        url.deletingLastPathComponent().appendingPathComponent(url.lastPathComponent + ".1")
+    }
+
+    public func append(_ data: Data) throws {
+        guard !data.isEmpty else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        let fd = try openIfNeeded()
+        try data.withUnsafeBytes { buffer in
+            var offset = 0
+            while offset < buffer.count {
+                let written = write(fd, buffer.baseAddress! + offset, buffer.count - offset)
+                if written < 0 {
+                    if errno == EINTR { continue }
+                    throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                }
+                offset += written
             }
-        } catch {
-            FileHandle.standardError.write(data)
         }
+        var info = stat()
+        if fstat(fd, &info) == 0, info.st_size >= limit { roll(fd, info) }
+    }
+
+    /// Closes the file; the next `append` opens it again.
+    public func close() {
+        lock.lock()
+        defer { lock.unlock() }
+        if descriptor >= 0 { Darwin.close(descriptor) }
+        descriptor = -1
+    }
+
+    private func openIfNeeded() throws -> Int32 {
+        if descriptor >= 0 {
+            // Deleted or rolled by someone else (another writer, a cleanup): start writing to the path again.
+            var open = stat(), path = stat()
+            if fstat(descriptor, &open) == 0, lstat(url.path, &path) == 0, open.st_ino == path.st_ino, open.st_dev == path.st_dev {
+                return descriptor
+            }
+            Darwin.close(descriptor)
+            descriptor = -1
+        }
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let fd = Darwin.open(url.path, O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC, 0o600)
+        guard fd >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        descriptor = fd
+        return fd
+    }
+
+    private func roll(_ fd: Int32, _ info: stat) {
+        // Only the file at `url` rolls: if another writer already moved it, this one just follows the path.
+        var path = stat()
+        if lstat(url.path, &path) == 0, path.st_ino == info.st_ino, path.st_dev == info.st_dev {
+            let rolled = Self.rolledURL(for: url)
+            _ = Darwin.rename(url.path, rolled.path)
+        }
+        Darwin.close(fd)
+        descriptor = -1
     }
 }

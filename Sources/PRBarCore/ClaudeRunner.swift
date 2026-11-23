@@ -428,32 +428,21 @@ public enum Redactor {
 }
 
 /// Agrega texto al log de una corrida de Claude, con los secretos tachados. Se llama desde el hilo lector del
-/// proceso; nunca lanza.
+/// proceso; nunca lanza. One open file per runner (not an open/close per line), rolled at 5 MB.
 final class ClaudeLogWriter: @unchecked Sendable {
-    private let url: URL
+    private let file: RollingLogFile
     private let secrets: [String]
-    private let lock = NSLock()
 
     init(url: URL, secrets: [String] = []) {
-        self.url = url
+        file = RollingLogFile(url: url)
         self.secrets = secrets
     }
 
     func append(_ text: String) {
-        lock.lock()
-        defer { lock.unlock() }
-        let data = Data(Redactor.redact(text, secrets: secrets).utf8)
         do {
-            if let handle = try? FileHandle(forWritingTo: url) {
-                defer { try? handle.close() }
-                try handle.seekToEnd()
-                try handle.write(contentsOf: data)
-            } else {
-                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try data.write(to: url)
-            }
+            try file.append(Data(Redactor.redact(text, secrets: secrets).utf8))
         } catch {
-            AppLog.write("Could not write Claude's log \(url.path): \(error)")
+            AppLog.write("Could not write Claude's log \(file.url.path): \(error)")
         }
     }
 }
