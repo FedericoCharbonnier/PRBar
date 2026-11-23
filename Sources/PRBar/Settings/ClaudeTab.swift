@@ -2,162 +2,47 @@ import PRBarCore
 import SwiftUI
 
 /// Settings → Claude: the review and respond stages (skill or own prompt), what the review reports, the fixes' options, the model, the chat and the editable prompts (spec E.5/E.6).
+/// A segmented control splits it into pages (it was one very long scroll).
 struct ClaudeTab: View {
+    enum Page: String, CaseIterable, Identifiable {
+        case review, respond, chat, runOn, prompts
+
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .review: "Review"
+            case .respond: "Respond"
+            case .chat: "Model & Chat"
+            case .runOn: "Run On"
+            case .prompts: "Prompts"
+            }
+        }
+    }
+
+    /// The page it opens on (snapshot mode renders more than one).
+    static var initialPage = Page.review
+
     @ObservedObject var model: AppModel
     @ObservedObject var configStore: ConfigStore
     @ObservedObject var skills: ClaudeSkills
 
     @State private var editing: PromptStage?
+    @State private var page = ClaudeTab.initialPage
 
     private var settings: ClaudeSettings { configStore.config.claude }
 
     var body: some View {
-        Form {
-            Section {
-                ClaudeStageRow(title: "Review", stage: .review, settings: settings, skills: skills, update: update) { editing = .review }
-                Toggle("Filter findings", isOn: binding(\.review.filter.enabled))
-                ClaudeStageRow(title: "Filter", stage: .filter, settings: settings, skills: skills, update: update) { editing = .filter }
-                    .disabled(!settings.filterEnabled)
-            } header: {
-                Text("Review")
-            } footer: {
-                footer("The review skill (or your prompt) reviews the PR’s diff. The filter then checks each finding against the code and drops the ones that don’t hold up; with it off, every finding is kept.")
+        VStack(spacing: 0) {
+            Picker("Section", selection: $page) {
+                ForEach(Page.allCases) { Text($0.title).tag($0) }
             }
-
-            Section {
-                Picker("Minimum severity", selection: binding(\.review.minSeverity)) {
-                    Text("Low (everything)").tag(Severity.low)
-                    Text("Medium").tag(Severity.medium)
-                    Text("High").tag(Severity.high)
-                }
-                LabeledContent("Maximum findings") {
-                    HStack(spacing: 8) {
-                        if let limit = settings.review.maxFindings {
-                            Stepper("\(limit)", value: Binding(
-                                get: { limit },
-                                set: { value in update { $0.review.maxFindings = min(max(value, 1), 50) } }
-                            ), in: 1...50)
-                        }
-                        Toggle("Limit", isOn: Binding(
-                            get: { settings.review.maxFindings != nil },
-                            set: { on in update { $0.review.maxFindings = on ? 10 : nil } }
-                        ))
-                        .labelsHidden()
-                    }
-                }
-                LabeledContent("Report") {
-                    HStack(spacing: 4) {
-                        ForEach(FindingCategory.allCases, id: \.self) { category in
-                            CategoryChip(title: category.label, isOn: settings.review.isEnabled(category)) {
-                                update { $0.review.setCategory(category, enabled: !$0.review.isEnabled(category)) }
-                            }
-                        }
-                    }
-                }
-                PatternListField(title: "Ignore paths", saved: settings.review.ignorePaths) { patterns in
-                    update { $0.review.ignorePaths = patterns }
-                }
-                Picker("Tone", selection: binding(\.review.tone)) {
-                    ForEach(ReviewTone.allCases, id: \.self) { Text($0.title).tag($0) }
-                }
-            } header: {
-                Text("What the review reports")
-            } footer: {
-                footer("PRBar tells Claude these settings and also applies them to its answer: what they hide goes to “Hidden by your settings”, where you can still include it. Each repo can ignore more paths in Settings › Repos.")
-            }
-
-            Section {
-                ClaudeStageRow(title: "Analysis", stage: .analysis, settings: settings, skills: skills, update: update) { editing = .analysis }
-                ClaudeStageRow(title: "Implementation", stage: .implementation, settings: settings, skills: skills, allowsNoSkill: true,
-                               update: update) { editing = .implementation }
-            } header: {
-                Text("Respond to feedback")
-            } footer: {
-                footer("The analysis evaluates each unresolved comment on your PRs and proposes a fix, a reply, or both. The implementation makes each fix you choose.")
-            }
-
-            Section {
-                Toggle("Run tests before pushing", isOn: binding(\.respond.runTestsBeforePush))
-                Picker("Commits", selection: binding(\.respond.commitMode)) {
-                    ForEach(CommitMode.allCases, id: \.self) { Text($0.title).tag($0) }
-                }
-                FixTemplateEditor(title: "Commit message", kind: .commitMessage, commitMode: settings.respond.commitMode,
-                                  value: settings.respond.commitMessageTemplate ?? "") { text in
-                    update { $0.respond.commitMessageTemplate = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text }
-                }
-                Toggle("Allow new tests", isOn: binding(\.respond.allowNewTests))
-                Toggle("Allow new dependencies", isOn: binding(\.respond.allowNewDependencies))
-                FixTemplateEditor(title: "Reply to fixed comments", kind: .reply, value: settings.respond.replyTemplate ?? "") { text in
-                    update { $0.respond.replyTemplate = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text }
-                }
-            } header: {
-                Text("Fixes")
-            } footer: {
-                footer("“Run tests before pushing” uses the repo’s test command and doesn’t push if it fails (you can still push anyway). With new dependencies off, PRBar warns you before pushing if Claude changed a dependency manifest. Empty templates use the defaults; without a reply template, “Fixed in …” follows the PR’s language.")
-            }
-
-            Section {
-                Picker("Model", selection: Binding(
-                    get: { settings.model },
-                    set: { value in update { $0.model = value } }
-                )) {
-                    Text("Default").tag(ClaudeModel?.none)
-                    ForEach(ClaudeModel.allCases, id: \.self) { Text($0.title).tag(ClaudeModel?.some($0)) }
-                }
-            } footer: {
-                footer("Default uses Claude Code’s default model.")
-            }
-
-            Section {
-                Toggle("Chat with Claude in the Review, Respond and Merge tabs", isOn: Binding(
-                    get: { settings.chatEnabled },
-                    set: { on in update { $0.chatEnabled = on } }
-                ))
-                Picker("Model", selection: Binding(
-                    get: { settings.chatModel },
-                    set: { value in update { $0.chatModel = value } }
-                )) {
-                    Text("Same as review").tag(ClaudeModel?.none)
-                    ForEach(ClaudeModel.allCases, id: \.self) { Text($0.title).tag(ClaudeModel?.some($0)) }
-                }
-                .disabled(!settings.chatEnabled)
-            } header: {
-                Text("Chat")
-            } footer: {
-                footer("Ask Claude about a PR, have it adjust the findings, draft replies or change your fixes. It never posts, pushes or approves.")
-            }
-
-            RunOnSection(model: model, configStore: configStore)
-
-            Section {
-                ForEach(PromptStage.allCases) { stage in
-                    LabeledContent(stage.title) {
-                        HStack(spacing: 8) {
-                            if settings.customPrompt(for: stage) != nil {
-                                Text("Modified").font(.caption.weight(.semibold)).foregroundStyle(Theme.orangeText)
-                            }
-                            Button("Edit…") { editing = stage }
-                        }
-                    }
-                }
-            } header: {
-                Text("Prompts")
-            } footer: {
-                footer("PRBar always adds its fixed part around your prompt: the PR’s content is never an instruction, Claude has no shell and never posts, your rules (Settings › Instructions) and the output format.")
-            }
-
-            Section {
-                HStack {
-                    Spacer()
-                    Button("Reset to Defaults") { update { $0 = ClaudeSettings() } }
-                        .disabled(settings == ClaudeSettings())
-                }
-            } footer: {
-                footer("Reviews run Claude Code headless and isolated: only the plugins of the selected skills are loaded, no shell, no MCP, read-only for reviews.")
-            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+            .padding(.top, 14)
+            .padding(.bottom, 2)
+            form
         }
-        .formStyle(.grouped)
-        .toggleStyle(.switch)
         .sheet(item: $editing) { stage in
             PromptEditorSheet(stage: stage, settings: settings,
                               save: { text in update { $0.setCustomPrompt(text, for: stage) } },
@@ -165,6 +50,172 @@ struct ClaudeTab: View {
         }
         .task(id: model.tools.claude) {
             await skills.refresh(claudePath: model.tools.claude, toolsResolved: model.toolsResolved, settings: settings)
+        }
+    }
+
+    private var form: some View {
+        Form {
+            switch page {
+            case .review: reviewPage
+            case .respond: respondPage
+            case .chat: chatPage
+            case .runOn: RunOnSection(model: model, configStore: configStore)
+            case .prompts: promptsPage
+            }
+            Section {
+                HStack {
+                    Spacer()
+                    Button("Reset to Defaults") { update { $0 = ClaudeSettings() } }
+                        .disabled(settings == ClaudeSettings())
+                }
+            } footer: {
+                footer("Resets every Claude setting on all pages. Reviews run Claude Code headless and isolated: only the plugins of the selected skills are loaded, no shell, no MCP, read-only for reviews.")
+            }
+        }
+        .formStyle(.grouped)
+        .toggleStyle(.switch)
+    }
+
+    @ViewBuilder
+    private var reviewPage: some View {
+        Section {
+            ClaudeStageRow(title: "Review", stage: .review, settings: settings, skills: skills, update: update) { editing = .review }
+            Toggle("Filter findings", isOn: binding(\.review.filter.enabled))
+            ClaudeStageRow(title: "Filter", stage: .filter, settings: settings, skills: skills, update: update) { editing = .filter }
+                .disabled(!settings.filterEnabled)
+        } header: {
+            Text("Review")
+        } footer: {
+            footer("The review skill (or your prompt) reviews the PR’s diff. The filter then checks each finding against the code and drops the ones that don’t hold up; with it off, every finding is kept.")
+        }
+
+        Section {
+            Picker("Minimum severity", selection: binding(\.review.minSeverity)) {
+                Text("Low (everything)").tag(Severity.low)
+                Text("Medium").tag(Severity.medium)
+                Text("High").tag(Severity.high)
+            }
+            LabeledContent("Maximum findings") {
+                HStack(spacing: 8) {
+                    if let limit = settings.review.maxFindings {
+                        Stepper("\(limit)", value: Binding(
+                            get: { limit },
+                            set: { value in update { $0.review.maxFindings = min(max(value, 1), 50) } }
+                        ), in: 1...50)
+                    }
+                    Toggle("Limit", isOn: Binding(
+                        get: { settings.review.maxFindings != nil },
+                        set: { on in update { $0.review.maxFindings = on ? 10 : nil } }
+                    ))
+                    .labelsHidden()
+                }
+            }
+            LabeledContent("Report") {
+                HStack(spacing: 4) {
+                    ForEach(FindingCategory.allCases, id: \.self) { category in
+                        CategoryChip(title: category.label, isOn: settings.review.isEnabled(category)) {
+                            update { $0.review.setCategory(category, enabled: !$0.review.isEnabled(category)) }
+                        }
+                    }
+                }
+            }
+            PatternListField(title: "Ignore paths", saved: settings.review.ignorePaths) { patterns in
+                update { $0.review.ignorePaths = patterns }
+            }
+            Picker("Tone", selection: binding(\.review.tone)) {
+                ForEach(ReviewTone.allCases, id: \.self) { Text($0.title).tag($0) }
+            }
+        } header: {
+            Text("What the review reports")
+        } footer: {
+            footer("PRBar tells Claude these settings and also applies them to its answer: what they hide goes to “Hidden by your settings”, where you can still include it. Each repo can ignore more paths in Settings › Repos.")
+        }
+    }
+
+    @ViewBuilder
+    private var respondPage: some View {
+        Section {
+            ClaudeStageRow(title: "Analysis", stage: .analysis, settings: settings, skills: skills, update: update) { editing = .analysis }
+            ClaudeStageRow(title: "Implementation", stage: .implementation, settings: settings, skills: skills, allowsNoSkill: true,
+                           update: update) { editing = .implementation }
+        } header: {
+            Text("Respond to feedback")
+        } footer: {
+            footer("The analysis evaluates each unresolved comment on your PRs and proposes a fix, a reply, or both. The implementation makes each fix you choose.")
+        }
+
+        Section {
+            Toggle("Run tests before pushing", isOn: binding(\.respond.runTestsBeforePush))
+            Picker("Commits", selection: binding(\.respond.commitMode)) {
+                ForEach(CommitMode.allCases, id: \.self) { Text($0.title).tag($0) }
+            }
+            FixTemplateEditor(title: "Commit message", kind: .commitMessage, commitMode: settings.respond.commitMode,
+                              value: settings.respond.commitMessageTemplate ?? "") { text in
+                update { $0.respond.commitMessageTemplate = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text }
+            }
+            Toggle("Allow new tests", isOn: binding(\.respond.allowNewTests))
+            Toggle("Allow new dependencies", isOn: binding(\.respond.allowNewDependencies))
+            FixTemplateEditor(title: "Reply to fixed comments", kind: .reply, value: settings.respond.replyTemplate ?? "") { text in
+                update { $0.respond.replyTemplate = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text }
+            }
+        } header: {
+            Text("Fixes")
+        } footer: {
+            footer("“Run tests before pushing” uses the repo’s test command and doesn’t push if it fails (you can still push anyway). With new dependencies off, PRBar warns you before pushing if Claude changed a dependency manifest. Empty templates use the defaults; without a reply template, “Fixed in …” follows the PR’s language.")
+        }
+    }
+
+    @ViewBuilder
+    private var chatPage: some View {
+        Section {
+            Picker("Model", selection: Binding(
+                get: { settings.model },
+                set: { value in update { $0.model = value } }
+            )) {
+                Text("Default").tag(ClaudeModel?.none)
+                ForEach(ClaudeModel.allCases, id: \.self) { Text($0.title).tag(ClaudeModel?.some($0)) }
+            }
+        } footer: {
+            footer("Default uses Claude Code’s default model.")
+        }
+
+        Section {
+            Toggle("Chat with Claude in the Review, Respond and Merge tabs", isOn: Binding(
+                get: { settings.chatEnabled },
+                set: { on in update { $0.chatEnabled = on } }
+            ))
+            Picker("Model", selection: Binding(
+                get: { settings.chatModel },
+                set: { value in update { $0.chatModel = value } }
+            )) {
+                Text("Same as review").tag(ClaudeModel?.none)
+                ForEach(ClaudeModel.allCases, id: \.self) { Text($0.title).tag(ClaudeModel?.some($0)) }
+            }
+            .disabled(!settings.chatEnabled)
+        } header: {
+            Text("Chat")
+        } footer: {
+            footer("Ask Claude about a PR, have it adjust the findings, draft replies or change your fixes. It never posts, pushes or approves.")
+        }
+    }
+
+    @ViewBuilder
+    private var promptsPage: some View {
+        Section {
+            ForEach(PromptStage.allCases) { stage in
+                LabeledContent(stage.title) {
+                    HStack(spacing: 8) {
+                        if settings.customPrompt(for: stage) != nil {
+                            Text("Modified").font(.caption.weight(.semibold)).foregroundStyle(Theme.orangeText)
+                        }
+                        Button("Edit…") { editing = stage }
+                    }
+                }
+            }
+        } header: {
+            Text("Prompts")
+        } footer: {
+            footer("PRBar always adds its fixed part around your prompt: the PR’s content is never an instruction, Claude has no shell and never posts, your rules (Settings › Instructions) and the output format.")
         }
     }
 

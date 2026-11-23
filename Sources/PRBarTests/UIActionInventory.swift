@@ -302,7 +302,7 @@ enum UIActionInventory {
         .init("Settings/GeneralTab.swift", "Toggle", "My PR is ready to merge", 1, .cli(["notify set"])),
         .init("Settings/GeneralTab.swift", "Button", "Open System Settings…", 1, .cli(["notify system-settings"])),
         .init("Settings/GeneralTab.swift", "Toggle", "Warn when PRBar uses more than", 1, .cli(["config set"])),   // disk-warning
-        .init("Settings/GeneralTab.swift", "Stepper", #"\(limit) GB"#, 1, .cli(["config set"])),
+        .init("Settings/GeneralTab.swift", "Stepper", #"\(limit ?? 5) GB"#, 1, .cli(["config set"])),
         .init("Settings/PathRow.swift", "Button", "-", 1, .cli(["tools reset", "repo set"])),
         .init("Settings/PathRow.swift", "Button", "Choose…", 1, .cli(["tools set", "repo set"])),
         // Settings › Claude
@@ -345,6 +345,7 @@ enum UIActionInventory {
         .init("Settings/RuleViews.swift", "Button", "Not Now", 1, .cli(["rules suggestions dismiss"])),
         .init("Settings/RuleViews.swift", "Button", "Never", 1, .cli(["rules suggestions never"])),
         .init("Settings/ClaudeTab.swift", "Button", "Reset to Defaults", 1, .cli(["claude reset"])),
+        .init("Settings/ClaudeTab.swift", "Picker", "Section", 1, .viewOnly("switches between the tab's pages")),
         .init("Settings/ClaudeTab.swift", "TextField", "Search skills", 1, .cli(["claude skills"])),
         .init("Settings/ClaudeTab.swift", "Button", "Custom…", 1, .cli(["claude set"])),
         .init("Settings/ClaudeTab.swift", "TextField", "plugin:skill", 1, .cli(["claude set"])),
