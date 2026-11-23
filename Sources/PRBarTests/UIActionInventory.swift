@@ -75,26 +75,28 @@ enum UIActionInventory {
         .init("Activity/ActivityPane.swift", "Component:WindowAccessor", "-", 1, .viewOnly("tracks whether the window is on screen to sample")),
         // Ventana principal (plan 21, spec M.1)
         .init("Main/MainSidebar.swift", "ListSelection", "-", 1, .viewOnly("navigation in the main window")),   // To Review, My PRs, History, Activity
-        .init("Main/MainSidebar.swift", "Component:ClaudeTaskSidebarRow", "-", 1, .viewOnly("navigation in the main window")),   // opens the task's tab
-        .init("Main/MainSidebar.swift", "Button", "-", 2, .cli(["app settings"])),   // the task row, the iPhone row (--tab iphone)
+        .init("Main/MainSidebar.swift", "Button", "-", 1, .cli(["app settings"])),   // the iPhone row (--tab iphone); task rows are list selection
         .init("Main/MainSidebar.swift", "IconButton", "gearshape", 1, .cli(["app settings"])),
         .init("Main/MainWindow.swift", "Button", "Back", 1, .viewOnly("navigation in the main window")),
         .init("Main/MainWindow.swift", "Button", "Refresh", 2, .cli(["refresh", "resources"])),   // the PRs; in Activity, the disk
         .init("Main/MainWindow.swift", "Button", "Open in New Window", 1, .viewOnly("opens the PR in its own window")),
-        .init("Main/MainWindow.swift", "Button", "-", 1, .cli(["open"])),   // Open on GitHub
-        .init("Main/MainWindow.swift", "searchable", "Search ⌘F", 1, .viewOnly("filters the list")),
+        .init("Main/MainWindow.swift", "Button", "Open on GitHub", 1, .cli(["open"])),   // only with a PR selected
+        .init("Main/MainWindow.swift", "searchable", "-", 1, .viewOnly("filters the list")),   // Search PRs / Search History
         .init("Main/MainWindow.swift", "Component:WindowAccessor", "-", 1, .viewOnly("sets the search field's width")),
-        .init("Main/EmptyDetailView.swift", "Component:MessageView", "sidebar.squares.right", 1, .viewOnly("no PR selected, no action")),
+        .init("Main/EmptyDetailView.swift", "Component:MessageView", "No PR Selected", 1, .viewOnly("no PR selected, no action")),
         .init("Main/PRListPane.swift", "ListSelection", "-", 1, .viewOnly("navigation in the main window")),
+        .init("Main/PRListRow.swift", "Button", "-", 1, .cli(["review start", "respond start", "ci fix", "open"])),   // VoiceOver's action = ↩
         .init("Main/PRListPane.swift", "onKeyPress", "-", 1, .cli(["review start", "respond start", "ci fix", "open"])),   // ↩: the pill's action
         .init("Main/PRListPane.swift", "primaryAction", "-", 1, .viewOnly("opens the PR in its own window")),   // double click
         .init("Main/PRListPane.swift", "Button", "Open on GitHub", 1, .cli(["open"])),
         .init("Main/PRListPane.swift", "Button", "Copy Link", 1, .cli(["open"])),
+        .init("Main/PRListPane.swift", "Button", "-", 1, .viewOnly("folds a section of the list")),   // the section header
         .init("Main/PRListPane.swift", "Button", #"\(drafts == 1 ? "#, 1, .viewOnly("navigation in the main window")),   // N drafts hidden · Show
         .init("Main/PRListPane.swift", "Component:MessageView", "-", 3, .cli(["app settings", "refresh"])),   // Open Settings, Try Again
         .init("Main/PRListPane.swift", "Component:MessageView", "checkmark.seal", 1, .viewOnly("the list’s empty state, no action")),
         .init("Main/PRDetailView.swift", "Component:PRTabBar", "-", 1, .viewOnly("navigation in the main window")),
-        .init("Main/PRTabBar.swift", "Button", "-", 2, .viewOnly("navigation in the main window")),   // a PR tab, a History tab (`prbar history --kind`)
+        .init("Main/PRTabBar.swift", "Button", "-", 1, .viewOnly("navigation in the main window")),   // a PR tab
+        .init("Main/PRTabBar.swift", "Picker", "Show", 1, .viewOnly("filters History (`prbar history --kind`)")),
         .init("Main/PRDetailView.swift", "Button", "-", 1, .cli(["chat"])),   // Chat (toggles the inspector)
         .init("Main/PRDetailView.swift", "Button", "Open on GitHub", 1, .cli(["open"])),   // a PR that's no longer in the list
         .init("Main/PRDetailView.swift", "Component:MessageView", "questionmark.folder", 1, .viewOnly("a message; its action is a Button in this file")),
@@ -108,7 +110,6 @@ enum UIActionInventory {
         .init("Review/ReviewEditor.swift", "Picker", "Decision", 1, .cli(["review publish"])),   // --approve / --request-changes
         .init("Review/ReviewEditor.swift", "Button", "Review Again", 1, .cli(["review start"])),
         .init("Review/ReviewEditor.swift", "TextField", "General comment (optional)", 1, .cli(["review comment"])),
-        .init("Review/ReviewEditor.swift", "ExternalLink", "Open on GitHub", 1, .cli(["open"])),
         .init("Review/ReviewEditor.swift", "Component:OutdatedReviewBanner", "-", 1, .cli(["review start"])),
         .init("Review/ReviewEditor.swift", "Component:ReviewPublishedView", "-", 1, .viewOnly("closes the window")),
         .init("Review/ReviewEditor.swift", "ConfirmAlert", "Approve this PR?", 1, .cli(["review publish"])),
@@ -207,6 +208,7 @@ enum UIActionInventory {
         .init("Chat/ChatPanel.swift", "Picker", "Scope", 1, .cli(["rules proposal save"])),   // --global / --this-repo
         .init("Chat/ChatPanel.swift", "Button", "Save", 1, .cli(["rules proposal save"])),
         .init("Chat/ChatPanel.swift", "Button", "Dismiss", 1, .cli(["rules proposal dismiss"])),
+        .init("Chat/ChatPanel.swift", "Component:ChatWorkingRow", "working", 1, .viewOnly("Claude's streamed text while it answers, no action")),
         // Botones Review / Respond de la fila
         .init("Review/ReviewButton.swift", "Button", "Review", 1, .cli(["review start"])),
         .init("Review/ReviewButton.swift", "Button", "-", 4, .cli(["open", "review cancel", "history show"])),
@@ -276,7 +278,7 @@ enum UIActionInventory {
         .init("Respond/RespondItemCard.swift", "ExternalLink", "View on GitHub", 1, .cli(["respond show"])),
         // Historial
         .init("Review/HistoryPane.swift", "ListSelection", "-", 1, .cli(["history show"])),
-        .init("Review/HistoryPane.swift", "Button", "-", 2, .cli(["history show", "open"])),   // View Claude Log, Open on GitHub (the detail's bar)
+        .init("Review/HistoryPane.swift", "Button", "-", 1, .cli(["history show"])),   // View Claude Log (the detail's bar; GitHub is the header's link)
         .init("Review/HistoryPane.swift", "Button", "Open PR on GitHub", 3, .cli(["open"])),
         .init("Review/HistoryPane.swift", "Button", "Copy PR Link", 3, .cli(["open"])),
         .init("Review/HistoryPane.swift", "Button", "View Review on GitHub", 1, .cli(["open"])),
@@ -300,12 +302,13 @@ enum UIActionInventory {
         .init("Settings/GeneralTab.swift", "Toggle", "My PR is ready to merge", 1, .cli(["notify set"])),
         .init("Settings/GeneralTab.swift", "Button", "Open System Settings…", 1, .cli(["notify system-settings"])),
         .init("Settings/GeneralTab.swift", "Toggle", "Warn when PRBar uses more than", 1, .cli(["config set"])),   // disk-warning
-        .init("Settings/GeneralTab.swift", "Stepper", #"\(limit) GB"#, 1, .cli(["config set"])),
+        .init("Settings/GeneralTab.swift", "Stepper", #"\(limit ?? 5) GB"#, 1, .cli(["config set"])),
         .init("Settings/PathRow.swift", "Button", "-", 1, .cli(["tools reset", "repo set"])),
         .init("Settings/PathRow.swift", "Button", "Choose…", 1, .cli(["tools set", "repo set"])),
         // Settings › Claude
         // el selector de skill, "None", una fila de la lista de skills y los chips de categoría (Task 28)
-        .init("Settings/ClaudeTab.swift", "Button", "-", 4, .cli(["claude stage", "claude set", "claude skills", "claude review set"])),
+        .init("Settings/ClaudeTab.swift", "Button", "-", 3, .cli(["claude stage", "claude set", "claude skills"])),
+        .init("Settings/ClaudeTab.swift", "Component:CapsuleToggle", "-", 1, .cli(["claude review set"])),   // CategoryChip: Report
         .init("Settings/ClaudeTab.swift", "Toggle", "Filter findings", 1, .cli(["claude set"])),
         .init("Settings/ClaudeTab.swift", "Picker", "Model", 2, .cli(["claude set"])),   // --model y --chat-model
         .init("Settings/ClaudeTab.swift", "Toggle", "Chat with Claude in the Review, Respond and Merge tabs", 1, .cli(["claude set"])),   // --chat
@@ -337,12 +340,14 @@ enum UIActionInventory {
         .init("Settings/InstructionsTab.swift", "Button", "Add", 1, .cli(["rules add"])),
         .init("Settings/InstructionsTab.swift", "TextField", "-", 1, .cli(["rules chat"])),   // el mensaje del chat de instrucciones
         .init("Settings/InstructionsTab.swift", "Button", "Stop", 1, .cli(["rules chat"])),   // --stop
-        .init("Settings/RuleViews.swift", "Button", "-", 1, .cli(["rules edit", "rules add", "rules proposal save"])),   // StageChip: Review / Fixes
+        .init("Settings/RuleViews.swift", "Button", "-", 1, .viewOnly(generic)),   // CapsuleToggle
+        .init("Settings/RuleViews.swift", "Component:CapsuleToggle", "-", 1, .cli(["rules edit", "rules add", "rules proposal save"])),   // StageChip: Review / Fixes
         .init("Settings/RuleViews.swift", "TextField", "Rule", 1, .cli(["rules suggestions accept"])),   // la regla sugerida (--text)
         .init("Settings/RuleViews.swift", "Button", "Create Rule", 1, .cli(["rules suggestions accept"])),
         .init("Settings/RuleViews.swift", "Button", "Not Now", 1, .cli(["rules suggestions dismiss"])),
         .init("Settings/RuleViews.swift", "Button", "Never", 1, .cli(["rules suggestions never"])),
         .init("Settings/ClaudeTab.swift", "Button", "Reset to Defaults", 1, .cli(["claude reset"])),
+        .init("Settings/ClaudeTab.swift", "Picker", "Section", 1, .viewOnly("switches between the tab's pages")),
         .init("Settings/ClaudeTab.swift", "TextField", "Search skills", 1, .cli(["claude skills"])),
         .init("Settings/ClaudeTab.swift", "Button", "Custom…", 1, .cli(["claude set"])),
         .init("Settings/ClaudeTab.swift", "TextField", "plugin:skill", 1, .cli(["claude set"])),

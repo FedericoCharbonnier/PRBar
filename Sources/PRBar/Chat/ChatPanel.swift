@@ -28,20 +28,25 @@ struct ChatPanel: View {
                     .padding(.vertical, 7)
                     .background(Theme.tint(Theme.orange))
             }
-            if let host {
-                PlacementLabel(text: "on \(host)")
-                    .font(.caption)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 5)
-                    .help("Claude answers on \(host), with its own Claude login and plugins.")
-                Divider()
+            // "Chat · on devbox": what this panel is and where Claude answers.
+            HStack(spacing: 4) {
+                Text("Chat").fontWeight(.semibold).foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                if let host {
+                    Text("·").foregroundStyle(Color(nsColor: .tertiaryLabelColor))
+                    PlacementLabel(text: "on \(host)")
+                        .help("Claude answers on \(host), with its own Claude login and plugins.")
+                }
             }
+            .font(.caption)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
+            Divider()
             messages
             Divider()
             input
         }
-        .frame(minWidth: 320, maxHeight: .infinity)
+        .frame(minWidth: Theme.MainLayout.inspectorMinWidth, maxHeight: .infinity)
         .onAppear { inputFocused = true }
     }
 
@@ -68,7 +73,8 @@ struct ChatPanel: View {
                         .id(message.id)
                     }
                     if chat.isRunning {
-                        workingRow.id("working")
+                        ChatWorkingRow(stream: chat.stream) { proxy.scrollTo("working", anchor: .bottom) }
+                            .id("working")
                     }
                 }
                 .padding(12)
@@ -76,7 +82,6 @@ struct ChatPanel: View {
             .onChange(of: chat.session.messages.count) { _, _ in
                 if let last = chat.session.messages.last?.id { withAnimation { proxy.scrollTo(last, anchor: .bottom) } }
             }
-            .onChange(of: chat.partialText) { _, _ in proxy.scrollTo("working", anchor: .bottom) }
         }
     }
 
@@ -96,26 +101,6 @@ struct ChatPanel: View {
             Text("Claude never posts, pushes or approves: you do.").font(.caption).foregroundStyle(.tertiary)
         }
         .padding(.vertical, 8)
-    }
-
-    private var workingRow: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if !chat.partialText.isEmpty {
-                Text(ChatMarkdown.attributed(chat.partialText))
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            HStack(spacing: 6) {
-                ProgressView().controlSize(.small)
-                Text(chat.activity.map { "Claude is working… · \($0)" } ?? "Claude is working…")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-        }
     }
 
     private func summary(_ message: ChatMessage) -> String {
@@ -236,8 +221,10 @@ struct ChatMessageRow: View {
                     .foregroundStyle(message.undone ? .secondary : .primary)
                 Spacer(minLength: 4)
                 if canUndo, let undo {
+                    // Drawn by SwiftUI, not an AppKit push button: in the inspector, in Dark Mode, that one came out
+                    // as a bright white block.
                     Button("Undo", action: undo)
-                        .controlSize(.small)
+                        .buttonStyle(ChatSecondaryButtonStyle())
                         .help("Undo this message’s changes")
                 }
             }
@@ -335,23 +322,20 @@ struct RuleProposalCard: View {
                     .textFieldStyle(.roundedBorder)
                     .font(.callout)
                     .lineLimit(1...4)
-                HStack(spacing: 6) {
-                    Picker("Scope", selection: $scope) {
-                        Text("Global").tag(RuleScope.global)
-                        Text(actions.repo).tag(RuleScope.repo(actions.repo))
+                // One row when the panel is wide enough; otherwise scope and stages, then the buttons on the right.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 6) {
+                        scopeAndStages(actions)
+                        Spacer(minLength: 4)
+                        buttons(actions)
                     }
-                    .labelsHidden()
-                    .fixedSize()
-                    ForEach(RuleStage.allCases, id: \.self) { stage in
-                        StageChip(stage: stage, isOn: stages.contains(stage)) {
-                            if stages.contains(stage) { stages.remove(stage) } else { stages.insert(stage) }
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 6) { scopeAndStages(actions) }
+                        HStack(spacing: 6) {
+                            Spacer(minLength: 0)
+                            buttons(actions)
                         }
                     }
-                    Spacer(minLength: 4)
-                    Button("Dismiss") { actions.dismiss(proposal.id) }
-                    Button("Save") { error = actions.save(proposal.id, text, scope, stages) }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || stages.isEmpty)
                 }
                 .controlSize(.small)
                 if let error {
@@ -377,6 +361,32 @@ struct RuleProposalCard: View {
         }
         .padding(10)
         .background(RoundedRectangle(cornerRadius: 8).fill(Theme.tint(Theme.accent).opacity(0.5)))
+    }
+
+    @ViewBuilder
+    private func scopeAndStages(_ actions: RuleProposalActions) -> some View {
+        Picker("Scope", selection: $scope) {
+            Text("Global").tag(RuleScope.global)
+            Text(actions.repo).tag(RuleScope.repo(actions.repo))
+        }
+        .labelsHidden()
+        .fixedSize()
+        ForEach(RuleStage.allCases, id: \.self) { stage in
+            StageChip(stage: stage, isOn: stages.contains(stage)) {
+                if stages.contains(stage) { stages.remove(stage) } else { stages.insert(stage) }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func buttons(_ actions: RuleProposalActions) -> some View {
+        Button("Dismiss") { actions.dismiss(proposal.id) }
+            .buttonStyle(ChatSecondaryButtonStyle())
+            .fixedSize()
+        Button("Save") { error = actions.save(proposal.id, text, scope, stages) }
+            .buttonStyle(.borderedProminent)
+            .fixedSize()
+            .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || stages.isEmpty)
     }
 }
 
@@ -419,5 +429,48 @@ enum ChatUndo {
                 chat.undo(id)
             }
         }
+    }
+}
+
+/// Claude's text so far and what it's doing: the only view that observes `ChatStream`, which changes on every chunk.
+private struct ChatWorkingRow: View {
+    @ObservedObject var stream: ChatStream
+    let scrollToBottom: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if !stream.partialText.isEmpty {
+                Text(ChatMarkdown.attributed(stream.partialText))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text(stream.activity.map { "Claude is working… · \($0)" } ?? "Claude is working…")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+        }
+        .onChange(of: stream.partialText) { _, _ in scrollToBottom() }
+    }
+}
+
+/// A small secondary button for the chat's cards (Undo, Dismiss): a translucent fill that follows the appearance.
+struct ChatSecondaryButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.callout)
+            .foregroundStyle(Color(nsColor: isEnabled ? .labelColor : .tertiaryLabelColor))
+            .padding(.horizontal, 9)
+            .padding(.vertical, 3)
+            .background(RoundedRectangle(cornerRadius: 5)
+                .fill(Color.primary.opacity(configuration.isPressed ? 0.18 : 0.09)))
+            .contentShape(RoundedRectangle(cornerRadius: 5))
     }
 }

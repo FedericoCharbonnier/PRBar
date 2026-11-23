@@ -235,14 +235,20 @@ struct MergeDetailPane: View {
             statusLabel
             HStack(spacing: 8) {
                 if let head = window.shownHead {
-                    Text(head.prefix(7))
-                        .font(.system(.callout, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(RoundedRectangle(cornerRadius: 4).fill(Color.primary.opacity(0.07)))
-                        .help("The commit that will be merged: \(head)")
-                        .accessibilityLabel("Head \(head.prefix(7))")
+                    HStack(spacing: 5) {
+                        Text("Head").foregroundStyle(.secondary)
+                        Text(head.prefix(7))
+                            .font(.system(.callout, design: .monospaced))
+                            .foregroundStyle(.primary)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(RoundedRectangle(cornerRadius: 4).fill(Color.primary.opacity(0.07)))
+                    }
+                    .font(.callout)
+                    .accessibilityElement(children: .combine)
+                    .help("The merge is pinned to this commit (\(head)): if someone pushes after it, GitHub refuses the merge "
+                          + "instead of merging code you didn’t see.")
+                    .accessibilityLabel("Head commit \(head.prefix(7))")
                 }
                 Spacer(minLength: 0)
             }
@@ -264,7 +270,7 @@ struct MergeDetailPane: View {
                   systemImage: deletes ? "checkmark.circle" : "minus.circle")
                 .font(.callout)
                 .foregroundStyle(.secondary)
-                .help("The repo’s setting on GitHub")
+                .help("The repo’s setting on GitHub (Settings › General), not a choice made here")
             let config = model.configStore.config
             if config.slack.enabled, config.slack.postMerged,
                let channel = config.repoConfig(account: item.account, repo: item.pr.repo)?.slackChannelName {
@@ -444,6 +450,8 @@ private struct MergeSection<Content: View>: View {
     let systemImage: String
     var trailing: String?
     var trailingColor: Color = .secondary
+    /// The trailing text's tooltip (the longer form).
+    var trailingHelp: String? = nil
     @ViewBuilder let content: () -> Content
 
     var body: some View {
@@ -451,13 +459,17 @@ private struct MergeSection<Content: View>: View {
             HStack(spacing: 6) {
                 Label(title, systemImage: systemImage)
                     .font(.headline)
+                    .fixedSize()
                 Spacer(minLength: 8)
                 if let trailing {
+                    // Wraps in the narrow side column rather than cutting the counts off.
                     Text(trailing)
                         .font(.callout)
                         .foregroundStyle(trailingColor)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                        .multilineTextAlignment(.trailing)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .help(trailingHelp ?? trailing)
                 }
             }
             content()
@@ -490,11 +502,17 @@ private struct MergeReviewsSection: View {
                 ForEach(detail.reviews, id: \.author) { review in
                     HStack(spacing: 8) {
                         AvatarView(login: review.author, url: review.avatarURL, size: 18)
-                        Text(review.author).font(.callout)
+                        Text(review.author).font(.callout).lineLimit(1).truncationMode(.tail)
                         pill(review.state)
                         Spacer()
                         if let date = review.submittedAt {
-                            Text(ReviewDates.ago(date)).font(.caption).foregroundStyle(.secondary)
+                            // Short ("40 min", "2h", like the list's ages): "40 minutes ago" wrapped to three lines.
+                            Text(RelativeAge.short(from: date))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .fixedSize()
+                                .help(ReviewDates.ago(date))
                         }
                     }
                 }
@@ -538,7 +556,8 @@ private struct MergeChecksSection: View {
     }
 
     var body: some View {
-        MergeSection(title: "Checks", systemImage: "checklist", trailing: detail.checksSummary, trailingColor: summaryColor) {
+        MergeSection(title: "Checks", systemImage: "checklist", trailing: detail.checksShortSummary, trailingColor: summaryColor,
+                     trailingHelp: detail.checksSummary) {
             VStack(alignment: .leading, spacing: 7) {
                 if detail.checks.isEmpty {
                     Text("This PR has no checks").font(.callout).foregroundStyle(.secondary)

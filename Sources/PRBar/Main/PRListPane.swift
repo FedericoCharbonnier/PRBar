@@ -68,8 +68,8 @@ struct PRListPane: View {
         let sections = MainList.sections(section).map { ($0, MainList.items($0, in: snapshot, query: query)) }
         // Buscando: solo las secciones con resultados, desplegadas, y sin los avisos de vacío (spec M.1, ⌘F).
         let loudEmpty = !searching && sections.allSatisfy { $0.0.isQuiet || $0.1.isEmpty }
-        // Las vacías quedan (plegadas) salvo las quietas, que sin PRs no aparecen.
-        let shown = sections.filter { !$0.1.isEmpty || (!$0.0.isQuiet && !searching) }
+        // Only sections with PRs, like the popover ("CI Failing 0" said nothing).
+        let shown = sections.filter { !$0.1.isEmpty }
         return Group {
             if searching && shown.isEmpty {
                 Text("No Results")
@@ -95,7 +95,7 @@ struct PRListPane: View {
                                     .tag(item.id)
                             }
                         } header: {
-                            sectionHeader(listSection, count: items.count)
+                            sectionHeader(listSection, count: items.count, searching: searching)
                         }
                     }
                 }
@@ -112,8 +112,7 @@ struct PRListPane: View {
                     if let prID = ids.first, let item = model.currentItem(prID) {
                         Button("Open on GitHub") { NSWorkspace.shared.open(item.pr.url) }
                         Button("Copy Link") {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(item.pr.url.absoluteString, forType: .string)
+                            Pasteboard.copy(item.pr.url.absoluteString)
                         }
                     }
                 } primaryAction: { ids in
@@ -129,18 +128,47 @@ struct PRListPane: View {
                 set: { state.setCollapsed(!$0, section) })
     }
 
-    private func sectionHeader(_ section: MainListSection, count: Int) -> some View {
-        HStack(spacing: 6) {
-            Text(section.title)
-            Text("\(count)")
-                .font(.caption.weight(.semibold).monospacedDigit())
-                .padding(.horizontal, 5)
-                .frame(minWidth: 18, minHeight: 15)
-                .background(Capsule().fill(Color.primary.opacity(0.08)))
+    /// Title, count and the popover's caption, with a chevron that folds the section (not while searching: then every
+    /// section with results is open).
+    private func sectionHeader(_ section: MainListSection, count: Int, searching: Bool) -> some View {
+        let collapsed = !searching && state.isCollapsed(section, itemCount: count)
+        // Plain label colors: inside a List header the hierarchical `.secondary` nests and comes out too dim.
+        let color = Color(nsColor: section.isQuiet ? .secondaryLabelColor : .labelColor)
+        return Button {
+            state.setCollapsed(!collapsed, section)
+        } label: {
+            HStack(spacing: 6) {
+                if !searching {
+                    Image(systemName: "chevron.right")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                        .rotationEffect(.degrees(collapsed ? 0 : 90))
+                        .frame(width: 10)
+                }
+                Text(section.title)
+                Text("\(count)")
+                    .font(.caption.weight(.semibold).monospacedDigit())
+                    .padding(.horizontal, 5)
+                    .frame(minWidth: 18, minHeight: 15)
+                    .background(Capsule().fill(Color.primary.opacity(0.08)))
+                if let subtitle = section.subtitle {
+                    Text(subtitle)
+                        .font(.subheadline.weight(.regular))
+                        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(color)
+            .contentShape(Rectangle())
         }
-        .foregroundStyle(section.isQuiet ? .secondary : .primary)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(section.title), \(count == 1 ? "1 PR" : "\(count) PRs")")
+        .buttonStyle(.plain)
+        .disabled(searching)
+        .help(collapsed ? "Show \(section.title)" : "Hide \(section.title)")
+        .accessibilityLabel([section.title, section.subtitle, count == 1 ? "1 PR" : "\(count) PRs"]
+            .compactMap { $0 }.joined(separator: ", "))
+        .accessibilityValue(searching ? "" : collapsed ? "collapsed" : "expanded")
+        .accessibilityAddTraits(.isHeader)
     }
 
     private func banner(_ text: String) -> some View {

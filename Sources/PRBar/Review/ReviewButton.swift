@@ -50,14 +50,16 @@ struct ReviewButton: View {
                 Image(systemName: "line.3.horizontal.decrease").font(.system(size: 10, weight: .bold))
             }
         case .ready(let draft)?:
+            // Violet like Claude's work in progress: green with a check read as "approved".
             Button(action: actions.open) {
-                pill(fg: Theme.greenText, bg: Theme.tint(Theme.green), leading: 6) {
-                    Image(systemName: "checkmark.circle.fill").font(.callout)
-                    Text("\(draft.keptCount) comment\(draft.keptCount == 1 ? "" : "s")").fontWeight(.semibold)
+                pill(fg: Theme.violet, bg: Theme.tint(Theme.violet), leading: 6) {
+                    Image(systemName: "sparkles").font(.callout)
+                    Text("Review ready · \(draft.keptCount)").fontWeight(.semibold)
                 }
             }
             .buttonStyle(.plain)
-            .help("Open the review to choose comments and post")
+            .help("Claude’s review is ready with \(draft.keptCount) comment\(draft.keptCount == 1 ? "" : "s"): open it to choose what to post")
+            .accessibilityLabel("Review ready, \(draft.keptCount) comment\(draft.keptCount == 1 ? "" : "s")")
         case .failed(let message, let logURL)?:
             Button {
                 showFailureMenu(message: message, logURL: logURL)
@@ -209,9 +211,10 @@ struct PhasePill<Content: View>: View {
     }
 
     var body: some View {
+        // Its ideal width when there's room (the popover fixes its size); in a tight list row the text truncates.
         HStack(spacing: 4) { content }
             .lineLimit(1)
-            .fixedSize()
+            .fixedSize(horizontal: false, vertical: true)
             .padding(.leading, leading)
             .padding(.trailing, trailing)
             .frame(height: 20)

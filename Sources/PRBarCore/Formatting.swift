@@ -41,3 +41,20 @@ public enum AvatarColor {
         return sum % paletteCount
     }
 }
+
+/// Byte counts in the UI's English format ("2.3 GB", "512 MB"), whatever the system locale: the rest of the UI
+/// ("$2.60", "682.6k") already uses "." as the decimal separator, and `ByteCountFormatter` would say "2,3 GB" in a
+/// Spanish or German locale.
+public enum ByteSize {
+    private static let locale = Locale(identifier: "en_US")
+
+    /// Disk and downloads: decimal units, like Finder.
+    public static func file(_ bytes: Int64) -> String {
+        bytes.formatted(.byteCount(style: .file).locale(locale))
+    }
+
+    /// RAM: binary units, like Activity Monitor.
+    public static func memory(_ bytes: UInt64) -> String {
+        Int64(clamping: bytes).formatted(.byteCount(style: .memory).locale(locale))
+    }
+}

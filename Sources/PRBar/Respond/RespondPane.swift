@@ -374,6 +374,8 @@ struct RespondRunView: View {
     @State private var output = RespondOutput.diff
     /// El chip de archivo elegido en Diff (nil = todos).
     @State private var diffFile: String?
+    /// The chosen file's part of the diff, kept between renders.
+    @State private var diffSections = DiffSectionMemo()
 
     init(model: AppModel, prID: String, draft: RespondDraft, chat: ChatCoordinator, close: (() -> Void)? = nil) {
         self.model = model
@@ -867,7 +869,7 @@ struct RespondRunView: View {
     @ViewBuilder
     private func fullDiffSection(_ result: RespondResult) -> some View {
         if let diff = result.diff {
-            let shown = diffFile.map { DiffFiles.section(of: diff, file: $0) }.flatMap { $0.isEmpty ? nil : $0 } ?? diff
+            let shown = diffFile.map { diffSections.section(of: diff, file: $0) }.flatMap { $0.isEmpty ? nil : $0 } ?? diff
             VStack(alignment: .leading, spacing: 0) {
                 DiffTextView(diff: shown)
                     .frame(minHeight: 160, idealHeight: 360, maxHeight: 420)
@@ -1211,21 +1213,23 @@ private struct RespondHeader: View {
                 .font(.callout.weight(.semibold))
                 .foregroundStyle(draft.isCIFix ? Theme.redText : Theme.orangeText)
             HStack(spacing: 6) {
-                Text("@\(draft.account)").foregroundStyle(.primary)
+                // The PR is yours: your avatar and login, as the other tabs show the author.
+                AvatarView(login: draft.account, url: nil, size: 16)
+                Text(draft.account).foregroundStyle(.primary)
                 Text("·").foregroundStyle(.tertiary)
                 Image(systemName: "arrow.triangle.branch").imageScale(.small).fontWeight(.semibold)
                 Text(draft.headRef)
                     .font(.system(.callout, design: .monospaced))
                     .foregroundStyle(.primary)
                     .truncationMode(.middle)
-                if let placement {
-                    Text("·").foregroundStyle(.tertiary)
-                    PlacementLabel(text: placement)
-                }
             }
             .font(.callout)
             .foregroundStyle(.secondary)
             .lineLimit(1)
+            // On its own line (like the popover row): a fallback warning must not be cut off.
+            if let placement {
+                PlacementLabel(text: placement).font(.callout)
+            }
             // El worktree va en la tarjeta de progreso.
         }
         .frame(maxWidth: .infinity, alignment: .leading)

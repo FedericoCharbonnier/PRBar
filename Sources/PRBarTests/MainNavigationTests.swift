@@ -161,6 +161,8 @@ enum MainNavigationTests {
             try expect(abs(MainLayout.listWidth(windowWidth: 1000) - 320) < 0.001)
             try expectEqual(MainLayout.listWidth(windowWidth: 600), 280)
             try expectEqual(MainLayout.listWidth(windowWidth: 1280), 340)
+            try expectEqual(MainLayout.listWidth(windowWidth: 700, chatOpen: true), 260)
+            try expectEqual(MainLayout.listWidth(windowWidth: 1280, chatOpen: true), 340)
         },
     ]
 }

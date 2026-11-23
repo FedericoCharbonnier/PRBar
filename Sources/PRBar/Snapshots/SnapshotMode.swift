@@ -377,7 +377,7 @@ private final class SnapshotSession {
         for record in fixtures.historyReviews { try model.history.save(record) }
         let responds = fixtures.historyResponds
         for record in responds { try model.respondHistory.save(record) }
-        model.main.history.reload(model)
+        await model.main.history.reload(model)
         model.main.go(to: .history(recordID: model.main.history.all.first?.id), snapshot: model.prStore.snapshot)
         try await window("main-history", title: "PRBar", size: Theme.MainLayout.defaultSize) { MainWindow(model: model) }
         model.main.go(to: .history(recordID: responds[0].id), snapshot: model.prStore.snapshot)
@@ -391,24 +391,36 @@ private final class SnapshotSession {
         try SnapshotFixtures.applyIPhone(model, .connected)
         let sizes: [SettingsWindow.Tab: NSSize] = [
             .general: NSSize(width: 700, height: 905),
-            .claude: NSSize(width: 700, height: 2470),
+            .claude: NSSize(width: 700, height: 860),
             .instructions: NSSize(width: 700, height: 1330),
             .repos: NSSize(width: 700, height: 1330),
             .slack: NSSize(width: 700, height: 1260),
             .iphone: NSSize(width: 700, height: 880),
         ]
+        // Settings › Claude is split in pages: its Review page and its Run On page (the hosts) get a snapshot each.
+        typealias Shot = (tab: SettingsWindow.Tab, page: ClaudeTab.Page?, name: String, size: NSSize?)
+        var pages: [Shot] = []
         for tab in SettingsWindow.Tab.allCases {
+            if tab == .claude {
+                pages.append((tab, .review, "settings-claude", sizes[tab]))
+                pages.append((tab, .runOn, "settings-claude-run-on", NSSize(width: 700, height: 580)))
+            } else {
+                pages.append((tab, nil, "settings-\(tab.rawValue)", sizes[tab]))
+            }
+        }
+        for (tab, page, name, size) in pages {
+            ClaudeTab.initialPage = page ?? .review
             for appearance in options.appearances {
                 let controller = SettingsWindow.makeController(model: model, tab: tab)
-                if let size = sizes[tab], let tabs = controller as? NSTabViewController {
+                if let size, let tabs = controller as? NSTabViewController {
                     // Taller than in the app, so the whole tab fits without scrolling.
                     for item in tabs.tabViewItems { item.viewController?.preferredContentSize = size }
                 }
                 let window = SnapshotRenderer.makeWindow(
-                    controller: controller, size: sizes[tab] ?? tab.contentSize, style: [.titled, .closable],
+                    controller: controller, size: size ?? tab.contentSize, style: [.titled, .closable],
                     title: tab.title, toolbarStyle: .preference, appearance: SnapshotRenderer.appearance(appearance)
                 )
-                window.setContentSize(sizes[tab] ?? tab.contentSize)
+                window.setContentSize(size ?? tab.contentSize)
                 await SnapshotRenderer.settle(window, seconds: 1)
                 if appearance == .dark {
                     // Offscreen, the selected tab's glass capsule draws as a solid white block in Dark Mode: the
@@ -416,9 +428,10 @@ private final class SnapshotSession {
                     window.toolbar?.selectedItemIdentifier = nil
                     await SnapshotRenderer.settle(window, seconds: 0.2)
                 }
-                try write(SnapshotRenderer.capture(window, includeFrame: true, cornerRadius: 16), "settings-\(tab.rawValue)", appearance)
+                try write(SnapshotRenderer.capture(window, includeFrame: true, cornerRadius: 16), name, appearance)
             }
         }
+        ClaudeTab.initialPage = .review
         try await iphoneSettings(model)
     }
 

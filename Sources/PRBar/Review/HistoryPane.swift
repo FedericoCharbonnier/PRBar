@@ -7,11 +7,35 @@ import SwiftUI
 @MainActor
 final class HistoryEntries: ObservableObject {
     @Published private(set) var all: [HistoryEntry] = []
+    /// false until the first load finishes (so "No History" doesn't flash while it reads the folder).
+    @Published private(set) var loaded = false
+    /// Records whose log file exists, checked while loading (context menus don't touch the disk).
+    @Published private(set) var withLogs: Set<UUID> = []
+    private var generation = 0
 
-    func reload(_ model: AppModel) {
-        all = (model.history.all().map(HistoryEntry.review) + model.respondHistory.all().map(HistoryEntry.respond)
-            + model.mergeHistory.all().map(HistoryEntry.merge))
-            .sorted { $0.startedAt > $1.startedAt }
+    /// Lists and decodes every record off the main thread; a newer reload wins over one still running.
+    func reload(_ model: AppModel) async {
+        generation += 1
+        let current = generation
+        let (history, respondHistory, mergeHistory) = (model.history, model.respondHistory, model.mergeHistory)
+        let (entries, logs) = await Task.detached(priority: .userInitiated) {
+            let entries = (history.all().map(HistoryEntry.review) + respondHistory.all().map(HistoryEntry.respond)
+                + mergeHistory.all().map(HistoryEntry.merge))
+                .sorted { $0.startedAt > $1.startedAt }
+            let logs = Set(entries.filter { entry in
+                let url = switch entry {
+                case .review(let record): history.logURL(for: record.id)
+                case .respond(let record): respondHistory.logURL(for: record.id)
+                case .merge(let record): mergeHistory.logURL(for: record.id)
+                }
+                return FileManager.default.fileExists(atPath: url.path)
+            }.map(\.id))
+            return (entries, logs)
+        }.value
+        guard current == generation else { return }
+        all = entries
+        withLogs = logs
+        loaded = true
     }
 
     /// false si el registro no está cargado todavía o lo esconden la pestaña o la búsqueda.
@@ -21,7 +45,7 @@ final class HistoryEntries: ObservableObject {
 
     func entry(_ id: UUID?) -> HistoryEntry? { id.flatMap { id in all.first { $0.id == id } } }
 
-    /// Los de la pestaña de la toolbar (Responds incluye Fix CI) que encuentra la búsqueda.
+    /// Los de la pestaña de la toolbar (Responses incluye Fix CI) que encuentra la búsqueda.
     func filtered(_ filter: HistoryFilter, query: String) -> [HistoryEntry] {
         all.filter { $0.matches(filter) && $0.matches(query: query) }
     }
@@ -59,7 +83,9 @@ struct HistoryListPane: View {
             }
         }
         .overlay {
-            if entries.all.isEmpty {
+            if !entries.loaded {
+                EmptyView()
+            } else if entries.all.isEmpty {
                 MessageView(icon: "clock.arrow.circlepath", title: "No History",
                             text: "Claude’s reviews, feedback responses and merges appear here when they finish.")
             } else if filtered.isEmpty {
@@ -68,13 +94,12 @@ struct HistoryListPane: View {
         }
         .frame(maxHeight: .infinity)
         .background(Color(nsColor: .controlBackgroundColor))
-        .onAppear(perform: reload)
-        .onChange(of: model.historyRevision) { reload() }
+        .task(id: model.historyRevision) { await reload() }
     }
 
     /// Recarga y, si no hay registro elegido (o ya no está), elige el primero.
-    private func reload() {
-        entries.reload(model)
+    private func reload() async {
+        await entries.reload(model)
         if entries.entry(state.nav.place.historyRecordID) == nil {
             state.select(historyRecord: entries.all.first?.id)
         }
@@ -93,11 +118,10 @@ struct HistoryListPane: View {
     private func respondContextMenu(for record: RespondRecord) -> some View {
         Button("Open PR on GitHub") { NSWorkspace.shared.open(record.draft.url) }
         Button("Copy PR Link") {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(record.draft.url.absoluteString, forType: .string)
+            Pasteboard.copy(record.draft.url.absoluteString)
         }
-        let logURL = model.respondHistory.logURL(for: record.id)
-        if FileManager.default.fileExists(atPath: logURL.path) {
+        if entries.withLogs.contains(record.id) {
+            let logURL = model.respondHistory.logURL(for: record.id)
             Divider()
             Button("Show Log in Finder") { NSWorkspace.shared.activateFileViewerSelecting([logURL]) }
         }
@@ -111,11 +135,10 @@ struct HistoryListPane: View {
     private func mergeContextMenu(for record: MergeRecord) -> some View {
         Button("Open PR on GitHub") { NSWorkspace.shared.open(record.url) }
         Button("Copy PR Link") {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(record.url.absoluteString, forType: .string)
+            Pasteboard.copy(record.url.absoluteString)
         }
-        let logURL = model.mergeHistory.logURL(for: record.id)
-        if FileManager.default.fileExists(atPath: logURL.path) {
+        if entries.withLogs.contains(record.id) {
+            let logURL = model.mergeHistory.logURL(for: record.id)
             Divider()
             Button("Show Log in Finder") { NSWorkspace.shared.activateFileViewerSelecting([logURL]) }
         }
@@ -128,11 +151,10 @@ struct HistoryListPane: View {
             Button("View Review on GitHub") { NSWorkspace.shared.open(url) }
         }
         Button("Copy PR Link") {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(record.draft.url.absoluteString, forType: .string)
+            Pasteboard.copy(record.draft.url.absoluteString)
         }
-        let logURL = model.history.logURL(for: record.id)
-        if FileManager.default.fileExists(atPath: logURL.path) {
+        if entries.withLogs.contains(record.id) {
+            let logURL = model.history.logURL(for: record.id)
             Divider()
             Button("Show Claude Log in Finder") { NSWorkspace.shared.activateFileViewerSelecting([logURL]) }
         }
@@ -209,11 +231,13 @@ enum HistoryActions {
     }
 }
 
-/// La barra de abajo del detalle de History (spec M.1): View Claude Log · Open on GitHub y la acción del registro.
+/// La barra de abajo del detalle de History (spec M.1): View Claude Log y la acción del registro. GitHub is the
+/// header's link (one per screen).
 struct HistoryDetailBar<Trailing: View>: View {
     let logURL: URL
-    let prURL: URL
     @ViewBuilder let trailing: () -> Trailing
+    /// Checked off the main thread when the record changes, not on every render.
+    @State private var logExists = false
 
     var body: some View {
         HStack(spacing: 8) {
@@ -224,21 +248,22 @@ struct HistoryDetailBar<Trailing: View>: View {
             } label: {
                 Label("View Claude Log", systemImage: "terminal")
             }
-            .disabled(!FileManager.default.fileExists(atPath: logURL.path))
-            Button { NSWorkspace.shared.open(prURL) } label: {
-                Label("Open on GitHub", systemImage: "arrow.up.right.square")
-            }
+            .disabled(!logExists)
             Spacer()
             trailing()
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .windowBar()
+        .task(id: logURL) {
+            let url = logURL
+            logExists = await Task.detached { FileManager.default.fileExists(atPath: url.path) }.value
+        }
     }
 }
 
 /// Un registro del historial: una review de Claude o una corrida de "Responder".
-enum HistoryEntry: Identifiable {
+enum HistoryEntry: Identifiable, Sendable {
     case review(ReviewRecord)
     case respond(RespondRecord)
     case merge(MergeRecord)
@@ -305,7 +330,7 @@ enum HistoryEntry: Identifiable {
         }
     }
 
-    /// La pestaña de la toolbar: Responds incluye Fix CI.
+    /// La pestaña de la toolbar: Responses incluye Fix CI.
     func matches(_ filter: HistoryFilter) -> Bool {
         switch (filter, self) {
         case (.all, _), (.reviews, .review), (.responds, .respond), (.merges, .merge): true

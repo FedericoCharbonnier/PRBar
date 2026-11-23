@@ -76,12 +76,13 @@ struct GeneralTab: View {
                     get: { configStore.config.resources.diskWarningGB != nil },
                     set: { on in model.updateConfig(refresh: false) { $0.resources.setDiskWarning(gigabytes: on ? 5 : nil) } }
                 ))
-                if let limit = configStore.config.resources.diskWarningGB {
-                    Stepper("\(limit) GB", value: Binding(
-                        get: { limit },
-                        set: { gigabytes in model.updateConfig(refresh: false) { $0.resources.setDiskWarning(gigabytes: gigabytes) } }
-                    ), in: ResourceSettings.gigabyteRange)
-                }
+                // Always there (disabled while the warning is off), so the limit you'd get is visible before turning it on.
+                let limit = configStore.config.resources.diskWarningGB
+                Stepper("\(limit ?? 5) GB", value: Binding(
+                    get: { limit ?? 5 },
+                    set: { gigabytes in model.updateConfig(refresh: false) { $0.resources.setDiskWarning(gigabytes: gigabytes) } }
+                ), in: ResourceSettings.gigabyteRange)
+                .disabled(limit == nil)
             } header: {
                 Text("Disk")
             } footer: {

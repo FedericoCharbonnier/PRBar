@@ -28,14 +28,16 @@ struct MainWindow: View {
                 .navigationSplitViewColumnWidth(Theme.MainLayout.sidebarWidth)
         } detail: {
             GeometryReader { geometry in
-                // Con el chat abierto el detalle se queda angosto: la lista toma su mínimo (280 pt).
-                let chatOpen = detail.focus.chatShown && model.chatEnabled
-                content(windowWidth: geometry.size.width + (columns == .detailOnly || chatOpen ? 0 : Theme.MainLayout.sidebarWidth))
+                // Con el chat abierto el detalle se queda angosto: la lista toma su mínimo (260 pt).
+                let chatOpen = chatInspector.enabled && detail.focus.chatShown && model.chatEnabled
+                content(windowWidth: geometry.size.width + (columns == .detailOnly || chatOpen ? 0 : Theme.MainLayout.sidebarWidth),
+                        chatOpen: chatOpen)
             }
             .modifier(chatInspector)
         }
         .navigationTitle(title)
-        .navigationSubtitle(subtitle)
+        // "updated 2 min ago" moves on by itself, like the popover's footer.
+        .modifier(LiveSubtitle { subtitle(now: $0) })
         .toolbar { toolbar }
         // View › Back (⌘[) y Pull Request › Open in New Window (⇧⌘O) / Open on GitHub.
         .windowCommand(.back, enabled: state.nav.back.canGoBack) { state.goBack() }
@@ -52,29 +54,29 @@ struct MainWindow: View {
     }
 
     @ViewBuilder
-    private func content(windowWidth: Double) -> some View {
+    private func content(windowWidth: Double, chatOpen: Bool) -> some View {
         switch state.nav.place.sidebar {
         case .section(let section):
             HStack(spacing: 0) {
                 if !detail.focus.isFocused {
                     PRListPane(model: model, state: state, prStore: prStore, section: section)
-                        .frame(width: MainLayout.listWidth(windowWidth: windowWidth))
+                        .frame(width: MainLayout.listWidth(windowWidth: windowWidth, chatOpen: chatOpen))
                     Divider()
                 }
                 detailView
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .animation(.easeInOut(duration: 0.2), value: detail.focus.isFocused)
-            .modifier(SearchField(text: $state.search))
+            .modifier(SearchField(text: $state.search, prompt: "Search PRs"))
         case .history:
             HStack(spacing: 0) {
                 HistoryListPane(model: model, state: state)
-                    .frame(width: MainLayout.listWidth(windowWidth: windowWidth))
+                    .frame(width: MainLayout.listWidth(windowWidth: windowWidth, chatOpen: chatOpen))
                 Divider()
                 HistoryDetailPane(model: model, state: state)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .modifier(SearchField(text: $state.search))
+            .modifier(SearchField(text: $state.search, prompt: "Search History"))
         case .activity:
             ActivityPane(model: model, monitor: resources)
         }
@@ -112,7 +114,7 @@ struct MainWindow: View {
             if let (prID, context, tab) = selectedTabs {
                 PRDetailToolbar.tabBar(model: model, state: state, prID: prID, context: context, tab: tab)
             } else if state.nav.place.sidebar == .history {
-                // All · Reviews · Responds · Merges (spec M.1 "History").
+                // All · Reviews · Responses · Merges (spec M.1 "History").
                 HistoryFilterBar(selection: $state.historyFilter)
             }
         }
@@ -131,16 +133,15 @@ struct MainWindow: View {
                 Button { Task { await prStore.refresh() } } label: { Label("Refresh", systemImage: "arrow.clockwise") }
                     .help("Refresh (⌘R)")
             }
-            Button("Open in New Window", systemImage: "macwindow.badge.plus") {
-                if let prID = selectedPRID { model.openPRWindow(prID: prID) }
+            // Only with a PR on screen (not on History or Activity, where they did nothing).
+            if let prID = selectedPRID {
+                Button("Open in New Window", systemImage: "macwindow.badge.plus") { model.openPRWindow(prID: prID) }
+                    .help("Open in New Window (⇧⌘O)")
             }
-                .disabled(selectedPRID == nil)
-                .help("Open in New Window (⇧⌘O)")
-            Button {
-                if let url = selectedPRURL { NSWorkspace.shared.open(url) }
-            } label: { Label("Open on GitHub", systemImage: "arrow.up.right.square") }
-                .disabled(selectedPRURL == nil)
-                .help("Open on GitHub")
+            if let url = selectedPRURL {
+                Button { NSWorkspace.shared.open(url) } label: { Label("Open on GitHub", systemImage: "arrow.up.right.square") }
+                    .help("Open on GitHub")
+            }
             if selectedTabs != nil && model.chatEnabled {
                 PRDetailToolbar.chatButton(detail: detail)
             }
@@ -178,7 +179,7 @@ struct MainWindow: View {
     }
 
     /// "8 PRs · updated 2 min ago", "updating…", "offline" (como el popover).
-    private var subtitle: String {
+    private func subtitle(now: Date) -> String {
         if state.nav.place.sidebar == .activity { return ActivityPane.subtitle(resources) }
         if state.nav.place.sidebar == .history {
             let count = state.history.all.count
@@ -189,9 +190,21 @@ struct MainWindow: View {
         guard let snapshot = prStore.snapshot else { return "no data" }
         if snapshot.failedCompletely { return "offline" }
         let count = MainList.count(section, in: snapshot) ?? 0
-        let updated = Date().timeIntervalSince(snapshot.fetchedAt) < 60
-            ? "updated just now" : "updated \(RelativeAge.short(from: snapshot.fetchedAt)) ago"
+        let updated = now.timeIntervalSince(snapshot.fetchedAt) < 60
+            ? "updated just now" : "updated \(RelativeAge.short(from: snapshot.fetchedAt, now: now)) ago"
         return "\(count == 1 ? "1 PR" : "\(count) PRs") · \(updated)"
+    }
+}
+
+/// The window subtitle, recomputed every 30 s so relative times don't go stale (only the subtitle is re-evaluated:
+/// `content` keeps its identity).
+private struct LiveSubtitle: ViewModifier {
+    let subtitle: (Date) -> String
+
+    func body(content: Content) -> some View {
+        TimelineView(.periodic(from: .now, by: 30)) { context in
+            content.navigationSubtitle(subtitle(context.date))
+        }
     }
 }
 
@@ -200,10 +213,12 @@ struct MainWindow: View {
 /// ⌘F (View › Find) lo enfoca con `WindowCommandCenter.find`.
 private struct SearchField: ViewModifier {
     @Binding var text: String
+    /// What it searches ("Search PRs", "Search History"); ⌘F is in View › Find.
+    let prompt: String
 
     func body(content: Content) -> some View {
         content
-            .searchable(text: $text, placement: .toolbar, prompt: "Search ⌘F")
+            .searchable(text: $text, placement: .toolbar, prompt: prompt)
             .background(WindowAccessor { window in
                 // La toolbar de SwiftUI suma el ítem después de que la vista entra en la ventana.
                 DispatchQueue.main.async { Self.setWidth(in: window) }

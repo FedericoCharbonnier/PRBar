@@ -44,7 +44,7 @@ public struct TailBuffer: Sendable {
     }
 
     public static func tooLarge(_ limit: Int) -> PRBarError {
-        .invalidResponse("the download is larger than \(ByteCountFormatter.string(fromByteCount: Int64(limit), countStyle: .file))")
+        .invalidResponse("the download is larger than \(ByteSize.file(Int64(limit)))")
     }
 
     /// The last `keep` bytes so far.

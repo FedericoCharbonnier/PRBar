@@ -120,7 +120,9 @@ private struct PRGoneView: View {
     }
 }
 
-/// El chat de la pestaña como inspector de 300 pt (spec M.1), abierto según el modo foco del detalle.
+/// El chat de la pestaña como inspector (spec M.1), abierto según el modo foco del detalle. The inspector is always
+/// applied and `enabled` only folds into its binding: swapping between `content.inspector(…)` and `content` would
+/// change the view's identity and rebuild the whole list and detail (losing scroll, focus and editor state).
 struct ChatInspectorModifier: ViewModifier {
     @ObservedObject var model: AppModel
     @ObservedObject var detail: PRDetailState
@@ -129,15 +131,21 @@ struct ChatInspectorModifier: ViewModifier {
     var enabled = true
 
     func body(content: Content) -> some View {
-        if enabled {
-            content.inspector(isPresented: Binding(get: { detail.focus.chatShown && model.chatEnabled },
-                                                   set: { detail.focus.setChatShown($0) })) {
-                ChatInspector(model: model, prID: prID, tab: tab)
-                    .inspectorColumnWidth(min: Theme.MainLayout.inspectorWidth, ideal: Theme.MainLayout.inspectorWidth,
-                                          max: 480)
+        content.inspector(isPresented: Binding(get: { enabled && detail.focus.chatShown && model.chatEnabled },
+                                               set: { if enabled { detail.focus.setChatShown($0) } })) {
+            Group {
+                if enabled {
+                    ChatInspector(model: model, prID: prID, tab: tab)
+                } else {
+                    Text("Select a pull request to chat with Claude about it.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(20)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
-        } else {
-            content
+            .inspectorColumnWidth(min: Theme.MainLayout.inspectorMinWidth, ideal: Theme.MainLayout.inspectorWidth, max: 480)
         }
     }
 }

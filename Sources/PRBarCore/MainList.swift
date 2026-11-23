@@ -8,17 +8,24 @@ public enum MainListSection: String, CaseIterable, Identifiable, Sendable {
 
     public var id: String { rawValue }
 
-    public var title: String {
+    /// The popover's section with the same PRs (CI Failing is the main window's split of Waiting for Review).
+    public var popoverSection: PopoverSection? {
         switch self {
-        case .toReview: "To Review"
-        case .updatedSinceMyReview: "Updated Since My Review"
-        case .otherToReview: "Other"
-        case .withFeedback: "With Feedback"
-        case .ciFailing: "CI Failing"
-        case .readyToMerge: "Ready to Merge"
-        case .waitingForReview: "Waiting for Review"
+        case .toReview: .toReview
+        case .updatedSinceMyReview: .updatedSinceMyReview
+        case .otherToReview: .otherToReview
+        case .withFeedback: .myFeedback
+        case .readyToMerge: .readyToMerge
+        case .waitingForReview: .waitingForReview
+        case .ciFailing: nil
         }
     }
+
+    /// Same titles and captions as the popover (`PopoverSection`).
+    public var title: String { popoverSection?.tabTitle ?? "CI Failing" }
+
+    /// "drafts and nothing to do", "nothing to do right now"; nil for the sections that ask for something.
+    public var subtitle: String? { popoverSection?.subtitle }
 
     public var mainSection: MainSection {
         switch self {

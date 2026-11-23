@@ -62,8 +62,8 @@ struct RespondButton: View {
             if isCI {
                 openPill(label: "Fix CI", icon: "wrench.and.screwdriver.fill", tooltip: "Open to start the fix")
             } else {
-                openPill(label: "\(draft.items.count) to review", icon: "checkmark.circle.fill",
-                         tooltip: "Open the analysis to choose what to fix and what to reply to")
+                openPill(label: "Plan ready · \(draft.items.count)", icon: "sparkles",
+                         tooltip: "Claude analyzed \(draft.items.count) comment\(draft.items.count == 1 ? "" : "s"): open it to choose what to fix and what to reply to")
             }
         case .readyToPush?:
             if runningTests {
@@ -76,7 +76,7 @@ struct RespondButton: View {
                 .buttonStyle(.plain)
                 .help("Open the window to see the tests")
             } else {
-                openPill(label: isCI ? "CI fix ready" : "Ready to push", icon: "arrow.up.circle.fill",
+                openPill(label: isCI ? "CI fix ready to push" : "Ready to push", icon: "arrow.up.circle.fill",
                          tooltip: isCI ? "Open to review Claude’s fix and push it" : "Open to review the diff and push")
             }
         case .pushing?:
@@ -90,7 +90,7 @@ struct RespondButton: View {
             .help(isCI ? "Checking the CI again and pushing" : "Pushing and posting the replies")
         case .done?:
             openPill(label: isCI ? "CI fix pushed" : "Responded", icon: "checkmark.seal.fill",
-                     tooltip: isCI ? "See what was pushed" : "See what was pushed and what was replied")
+                     tooltip: isCI ? "See what was pushed" : "See what was pushed and what was replied", done: true)
         case .failed(let message, let logURL)?:
             Button {
                 showFailureMenu(message: message, logURL: logURL)
@@ -113,9 +113,10 @@ struct RespondButton: View {
             : "\(agents) agent\(agents == 1 ? "" : "s") · click to cancel"
     }
 
-    private func openPill(label: String, icon: String, tooltip: String) -> some View {
+    /// Claude's result waiting for you: violet (green with a check read as "approved"). Done stays green.
+    private func openPill(label: String, icon: String, tooltip: String, done: Bool = false) -> some View {
         Button(action: actions.open) {
-            PhasePill(fg: Theme.greenText, bg: Theme.tint(Theme.green), leading: 6) {
+            PhasePill(fg: done ? Theme.greenText : Theme.violet, bg: Theme.tint(done ? Theme.green : Theme.violet), leading: 6) {
                 Image(systemName: icon).font(.callout)
                 Text(label).fontWeight(.semibold)
             }

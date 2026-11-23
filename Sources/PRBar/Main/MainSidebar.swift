@@ -10,6 +10,14 @@ struct MainSidebar: View {
     @ObservedObject var prStore: PRStore
     @ObservedObject var reviews: ReviewQueue
     @ObservedObject var respond: RespondQueue
+    /// The Claude task row chosen in the sidebar (with the mouse or ↑/↓), while its PR is on screen.
+    @State private var chosenTask: ClaudeTaskRow?
+
+    /// What the sidebar's `List` selects: a place, or a Claude task (keyboard-selectable like the other rows).
+    private enum Selection: Hashable {
+        case item(SidebarItem)
+        case task(String)
+    }
 
     init(model: AppModel, state: MainWindowState, prStore: PRStore) {
         self.model = model
@@ -37,15 +45,26 @@ struct MainSidebar: View {
         }
     }
 
-    /// Elegir en la barra lateral es navegar (empuja a Back).
-    private var selection: Binding<SidebarItem?> {
+    /// Elegir en la barra lateral es navegar (empuja a Back). A task row stays selected while its PR is on screen.
+    private var selection: Binding<Selection?> {
         Binding(
-            get: { state.nav.place.sidebar },
-            set: { item in
-                switch item {
-                case .section(let section)?: model.navigate(to: .list(section))
-                case .history?: model.navigate(to: .history(recordID: nil))
-                case .activity?: model.navigate(to: .activity)
+            get: {
+                if let chosenTask, state.nav.place.prID == chosenTask.prID { return .task(chosenTask.id) }
+                return .item(state.nav.place.sidebar)
+            },
+            set: { selected in
+                switch selected {
+                case .task(let id)?:
+                    guard let row = model.claudeTaskRows().first(where: { $0.id == id }) else { return }
+                    chosenTask = row
+                    model.navigate(to: .pr(prID: row.prID, tab: row.tab))
+                case .item(let item)?:
+                    chosenTask = nil
+                    switch item {
+                    case .section(let section): model.navigate(to: .list(section))
+                    case .history: model.navigate(to: .history(recordID: nil))
+                    case .activity: model.navigate(to: .activity)
+                    }
                 case nil: break
                 }
             }
@@ -57,13 +76,13 @@ struct MainSidebar: View {
         return label(section.title, icon: icon, item: .section(section))
             .badge(count)
             .help(count == 1 ? "1 PR needs your action" : "\(count) PRs need your action")
-            .tag(SidebarItem.section(section))   // el tag, lo último: si no, la `List` no marca la fila elegida
+            .tag(Selection.item(.section(section)))   // el tag, lo último: si no, la `List` no marca la fila elegida
     }
 
     /// Una fila de navegación: el ícono en el acento (como el boceto, también con la ventana inactiva) y la elegida en
     /// negrita.
     private func row(_ title: String, icon: String, item: SidebarItem) -> some View {
-        label(title, icon: icon, item: item).tag(item)
+        label(title, icon: icon, item: item).tag(Selection.item(item))
     }
 
     private func label(_ title: String, icon: String, item: SidebarItem) -> some View {
@@ -87,8 +106,9 @@ struct MainSidebar: View {
                     // `Section` rompe la `List`).
                     TimelineView(.periodic(from: .now, by: row.isRunning ? 1 : 3600)) { context in
                         let current = model.claudeTaskRows(now: context.date).first { $0.id == row.id } ?? row
-                        ClaudeTaskSidebarRow(row: current) { model.navigate(to: .pr(prID: row.prID, tab: row.tab)) }
+                        ClaudeTaskSidebarRow(row: current)
                     }
+                    .tag(Selection.task(row.id))
                 }
             }
         }
@@ -98,41 +118,41 @@ struct MainSidebar: View {
 /// Una fila del grupo Claude: `repo#N`, la etapa con su reloj, spinner violeta o check verde e iPhone si la pidió uno.
 private struct ClaudeTaskSidebarRow: View {
     let row: ClaudeTaskRow
-    let open: () -> Void
 
     var body: some View {
-        Button(action: open) {
-            HStack(spacing: 8) {
-                Group {
-                    if row.isRunning {
-                        ProgressView().controlSize(.mini).tint(Theme.violet)
-                    } else {
-                        Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.green)
-                    }
-                }
-                .frame(width: 16)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(row.title).lineLimit(1)
-                    Text(row.subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 0)
-                if row.fromPhone {
-                    Image(systemName: "iphone")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .help("Requested from iPhone")
+        // A selectable row (the sidebar's selection opens its tab), so ↑/↓ reach it like the other rows.
+        HStack(spacing: 8) {
+            Group {
+                if row.isRunning {
+                    ProgressView().controlSize(.small).tint(Theme.violet)
+                        .accessibilityLabel("Claude is working")
+                } else {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.green)
+                        .help("Claude’s result is ready")
+                        .accessibilityLabel("Claude result ready")
                 }
             }
-            .contentShape(Rectangle())
+            .frame(width: 16)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(row.title).lineLimit(1)
+                Text(row.subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            if row.fromPhone {
+                Image(systemName: "iphone")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .help("Requested from iPhone")
+            }
         }
-        .buttonStyle(.plain)
+        .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel)
-        .accessibilityAddTraits(.isButton)
+        .accessibilityHint("Opens the PR’s tab")
     }
 
     /// "api#317, Reviewing, 1 minute 12 seconds, requested from iPhone".

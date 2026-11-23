@@ -35,3 +35,20 @@ public enum DiffFiles {
         return all.suffix(lines).joined(separator: "\n")
     }
 }
+
+/// Remembers the last `DiffFiles.section` so a view body that re-renders (on every chat chunk or queue change)
+/// doesn't split a large diff again while the same file stays selected.
+public final class DiffSectionMemo {
+    private var last: (diff: String, file: String, section: String)?
+    public private(set) var computations = 0
+
+    public init() {}
+
+    public func section(of diff: String, file: String) -> String {
+        if let last, last.file == file, last.diff == diff { return last.section }
+        let section = DiffFiles.section(of: diff, file: file)
+        computations += 1
+        last = (diff, file, section)
+        return section
+    }
+}

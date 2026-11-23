@@ -180,8 +180,13 @@ struct ReviewEditor: View {
                     Image(systemName: showDiscarded ? "chevron.down" : "chevron.right")
                         .imageScale(.small)
                         .fontWeight(.semibold)
-                    Text("Discarded by the filter (\(discarded.count))").fontWeight(.semibold)
-                    Text("· Claude marked them as not applicable").foregroundStyle(.secondary)
+                    // One line: the title stays whole and the caption truncates (wrapped, it was cut off).
+                    Text("Discarded by the filter (\(discarded.count))").fontWeight(.semibold).fixedSize()
+                    Text("· Claude marked them as not applicable")
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .help("Claude marked them as not applicable")
                     Spacer()
                 }
                 .font(.callout)
@@ -208,8 +213,8 @@ struct ReviewEditor: View {
                     Image(systemName: showHidden ? "chevron.down" : "chevron.right")
                         .imageScale(.small)
                         .fontWeight(.semibold)
-                    Text("Hidden by your settings (\(hiddenBySettings.count))").fontWeight(.semibold)
-                    Text("· Settings › Claude").foregroundStyle(.secondary)
+                    Text("Hidden by your settings (\(hiddenBySettings.count))").fontWeight(.semibold).fixedSize()
+                    Text("· Settings › Claude").foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
                     Spacer()
                 }
                 .font(.callout)
@@ -361,15 +366,7 @@ struct ReviewHeader: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            HStack {
-                Text("\(draft.repo.fullName) #\(draft.number)")
-                    .font(.system(.subheadline, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-                Spacer()
-                ExternalLink("Open on GitHub", destination: draft.url)
-                    .font(.callout)
-            }
+            PRReferenceLine(draft: draft, linkTitle: "Open on GitHub")
             Text(draft.title)
                 .font(.system(size: 20, weight: .semibold))
                 .textSelection(.enabled)
@@ -392,14 +389,14 @@ struct ReviewHeader: View {
                         Text(files == 1 ? "1 file" : "\(files) files")
                     }
                 }
-                if let placement {
-                    dot
-                    PlacementLabel(text: placement)
-                }
             }
             .font(.callout)
             .foregroundStyle(.secondary)
             .lineLimit(1)
+            // On its own line (like the popover row): "Ran on this Mac — devbox unreachable" must not be cut off.
+            if let placement {
+                PlacementLabel(text: placement).font(.callout)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

@@ -24,6 +24,19 @@ enum MainListTests {
             try expectEqual(MainListSection.withFeedback.title, "With Feedback")
             try expectEqual(MainListSection.ciFailing.title, "CI Failing")
         },
+        TestCase("lista: section titles and captions are the popover's") {
+            try expectEqual(MainListSection.withFeedback.title, "With Feedback")
+            try expectEqual(PopoverSection.myFeedback.tabTitle, "With Feedback")
+            try expectEqual(PopoverSection.myFeedback.title, "My PRs with Feedback")   // prbar status: no tab around it
+            try expectEqual(MainListSection.otherToReview.subtitle, "drafts and nothing to do")
+            try expectEqual(MainListSection.waitingForReview.subtitle, "nothing to do right now")
+            try expectEqual(MainListSection.ciFailing.title, "CI Failing")
+            for section in MainListSection.allCases {
+                guard let popover = section.popoverSection else { continue }
+                try expectEqual(section.title, popover.tabTitle)
+                try expectEqual(section.subtitle, popover.subtitle)
+            }
+        },
         TestCase("lista: cada PR va a su sección; un PR mío con CI roto y sin feedback es CI Failing") {
             try expectEqual(MainList.items(.ciFailing, in: snapshot).map(\.pr.number), [6])
             try expectEqual(MainList.items(.withFeedback, in: snapshot).map(\.pr.number), [4])   // feedback gana
@@ -84,6 +97,11 @@ enum MainListTests {
             let groups = DayGrouping.group(dates, date: { $0 }, now: now, calendar: calendar)
             try expectEqual(groups.map(\.title), ["Today", "Yesterday"])
             try expectEqual(groups.map(\.items.count), [2, 1])
+        },
+        TestCase("pill: each action has a VoiceOver name; none has none") {
+            try expectEqual(PRPrimaryAction.startReview.title, "Start Review")
+            try expectEqual(PRPrimaryAction.openCIFix.title, "Open Fix CI")
+            try expectEqual(PRPrimaryAction.none.title, nil)
         },
         TestCase("pill: qué hace ↩ en cada fila y qué pestaña abre") {
             try expectEqual(PRPrimaryAction.of(item(.toReview), review: nil, respond: nil, respondMode: nil), .startReview)

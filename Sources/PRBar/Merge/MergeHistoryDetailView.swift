@@ -12,7 +12,7 @@ struct MergeHistoryDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 VStack(alignment: .leading, spacing: 5) {
-                    PRReferenceLine(repo: record.repo, number: record.number, url: record.url, linkTitle: "Open PR")
+                    PRReferenceLine(repo: record.repo, number: record.number, url: record.url, linkTitle: "Open on GitHub")
                     Text(record.title)
                         .font(.title2.weight(.semibold))
                         .textSelection(.enabled)
@@ -39,7 +39,7 @@ struct MergeHistoryDetailView: View {
             .padding(.vertical, 16)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .bottomBar { HistoryDetailBar(logURL: logURL, prURL: record.url) { EmptyView() } }
+        .bottomBar { HistoryDetailBar(logURL: logURL) { EmptyView() } }
     }
 
     /// "Squash and Merge · abc1234 · Nov 19, 10:00".

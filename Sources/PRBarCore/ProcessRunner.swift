@@ -13,6 +13,57 @@ public struct ProcessResult: Equatable, Sendable {
     }
 }
 
+/// How much output `SystemProcessRunner` keeps in memory (the tail; older bytes are dropped).
+public enum ProcessOutputLimits {
+    /// stdout of a streaming run (each line already went to `onStdoutLine`).
+    public static let streamingStdout = 1 << 20
+    /// stderr of any run: only read for error messages and logs.
+    public static let stderr = 4 << 20
+}
+
+/// The last `limit` bytes appended to it. Trims in batches (when it doubles), so appending stays cheap.
+public struct ByteTail: Sendable {
+    public let limit: Int
+    private var buffer = Data()
+
+    public init(limit: Int) {
+        precondition(limit > 0)
+        self.limit = limit
+    }
+
+    public mutating func append<Bytes: Sequence>(contentsOf bytes: Bytes) where Bytes.Element == UInt8 {
+        buffer.append(contentsOf: bytes)
+        if buffer.count > limit * 2 { buffer = Data(buffer.suffix(limit)) }
+    }
+
+    /// At most `limit` bytes: the newest ones.
+    public var data: Data { buffer.count > limit ? Data(buffer.suffix(limit)) : buffer }
+}
+
+/// The last `limit` lines appended (a ring of lines, for output that's only shown as a tail).
+public struct LineTail: Sendable {
+    public let limit: Int
+    private var lines: [String] = []
+    private var start = 0
+
+    public init(limit: Int) {
+        precondition(limit > 0)
+        self.limit = limit
+    }
+
+    public mutating func append(_ line: String) {
+        if lines.count < limit {
+            lines.append(line)
+        } else {
+            lines[start] = line
+            start = (start + 1) % limit
+        }
+    }
+
+    /// The kept lines in order, joined with `\n`.
+    public var text: String { (lines[start...] + lines[..<start]).joined(separator: "\n") }
+}
+
 public enum ProcessTimeouts {
     /// Para comandos cortos: `zsh -lc command -v`, `gh auth ...`, `git remote -v`.
     public static let standard: TimeInterval = 10
@@ -39,7 +90,8 @@ extension ProcessRunning {
 public protocol StreamingProcessRunning: Sendable {
     /// Igual que `ProcessRunning.run`, pero llama a `onStdoutLine` (en un hilo de fondo) por cada línea
     /// completa de stdout, sin el `\n`. La última línea sin `\n` también se entrega al terminar.
-    /// `stdout` en el resultado contiene todo lo leído.
+    /// `stdout` en el resultado keeps only the last `ProcessOutputLimits.streamingStdout` bytes: the lines already
+    /// went to the callback, and a long Claude run would otherwise sit in memory whole.
     func runStreaming(
         _ executable: String, _ arguments: [String],
         environment: [String: String]?, currentDirectory: URL?, timeout: TimeInterval?,
@@ -191,7 +243,9 @@ public struct SystemProcessRunner: ProcessRunning, StreamingProcessRunning, File
                         out?.fileHandleForReading.fileDescriptor,
                         err.fileHandleForReading.fileDescriptor,
                         hasExited: { control.hasExited },
-                        onStdout: splitter == nil ? nil : { splitter?.append($0) }
+                        onStdout: splitter == nil ? nil : { splitter?.append($0) },
+                        stdoutLimit: splitter == nil ? nil : ProcessOutputLimits.streamingStdout,
+                        stderrLimit: ProcessOutputLimits.stderr
                     )
                     control.waitUntilExited()
                     registry.unregister(registered)
@@ -293,14 +347,15 @@ private final class ProcessControl: @unchecked Sendable {
 /// Lee stdout y stderr sin bloquearse esperando EOF: si el proceso terminó pero un hijo en background
 /// heredó el pipe, se vacía lo que haya y se sigue.
 private enum PipeDrainer {
-    /// `onStdout` recibe cada bloque de bytes de stdout apenas se lee.
-    static func drain(_ outFD: Int32?, _ errFD: Int32, hasExited: () -> Bool, onStdout: ((ArraySlice<UInt8>) -> Void)? = nil) -> (Data, Data) {
-        var buffers: [Int32: Data] = [errFD: Data()]
+    /// `onStdout` recibe cada bloque de bytes de stdout apenas se lee. With `stdoutLimit` only that many bytes of
+    /// stdout are kept (the tail); stderr keeps the last `stderrLimit`.
+    static func drain(_ outFD: Int32?, _ errFD: Int32, hasExited: () -> Bool, onStdout: ((ArraySlice<UInt8>) -> Void)? = nil,
+                      stdoutLimit: Int? = nil, stderrLimit: Int) -> (Data, Data) {
+        var stdout = Data()
+        var stdoutTail = stdoutLimit.map { ByteTail(limit: $0) }
+        var stderr = ByteTail(limit: stderrLimit)
         var open: Set<Int32> = [errFD]
-        if let outFD {
-            buffers[outFD] = Data()
-            open.insert(outFD)
-        }
+        if let outFD { open.insert(outFD) }
         for fd in open { _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK) }
 
         var chunk = [UInt8](repeating: 0, count: 64 * 1024)
@@ -308,8 +363,12 @@ private enum PipeDrainer {
             while true {
                 let count = chunk.withUnsafeMutableBytes { read(fd, $0.baseAddress, $0.count) }
                 if count > 0 {
-                    buffers[fd, default: Data()].append(contentsOf: chunk[0..<count])
-                    if fd == outFD { onStdout?(chunk[0..<count]) }
+                    if fd == outFD {
+                        if stdoutTail != nil { stdoutTail?.append(contentsOf: chunk[0..<count]) } else { stdout.append(contentsOf: chunk[0..<count]) }
+                        onStdout?(chunk[0..<count])
+                    } else {
+                        stderr.append(contentsOf: chunk[0..<count])
+                    }
                 } else if count == 0 {
                     open.remove(fd)
                     return
@@ -331,7 +390,7 @@ private enum PipeDrainer {
             for fd in open { readAvailable(fd) }
             if exited { break }
         }
-        return (outFD.flatMap { buffers[$0] } ?? Data(), buffers[errFD] ?? Data())
+        return (stdoutTail?.data ?? stdout, stderr.data)
     }
 }
 

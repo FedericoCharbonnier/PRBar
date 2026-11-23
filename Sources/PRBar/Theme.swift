@@ -42,7 +42,10 @@ enum Theme {
         static let defaultSize = NSSize(width: 1280, height: 800)
         static let minSize = NSSize(width: 960, height: 600)
         static let sidebarWidth: CGFloat = 236
-        static let inspectorWidth: CGFloat = 300
+        /// The chat inspector: below 340 pt its words hyphenate and the rule card's buttons truncate. It opens at its
+        /// minimum so the detail keeps room at the default window size; it can be dragged wider.
+        static let inspectorMinWidth: CGFloat = 340
+        static let inspectorWidth: CGFloat = 340
         static let searchWidth: CGFloat = 170
         static let titleColumnWidth: CGFloat = 220
         static let mergeSideColumnWidth: CGFloat = 240

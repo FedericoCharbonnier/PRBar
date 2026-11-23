@@ -24,6 +24,7 @@ struct PRWindow: View {
         HStack(spacing: 0) {
             PRDetailView(model: model, prID: prID, detail: detail, ownsToolbar: true)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .environment(\.showsPRReference, false)
             if detail.focus.chatShown && model.chatEnabled, let tab {
                 Divider()
                 ChatInspector(model: model, prID: prID, tab: tab)

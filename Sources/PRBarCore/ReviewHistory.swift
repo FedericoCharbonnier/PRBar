@@ -107,3 +107,29 @@ public struct ReviewHistory: Sendable {
         directory.appendingPathComponent("logs", isDirectory: true).appendingPathComponent("\(id.uuidString).jsonl")
     }
 }
+
+/// The latest published review of each PR, built once from `ReviewHistory.all()` so a view body doesn't list and
+/// decode every record on each render. `note` keeps it current after a save without rescanning the folder.
+public struct PublishedReviewIndex: Sendable {
+    private var byPR: [String: ReviewRecord] = [:]
+
+    public init(records: [ReviewRecord]) {
+        for record in records { note(record) }
+    }
+
+    public func record(prID: String) -> ReviewRecord? { byPR[prID] }
+
+    /// Takes a saved record into account: a published one replaces an older one of its PR; a record that was the
+    /// PR's entry and is no longer published drops out (the next rebuild finds any older published one).
+    public mutating func note(_ record: ReviewRecord) {
+        let prID = record.draft.prID
+        guard record.status == .published else {
+            if byPR[prID]?.id == record.id { byPR[prID] = nil }
+            return
+        }
+        if let current = byPR[prID], current.id != record.id, Self.date(of: current) > Self.date(of: record) { return }
+        byPR[prID] = record
+    }
+
+    private static func date(of record: ReviewRecord) -> Date { record.finishedAt ?? record.startedAt }
+}

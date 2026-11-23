@@ -81,7 +81,7 @@ struct FindingCard: View {
     private var editor: some View {
         VStack(alignment: .leading, spacing: 5) {
             TextEditor(text: $text)
-                .font(.system(.callout, design: .monospaced))
+                .font(.body)   // prose (Markdown), not code
                 .scrollContentBackground(.hidden)
                 .focused(focus, equals: .finding(item.id))
                 .padding(.horizontal, 6)

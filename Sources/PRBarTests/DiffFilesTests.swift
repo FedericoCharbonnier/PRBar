@@ -27,6 +27,18 @@ enum DiffFilesTests {
             try expectEqual(DiffFiles.files(stat: stat), ["package.json", "src/reports/export.ts", "docs/new.md"])
             try expectEqual(DiffFiles.files(stat: ""), [])
         },
+        TestCase("diff memo: same diff and file reuse the section; a new file or diff recomputes it") {
+            let memo = DiffSectionMemo()
+            let first = memo.section(of: diff, file: "package.json")
+            try expectEqual(first, DiffFiles.section(of: diff, file: "package.json"))
+            _ = memo.section(of: diff, file: "package.json")
+            try expectEqual(memo.computations, 1)
+            try expectEqual(memo.section(of: diff, file: "src/reports/export.ts"),
+                            DiffFiles.section(of: diff, file: "src/reports/export.ts"))
+            try expectEqual(memo.computations, 2)
+            _ = memo.section(of: diff + "\n+more", file: "src/reports/export.ts")
+            try expectEqual(memo.computations, 3)
+        },
         TestCase("diff: el fragmento de un archivo; vacío si no está") {
             let only = DiffFiles.section(of: diff, file: "src/reports/export.ts")
             try expect(only.hasPrefix("diff --git a/src/reports/export.ts"))

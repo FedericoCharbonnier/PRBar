@@ -246,7 +246,10 @@ final class AppModel: ObservableObject {
     /// El usuario negó las notificaciones en Ajustes del Sistema (se muestra un aviso en Configuración).
     @Published private(set) var notificationsDenied = false
     /// Sube cada vez que cambia el historial de reviews (para recargar la ventana de Historial).
-    @Published var historyRevision = 0
+    @Published var historyRevision = 0 { didSet { publishedReviewIndex = nil } }
+    /// The latest published review per PR (`publishedReviewRecord`), built on first use and dropped whenever the
+    /// history changes; `publishNow` updates it in place.
+    private var publishedReviewIndex: PublishedReviewIndex?
     /// Reviews publicados desde la ventana o la CLI, por id de draft: una ventana abierta pasa a "publicado".
     @Published private(set) var publishedReviews: [UUID: PublishedReview] = [:]
 
@@ -663,10 +666,12 @@ final class AppModel: ObservableObject {
     }
 
     /// El último registro publicado del PR (la pestaña Review de un PR con la review ya publicada).
+    /// Called from view bodies: reads an in-memory index, not the history folder.
     func publishedReviewRecord(prID: String) -> ReviewRecord? {
-        history.all()
-            .filter { $0.draft.prID == prID && $0.status == .published }
-            .max { ($0.finishedAt ?? $0.startedAt) < ($1.finishedAt ?? $1.startedAt) }
+        if let publishedReviewIndex { return publishedReviewIndex.record(prID: prID) }
+        let index = PublishedReviewIndex(records: history.all())
+        publishedReviewIndex = index
+        return index.record(prID: prID)
     }
 
     /// Publica la review en GitHub (spec §8.7). Si algo falla se lanza el error y no se toca nada:
@@ -761,7 +766,11 @@ final class AppModel: ObservableObject {
         } catch {
             AppLog.write("History: couldn't save the posting of \(draft.repo.fullName)#\(draft.number): \(error)")
         }
+        // Bumping the revision drops the index; the one we had stays valid with this record added.
+        var index = publishedReviewIndex
         historyRevision += 1
+        index?.note(record)
+        publishedReviewIndex = index
         // Spec E.4: what the user chose not to post feeds the suggestions. Never blocks the post.
         if !userDiscarded.isEmpty {
             do {

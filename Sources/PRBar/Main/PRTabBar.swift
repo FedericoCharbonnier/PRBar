@@ -17,6 +17,8 @@ struct PRTabBar: View {
         }
         .padding(3)
         .modifier(GlassCapsule())
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("PR tabs")
     }
 
     private func tabButton(_ item: PRTabItem) -> some View {
@@ -35,7 +37,8 @@ struct PRTabBar: View {
                 }
             }
             .font(.callout.weight(isSelected ? .semibold : .regular))
-            .foregroundStyle(isSelected ? Color.white : Color(nsColor: .labelColor))
+            .foregroundStyle(isSelected ? Color.white
+                             : Color(nsColor: item.isEnabled ? .labelColor : .tertiaryLabelColor))
             .padding(.horizontal, 12)
             .padding(.vertical, 4)
             .background(Capsule().fill(isSelected ? Theme.accent : .clear))
@@ -43,10 +46,9 @@ struct PRTabBar: View {
         }
         .buttonStyle(.plain)
         .disabled(!item.isEnabled)
-        .opacity(item.isEnabled ? 1 : 0.4)
         .accessibilityLabel(accessibilityLabel(item.tab, indicator))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .help(item.isEnabled ? item.tab.title : "\(item.tab.title) (nothing to do)")
+        .help(item.isEnabled ? item.tab.title : PRTabs.disabledReason(item.tab))
     }
 
     private func accessibilityLabel(_ tab: PRTab, _ indicator: TabIndicator?) -> String {
@@ -58,30 +60,23 @@ struct PRTabBar: View {
     }
 }
 
-/// Las pestañas de History en la toolbar (All · Reviews · Responds · Merges), con el mismo aspecto que las del PR.
+/// History's filter in the toolbar (All · Reviews · Responses · Merges): a native segmented control. It filters a
+/// list rather than switching between a PR's tabs, so it doesn't borrow the PR tabs' accent capsules.
 struct HistoryFilterBar: View {
     @Binding var selection: HistoryFilter
 
     var body: some View {
-        HStack(spacing: 2) {
+        Picker("Show", selection: $selection) {
             ForEach(HistoryFilter.allCases) { filter in
-                let isSelected = filter == selection
-                Button { selection = filter } label: {
-                    Text(filter.title)
-                        .fixedSize()
-                        .font(.callout.weight(isSelected ? .semibold : .regular))
-                        .foregroundStyle(isSelected ? Color.white : Color(nsColor: .labelColor))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 4)
-                        .background(Capsule().fill(isSelected ? Theme.accent : .clear))
-                        .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(isSelected ? .isSelected : [])
+                Text(filter.title).tag(filter)
             }
         }
-        .padding(3)
-        .modifier(GlassCapsule())
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .fixedSize()
+        .help("Which records History shows")
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("History filter")
     }
 }
 

@@ -136,7 +136,7 @@ struct RespondItemCard: View {
 
     private func editor(text: Binding<String>, field: RespondFocus, height: CGFloat, label: String) -> some View {
         TextEditor(text: text)
-            .font(.system(.callout, design: .monospaced))
+            .font(.body)   // prose (Markdown), not code
             .scrollContentBackground(.hidden)
             .focused(focus, equals: field)
             .padding(.horizontal, 6)
