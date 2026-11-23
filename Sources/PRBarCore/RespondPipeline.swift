@@ -489,7 +489,15 @@ public struct RespondPipeline: RespondPipelineRunning {
         let unknown = RespondCancellation(unpushedCommits: nil, path: draft.worktree.path, dirty: true)
         if draft.runner != nil && workspaceFS is LocalWorkspaceFS { return unknown }
         if let remote = placement, RemoteUnstoppedJobs.shared.contains(host: remote.name, path: draft.worktree.path) { return unknown }
-        guard ((try? await workspaceFS.nestedGitEntries(worktree.path)) ?? ["?"]).isEmpty else { return unknown }
+        // A nested repo in a folder git ignores (left by the test command) doesn't count; anything else runs no git.
+        guard let nested = try? await workspaceFS.nestedGits(worktree.path),
+              let repositories = try? FixImplementer.pendingNestedRepos(nested, allowed: [], allowIgnored: true, worktree: worktree),
+              let unignored = try? await FixImplementer.unignoredRepositories(repositories, git: { arguments in
+                  try await (self.placement?.runner ?? self.processRunner).run(
+                      self.placement?.gitPath ?? self.gitPath, ["-C", worktree.path] + GitHardening.arguments + arguments,
+                      environment: self.placement?.gitEnvironment ?? self.gitEnvironment, currentDirectory: nil,
+                      timeout: ProcessTimeouts.standard)
+              }), unignored.isEmpty else { return unknown }
         let count = try? await git(worktree, ["rev-list", "--count", "\(draft.startHeadOid)..HEAD"])
         let status = try? await git(worktree, ["status", GitHardening.ignoreSubmodules, "--porcelain", "--untracked-files=all"])
         return RespondCancellation(

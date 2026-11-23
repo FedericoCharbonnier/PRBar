@@ -27,12 +27,31 @@ public enum WorktreeIntegrity {
     /// apunta a otro git dir) cuya config —`core.fsmonitor`, hooks— puede correr en cualquier `git` siguiente.
     /// No sigue symlinks.
     public static func nestedGitEntries(in root: URL) -> [String] {
-        var found: [String] = []
+        nestedGits(in: root).map(\.path)
+    }
+
+    /// Un `.git` anidado: su ruta relativa y si es una carpeta de verdad (no un archivo `gitdir:` ni un link).
+    public struct NestedGit: Equatable, Sendable {
+        public let path: String
+        public let isDirectory: Bool
+
+        public init(path: String, isDirectory: Bool) {
+            self.path = path
+            self.isDirectory = isDirectory
+        }
+
+        /// La carpeta del repo anidado (la que contiene el `.git`), relativa al worktree.
+        public var repository: String { (path as NSString).deletingLastPathComponent }
+    }
+
+    /// Como `nestedGitEntries`, con el tipo de cada uno.
+    public static func nestedGits(in root: URL) -> [NestedGit] {
+        var found: [NestedGit] = []
         walk(root) { relative, isDirectory in
-            if (relative as NSString).lastPathComponent == ".git" { found.append(relative) }
+            if (relative as NSString).lastPathComponent == ".git" { found.append(NestedGit(path: relative, isDirectory: isDirectory)) }
             return true
         }
-        return found.sorted()
+        return found.sorted { $0.path < $1.path }
     }
 
     // MARK: - Snapshot

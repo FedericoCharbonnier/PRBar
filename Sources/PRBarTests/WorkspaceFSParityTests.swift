@@ -52,10 +52,11 @@ enum WorkspaceFSParityTests {
             }
             // Los nombres `._*` se ven (FileManager los esconde; los recorridos usan readdir).
             for key in ["._evil", "._x/.git/config", "dir/._b.txt"] { try expect(a.entries[key] != nil, key) }
-            let nestedLocal = try await local.nestedGitEntries(root.path)
-            let nestedPerl = try await perl.nestedGitEntries(root.path)
+            let nestedLocal = try await local.nestedGits(root.path)
+            let nestedPerl = try await perl.nestedGits(root.path)
             try expectEqual(nestedPerl, nestedLocal)
-            try expect(nestedLocal.contains("._x/.git"), "\(nestedLocal)")
+            try expect(nestedLocal.contains(.init(path: "._x/.git", isDirectory: true)), "\(nestedLocal)")
+            try expect(nestedLocal.contains(.init(path: "sub2/.git", isDirectory: false)), "\(nestedLocal)")
             let git = root.appendingPathComponent(".git").path
             let paths = [git, git + "/config", git + "/missing", root.appendingPathComponent("link").path, root.path]
             let describeLocal = try await local.describe(paths)
@@ -118,8 +119,9 @@ enum WorkspaceFSParityTests {
                 _ = try await fs([("S", hex(nfd), "32768 1 2 3"), ("S", hex("dir/\u{e9}.txt"), "32768 1 2 4")]).snapshot("/w")
             }
             guard case .guardFailed? = clash as? RemoteRunnerError else { throw TestFailure(description: "\(clash)") }
-            let nested = try await fs([("N", hex("x/e\u{0301}/.git"), "")]).nestedGitEntries("/w")
-            try expectEqual(nested.map { Array($0.utf8) }, [Array("x/\u{e9}/.git".utf8)])
+            let nested = try await fs([("N", hex("x/e\u{0301}/.git"), "d"), ("N", hex("y/.git"), "")]).nestedGits("/w")
+            try expectEqual(nested.map { Array($0.path.utf8) }, [Array("x/\u{e9}/.git".utf8), Array("y/.git".utf8)])
+            try expectEqual(nested.map(\.isDirectory), [true, false])
             let bad = try await expectThrows { _ = try await fs([("S", "ff", "32768 1 2 3")]).snapshot("/w") }
             try expect(bad is RemoteRunnerError, "\(bad)")
             _ = try await expectThrows { _ = try await fs([("Z", hex("a.txt"), "")]).snapshot("/w") }

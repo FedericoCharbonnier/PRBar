@@ -8,7 +8,8 @@ public protocol WorkspaceFS: Sendable {
     /// El `HOME` de esa máquina (para `~/` en los `include.path` de git).
     var home: String { get }
     func snapshot(_ root: String) async throws -> WorktreeIntegrity.Snapshot
-    func nestedGitEntries(_ root: String) async throws -> [String]
+    /// Los `.git` anidados (`WorktreeIntegrity.nestedGits`), ordenados por ruta.
+    func nestedGits(_ root: String) async throws -> [WorktreeIntegrity.NestedGit]
     /// `GitPaths.describe` de cada ruta.
     func describe(_ paths: [String]) async throws -> [String: String]
     /// Cada raíz y todo lo de adentro (sin seguir symlinks ni mirar metadatos de macOS), descriptos.
@@ -25,6 +26,11 @@ public protocol WorkspaceFS: Sendable {
     func removeTemporaryFile(_ path: String) async
 }
 
+extension WorkspaceFS {
+    /// Solo las rutas de `nestedGits`.
+    public func nestedGitEntries(_ root: String) async throws -> [String] { try await nestedGits(root).map(\.path) }
+}
+
 public struct LocalWorkspaceFS: WorkspaceFS {
     public init() {}
 
@@ -34,8 +40,8 @@ public struct LocalWorkspaceFS: WorkspaceFS {
         .take(URL(fileURLWithPath: root, isDirectory: true))
     }
 
-    public func nestedGitEntries(_ root: String) async throws -> [String] {
-        WorktreeIntegrity.nestedGitEntries(in: URL(fileURLWithPath: root, isDirectory: true))
+    public func nestedGits(_ root: String) async throws -> [WorktreeIntegrity.NestedGit] {
+        WorktreeIntegrity.nestedGits(in: URL(fileURLWithPath: root, isDirectory: true))
     }
 
     public func describe(_ paths: [String]) async throws -> [String: String] {
@@ -166,8 +172,11 @@ public struct RemoteWorkspaceFS: WorkspaceFS {
         return WorktreeIntegrity.Snapshot(entries: entries, rawPaths: raw)
     }
 
-    public func nestedGitEntries(_ root: String) async throws -> [String] {
-        try await records(["nested", root]).filter { $0.0 == "N" }.map { try path($0.1).precomposedStringWithCanonicalMapping }.sorted()
+    /// El tercer campo de cada `N` es `d` si es una carpeta de verdad (`lstat`, sin seguir links).
+    public func nestedGits(_ root: String) async throws -> [WorktreeIntegrity.NestedGit] {
+        try await records(["nested", root]).filter { $0.0 == "N" }
+            .map { WorktreeIntegrity.NestedGit(path: try path($0.1).precomposedStringWithCanonicalMapping, isDirectory: $0.2 == "d") }
+            .sorted { $0.path < $1.path }
     }
 
     private func pairs(_ arguments: [String]) async throws -> [String: String] {
@@ -310,7 +319,7 @@ public enum RemoteGuard {
                 my @st = Time::HiRes::lstat("$root/$child");
                 next unless @st;
                 my $is_dir = S_ISDIR($st[2]);
-                if ($mode eq 'nested') { out('N', hx($child), '') if $name eq '.git'; }
+                if ($mode eq 'nested') { out('N', hx($child), $is_dir ? 'd' : '') if $name eq '.git'; }
                 elsif (!$is_dir) { out('S', hx($child), join(' ', $st[2] & S_IFMT, $st[7], sprintf('%.0f', $st[9] * 1e9), $st[1])); }
                 push @stack, $child if $is_dir;
             }

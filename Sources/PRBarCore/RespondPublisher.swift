@@ -67,12 +67,19 @@ public struct RespondPublisher: Sendable {
         let path = draft.worktree.path
         let worktree = URL(fileURLWithPath: path, isDirectory: true)
 
-        try FixImplementer.checkNoNestedGit(worktree, allowed: [])
+        // A nested repo the test command left in an ignored folder (`.build/checkouts/<pkg>/.git`) is fine: it isn't in
+        // what's pushed and no git of PRBar runs inside it. Anything else (a `gitdir:` file, a link, a repo git doesn't
+        // ignore or with tracked files) still stops the push.
+        let nestedRepos = try FixImplementer.checkNoNestedGit(worktree, allowed: [], allowIgnored: true)
         guard try await self.integrity(of: worktree) == integrity else {
             throw PRBarError.respond(
                 "The git configuration or hooks changed since the fixes were implemented. Not pushing: check \(path).")
         }
         try FixImplementer.checkConfigOrigins(try await git(path, ["config", "--list", "--show-origin", "-z"]), worktree: worktree)
+        let unignored = try await FixImplementer.unignoredRepositories(nestedRepos) { arguments in
+            try await self.run(["-C", path] + GitHardening.arguments + arguments, timeout: ProcessTimeouts.standard)
+        }
+        try FixImplementer.throwNestedGit(unignored.map { $0 + "/.git" }, worktree: worktree, ignoredHint: true)
         try await branches.verifyOrigin(path, repo: draft.repo)
         let head = try await git(path, ["rev-parse", "--verify", "HEAD^{commit}"]).trimmingCharacters(in: .whitespacesAndNewlines)
         guard head == reviewed else {

@@ -682,7 +682,7 @@ private final class StubWorkspaceFS: WorkspaceFS, @unchecked Sendable {
     var nestedRoots: [String] { lock.withLock { roots } }
     var home: String { "/home/u" }
     func snapshot(_ root: String) async throws -> WorktreeIntegrity.Snapshot { WorktreeIntegrity.Snapshot(entries: [:]) }
-    func nestedGitEntries(_ root: String) async throws -> [String] {
+    func nestedGits(_ root: String) async throws -> [WorktreeIntegrity.NestedGit] {
         lock.withLock { roots.append(root) }
         return []
     }

@@ -300,15 +300,59 @@ enum RespondPublisherTests {
             try expect(try respondMessage(error).contains(repo.start), "\(error)")
             try expectEqual(try repo.remoteHead(), repo.start)
         },
-        TestCase("respond publisher: un .git anidado frena el push sin correr git") {
+        TestCase("respond publisher: un .git anidado (archivo gitdir:) frena el push sin correr git") {
             let repo = try PushRepo.make()
             defer { repo.remove() }
             let result = try await repo.result()
-            try FileManager.default.createDirectory(at: repo.work.appendingPathComponent("sub/.git"), withIntermediateDirectories: true)
+            try writeFile(repo.work.appendingPathComponent("sub/.git"), "gitdir: /elsewhere\n")
             let recorder = FakeProcessRunner { _, args in ok(args.contains("check-ref-format") ? "feature/7\n" : "") }
             let error = try await expectThrows { try await publisher(runner: recorder).push(draft: repo.draft(), result: result) }
             try expect(try respondMessage(error).contains("sub/.git"), "\(error)")
             try expectEqual(recorder.calls.map(\.arguments), [["check-ref-format", "--branch", "feature/7"]])
+        },
+        TestCase("respond publisher: un repo anidado en una carpeta ignorada (lo deja el testCommand) no frena el push") {
+            let repo = try PushRepo.make()
+            defer { repo.remove() }
+            try repo.write(".gitignore", ".build/\n")
+            try TempGitRepo.run(repo.work, ["add", ".gitignore"])
+            try TempGitRepo.run(repo.work, ["commit", "-q", "-m", "ignore"])
+            let result = try await repo.result()
+            // `swift test` deja `.build/checkouts/<pkg>/.git`; su config nunca la lee ningún git de PRBar.
+            let checkout = repo.work.appendingPathComponent(".build/checkouts/pkg")
+            try FileManager.default.createDirectory(at: checkout, withIntermediateDirectories: true)
+            try TempGitRepo.run(checkout, ["init", "-q"])
+            try writeFile(checkout.appendingPathComponent(".git/config"), "[core]\n\tfsmonitor = touch PWNED\n", append: true)
+            try await publisher().push(draft: repo.draft(), result: result)
+            try expectEqual(try repo.remoteHead(), result.headOid)
+        },
+        TestCase("respond publisher: un .git archivo, o un repo no ignorado o con archivos trackeados, sigue frenando el push") {
+            let cases: [(String, (PushRepo) throws -> Void, String)] = [
+                ("gitdir file", { repo in try writeFile(repo.work.appendingPathComponent(".build/x/.git"), "gitdir: /elsewhere\n") },
+                 ".build/x/.git"),
+                ("not ignored", { repo in
+                    try FileManager.default.createDirectory(at: repo.work.appendingPathComponent("vendor/a/.git"),
+                                                            withIntermediateDirectories: true)
+                }, "vendor/a/.git"),
+                ("tracked inside", { repo in
+                    try writeFile(repo.work.appendingPathComponent(".build/t/keep.txt"), "x\n")
+                    try TempGitRepo.run(repo.work, ["add", "-f", ".build/t/keep.txt"])
+                    try TempGitRepo.run(repo.work, ["commit", "-q", "-m", "tracked"])
+                    try FileManager.default.createDirectory(at: repo.work.appendingPathComponent(".build/t/.git"),
+                                                            withIntermediateDirectories: true)
+                }, ".build/t/.git"),
+            ]
+            for (name, setup, path) in cases {
+                let repo = try PushRepo.make()
+                defer { repo.remove() }
+                try repo.write(".gitignore", ".build/\n")
+                try TempGitRepo.run(repo.work, ["add", ".gitignore"])
+                try TempGitRepo.run(repo.work, ["commit", "-q", "-m", "ignore"])
+                try setup(repo)
+                let result = try await repo.result()
+                let error = try await expectThrows { try await publisher().push(draft: repo.draft(), result: result) }
+                try expect(try respondMessage(error).contains(path), "\(name): \(error)")
+                try expectEqual(try repo.remoteHead(), repo.start)
+            }
         },
         TestCase("respond publisher: si cambiaron los hooks o la config de git desde los fixes, no se pushea") {
             for target in [".git/hooks/pre-push", ".git/config"] {

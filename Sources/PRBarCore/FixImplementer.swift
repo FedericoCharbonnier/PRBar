@@ -85,7 +85,7 @@ public struct FixImplementer: Sendable {
     public func implement(draft: RespondDraft, selections: [String: RespondSelection],
                           onProgress: @escaping @MainActor @Sendable (_ done: Int, _ total: Int) -> Void) async throws -> RespondResult {
         let worktree = URL(fileURLWithPath: draft.worktree.path, isDirectory: true)
-        try await checkNoNestedGit(worktree, allowed: [])
+        try await checkNestedGitsIgnored(worktree)
         let start = try await verifyStart(draft.startHeadOid, worktree: worktree)
         let guarded = try await gitPaths(worktree)
 
@@ -110,7 +110,7 @@ public struct FixImplementer: Sendable {
     /// The result of the fixes (`start..HEAD`): diff stat, sensitive files, the full diff (capped), the commits with
     /// their messages, HEAD and `integrity` (git's digest, the push's baseline). Never runs tests (`tests` is nil).
     private func summarize(_ worktree: URL, start: String, items: [ItemResult], integrity: String?) async throws -> RespondResult {
-        try await checkNoNestedGit(worktree, allowed: [])
+        try await checkNestedGitsIgnored(worktree)
         return try await Self.summarize(repository: worktree, start: start, head: try await head(worktree), items: items,
                                         integrity: integrity) { repository, arguments in
             try await self.git(repository, arguments)
@@ -358,23 +358,78 @@ public struct FixImplementer: Sendable {
     }
 
     /// Lanza si hay un `.git` anidado que no está en `allowed`, mirando el disco del worktree (`fs`). No corre git.
-    func checkNoNestedGit(_ worktree: URL, allowed: Set<String>) async throws {
-        let nested = try await fs.nestedGitEntries(worktree.path).filter { !allowed.contains($0) }
-        guard nested.isEmpty else {
-            throw PRBarError.respond(
-                "A nested .git appeared in the worktree (\(nested.prefix(3).joined(separator: ", "))): "
-                + "any git command could run its configuration. Stopped without running git. Check the worktree \(worktree.path).")
-        }
+    ///
+    /// Con `allowIgnored`, una **carpeta** `.git` (nunca un archivo `gitdir:` ni un link) no lanza acá: devuelve la
+    /// carpeta de su repo para que `checkNestedReposIgnored` confirme, ya con git, que git la ignora. Son los repos que
+    /// deja el testCommand (`.build/checkouts/<pkg>/.git` de `swift test`, gemas de bundler, tests que hacen `git init`):
+    /// ignorados, ni `add -A` ni el push los tocan, y PRBar nunca corre git adentro.
+    @discardableResult
+    func checkNoNestedGit(_ worktree: URL, allowed: Set<String>, allowIgnored: Bool = false) async throws -> [String] {
+        try Self.pendingNestedRepos(try await fs.nestedGits(worktree.path), allowed: allowed, allowIgnored: allowIgnored,
+                                    worktree: worktree)
     }
 
-    /// Lanza si hay un `.git` anidado que no está en `allowed`. No corre git. Solo en esta Mac (`RespondPublisher`).
-    static func checkNoNestedGit(_ worktree: URL, allowed: Set<String>) throws {
-        let nested = WorktreeIntegrity.nestedGitEntries(in: worktree).filter { !allowed.contains($0) }
-        guard nested.isEmpty else {
-            throw PRBarError.respond(
-                "A nested .git appeared in the worktree (\(nested.prefix(3).joined(separator: ", "))): "
-                + "any git command could run its configuration. Stopped without running git. Check the worktree \(worktree.path).")
+    /// `checkNoNestedGit` con `allowIgnored` seguido de `checkNestedReposIgnored`.
+    private func checkNestedGitsIgnored(_ worktree: URL) async throws {
+        try await checkNestedReposIgnored(worktree, try await checkNoNestedGit(worktree, allowed: [], allowIgnored: true))
+    }
+
+    /// Lanza si alguna de `repositories` (de `checkNoNestedGit`) no está ignorada por git o tiene algo trackeado.
+    func checkNestedReposIgnored(_ worktree: URL, _ repositories: [String]) async throws {
+        let blocking = try await Self.unignoredRepositories(repositories) { arguments in
+            try await runner.run(gitPath, ["-C", worktree.path] + GitHardening.arguments + arguments, environment: environment,
+                                 currentDirectory: nil, timeout: ProcessTimeouts.standard)
         }
+        try Self.throwNestedGit(blocking.map { $0 + "/.git" }, worktree: worktree, ignoredHint: true)
+    }
+
+    /// Lanza si hay un `.git` anidado que no está en `allowed` (ver la versión de instancia). No corre git. Solo en esta
+    /// Mac (`RespondPublisher`).
+    @discardableResult
+    static func checkNoNestedGit(_ worktree: URL, allowed: Set<String>, allowIgnored: Bool = false) throws -> [String] {
+        try pendingNestedRepos(WorktreeIntegrity.nestedGits(in: worktree), allowed: allowed, allowIgnored: allowIgnored,
+                               worktree: worktree)
+    }
+
+    /// Lanza por cada `.git` anidado fuera de `allowed`, salvo (con `allowIgnored`) las carpetas: devuelve sus repos.
+    static func pendingNestedRepos(_ nested: [WorktreeIntegrity.NestedGit], allowed: Set<String>, allowIgnored: Bool,
+                                   worktree: URL) throws -> [String] {
+        let unexpected = nested.filter { !allowed.contains($0.path) }
+        let blocking = allowIgnored ? unexpected.filter { !$0.isDirectory } : unexpected
+        try throwNestedGit(blocking.map(\.path), worktree: worktree, ignoredHint: false)
+        return allowIgnored ? unexpected.map(\.repository) : []
+    }
+
+    /// De `repositories` (carpetas relativas al worktree), las que git no ignora o que tienen algún archivo trackeado.
+    /// `git` corre git endurecido en el worktree: `ls-files --others --ignored --exclude-standard --directory` (todo lo
+    /// ignorado, una carpeta ignorada entera como `dir/`; sin pathspec: con uno, git falla si la carpeta ignorada está
+    /// más arriba) y `--literal-pathspecs ls-files` (lo trackeado adentro). No entra a los repos anidados ni lee su
+    /// config.
+    static func unignoredRepositories(_ repositories: [String],
+                                      git: ([String]) async throws -> ProcessResult) async throws -> [String] {
+        guard !repositories.isEmpty else { return [] }
+        func paths(_ arguments: [String]) async throws -> [String] {
+            let result = try await git(arguments)
+            guard result.status == 0 else {
+                throw PRBarError.commandFailed(command: "git ls-files", status: result.status,
+                                               stderr: result.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
+            }
+            return result.stdout.split(separator: "\0").map { String($0).precomposedStringWithCanonicalMapping }
+        }
+        let ignored = Set(try await paths(["ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory"]))
+        let tracked = try await paths(["--literal-pathspecs", "ls-files", "-z", "--"] + repositories)
+        return repositories.filter { repository in
+            let isIgnored = ignored.contains(repository + "/") || WorktreeIntegrity.isIgnored(repository, in: ignored)
+            return !isIgnored || tracked.contains { $0.hasPrefix(repository + "/") }
+        }.sorted()
+    }
+
+    static func throwNestedGit(_ paths: [String], worktree: URL, ignoredHint: Bool) throws {
+        guard !paths.isEmpty else { return }
+        let hint = ignoredHint ? " Nested repositories are only allowed inside folders git ignores (like build output)." : ""
+        throw PRBarError.respond(
+            "A nested .git appeared in the worktree (\(paths.prefix(3).joined(separator: ", "))): "
+            + "any git command could run its configuration. Stopped without running git.\(hint) Check the worktree \(worktree.path).")
     }
 
     /// I5: ningún archivo de config de git puede estar dentro del worktree (fuera de su `.git`).
@@ -422,7 +477,7 @@ public struct FixImplementer: Sendable {
     public func chatTurn<T: Sendable>(draft: RespondDraft, current: RespondResult, sessionID: UUID, turn: Int,
                                       body: @Sendable () async throws -> T) async throws -> (T, ChatFilesOutcome) {
         let worktree = URL(fileURLWithPath: draft.worktree.path, isDirectory: true)
-        try await checkNoNestedGit(worktree, allowed: [])
+        let nestedRepos = try await checkNoNestedGit(worktree, allowed: [], allowIgnored: true)
         let guarded = try await gitPaths(worktree)
         // The push's baseline is the fixes' digest: a change since then (between turns, or one a failed turn
         // detected) blocks the chat instead of becoming the new baseline.
@@ -430,6 +485,7 @@ public struct FixImplementer: Sendable {
         let start = try await verifyStart(draft.startHeadOid, worktree: worktree)
         // Before `status`: it can run filter drivers from the config.
         try await checkConfigOrigins(worktree)
+        try await checkNestedReposIgnored(worktree, nestedRepos)
         try await ensureClean(worktree)
         let headBefore = try await head(worktree)
         let ref = Self.chatRef(sessionID: sessionID, turn: turn)
@@ -507,9 +563,10 @@ public struct FixImplementer: Sendable {
     /// ones). The snapshot was taken on a clean tree, so the tree ends clean. Returns the result before the turn.
     public func undoChatTurn(draft: RespondDraft, snapshot: ChatFileSnapshot) async throws -> RespondResult {
         let worktree = URL(fileURLWithPath: draft.worktree.path, isDirectory: true)
-        try await checkNoNestedGit(worktree, allowed: [])
+        let nestedRepos = try await checkNoNestedGit(worktree, allowed: [], allowIgnored: true)
         try await checkIntegrity(try await gitPaths(worktree), expected: snapshot.resultBefore.gitIntegrity, worktree: worktree)
         try await checkConfigOrigins(worktree)
+        try await checkNestedReposIgnored(worktree, nestedRepos)
         guard try await head(worktree) == snapshot.headAfter else {
             throw PRBarError.respond("The worktree’s HEAD moved after that message: it can’t be undone.")
         }
@@ -533,9 +590,10 @@ public struct FixImplementer: Sendable {
     /// turn can still be undone.
     public func redoChatTurn(draft: RespondDraft, snapshot: ChatFileSnapshot) async throws {
         let worktree = URL(fileURLWithPath: draft.worktree.path, isDirectory: true)
-        try await checkNoNestedGit(worktree, allowed: [])
+        let nestedRepos = try await checkNoNestedGit(worktree, allowed: [], allowIgnored: true)
         try await checkIntegrity(try await gitPaths(worktree), expected: snapshot.resultBefore.gitIntegrity, worktree: worktree)
         try await checkConfigOrigins(worktree)
+        try await checkNestedReposIgnored(worktree, nestedRepos)
         guard try await head(worktree) == snapshot.headBefore else {
             throw PRBarError.respond("The worktree’s HEAD moved after the undo: it can’t be redone.")
         }
@@ -558,9 +616,10 @@ public struct FixImplementer: Sendable {
     /// checked (a nested `.git`, a git error), it says yes.
     public func chatFilesChangedSince(_ snapshot: ChatFileSnapshot, draft: RespondDraft) async -> Bool {
         let worktree = URL(fileURLWithPath: draft.worktree.path, isDirectory: true)
-        guard let nested = try? await fs.nestedGitEntries(worktree.path), nested.isEmpty,
+        guard let nestedRepos = try? await checkNoNestedGit(worktree, allowed: [], allowIgnored: true),
               let guarded = try? await gitPaths(worktree),
               (try? await checkIntegrity(guarded, expected: snapshot.resultBefore.gitIntegrity, worktree: worktree)) != nil,
+              (try? await checkNestedReposIgnored(worktree, nestedRepos)) != nil,
               let head = try? await head(worktree), head == snapshot.headAfter,
               let status = try? await git(worktree, ["status", GitHardening.ignoreSubmodules, "--porcelain", "--untracked-files=all"])
         else { return true }

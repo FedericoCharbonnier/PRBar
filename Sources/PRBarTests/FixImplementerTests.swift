@@ -235,7 +235,7 @@ private final class RecordingWorkspaceFS: WorkspaceFS, @unchecked Sendable {
     init(base: any WorkspaceFS) { self.base = base }
     var home: String { base.home }
     func snapshot(_ root: String) async throws -> WorktreeIntegrity.Snapshot { try await base.snapshot(root) }
-    func nestedGitEntries(_ root: String) async throws -> [String] { try await base.nestedGitEntries(root) }
+    func nestedGits(_ root: String) async throws -> [WorktreeIntegrity.NestedGit] { try await base.nestedGits(root) }
     func describe(_ paths: [String]) async throws -> [String: String] { try await base.describe(paths) }
     func describeTrees(_ roots: [String]) async throws -> [String: String] { try await base.describeTrees(roots) }
     func modules(_ root: String) async throws -> (entries: [String: String], configs: [String]) { try await base.modules(root) }
@@ -1374,6 +1374,46 @@ enum FixImplementerTests {
                 }
                 try expect(try respondMessage(error).contains(message), "\(name): \(error)")
                 try expectEqual(try repo.subjects(), ["base"])
+            }
+        },
+        TestCase("fix implementer: un repo anidado en una carpeta ignorada (del testCommand) no bloquea fixes, chat ni undo") {
+            let repo = try FixRepo.make()
+            defer { repo.remove() }
+            // `build/` está ignorada en FixRepo: como `.build/checkouts/<pkg>/.git` de `swift test`.
+            let checkout = repo.dir.appendingPathComponent("build/checkouts/pkg")
+            try FileManager.default.createDirectory(at: checkout, withIntermediateDirectories: true)
+            try TempGitRepo.run(checkout, ["init", "-q"])
+            let items = [item("thread:A", marker: "AAA")]
+            let claude = fakeClaude([Script(marker: "AAA", action: edit("README.md", "hola\nfix\n"), line: fixLine("done", message: "Fix A"))])
+            let draft = try draft(repo, items: items)
+            let result = try await run(implementer(claude, log: try logURL()), draft, selections(items))
+            try expectEqual(result.items.map(\.status), [.committed])
+            let (_, outcome) = try await implementer(fakeClaude([]), log: try logURL())
+                .chatTurn(draft: draft, current: result, sessionID: UUID(), turn: 1) {
+                    try edit("README.md", "hola\nchat\n")(repo.dir)
+                    return "ok"
+                }
+            let snapshot = try expectSome(outcome.snapshot)
+            let undone = try await implementer(fakeClaude([]), log: try logURL()).undoChatTurn(draft: draft, snapshot: snapshot)
+            try expectEqual(undone, result)
+            try expect(FileManager.default.fileExists(atPath: checkout.appendingPathComponent(".git/HEAD").path))
+        },
+        TestCase("fix implementer: un .git anidado que git no ignora, o un archivo gitdir: aunque esté ignorado, bloquea el chat") {
+            for (name, setup) in [
+                ("not ignored", { (dir: URL) in
+                    try FileManager.default.createDirectory(at: dir.appendingPathComponent("vendor/a/.git"), withIntermediateDirectories: true)
+                }),
+                ("gitdir file", { (dir: URL) in try edit("build/x/.git", "gitdir: /elsewhere\n")(dir) }),
+            ] as [(String, (URL) throws -> Void)] {
+                let repo = try FixRepo.make()
+                defer { repo.remove() }
+                try setup(repo.dir)
+                let error = try await expectThrows {
+                    _ = try await implementer(fakeClaude([]), log: try logURL())
+                        .chatTurn(draft: try draft(repo, items: []), current: RespondResult(items: [], diffStat: "", tests: nil),
+                                  sessionID: UUID(), turn: 1) { "ok" }
+                }
+                try expect(try respondMessage(error).contains("nested .git"), "\(name): \(error)")
             }
         },
         TestCase("fix implementer: si el turno falla y la inspección corta, el log guarda el error original de Claude") {
