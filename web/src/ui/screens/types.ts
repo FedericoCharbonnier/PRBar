@@ -457,9 +457,12 @@ export interface ChatProps {
   /** "Message Claude" / "Ask about this PR". */
   placeholder: string;
   disabled?: boolean | undefined;
+  /** Claude está contestando: el botón de enviar pasa a ser Stop. */
+  running?: boolean | undefined;
   onBack: () => void;
   onDraft: (text: string) => void;
   onSend: () => void;
+  onStop?: (() => void) | undefined;
   onUndo: (id: string) => void;
 }
 

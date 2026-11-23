@@ -5,7 +5,7 @@ import type { ChatProps } from "./types";
 import "./screens.css";
 
 // chat:review, chat:respond, chat:merge (solo lectura).
-export function Chat({ context, readOnly, timestamp, items, typing, draft, placeholder, disabled, onBack, onDraft, onSend, onUndo }: ChatProps) {
+export function Chat({ context, readOnly, timestamp, items, typing, draft, placeholder, disabled, running, onBack, onDraft, onSend, onStop, onUndo }: ChatProps) {
   let prev: string | undefined;
   // Abre en el último mensaje y lo sigue mientras llegan mensajes o la respuesta (si no se subió a leer).
   const last = items.at(-1);
@@ -34,7 +34,7 @@ export function Chat({ context, readOnly, timestamp, items, typing, draft, place
         {typing && <TypingIndicator />}
       </div>
       <div class="chat__input">
-        <Composer value={draft} placeholder={placeholder} disabled={disabled} onInput={onDraft} onSend={() => {
+        <Composer value={draft} placeholder={placeholder} disabled={disabled} running={running} onStop={onStop} onInput={onDraft} onSend={() => {
           onSend();
           stick();
         }} />

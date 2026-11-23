@@ -7,7 +7,7 @@ import { createMergeModel, methodNote } from "../../../src/app/models/merge";
 import { createRespondModel, logLine } from "../../../src/app/models/respond";
 import { createReviewModel } from "../../../src/app/models/review";
 import { createSettingsModel, REQUIRE_FACE_ID_LABEL } from "../../../src/app/models/settings";
-import { CommandError } from "../../../src/transport/types";
+import { CommandError, RemoteError } from "../../../src/transport/types";
 import { appFixture, flush, makeApp, NOW, sentNames } from "./helpers";
 
 const fx = appFixture();
@@ -404,6 +404,56 @@ describe("chat", () => {
     close();
     app.transport.emitChatDelta("acme/api#317", " more");
     expect(model.props.value.items.at(-1)).toMatchObject({ text: "From the Mac" });
+  });
+
+  it("Send es Stop mientras Claude contesta", async () => {
+    const app = makeApp();
+    const model = createChatModel(app, "acme/api#317", "review");
+    model.open();
+    await flush();
+    expect(model.props.value.running).toBe(false);
+    app.transport.respond("chatSend", () => (fx.commands.find((c) => c.name === "chatShow")!.response as { result: never }).result);
+    model.props.value.onDraft("Why?");
+    const sending = model.send();
+    expect(model.props.value).toMatchObject({ running: true, disabled: true });
+    model.props.value.onStop!();
+    await sending;
+    await flush();
+    expect(sentNames(app)).toContain("chatStop");
+    expect(app.transport.sent.find((s) => "chatStop" in s.command)!.command).toEqual({ chatStop: { pr: "acme/api#317" } });
+    expect(model.props.value.running).toBe(false);
+  });
+
+  it("si el mensaje no llegó a la Mac, vuelve al cuadro y su burbuja se va", async () => {
+    const app = makeApp();
+    const model = createChatModel(app, "acme/api#317", "review");
+    model.open();
+    await flush();
+    const before = model.props.value.items.length;
+    app.transport.respond("chatSend", () => new CommandError({ code: "invalidState", message: "Claude is still answering." }));
+    model.props.value.onDraft("Why?");
+    await model.send();
+    await flush();
+    expect(app.ui.alerts).toEqual(["Claude is still answering."]);
+    expect(model.props.value.items).toHaveLength(before);
+    expect(model.props.value.draft).toBe("Why?");
+    expect(model.props.value.running).toBe(false);
+  });
+
+  it("si no contestó a tiempo pero el mensaje llegó, queda lo que tiene la Mac", async () => {
+    const app = makeApp();
+    const model = createChatModel(app, "acme/api#317", "review");
+    model.open();
+    await flush();
+    const shown = (fx.commands.find((c) => c.name === "chatShow")!.response as { result: { messages: { id: string; role: string; text: string }[] } }).result;
+    app.transport.respond("chatSend", () => new RemoteError("timeout"));
+    app.transport.respond("chatShow", () => ({ ...shown, messages: [...shown.messages,
+      { ...shown.messages[0]!, id: "new-1", role: "user", text: "Why?" }] }) as never);
+    model.props.value.onDraft("Why?");
+    await model.send();
+    await flush();
+    expect(model.props.value.items.at(-1)).toMatchObject({ kind: "mine", text: "Why?" });
+    expect(model.props.value.draft).toBe("");
   });
 
   it("chat:merge es solo lectura", () => {

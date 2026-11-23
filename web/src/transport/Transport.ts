@@ -190,6 +190,13 @@ export interface LiveTransportOptions {
 
 const SESSION_BACKOFF_MS = [0, 1000, 2000, 4000, 8000, 16_000, 30_000];
 
+/**
+ * Los pedidos que la Mac contesta recién al terminar un turno de Claude: el chat (manda el texto como eventos, pero
+ * Claude puede pensar o leer archivos minutos sin escribir) y Undo (espera a que se deshagan los archivos). Cada evento
+ * reinicia la cuenta; el resto espera `requestTimeoutMs`.
+ */
+const LONG_REQUEST_MS: Partial<Record<string, number>> = { chatSend: 10 * 60_000, chatUndo: 5 * 60_000 };
+
 export class LiveTransport implements Transport {
   readonly #options: LiveTransportOptions;
   readonly #clock: Clock;
@@ -300,8 +307,10 @@ export class LiveTransport implements Transport {
     }
     session ??= await this.#ensureSession();
     const log: EventLog = { events: [], listeners: new Set() };
+    const long = LONG_REQUEST_MS[commandName(command)];
     const sent = await session.request(command, {
       ...(needsPresence ? { authorize: options.authorize! } : {}),
+      ...(long !== undefined ? { timeoutMs: long } : {}),
       onEvent: (event) => {
         log.events.push(event);
         options.onEvent?.(event);

@@ -179,6 +179,15 @@ describe("callbacks", () => {
     expect(onSend).toHaveBeenCalled();
   });
 
+  it("chat: mientras Claude contesta, Send es Stop", () => {
+    const onStop = vi.fn();
+    render(<Chat context="api#317 · Review" readOnly={false} items={d.chatReview} draft="" running disabled
+      placeholder="Message Claude" onBack={noop} onDraft={noop} onSend={noop} onStop={onStop} onUndo={noop} />);
+    expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+    expect(onStop).toHaveBeenCalled();
+  });
+
   it("settings: interruptores", () => {
     const onToggleNotification = vi.fn(), onToggleFaceId = vi.fn(), onUnpair = vi.fn();
     render(<Settings {...d.settings} onUnpair={onUnpair} onToggleNotification={onToggleNotification} onToggleFaceId={onToggleFaceId} />);

@@ -78,7 +78,7 @@ describe("LiveTransport", () => {
     expect(t.transport.state.kind).toBe("online");
   });
 
-  it("send espera la conexión; un pedido vencido cierra la sesión y abre otra", async () => {
+  it("send espera la conexión; un pedido vencido y una sesión que no contesta: abre otra", async () => {
     const t = setup();
     const pending = t.transport.send({ status: {} });
     await flush();
@@ -88,8 +88,25 @@ describe("LiveTransport", () => {
     await t.clock.advance(60_000);
     expect(await failure).toMatchObject({ code: "timeout" });
     await flush();
+    expect(t.sessions).toHaveLength(1);
+    // Tampoco contesta el `status` de prueba: esa sesión no sirve.
+    await t.clock.advance(15_000);
+    await flush();
     expect(t.sessions).toHaveLength(2);
     expect(t.transport.state.kind).toBe("online");
+  });
+
+  it("chatSend espera más que 60 s (Claude puede pensar sin escribir)", async () => {
+    const t = setup();
+    t.transport.start();
+    await flush();
+    const { result } = await t.transport.send({ chatSend: { pr: "a/b#1", message: "hi" } });
+    let settled = false;
+    void result.then(() => (settled = true), () => (settled = true));
+    await t.clock.advance(120_000);
+    await flush();
+    expect(settled).toBe(false);
+    expect(t.sessions).toHaveLength(1);
   });
 
   it("eventos: por opción y por `events(id)`, que repite los que ya llegaron", async () => {

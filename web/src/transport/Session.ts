@@ -13,7 +13,8 @@ import { RemoteError, systemClock, type Authorize, type Clock } from "./types";
 // Una sesión cifrada con la Mac (spec P.5 y P.6, la parte de sesión de RemoteClient.swift): handshake Noise KK
 // iniciado por el teléfono, `hello` en los dos sentidos, pedidos con id creciente y tiempo límite, eventos, `sub`,
 // `state` sin volver atrás dentro de la sesión, `chatDelta`, `presencePolicy` y `bye`. Un trozo que no autentica, un
-// marco roto, un `bye` o un pedido vencido cierran la sesión: quien la usa abre otra.
+// marco roto o un `bye` cierran la sesión: quien la usa abre otra. Un pedido vencido falla solo; la sesión queda en duda
+// y se prueba con un `status`: si ese tampoco contesta, se cierra.
 
 export interface PresencePolicy {
   requirePresence: boolean;
@@ -34,7 +35,10 @@ export interface SessionOptions {
   send: (message: RelayMessage) => void;
   clock?: Clock;
   handshakeTimeoutMs?: number;
+  /** Lo que espera cada pedido por la respuesta (o por un evento, que lo reinicia), y el `deadline` del `req`. */
   requestTimeoutMs?: number;
+  /** Lo que espera el `status` que prueba la sesión después de un pedido vencido. */
+  probeTimeoutMs?: number;
   /** Solo para los vectores de prueba. */
   sid?: string;
   fixedEphemeral?: Bytes;
@@ -52,6 +56,12 @@ export interface RequestOptions {
   /** Firma el desafío de presencia (comandos gated, W.5). Sin esto el `req` va sin prueba. */
   authorize?: Authorize;
   onEvent?: (event: CommandEvent) => void;
+  /**
+   * Cuánto puede pasar sin respuesta ni eventos (cada evento lo reinicia). Por defecto `requestTimeoutMs`. Para lo que
+   * transmite un rato largo (el chat: Claude puede pensar minutos sin escribir). El `deadline` del `req` no cambia:
+   * la Mac igual lo rechaza si le llega tarde.
+   */
+  timeoutMs?: number;
 }
 
 export interface SentRequest {
@@ -71,6 +81,8 @@ interface Pending {
   reject: (error: RemoteError) => void;
   onEvent: ((event: CommandEvent) => void) | undefined;
   timer: unknown;
+  /** Vuelve a armar el tiempo límite (llegó un evento). */
+  rearm: () => void;
 }
 
 export class Session {
@@ -89,6 +101,8 @@ export class Session {
   #nextId = 0;
   #pending = new Map<number, Pending>();
   #revs = new Map<string, number>();
+  /** Hay un `status` en vuelo probando si la sesión sigue viva. */
+  #probing = false;
   #waiter: { resolve: (value: Bytes | RemoteHello) => void; reject: (error: RemoteError) => void; timer: unknown } | null =
     null;
 
@@ -187,20 +201,28 @@ export class Session {
       if (this.#phase !== "open") throw new RemoteError("sessionClosed");
       presence = presenceProofJSON({ tsMillis: ts, ...assertion });
     }
-    const timeout = this.#options.requestTimeoutMs ?? 60_000;
+    const base = this.#options.requestTimeoutMs ?? 60_000;
+    const timeout = options.timeoutMs ?? base;
     const response = new Promise<CommandResponse>((resolve, reject) => {
-      const timer = this.#clock.setTimeout(() => {
+      const expire = () => {
         if (!this.#pending.delete(id)) return;
         reject(new RemoteError("timeout"));
-        // La sesión queda en duda (la Mac pudo perderla sin avisar): se descarta (M3).
-        this.#close(new RemoteError("sessionClosed"), true);
-      }, timeout);
-      this.#pending.set(id, { resolve, reject, onEvent: options.onEvent, timer });
+        // La sesión queda en duda (la Mac pudo perderla sin avisar, M3), pero un pedido lento no la tira: se prueba.
+        this.#probe();
+      };
+      const entry: Pending = {
+        resolve, reject, onEvent: options.onEvent, timer: this.#clock.setTimeout(expire, timeout),
+        rearm: () => {
+          this.#clock.clearTimeout(entry.timer);
+          entry.timer = this.#clock.setTimeout(expire, timeout);
+        },
+      };
+      this.#pending.set(id, entry);
     });
     // Que un rechazo sin nadie escuchando todavía no se reporte como no manejado.
     response.catch(() => {});
     const sentAt = this.#clock.now();
-    this.#sendFrame({ t: "req", id, sentAt, cmd, ...(presence ? { presence } : {}), deadline: sentAt + timeout });
+    this.#sendFrame({ t: "req", id, sentAt, cmd, ...(presence ? { presence } : {}), deadline: sentAt + base });
     return { id, response };
   }
 
@@ -233,6 +255,8 @@ export class Session {
         if (!pending) return;
         const { t: _t, ...response } = frame;
         if (response.event) {
+          // La Mac está trabajando en esto: el tiempo límite cuenta desde el último evento.
+          pending.rearm();
           pending.onEvent?.(response.event);
           return;
         }
@@ -262,6 +286,23 @@ export class Session {
       default:
         return;
     }
+  }
+
+  /** Después de un pedido vencido: un `status` corto. Si no contesta, la sesión no sirve (M3) y se cierra. */
+  #probe(): void {
+    if (this.#probing || this.#phase !== "open") return;
+    this.#probing = true;
+    const timeoutMs = this.#options.probeTimeoutMs ?? 15_000;
+    this.request({ status: {} }, { timeoutMs }).then(
+      (sent) => sent.response.then(
+        () => (this.#probing = false),
+        () => {
+          this.#probing = false;
+          this.#close(new RemoteError("sessionClosed"), true);
+        },
+      ),
+      () => (this.#probing = false),
+    );
   }
 
   #sendFrame(frame: RemoteFrame, checkRotation = true): void {
