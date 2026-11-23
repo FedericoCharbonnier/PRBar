@@ -994,6 +994,20 @@ enum FixImplementerTests {
             try expectEqual(call.timeout, 20 * 60)
             try expect(claude.calls.isEmpty)
         },
+        TestCase("fix implementer: runTests streams stdout to the log and keeps the last 80 lines, then stderr") {
+            let repo = try FixRepo.make()
+            defer { repo.remove() }
+            let log = try logURL()
+            let command = "for i in {1..300}; do echo linea$i; done; echo error-final >&2; exit 2"
+            let tests = await implementer(fakeClaude([]), log: log).runTests(worktree: repo.dir, testCommand: command)
+            try expectEqual(tests.passed, false)
+            let lines = tests.outputTail.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+            try expectEqual(lines.count, 80)
+            try expectEqual(lines.first, "linea222")
+            try expectEqual(lines.last, "error-final")
+            let logText = try String(contentsOf: log, encoding: .utf8)
+            try expect(logText.contains("linea1\n") && logText.contains("linea300\nerror-final\n--- exit 2 ---\n"), logText)
+        },
         TestCase("fix implementer: runTests que pasa da passed true; un error al lanzar da passed false") {
             let repo = try FixRepo.make()
             defer { repo.remove() }

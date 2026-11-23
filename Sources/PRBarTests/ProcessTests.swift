@@ -107,6 +107,33 @@ enum ProcessTests {
             let gap = times.value.last!.timeIntervalSince(times.value.first!)
             try expect(gap >= 0.2, "la primera línea llegó \(gap)s antes que la última")
         },
+        TestCase("process: a streaming run keeps only the tail of stdout; every line still reaches the callback") {
+            let count = Box(0)
+            let result = try await SystemProcessRunner().runStreaming(
+                "/bin/sh", ["-c", "yes | head -n 1500000; echo last"],
+                environment: nil, currentDirectory: nil, timeout: 30
+            ) { _ in count.value += 1 }
+            try expectEqual(count.value, 1_500_001)
+            try expect(result.stdout.utf8.count <= ProcessOutputLimits.streamingStdout, "\(result.stdout.utf8.count)")
+            try expect(result.stdout.hasSuffix("y\nlast\n"))
+        },
+        TestCase("process: ByteTail keeps the newest bytes up to its limit") {
+            var tail = ByteTail(limit: 4)
+            try expectEqual(tail.data, Data())
+            tail.append(contentsOf: Array("ab".utf8))
+            try expectEqual(String(decoding: tail.data, as: UTF8.self), "ab")
+            for chunk in ["cd", "ef", "gh", "ij", "k"] { tail.append(contentsOf: Array(chunk.utf8)) }
+            try expectEqual(String(decoding: tail.data, as: UTF8.self), "hijk")
+        },
+        TestCase("process: LineTail keeps the last lines in order") {
+            var tail = LineTail(limit: 3)
+            try expectEqual(tail.text, "")
+            tail.append("1")
+            tail.append("2")
+            try expectEqual(tail.text, "1\n2")
+            for line in ["3", "4", "5", "6", "7"] { tail.append(line) }
+            try expectEqual(tail.text, "5\n6\n7")
+        },
         TestCase("process: runStreaming entrega una línea larga entera") {
             let lines = Box<[String]>([])
             let result = try await SystemProcessRunner().runStreaming(

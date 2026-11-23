@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import os
 
 /// Implementa los fixes elegidos de "Responder", uno por vez y con un commit por comentario.
 ///
@@ -746,20 +747,38 @@ public struct FixImplementer: Sendable {
     /// Corre el `testCommand` del usuario, tal cual, en un shell de login con cwd = worktree y 20 minutos de
     /// timeout. Ejecuta código que escribió Claude: la UI lo llama solo cuando el usuario lo pide después de
     /// ver el diff. Nunca lanza: un exit ≠ 0, un timeout o un error al lanzarlo dan `passed: false`. El output
-    /// completo va al log y al resultado solo las últimas 80 líneas.
+    /// completo va al log y al resultado solo las últimas 80 líneas. With a streaming runner each stdout line goes
+    /// to the log as it arrives and only the last 80 stay in memory (a test suite can print for 20 minutes).
     public func runTests(worktree: URL, testCommand: String) async -> TestRun {
         claude.appendLog("=== testCommand: \(testCommand) ===\n")
         let output: String
         let passed: Bool
+        let testRunner = self.testRunner ?? runner
         do {
-            let result = try await (testRunner ?? runner).run(testShell, ["-lc", testCommand], environment: nil,
-                                              currentDirectory: worktree, timeout: Self.testTimeout)
-            output = [result.stdout, result.stderr]
+            let result: ProcessResult
+            let stdout: String
+            if let streaming = testRunner as? StreamingProcessRunning {
+                let tail = OSAllocatedUnfairLock(initialState: LineTail(limit: Self.testTailLines))
+                let claude = self.claude
+                result = try await streaming.runStreaming(testShell, ["-lc", testCommand], environment: nil,
+                                                          currentDirectory: worktree, timeout: Self.testTimeout) { line in
+                    claude.appendLog(line + "\n")
+                    tail.withLock { $0.append(line) }
+                }
+                stdout = tail.withLock { $0.text }
+                let stderr = result.stderr.trimmingCharacters(in: .newlines)
+                claude.appendLog((stderr.isEmpty ? "" : stderr + "\n") + "--- exit \(result.status) ---\n")
+            } else {
+                result = try await testRunner.run(testShell, ["-lc", testCommand], environment: nil,
+                                                  currentDirectory: worktree, timeout: Self.testTimeout)
+                stdout = result.stdout
+            }
+            output = [stdout, result.stderr]
                 .map { $0.trimmingCharacters(in: .newlines) }
                 .filter { !$0.isEmpty }
                 .joined(separator: "\n")
             passed = result.status == 0
-            claude.appendLog(output + "\n--- exit \(result.status) ---\n")
+            if !(testRunner is StreamingProcessRunning) { claude.appendLog(output + "\n--- exit \(result.status) ---\n") }
         } catch {
             output = (error as? LocalizedError)?.errorDescription ?? "\(error)"
             passed = false
