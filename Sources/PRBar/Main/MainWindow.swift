@@ -35,7 +35,8 @@ struct MainWindow: View {
             .modifier(chatInspector)
         }
         .navigationTitle(title)
-        .navigationSubtitle(subtitle)
+        // "updated 2 min ago" moves on by itself, like the popover's footer.
+        .modifier(LiveSubtitle { subtitle(now: $0) })
         .toolbar { toolbar }
         // View › Back (⌘[) y Pull Request › Open in New Window (⇧⌘O) / Open on GitHub.
         .windowCommand(.back, enabled: state.nav.back.canGoBack) { state.goBack() }
@@ -178,7 +179,7 @@ struct MainWindow: View {
     }
 
     /// "8 PRs · updated 2 min ago", "updating…", "offline" (como el popover).
-    private var subtitle: String {
+    private func subtitle(now: Date) -> String {
         if state.nav.place.sidebar == .activity { return ActivityPane.subtitle(resources) }
         if state.nav.place.sidebar == .history {
             let count = state.history.all.count
@@ -189,9 +190,21 @@ struct MainWindow: View {
         guard let snapshot = prStore.snapshot else { return "no data" }
         if snapshot.failedCompletely { return "offline" }
         let count = MainList.count(section, in: snapshot) ?? 0
-        let updated = Date().timeIntervalSince(snapshot.fetchedAt) < 60
-            ? "updated just now" : "updated \(RelativeAge.short(from: snapshot.fetchedAt)) ago"
+        let updated = now.timeIntervalSince(snapshot.fetchedAt) < 60
+            ? "updated just now" : "updated \(RelativeAge.short(from: snapshot.fetchedAt, now: now)) ago"
         return "\(count == 1 ? "1 PR" : "\(count) PRs") · \(updated)"
+    }
+}
+
+/// The window subtitle, recomputed every 30 s so relative times don't go stale (only the subtitle is re-evaluated:
+/// `content` keeps its identity).
+private struct LiveSubtitle: ViewModifier {
+    let subtitle: (Date) -> String
+
+    func body(content: Content) -> some View {
+        TimelineView(.periodic(from: .now, by: 30)) { context in
+            content.navigationSubtitle(subtitle(context.date))
+        }
     }
 }
 

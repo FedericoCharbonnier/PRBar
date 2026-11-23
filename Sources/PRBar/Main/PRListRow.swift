@@ -23,10 +23,13 @@ struct PRListRow: View {
                         .lineLimit(2)
                         .truncationMode(.tail)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    Text(RelativeAge.short(from: pr.updatedAt))
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .fixedSize()
+                    // The age moves on by itself (like the popover's rows).
+                    TimelineView(.periodic(from: .now, by: 30)) { context in
+                        Text(RelativeAge.short(from: pr.updatedAt, now: context.date))
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .fixedSize()
+                    }
                 }
                 HStack(spacing: 4) {
                     Text("\(pr.repo.name)#\(pr.number)")
