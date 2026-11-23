@@ -66,6 +66,33 @@ enum ReviewHistoryTests {
             try expectEqual(url.deletingLastPathComponent().deletingLastPathComponent().standardizedFileURL, dir.standardizedFileURL)
             try expectEqual(url.lastPathComponent, "\(id.uuidString).jsonl")
         },
+        TestCase("published index: the latest published record per PR, ignoring other states") {
+            var old = record(1, started: 1_000, status: .published)
+            old.finishedAt = Date(timeIntervalSince1970: 1_100)
+            var new = record(1, started: 2_000, status: .published)
+            new.finishedAt = Date(timeIntervalSince1970: 2_100)
+            let ready = record(1, started: 3_000)
+            let other = record(2, started: 1_500, status: .abandoned)
+            let index = PublishedReviewIndex(records: [new, ready, old, other])
+            try expectEqual(index.record(prID: "o/r#1")?.id, new.id)
+            try expectEqual(index.record(prID: "o/r#2")?.id, nil)
+        },
+        TestCase("published index: note() adds a newer post, keeps the newest, drops one that stops being published") {
+            var first = record(1, started: 1_000, status: .published)
+            first.finishedAt = Date(timeIntervalSince1970: 1_100)
+            var index = PublishedReviewIndex(records: [first])
+            var older = record(1, started: 500, status: .published)
+            older.finishedAt = Date(timeIntervalSince1970: 600)
+            index.note(older)
+            try expectEqual(index.record(prID: "o/r#1")?.id, first.id)
+            var second = record(1, started: 2_000, status: .published)
+            second.finishedAt = Date(timeIntervalSince1970: 2_100)
+            index.note(second)
+            try expectEqual(index.record(prID: "o/r#1")?.id, second.id)
+            second.status = .abandoned
+            index.note(second)
+            try expectEqual(index.record(prID: "o/r#1")?.id, nil)
+        },
         TestCase("history: un mismo id se sobrescribe (ready pasa a published)") {
             let history = ReviewHistory(directory: try temporaryDirectory())
             var item = record(1, started: 1_000)
