@@ -24,7 +24,8 @@ public enum GitHardening {
 public enum WorktreeIntegrity {
     // MARK: - .git anidados
 
-    /// Las rutas (relativas, ordenadas) de toda entrada llamada `.git` (archivo, carpeta o link) dentro de `root`,
+    /// Las rutas (relativas, ordenadas) de toda entrada llamada `.git` (en cualquier combinación de mayúsculas;
+    /// archivo, carpeta o link) dentro de `root`,
     /// salvo el `.git` de arriba de todo. Un `.git` anidado convierte una carpeta en un repo (o, con `gitdir:`, la
     /// apunta a otro git dir) cuya config —`core.fsmonitor`, hooks— puede correr en cualquier `git` siguiente.
     /// No sigue symlinks.
@@ -50,7 +51,10 @@ public enum WorktreeIntegrity {
     public static func nestedGits(in root: URL) -> [NestedGit] {
         var found: [NestedGit] = []
         walk(root) { relative, isDirectory in
-            if (relative as NSString).lastPathComponent == ".git" { found.append(NestedGit(path: relative, isDirectory: isDirectory)) }
+            // Sin distinguir mayúsculas: en APFS (y en cualquier disco que no las distinga) git abre `.GIT` como `.git`.
+            if (relative as NSString).lastPathComponent.lowercased() == ".git" {
+                found.append(NestedGit(path: relative, isDirectory: isDirectory))
+            }
             return true
         }
         return found.sorted { $0.path < $1.path }

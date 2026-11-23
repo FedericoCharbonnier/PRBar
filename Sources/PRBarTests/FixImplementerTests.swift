@@ -1356,6 +1356,9 @@ enum FixImplementerTests {
         TestCase("fix implementer: chatTurn corta con un .git anidado, un .gitattributes o un symlink, sin commitear") {
             let cases: [(String, (URL) throws -> Void, String)] = [
                 ("nested", { dir in try edit("sub/.git/config", "[core]\n\tfsmonitor = x\n")(dir) }, "nested .git"),
+                // APFS no distingue mayúsculas: git abre `p/.GIT` como `p/.git` (un `gitdir:` a un repo con filtros).
+                ("nested upper", { dir in try edit("p/.GIT", "gitdir: ../q\n")(dir) }, "nested .git"),
+                ("nested mixed", { dir in try edit("p/.Git/config", "[core]\n\tfsmonitor = x\n")(dir) }, "nested .git"),
                 ("attributes", { dir in try edit(".gitattributes", "* filter=evil\n")(dir) }, ".gitattributes"),
                 ("symlink", { dir in
                     try FileManager.default.createSymbolicLink(atPath: dir.appendingPathComponent("link").path, withDestinationPath: "/etc/passwd")

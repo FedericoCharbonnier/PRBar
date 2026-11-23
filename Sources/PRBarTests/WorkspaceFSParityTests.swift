@@ -23,6 +23,7 @@ private func makeTree() throws -> URL {
     try put(".git/hooks/._h/pre-commit", "#!/bin/sh\n", mode: 0o755)
     try put("sub/.git/config", "[core]\n")
     try put("sub2/.git", "gitdir: /elsewhere\n")
+    try put("sub3/.GIT", "gitdir: /elsewhere\n")
     try put(".git/config", "[include]\n\tpath = extra.conf\n")
     try put(".git/extra.conf", "[user]\n")
     try put(".git/hooks/pre-commit", "#!/bin/sh\n", mode: 0o755)
@@ -57,6 +58,7 @@ enum WorkspaceFSParityTests {
             try expectEqual(nestedPerl, nestedLocal)
             try expect(nestedLocal.contains(.init(path: "._x/.git", isDirectory: true)), "\(nestedLocal)")
             try expect(nestedLocal.contains(.init(path: "sub2/.git", isDirectory: false)), "\(nestedLocal)")
+            try expect(nestedLocal.contains(.init(path: "sub3/.GIT", isDirectory: false)), "\(nestedLocal)")
             let git = root.appendingPathComponent(".git").path
             let paths = [git, git + "/config", git + "/missing", root.appendingPathComponent("link").path, root.path]
             let describeLocal = try await local.describe(paths)

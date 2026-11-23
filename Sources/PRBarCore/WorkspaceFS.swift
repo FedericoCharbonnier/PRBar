@@ -319,7 +319,7 @@ public enum RemoteGuard {
                 my @st = Time::HiRes::lstat("$root/$child");
                 next unless @st;
                 my $is_dir = S_ISDIR($st[2]);
-                if ($mode eq 'nested') { out('N', hx($child), $is_dir ? 'd' : '') if $name eq '.git'; }
+                if ($mode eq 'nested') { out('N', hx($child), $is_dir ? 'd' : '') if lc($name) eq '.git'; }
                 elsif (!$is_dir) { out('S', hx($child), join(' ', $st[2] & S_IFMT, $st[7], sprintf('%.0f', $st[9] * 1e9), $st[1])); }
                 push @stack, $child if $is_dir;
             }
