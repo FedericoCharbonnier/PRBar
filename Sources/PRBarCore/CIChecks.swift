@@ -163,7 +163,7 @@ public enum CILogs {
 
     /// Las últimas `lines` líneas y como mucho `chars` caracteres (la cola: ahí suele estar el error), y si se cortó.
     public static func tail(_ text: String, lines: Int = maxLinesPerCheck, chars: Int = maxCharsPerCheck) -> (text: String, truncated: Bool) {
-        var all = text.split(separator: "\n", omittingEmptySubsequences: false)
+        var all = TextLines.split(text, strippingCarriageReturns: true)
         while all.last?.trimmingCharacters(in: .whitespaces).isEmpty == true { all.removeLast() }
         var truncated = false
         if all.count > lines {

@@ -35,6 +35,25 @@ enum DiffFilesTests {
             try expectEqual(DiffFiles.section(of: diff, file: "package.json").split(separator: "\n").count, 5)
             try expectEqual(DiffFiles.section(of: diff, file: "nope.txt"), "")
         },
+        TestCase("diff: CRLF (un solo Character para Swift) no junta las líneas: fragmentos, líneas comentables, archivos y colas") {
+            let crlf = diff.replacingOccurrences(of: "\n", with: "\r\n")
+            let only = DiffFiles.section(of: crlf, file: "src/reports/export.ts")
+            try expect(only.hasPrefix("diff --git a/src/reports/export.ts"), only)
+            try expect(only.contains("+new") && !only.contains("package.json"), only)
+            try expect(DiffFiles.section(of: crlf, file: "package.json").contains("\"x\": 1"))
+            try expectEqual(ChatActions.files(inDiff: crlf), ["package.json", "src/reports/export.ts"])
+            // Contexto, una línea vacía de contexto (" ") y agregadas, con CRLF.
+            let patch = "@@ -1,2 +1,4 @@\r\n a\r\n \r\n+b\r\n-c\r\n+d\r\n"
+            try expectEqual(DiffLineMap.commentableLines(in: patch), [1, 2, 3, 4])
+            try expectEqual(DiffFiles.tail("a\r\nb\r\nc\r\n", lines: 2), "b\nc")
+            try expectEqual(FixImplementer.tail("a\r\nb\r\nc\r\n", lines: 2), "b\nc")
+            try expectEqual(CILogs.tail("a\r\nb\r\nc\r\n", lines: 2).text, "b\nc")
+            // El tope de líneas del diff guardado cuenta las CRLF (y no les saca el \r).
+            let long = Array(repeating: "+x\r", count: FixImplementer.maxDiffLines + 1).joined(separator: "\n")
+            let (capped, truncated) = FixImplementer.capDiff(long)
+            try expect(truncated)
+            try expectEqual(capped, Array(repeating: "+x\r", count: FixImplementer.maxDiffLines).joined(separator: "\n"))
+        },
         TestCase("diff: las últimas N líneas de un log") {
             try expectEqual(DiffFiles.tail("a\nb\nc\nd", lines: 2), "c\nd")
             try expectEqual(DiffFiles.tail("a\nb\n", lines: 5), "a\nb")

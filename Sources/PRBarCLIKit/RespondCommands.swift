@@ -196,8 +196,7 @@ struct RespondDiffCommand: RemoteCommand {
             output.line(output.paint("Files that can run code: \(diff.sensitiveChanges.joined(separator: ", "))", .red, .bold))
         }
         guard !stat, let text = diff.diff else { return output.line(diff.diffStat) }
-        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
-            let line = String(line)
+        for line in TextLines.split(text, strippingCarriageReturns: true) {
             if line.hasPrefix("+++") || line.hasPrefix("---") || line.hasPrefix("diff --git") { output.line(output.paint(line, .bold)) }
             else if line.hasPrefix("@@") { output.line(output.paint(line, .cyan)) }
             else if line.hasPrefix("+") { output.line(output.paint(line, .green)) }

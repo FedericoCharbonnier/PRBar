@@ -39,7 +39,7 @@ public struct DiffLineMap: Equatable, Sendable {
         var result: Set<Int> = []
         var newLine = 0
         var inHunk = false
-        for line in patch.split(separator: "\n", omittingEmptySubsequences: false) {
+        for line in TextLines.split(patch, strippingCarriageReturns: true) {
             if line.hasPrefix("@@") {
                 // @@ -a,b +c,d @@
                 guard let plus = line.split(separator: " ").first(where: { $0.hasPrefix("+") }),

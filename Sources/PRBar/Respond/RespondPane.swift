@@ -1585,7 +1585,7 @@ struct DiffTextView: NSViewRepresentable {
     static func colored(_ diff: String) -> NSAttributedString {
         let font = NSFont.monospacedSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
         let result = NSMutableAttributedString()
-        for line in diff.split(separator: "\n", omittingEmptySubsequences: false) {
+        for line in TextLines.split(diff, strippingCarriageReturns: true) {
             let color: NSColor
             if line.hasPrefix("+++") || line.hasPrefix("---") || line.hasPrefix("diff --git") || line.hasPrefix("index ") {
                 color = .secondaryLabelColor

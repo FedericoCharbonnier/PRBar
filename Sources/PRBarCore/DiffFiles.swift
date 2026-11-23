@@ -16,10 +16,13 @@ public enum DiffFiles {
 
     /// El fragmento de `diff` de un archivo (desde su `diff --git` hasta el próximo); "" si no está.
     public static func section(of diff: String, file: String) -> String {
-        var kept: [Substring] = []
+        var kept: [String] = []
         var inside = false
-        for line in diff.split(separator: "\n", omittingEmptySubsequences: false) {
-            if line.hasPrefix("diff --git ") { inside = line.hasSuffix(" b/\(file)") }
+        // Las líneas quedan como están (con el `\r` de un CRLF); el encabezado se compara sin él.
+        for line in TextLines.split(diff, strippingCarriageReturns: false) {
+            if line.hasPrefix("diff --git ") {
+                inside = (line.hasSuffix("\r") ? String(line.dropLast()) : line).hasSuffix(" b/\(file)")
+            }
             if inside { kept.append(line) }
         }
         return kept.joined(separator: "\n")
@@ -27,7 +30,7 @@ public enum DiffFiles {
 
     /// Las últimas `lines` líneas de `text` (sin el salto final).
     public static func tail(_ text: String, lines: Int) -> String {
-        var all = text.split(separator: "\n", omittingEmptySubsequences: false)
+        var all = TextLines.split(text, strippingCarriageReturns: true)
         if all.last == "" { all.removeLast() }
         return all.suffix(lines).joined(separator: "\n")
     }

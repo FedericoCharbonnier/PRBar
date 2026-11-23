@@ -157,8 +157,10 @@ public struct FixImplementer: Sendable {
 
     /// Las primeras `maxDiffLines` líneas (y como mucho `maxDiffBytes` bytes) sin el salto final, y si se cortó.
     public static func capDiff(_ text: String) -> (String, Bool) {
-        let trimmed = text.hasSuffix("\n") ? String(text.dropLast()) : text
-        var lines = trimmed.split(separator: "\n", omittingEmptySubsequences: false)
+        // Por escalares: con CRLF, el último `Character` es `"\r\n"` (no `"\n"`). Los `\r` quedan en el texto.
+        var scalars = text.unicodeScalars
+        if scalars.last == "\n" { scalars.removeLast() }
+        var lines = TextLines.split(String(scalars), strippingCarriageReturns: false)
         var truncated = false
         if lines.count > maxDiffLines {
             lines = Array(lines.prefix(maxDiffLines))
@@ -772,7 +774,7 @@ public struct FixImplementer: Sendable {
     }
 
     public static func tail(_ text: String, lines: Int) -> String {
-        let all = text.trimmingCharacters(in: .newlines).split(separator: "\n", omittingEmptySubsequences: false)
+        let all = TextLines.split(text.trimmingCharacters(in: .newlines), strippingCarriageReturns: true)
         return all.suffix(lines).joined(separator: "\n")
     }
 

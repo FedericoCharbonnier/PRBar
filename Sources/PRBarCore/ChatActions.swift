@@ -188,8 +188,8 @@ public enum ChatActions {
             if inHeader, !deleted, let path = newPath ?? headerPath, !path.isEmpty { files.insert(path) }
             inHeader = false
         }
-        for raw in diff.split(separator: "\n", omittingEmptySubsequences: true) {
-            let line = Substring(raw.hasSuffix("\r") ? raw.dropLast() : raw)
+        for raw in TextLines.split(diff, strippingCarriageReturns: true) where !raw.isEmpty {
+            let line = Substring(raw)
             if line.hasPrefix("diff --git ") {
                 finish()
                 inHeader = true
