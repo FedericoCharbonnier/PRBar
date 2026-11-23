@@ -235,14 +235,20 @@ struct MergeDetailPane: View {
             statusLabel
             HStack(spacing: 8) {
                 if let head = window.shownHead {
-                    Text(head.prefix(7))
-                        .font(.system(.callout, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(RoundedRectangle(cornerRadius: 4).fill(Color.primary.opacity(0.07)))
-                        .help("The commit that will be merged: \(head)")
-                        .accessibilityLabel("Head \(head.prefix(7))")
+                    HStack(spacing: 5) {
+                        Text("Head").foregroundStyle(.secondary)
+                        Text(head.prefix(7))
+                            .font(.system(.callout, design: .monospaced))
+                            .foregroundStyle(.primary)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(RoundedRectangle(cornerRadius: 4).fill(Color.primary.opacity(0.07)))
+                    }
+                    .font(.callout)
+                    .accessibilityElement(children: .combine)
+                    .help("The merge is pinned to this commit (\(head)): if someone pushes after it, GitHub refuses the merge "
+                          + "instead of merging code you didn’t see.")
+                    .accessibilityLabel("Head commit \(head.prefix(7))")
                 }
                 Spacer(minLength: 0)
             }
@@ -264,7 +270,7 @@ struct MergeDetailPane: View {
                   systemImage: deletes ? "checkmark.circle" : "minus.circle")
                 .font(.callout)
                 .foregroundStyle(.secondary)
-                .help("The repo’s setting on GitHub")
+                .help("The repo’s setting on GitHub (Settings › General), not a choice made here")
             let config = model.configStore.config
             if config.slack.enabled, config.slack.postMerged,
                let channel = config.repoConfig(account: item.account, repo: item.pr.repo)?.slackChannelName {
