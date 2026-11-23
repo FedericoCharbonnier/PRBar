@@ -429,8 +429,16 @@ public final class RespondQueue: ObservableObject {
             }
             completion(result.map { slot.value! })
             self.jobUsage[prID] = nil
-        }, onCancelledEnd: { [weak self] _ in
-            if kind != .analyze { self?.addUsage(prID, usage.value) }
+        }, onCancelledEnd: { [weak self] result in
+            guard let self else { return }
+            if kind != .analyze { self.addUsage(prID, usage.value) }
+            // An implementation canceled after `implementEnded` ran (it found nothing to cancel, so it didn't resolve
+            // the phase) and before the scheduler closed the job: the finished implementation wins, or the PR would
+            // stay in `implementing` with `cancelling` set (no dismiss, no new job) and its commits uncounted.
+            if kind == .implement, self.cancelling[prID] == jobID {
+                self.cancelling[prID] = nil
+                completion(result.map { slot.value! })
+            }
         })
     }
 
@@ -498,7 +506,8 @@ public final class RespondQueue: ObservableObject {
     }
 
     /// Solo hace algo si esta implementación se canceló (`cancel`/`cancelAll`): el scheduler ya no va a llamar a
-    /// `completion`, así que acá se decide la fase final, cuando el pipeline ya dejó el árbol limpio.
+    /// `completion`, así que acá se decide la fase final, cuando el pipeline ya dejó el árbol limpio. Un Cancel que
+    /// llega después de esto (y antes de que el scheduler cierre el job) lo resuelve `onCancelledEnd` en `start`.
     private func implementEnded(_ prID: String, _ jobID: UUID, draft: RespondDraft, outcome: Result<RespondResult, Error>) {
         guard cancelling[prID] == jobID else { return }
         cancelling[prID] = nil

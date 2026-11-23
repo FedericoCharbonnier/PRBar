@@ -74,6 +74,8 @@ final class FakeRespondPipeline: RespondPipelineRunning, @unchecked Sendable {
     var analyzeCancelError: Error?
     /// Lo que "gasta" cada análisis e implementación en Claude (spec O), anotado antes de esperar.
     var spend: ClaudeUsage?
+    /// Se llama justo antes de que una implementación devuelva su resultado (fuera del main actor).
+    var beforeImplementReturns: (@Sendable () -> Void)?
 
     init(events: QueueEventLog, api: FakeFeedbackAPI = FakeFeedbackAPI()) {
         self.events = events
@@ -109,7 +111,7 @@ final class FakeRespondPipeline: RespondPipelineRunning, @unchecked Sendable {
         let events = self.events
         if let spend = lock.withLock({ self.spend }) { ClaudeUsageCenter.shared.record(spend, stage: "fix") }
         do {
-            return try await withTaskCancellationHandler {
+            let result = try await withTaskCancellationHandler {
                 try await withCheckedThrowingContinuation { continuation in
                     lock.withLock { implementations[prID] = (onProgress, continuation) }
                     Task { @MainActor in events.record(.started("implement:\(prID)")) }
@@ -118,6 +120,8 @@ final class FakeRespondPipeline: RespondPipelineRunning, @unchecked Sendable {
                 let entry = lock.withLock { implementations.removeValue(forKey: prID) }
                 entry?.continuation.resume(throwing: CancellationError())
             }
+            lock.withLock { beforeImplementReturns }?()
+            return result
         } catch is CancellationError {
             if lock.withLock({ slowCancel }) {
                 await withCheckedContinuation { continuation in
@@ -498,6 +502,26 @@ enum RespondQueueTests {
             h.queue.dismiss(prID: prID(1))
             try await waitUntil { h.pipeline.cleanups == [first.id, second.id] }
             try expect(h.queue.analyze(classified(1), localPath: "/repos/r", worktreeDir: nil))
+        },
+        TestCase("respond queue: Cancel justo después de que la implementación terminó no la deja trabada en implementing") { @MainActor in
+            let h = try Harness()
+            try await h.toReady(1)
+            let queue = h.queue!
+            // El Cancel llega en el main actor después de `implementEnded` (que no encontró nada que cancelar) y antes de
+            // que el scheduler cierre el job: dos saltos al main actor encolados antes del de `implementEnded`.
+            h.pipeline.beforeImplementReturns = {
+                Task { @MainActor in Task { @MainActor in queue.cancel(prID: prID(1)) } }
+            }
+            queue.implement(prID: prID(1), selections: bothSelected)
+            try await h.events.wait(for: [.started("implement:\(prID(1))")])
+            h.pipeline.completeImplementation(prID(1), .success(fixResult))
+            try await waitUntil { h.queue.phases[prID(1)]?.name == "readyToPush" }
+            // Ganó la implementación terminada: sus commits se muestran y cuentan como trabajo sin pushear.
+            try expectEqual(h.queue.records[prID(1)]?.result, fixResult)
+            try expectEqual(h.queue.unpushedWork, [prID(1)])
+            try expect(h.queue.canChat(prID: prID(1)))
+            h.queue.dismiss(prID: prID(1))
+            try expectEqual(h.queue.phases[prID(1)], nil)
         },
         TestCase("respond queue: cancelar implementing sin commits vuelve a ready") { @MainActor in
             let h = try Harness()
