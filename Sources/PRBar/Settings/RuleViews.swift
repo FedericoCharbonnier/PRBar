@@ -11,6 +11,8 @@ struct StageChip: View {
         Button(action: action) {
             Text(stage.title)
                 .font(.caption.weight(.medium))
+                .lineLimit(1)
+                .fixedSize()
                 .padding(.horizontal, 8)
                 .padding(.vertical, 2)
                 .background(Capsule().fill(isOn ? Theme.tint(Theme.accent) : Color.primary.opacity(0.06)))

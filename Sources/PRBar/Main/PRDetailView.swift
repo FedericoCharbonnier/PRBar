@@ -145,7 +145,7 @@ struct ChatInspectorModifier: ViewModifier {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-            .inspectorColumnWidth(min: Theme.MainLayout.inspectorWidth, ideal: Theme.MainLayout.inspectorWidth, max: 480)
+            .inspectorColumnWidth(min: Theme.MainLayout.inspectorMinWidth, ideal: Theme.MainLayout.inspectorWidth, max: 480)
         }
     }
 }

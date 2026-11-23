@@ -28,20 +28,25 @@ struct ChatPanel: View {
                     .padding(.vertical, 7)
                     .background(Theme.tint(Theme.orange))
             }
-            if let host {
-                PlacementLabel(text: "on \(host)")
-                    .font(.caption)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 5)
-                    .help("Claude answers on \(host), with its own Claude login and plugins.")
-                Divider()
+            // "Chat · on devbox": what this panel is and where Claude answers.
+            HStack(spacing: 4) {
+                Text("Chat").fontWeight(.semibold).foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                if let host {
+                    Text("·").foregroundStyle(Color(nsColor: .tertiaryLabelColor))
+                    PlacementLabel(text: "on \(host)")
+                        .help("Claude answers on \(host), with its own Claude login and plugins.")
+                }
             }
+            .font(.caption)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
+            Divider()
             messages
             Divider()
             input
         }
-        .frame(minWidth: 320, maxHeight: .infinity)
+        .frame(minWidth: Theme.MainLayout.inspectorMinWidth, maxHeight: .infinity)
         .onAppear { inputFocused = true }
     }
 
@@ -315,23 +320,20 @@ struct RuleProposalCard: View {
                     .textFieldStyle(.roundedBorder)
                     .font(.callout)
                     .lineLimit(1...4)
-                HStack(spacing: 6) {
-                    Picker("Scope", selection: $scope) {
-                        Text("Global").tag(RuleScope.global)
-                        Text(actions.repo).tag(RuleScope.repo(actions.repo))
+                // One row when the panel is wide enough; otherwise scope and stages, then the buttons on the right.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 6) {
+                        scopeAndStages(actions)
+                        Spacer(minLength: 4)
+                        buttons(actions)
                     }
-                    .labelsHidden()
-                    .fixedSize()
-                    ForEach(RuleStage.allCases, id: \.self) { stage in
-                        StageChip(stage: stage, isOn: stages.contains(stage)) {
-                            if stages.contains(stage) { stages.remove(stage) } else { stages.insert(stage) }
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 6) { scopeAndStages(actions) }
+                        HStack(spacing: 6) {
+                            Spacer(minLength: 0)
+                            buttons(actions)
                         }
                     }
-                    Spacer(minLength: 4)
-                    Button("Dismiss") { actions.dismiss(proposal.id) }
-                    Button("Save") { error = actions.save(proposal.id, text, scope, stages) }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || stages.isEmpty)
                 }
                 .controlSize(.small)
                 if let error {
@@ -357,6 +359,31 @@ struct RuleProposalCard: View {
         }
         .padding(10)
         .background(RoundedRectangle(cornerRadius: 8).fill(Theme.tint(Theme.accent).opacity(0.5)))
+    }
+
+    @ViewBuilder
+    private func scopeAndStages(_ actions: RuleProposalActions) -> some View {
+        Picker("Scope", selection: $scope) {
+            Text("Global").tag(RuleScope.global)
+            Text(actions.repo).tag(RuleScope.repo(actions.repo))
+        }
+        .labelsHidden()
+        .fixedSize()
+        ForEach(RuleStage.allCases, id: \.self) { stage in
+            StageChip(stage: stage, isOn: stages.contains(stage)) {
+                if stages.contains(stage) { stages.remove(stage) } else { stages.insert(stage) }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func buttons(_ actions: RuleProposalActions) -> some View {
+        Button("Dismiss") { actions.dismiss(proposal.id) }
+            .fixedSize()
+        Button("Save") { error = actions.save(proposal.id, text, scope, stages) }
+            .buttonStyle(.borderedProminent)
+            .fixedSize()
+            .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || stages.isEmpty)
     }
 }
 

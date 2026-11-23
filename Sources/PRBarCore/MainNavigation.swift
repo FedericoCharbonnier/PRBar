@@ -241,6 +241,9 @@ public struct MainNavigationState: Equatable, Sendable {
 
 /// Medidas de la ventana principal que dependen del ancho (spec M.1).
 public enum MainLayout {
-    /// La lista: 32 % del ancho de la ventana, entre 280 y 340 pt.
-    public static func listWidth(windowWidth: Double) -> Double { min(max(windowWidth * 0.32, 280), 340) }
+    /// La lista: 32 % del ancho de la ventana, entre 280 y 340 pt. With the chat open the detail is the narrow part,
+    /// so the list can go down to 260 pt (at the default 1280 pt window the Review tab's bottom bar still fits).
+    public static func listWidth(windowWidth: Double, chatOpen: Bool = false) -> Double {
+        min(max(windowWidth * 0.32, chatOpen ? 260 : 280), 340)
+    }
 }

@@ -28,9 +28,10 @@ struct MainWindow: View {
                 .navigationSplitViewColumnWidth(Theme.MainLayout.sidebarWidth)
         } detail: {
             GeometryReader { geometry in
-                // Con el chat abierto el detalle se queda angosto: la lista toma su mínimo (280 pt).
+                // Con el chat abierto el detalle se queda angosto: la lista toma su mínimo (260 pt).
                 let chatOpen = chatInspector.enabled && detail.focus.chatShown && model.chatEnabled
-                content(windowWidth: geometry.size.width + (columns == .detailOnly || chatOpen ? 0 : Theme.MainLayout.sidebarWidth))
+                content(windowWidth: geometry.size.width + (columns == .detailOnly || chatOpen ? 0 : Theme.MainLayout.sidebarWidth),
+                        chatOpen: chatOpen)
             }
             .modifier(chatInspector)
         }
@@ -53,13 +54,13 @@ struct MainWindow: View {
     }
 
     @ViewBuilder
-    private func content(windowWidth: Double) -> some View {
+    private func content(windowWidth: Double, chatOpen: Bool) -> some View {
         switch state.nav.place.sidebar {
         case .section(let section):
             HStack(spacing: 0) {
                 if !detail.focus.isFocused {
                     PRListPane(model: model, state: state, prStore: prStore, section: section)
-                        .frame(width: MainLayout.listWidth(windowWidth: windowWidth))
+                        .frame(width: MainLayout.listWidth(windowWidth: windowWidth, chatOpen: chatOpen))
                     Divider()
                 }
                 detailView
@@ -70,7 +71,7 @@ struct MainWindow: View {
         case .history:
             HStack(spacing: 0) {
                 HistoryListPane(model: model, state: state)
-                    .frame(width: MainLayout.listWidth(windowWidth: windowWidth))
+                    .frame(width: MainLayout.listWidth(windowWidth: windowWidth, chatOpen: chatOpen))
                 Divider()
                 HistoryDetailPane(model: model, state: state)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
