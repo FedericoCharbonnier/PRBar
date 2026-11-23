@@ -104,7 +104,12 @@ extension AppModel {
             // review lista → la pestaña igual (la review sigue en la cola). Sin snapshot todavía (la app recién abrió
             // desde la notificación) no se sabe: va a la pestaña, que se llena cuando llegan los datos.
             if tab == .respond || tab == .fixCI, respond.records[prID] == nil {
-                openHistory(selecting: respondHistory.all().first { $0.draft.prID == prID }?.id)
+                // Reads the folder off the main thread; the click opens History as soon as it knows the record.
+                let history = respondHistory
+                Task {
+                    let id = await Task.detached { history.all().first { $0.draft.prID == prID }?.id }.value
+                    openHistory(selecting: id)
+                }
             } else if tab == .merge, let url = PRReference.githubURL(prID: prID) {
                 NSWorkspace.shared.open(url)
             } else {

@@ -377,7 +377,7 @@ private final class SnapshotSession {
         for record in fixtures.historyReviews { try model.history.save(record) }
         let responds = fixtures.historyResponds
         for record in responds { try model.respondHistory.save(record) }
-        model.main.history.reload(model)
+        await model.main.history.reload(model)
         model.main.go(to: .history(recordID: model.main.history.all.first?.id), snapshot: model.prStore.snapshot)
         try await window("main-history", title: "PRBar", size: Theme.MainLayout.defaultSize) { MainWindow(model: model) }
         model.main.go(to: .history(recordID: responds[0].id), snapshot: model.prStore.snapshot)
