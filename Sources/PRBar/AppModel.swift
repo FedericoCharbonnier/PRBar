@@ -306,6 +306,8 @@ final class AppModel: ObservableObject {
             .sink { [weak self] phases, runningTests in self?.noteRespondStages(phases, runningTests: runningTests) }
         mergePruneObserver = prStore.$snapshot.dropFirst().compactMap { $0 }.sink { [weak self] snapshot in
             self?.merges.prune(keeping: Set(snapshot.items.map(\.id)))
+            self?.reviews.dropOutdatedPublished(
+                heads: Dictionary(snapshot.items.map { ($0.id, $0.pr.headOid) }, uniquingKeysWith: { first, _ in first }))
             self?.updateMergeSessions(snapshot)
         }
         mainSectionObserver = prStore.$snapshot.compactMap { $0 }.sink { [weak self] snapshot in
@@ -745,7 +747,9 @@ final class AppModel: ObservableObject {
         } catch where ReviewPublisher.canRetryInBody(after: error, submission: submission) {
             throw InlineCommentsRejected(underlying: error)
         }
-        reviews.markPublished(prID: draft.prID, url: url)
+        // The head now, not the draft's: a review posted from an outdated draft is still the current one until
+        // another commit arrives.
+        reviews.markPublished(prID: draft.prID, url: url, headOid: currentItem(draft.prID)?.pr.headOid ?? draft.headOid)
 
         // La review ya está en GitHub: de acá en adelante un error solo se loguea.
         let now = Date()

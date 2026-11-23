@@ -320,6 +320,20 @@ enum ReviewQueueTests {
             h.queue.dismiss(prID: prID(1))
             try expectEqual(h.queue.phases[prID(1)], nil)
         },
+        TestCase("review queue: la review publicada se descarta cuando el PR recibe otro commit") { @MainActor in
+            let h = Harness()
+            let url = URL(string: "https://github.com/o/r/pull/1#pullrequestreview-1")!
+            h.queue.markPublished(prID: prID(1), url: url, headOid: "aaa")
+            h.queue.dropOutdatedPublished(heads: [prID(1): "aaa"])
+            try expectEqual(h.queue.phases[prID(1)], .published(url))
+            h.queue.dropOutdatedPublished(heads: [:])
+            try expectEqual(h.queue.phases[prID(1)], .published(url))
+            h.queue.dropOutdatedPublished(heads: [prID(1): "bbb"])
+            try expectEqual(h.queue.phases[prID(1)], nil)
+            h.queue.markPublished(prID: prID(2), url: url)
+            h.queue.dropOutdatedPublished(heads: [prID(2): "ccc"])
+            try expectEqual(h.queue.phases[prID(2)], .published(url))
+        },
         TestCase("review queue: markFailed marca el error sin pisar un job activo ni avisar") { @MainActor in
             let h = Harness()
             h.queue.markFailed(prID: prID(1), message: "No se encontró claude")

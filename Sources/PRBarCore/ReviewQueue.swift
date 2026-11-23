@@ -10,6 +10,9 @@ public final class ReviewQueue: ObservableObject {
     private let onFinished: @MainActor (ReviewRequest, Result<ReviewDraft, Error>) -> Void
     /// Id de la corrida vigente de cada PR (en cola o corriendo): las fases de una corrida vieja se ignoran.
     private var jobs: [String: UUID] = [:]
+    /// El head del PR cuando se publicó su review (`markPublished`): si después llega otro commit, la review
+    /// publicada deja de ser la vigente (`dropOutdatedPublished`).
+    private var publishedHeads: [String: String] = [:]
 
     public init(pipeline: ReviewPipelineRunning, maxConcurrent: Int = 2,
                 onFinished: @escaping @MainActor (ReviewRequest, Result<ReviewDraft, Error>) -> Void) {
@@ -63,9 +66,25 @@ public final class ReviewQueue: ObservableObject {
         scheduler.cancelAll()
     }
 
-    public func markPublished(prID: String, url: URL) {
+    /// `headOid`: el head del PR al publicar. Sin él, la review publicada queda hasta que se descarte a mano.
+    public func markPublished(prID: String, url: URL, headOid: String? = nil) {
         guard phases[prID]?.isActive != true else { return }
         phases[prID] = .published(url)
+        publishedHeads[prID] = headOid
+    }
+
+    /// Un PR con commits nuevos después de su review publicada vuelve a idle (Start Review): la review publicada
+    /// era de otro commit y ya no deja revisar ni aprobar lo nuevo. `heads`: el head actual de cada PR de la lista.
+    public func dropOutdatedPublished(heads: [String: String]) {
+        for (prID, posted) in publishedHeads {
+            guard case .published? = phases[prID] else {
+                publishedHeads[prID] = nil
+                continue
+            }
+            guard let current = heads[prID], current != posted else { continue }
+            phases[prID] = nil
+            publishedHeads[prID] = nil
+        }
     }
 
     /// Marca un error que impidió encolar (p. ej. falta `claude` o `git`). No pisa un job activo ni llama a `onFinished`.
@@ -78,6 +97,7 @@ public final class ReviewQueue: ObservableObject {
     public func dismiss(prID: String) {
         guard phases[prID]?.isActive == false else { return }
         phases[prID] = nil
+        publishedHeads[prID] = nil
     }
 
     /// `.ready(draft)`, para reabrir desde el historial. No pisa un job activo.

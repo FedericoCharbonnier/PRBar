@@ -116,6 +116,7 @@ enum UIActionInventory {
         .init("Review/ReviewPane.swift", "Button", "Start Review", 1, .cli(["review start"])),
         .init("Review/ReviewPane.swift", "Button", "Cancel", 1, .cli(["review cancel"])),
         .init("Review/ReviewPane.swift", "Button", "Show Log", 1, .cli(["app logs"])),
+        .init("Review/ReviewPane.swift", "ExternalLink", "Your previous review", 1, .cli(["history show"])),
         .init("Review/ReviewPane.swift", "Component:ReviewEditor", "-", 2, .viewOnly("the Review tab's editor (its controls are in ReviewEditor.swift)")),
         .init("Review/ReviewPane.swift", "Component:MessageView", "questionmark.folder", 1, .viewOnly("a message without an action")),
         .init("Merge/MergeDetailPane.swift", "Button", #"Show \(detail.checks.count - Self.limit) more"#, 1, .viewOnly("shows the rest of the checks")),

@@ -68,6 +68,11 @@ private struct ReviewStartView: View {
                         .foregroundStyle(Theme.violet)
                         .accessibilityHidden(true)
                     Text(status(item)).font(.title3.weight(.semibold))
+                    // The review posted before the PR's latest commits (the Review tab shows Start Review again).
+                    if let previous = model.publishedReviewRecord(prID: prID)?.reviewURL {
+                        ExternalLink("Your previous review", destination: previous)
+                            .font(.callout)
+                    }
                     HStack(spacing: 6) {
                         CIIcon(state: item.pr.ciState)
                         Text(CIIcon.label(for: item.pr.ciState) ?? "No CI")
