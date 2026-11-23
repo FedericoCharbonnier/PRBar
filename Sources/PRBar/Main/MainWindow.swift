@@ -29,7 +29,7 @@ struct MainWindow: View {
         } detail: {
             GeometryReader { geometry in
                 // Con el chat abierto el detalle se queda angosto: la lista toma su mínimo (280 pt).
-                let chatOpen = detail.focus.chatShown && model.chatEnabled
+                let chatOpen = chatInspector.enabled && detail.focus.chatShown && model.chatEnabled
                 content(windowWidth: geometry.size.width + (columns == .detailOnly || chatOpen ? 0 : Theme.MainLayout.sidebarWidth))
             }
             .modifier(chatInspector)
