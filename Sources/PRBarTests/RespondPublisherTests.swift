@@ -333,6 +333,19 @@ enum RespondPublisherTests {
                     try FileManager.default.createDirectory(at: repo.work.appendingPathComponent("vendor/a/.git"),
                                                             withIntermediateDirectories: true)
                 }, "vendor/a/.git"),
+                // Un gitlink en el índice (aunque esté en otro lado, o justo en la carpeta del repo): `add -A` entraría.
+                ("gitlink at repo", { repo in
+                    try TempGitRepo.run(repo.work, ["update-index", "--add", "--cacheinfo", "160000,\(repo.start),.build/g"])
+                    try TempGitRepo.run(repo.work, ["commit", "-q", "-m", "gitlink"])
+                    try FileManager.default.createDirectory(at: repo.work.appendingPathComponent(".build/g/.git"),
+                                                            withIntermediateDirectories: true)
+                }, ".build/g/.git"),
+                ("gitlink elsewhere", { repo in
+                    try TempGitRepo.run(repo.work, ["update-index", "--add", "--cacheinfo", "160000,\(repo.start),vendor/lib"])
+                    try TempGitRepo.run(repo.work, ["commit", "-q", "-m", "gitlink"])
+                    try FileManager.default.createDirectory(at: repo.work.appendingPathComponent(".build/ok/.git"),
+                                                            withIntermediateDirectories: true)
+                }, ".build/ok/.git"),
                 ("tracked inside", { repo in
                     try writeFile(repo.work.appendingPathComponent(".build/t/keep.txt"), "x\n")
                     try TempGitRepo.run(repo.work, ["add", "-f", ".build/t/keep.txt"])

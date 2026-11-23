@@ -246,7 +246,7 @@ public struct FixImplementer: Sendable {
                 return ItemResult(id: item.id, status: .noChanges, commit: nil, summary: summary)
             }
             let message = perCommentMessage(item: item, draft: draft, claudeMessage: output.commitMessage)
-            try await git(worktree, ["add", "-A"])
+            try await stageAll(worktree)
             let staged = try await git(worktree, ["diff", GitHardening.ignoreSubmodules, "--cached", "--raw", "-z", "--no-renames", "--no-abbrev"])
             let special = WorktreeIntegrity.specialStagedPaths(fromRawZ: staged)
             guard special.isEmpty else {
@@ -262,6 +262,17 @@ public struct FixImplementer: Sendable {
             }
             return ItemResult(id: item.id, status: .committed, commit: sha, summary: summary)
         }
+    }
+
+    /// `git add -A` sin los gitlinks del índice (`:(exclude,literal)<ruta>`, con la ruta en bytes como la tiene el
+    /// índice): `add -A` entra en el directorio de cada gitlink y, si ahí hay un repo (un `.git` o un `gitdir:`), corre
+    /// git adentro con su config y sus filtros (`filter.<x>.clean`). Claude no puede mover un submódulo (no tiene git):
+    /// no hay nada de ahí que agregar. `extraEnvironment`: el del índice (p. ej. el temporal de un snapshot).
+    private func stageAll(_ worktree: URL, extraEnvironment: [String: String] = [:]) async throws {
+        let index = try await git(worktree, ["ls-files", "-z", "-s"], extraEnvironment: extraEnvironment)
+        let gitlinks = index.split(separator: "\0").map { IndexEntry(String($0)) }.filter(\.isGitlink).map(\.path)
+        let pathspecs = gitlinks.isEmpty ? [] : ["--", "."] + gitlinks.map { ":(exclude,literal)" + $0 }
+        try await git(worktree, ["add", "-A"] + pathspecs, extraEnvironment: extraEnvironment)
     }
 
     /// Descarta lo que hizo Claude en este fix. Seguro porque el árbol estaba limpio al empezar (`ensureClean`):
@@ -402,11 +413,13 @@ public struct FixImplementer: Sendable {
         return allowIgnored ? unexpected.map(\.repository) : []
     }
 
-    /// De `repositories` (carpetas relativas al worktree), las que git no ignora o que tienen algún archivo trackeado.
-    /// `git` corre git endurecido en el worktree: `ls-files --others --ignored --exclude-standard --directory` (todo lo
-    /// ignorado, una carpeta ignorada entera como `dir/`; sin pathspec: con uno, git falla si la carpeta ignorada está
-    /// más arriba) y `--literal-pathspecs ls-files` (lo trackeado adentro). No entra a los repos anidados ni lee su
-    /// config.
+    /// De `repositories` (carpetas relativas al worktree), las que no se pueden aceptar: todas si el índice tiene algún
+    /// gitlink (un repo anidado en un gitlink, o que lo contiene o está adentro, hace que `add -A` corra git —y sus
+    /// filtros— adentro; con NFD/NFC y mayúsculas no se puede comparar rutas con certeza); si no, las que git no ignora
+    /// o que tienen algo trackeado (en la carpeta misma o adentro, comparando en NFC y sin mayúsculas). `git` corre git
+    /// endurecido en el worktree: `ls-files --others --ignored --exclude-standard --directory` (todo lo ignorado, una
+    /// carpeta entera como `dir/`; sin pathspec: con uno, git falla si la carpeta ignorada está más arriba) y
+    /// `ls-files -s` (el índice, con los modos). No entra a los repos anidados ni lee su config.
     static func unignoredRepositories(_ repositories: [String],
                                       git: ([String]) async throws -> ProcessResult) async throws -> [String] {
         guard !repositories.isEmpty else { return [] }
@@ -418,12 +431,30 @@ public struct FixImplementer: Sendable {
             }
             return result.stdout.split(separator: "\0").map { String($0).precomposedStringWithCanonicalMapping }
         }
+        let index = try await paths(["ls-files", "-z", "-s"]).map(IndexEntry.init)
+        if index.contains(where: \.isGitlink) { return repositories.sorted() }
         let ignored = Set(try await paths(["ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory"]))
-        let tracked = try await paths(["--literal-pathspecs", "ls-files", "-z", "--"] + repositories)
+        func folded(_ path: String) -> String { path.precomposedStringWithCanonicalMapping.lowercased() }
+        let tracked = index.map { folded($0.path) }
         return repositories.filter { repository in
             let isIgnored = ignored.contains(repository + "/") || WorktreeIntegrity.isIgnored(repository, in: ignored)
-            return !isIgnored || tracked.contains { $0.hasPrefix(repository + "/") }
+            let key = folded(repository)
+            return !isIgnored || tracked.contains { $0 == key || $0.hasPrefix(key + "/") }
         }.sorted()
+    }
+
+    /// Una línea de `git ls-files -s -z`: `<modo> <sha> <etapa>\t<ruta>`.
+    struct IndexEntry {
+        let mode: String
+        let path: String
+
+        init(_ line: String) {
+            let tab = line.firstIndex(of: "\t")
+            mode = String(line.prefix { $0 != " " })
+            path = tab.map { String(line[line.index(after: $0)...]) } ?? line
+        }
+
+        var isGitlink: Bool { mode == "160000" }
     }
 
     static func throwNestedGit(_ paths: [String], worktree: URL, ignoredHint: Bool) throws {
@@ -538,7 +569,7 @@ public struct FixImplementer: Sendable {
         let status = try await git(worktree, ["status", GitHardening.ignoreSubmodules, "--porcelain", "-z", "--no-renames",
                                               "--untracked-files=all"])
         let changed = WorktreeIntegrity.visibleChanges(fromStatusZ: status).sorted()
-        try await git(worktree, ["add", "-A"])
+        try await stageAll(worktree)
         let staged = try await git(worktree, ["diff", GitHardening.ignoreSubmodules, "--cached", "--raw", "-z", "--no-renames", "--no-abbrev"])
         let special = WorktreeIntegrity.specialStagedPaths(fromRawZ: staged)
         guard special.isEmpty else {
@@ -636,7 +667,7 @@ public struct FixImplementer: Sendable {
         let env = ["GIT_INDEX_FILE": index]
         do {
             try await git(worktree, ["read-tree", "HEAD"], extraEnvironment: env)
-            try await git(worktree, ["add", "-A"], extraEnvironment: env)
+            try await stageAll(worktree, extraEnvironment: env)
             let tree = try await git(worktree, ["write-tree"], extraEnvironment: env).trimmingCharacters(in: .whitespacesAndNewlines)
             await fs.removeTemporaryFile(index)
             return tree

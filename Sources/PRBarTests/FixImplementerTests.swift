@@ -1157,7 +1157,8 @@ enum FixImplementerTests {
                     return "ok"
                 }
             let indexes = recorder.environments.compactMap { $0?["GIT_INDEX_FILE"] }
-            try expect(indexes.count == 3 && Set(indexes).count == 1, "\(indexes)")
+            // read-tree, ls-files (los gitlinks), add y write-tree.
+            try expect(indexes.count == 4 && Set(indexes).count == 1, "\(indexes)")
             try expect(indexes[0].hasPrefix(tmp.path + "/"), indexes[0])
             try expect(!FileManager.default.fileExists(atPath: indexes[0]), "el índice temporal quedó")
         },
@@ -1401,6 +1402,29 @@ enum FixImplementerTests {
             let undone = try await implementer(fakeClaude([]), log: try logURL()).undoChatTurn(draft: draft, snapshot: snapshot)
             try expectEqual(undone, result)
             try expect(FileManager.default.fileExists(atPath: checkout.appendingPathComponent(".git/HEAD").path))
+        },
+        TestCase("fix implementer: cada git add -A excluye los gitlinks del índice (git no entra en sus repos)") {
+            let repo = try FixRepo.make()
+            defer { repo.remove() }
+            let start = try repo.head()
+            try repo.git(["update-index", "--add", "--cacheinfo", "160000,\(start),mods/lib"])
+            try repo.git(["commit", "-q", "-m", "gitlink"])
+            try FileManager.default.createDirectory(at: repo.dir.appendingPathComponent("mods/lib"), withIntermediateDirectories: true)
+            let recorder = RecordingProcessRunner()
+            let items = [item("thread:A", marker: "AAA")]
+            let claude = fakeClaude([Script(marker: "AAA", action: edit("README.md", "hola\nfix\n"), line: fixLine("done", message: "Fix A"))])
+            let draft = try draft(repo, items: items)
+            let result = try await run(implementer(claude, log: try logURL(), runner: recorder), draft, selections(items))
+            try expectEqual(result.items.map(\.status), [.committed])
+            _ = try await implementer(fakeClaude([]), log: try logURL(), runner: recorder)
+                .chatTurn(draft: draft, current: result, sessionID: UUID(), turn: 1) {
+                    try edit("README.md", "hola\nchat\n")(repo.dir)
+                    return "ok"
+                }
+            let adds = recorder.calls.map { Array($0.arguments.dropFirst(2 + GitHardening.arguments.count)) }.filter { $0.first == "add" }
+            // El fix, el snapshot del chat y el commit del chat.
+            try expectEqual(adds.count, 3)
+            for add in adds { try expectEqual(add, ["add", "-A", "--", ".", ":(exclude,literal)mods/lib"]) }
         },
         TestCase("fix implementer: un .git anidado que git no ignora, o un archivo gitdir: aunque esté ignorado, bloquea el chat") {
             for (name, setup) in [
