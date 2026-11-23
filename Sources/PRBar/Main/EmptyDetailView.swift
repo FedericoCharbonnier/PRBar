@@ -8,7 +8,7 @@ struct EmptyDetailView: View {
                         text: "Pick a PR from the list, or press ↓ to select the first one.")
             Text("⌘1 To Review · ⌘2 My PRs · ⌘F Search")
                 .font(.callout.monospacedDigit())
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

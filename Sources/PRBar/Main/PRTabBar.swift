@@ -35,7 +35,8 @@ struct PRTabBar: View {
                 }
             }
             .font(.callout.weight(isSelected ? .semibold : .regular))
-            .foregroundStyle(isSelected ? Color.white : Color(nsColor: .labelColor))
+            .foregroundStyle(isSelected ? Color.white
+                             : Color(nsColor: item.isEnabled ? .labelColor : .tertiaryLabelColor))
             .padding(.horizontal, 12)
             .padding(.vertical, 4)
             .background(Capsule().fill(isSelected ? Theme.accent : .clear))
@@ -43,10 +44,9 @@ struct PRTabBar: View {
         }
         .buttonStyle(.plain)
         .disabled(!item.isEnabled)
-        .opacity(item.isEnabled ? 1 : 0.4)
         .accessibilityLabel(accessibilityLabel(item.tab, indicator))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .help(item.isEnabled ? item.tab.title : "\(item.tab.title) (nothing to do)")
+        .help(item.isEnabled ? item.tab.title : PRTabs.disabledReason(item.tab))
     }
 
     private func accessibilityLabel(_ tab: PRTab, _ indicator: TabIndicator?) -> String {

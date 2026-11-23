@@ -95,6 +95,15 @@ public enum PRTabs {
         ]
     }
 
+    /// Why a tab of `tabs` is disabled (its tooltip).
+    public static func disabledReason(_ tab: PRTab) -> String {
+        switch tab {
+        case .respond: "Respond: no change requests or new comments to answer"
+        case .fixCI: "Fix CI: the CI isn’t failing"
+        case .review, .details, .merge: "\(tab.title): not available"
+        }
+    }
+
     public static func initial(_ c: PRTabContext) -> PRTab {
         guard c.isMine else { return .review }
         if c.hasFeedback { return .respond }
