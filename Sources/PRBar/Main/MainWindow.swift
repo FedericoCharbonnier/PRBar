@@ -114,7 +114,7 @@ struct MainWindow: View {
             if let (prID, context, tab) = selectedTabs {
                 PRDetailToolbar.tabBar(model: model, state: state, prID: prID, context: context, tab: tab)
             } else if state.nav.place.sidebar == .history {
-                // All · Reviews · Responds · Merges (spec M.1 "History").
+                // All · Reviews · Responses · Merges (spec M.1 "History").
                 HistoryFilterBar(selection: $state.historyFilter)
             }
         }

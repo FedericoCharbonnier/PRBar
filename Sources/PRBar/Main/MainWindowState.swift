@@ -6,8 +6,15 @@ enum HistoryFilter: String, CaseIterable, Identifiable {
     case all, reviews, responds, merges
 
     var id: String { rawValue }
-    /// All · Reviews · Responds · Merges.
-    var title: String { rawValue.capitalized }
+    /// All · Reviews · Responses · Merges.
+    var title: String {
+        switch self {
+        case .all: "All"
+        case .reviews: "Reviews"
+        case .responds: "Responses"
+        case .merges: "Merges"
+        }
+    }
 }
 
 /// La ventana principal mientras la app está abierta: sobrevive a cerrarla con ⌘W (`WindowPresenter` arma la vista de

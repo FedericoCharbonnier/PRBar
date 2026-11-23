@@ -45,7 +45,7 @@ final class HistoryEntries: ObservableObject {
 
     func entry(_ id: UUID?) -> HistoryEntry? { id.flatMap { id in all.first { $0.id == id } } }
 
-    /// Los de la pestaña de la toolbar (Responds incluye Fix CI) que encuentra la búsqueda.
+    /// Los de la pestaña de la toolbar (Responses incluye Fix CI) que encuentra la búsqueda.
     func filtered(_ filter: HistoryFilter, query: String) -> [HistoryEntry] {
         all.filter { $0.matches(filter) && $0.matches(query: query) }
     }
@@ -333,7 +333,7 @@ enum HistoryEntry: Identifiable, Sendable {
         }
     }
 
-    /// La pestaña de la toolbar: Responds incluye Fix CI.
+    /// La pestaña de la toolbar: Responses incluye Fix CI.
     func matches(_ filter: HistoryFilter) -> Bool {
         switch (filter, self) {
         case (.all, _), (.reviews, .review), (.responds, .respond), (.merges, .merge): true
