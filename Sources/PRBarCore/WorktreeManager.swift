@@ -188,19 +188,30 @@ public struct WorktreeManager: Sendable {
     /// de `root` (y solo esos) y borra cada ref en `refs/prbar/` salvo las de los worktrees de Responder que siguen
     /// en pie; después borra lo que haya quedado en `root`. `kept`: the folders kept for "Open in Terminal" (spec T.3),
     /// left in place with their two refs (Clean Up counts on them to tell the PR's commits from unpushed work).
-    public func cleanupOrphans(localPaths: [String], keeping kept: Set<String> = []) async {
-        let keptPaths = Set(kept.map(CanonicalPath.of))
-        let isKept: (URL) -> Bool = { keptPaths.contains(CanonicalPath.of($0.path)) }
-        let keptRefs = Set(kept.flatMap { Self.reviewRefs(forWorkspaceName: ($0 as NSString).lastPathComponent) })
+    /// A worktree with uncommitted changes or unpushed commits also stays, with its refs (logged): if the list of
+    /// kept folders was lost, the user's work in one isn't.
+    public func cleanupOrphans(localPaths: [String], keeping kept: Set<String>) async {
+        var keptPaths = Set(kept.map(CanonicalPath.of))
+        var keptRefs = Set(kept.flatMap { Self.reviewRefs(forWorkspaceName: ($0 as NSString).lastPathComponent) })
         for path in localPaths {
             // Las refs de Responder de los worktrees que siguen en pie no se tocan: `WorktreeResolver.cleanupOrphans`
             // guarda los que tienen trabajo sin pushear.
             var keptRespondRefs: Set<String>?
             if let list = await gitLogged(path, ["worktree", "list", "--porcelain"]) {
                 let paths = Self.worktreePaths(fromPorcelain: list)
-                let own = paths
-                    .map { URL(fileURLWithPath: $0) }
-                    .filter { isDirectChildOfRoot($0) && Self.isWorkspaceName($0.lastPathComponent) && !isKept($0) }
+                var own: [URL] = []
+                for url in paths.map({ URL(fileURLWithPath: $0) })
+                where isDirectChildOfRoot(url) && Self.isWorkspaceName(url.lastPathComponent)
+                    && !keptPaths.contains(CanonicalPath.of(url.path)) {
+                    // A lost worktree (its folder is gone) has nothing left to lose.
+                    if FileManager.default.fileExists(atPath: url.path), let reason = await unpushedWork(url.path) {
+                        AppLog.write("Worktree: kept \(url.path) at launch: it \(reason)")
+                        keptPaths.insert(CanonicalPath.of(url.path))
+                        keptRefs.formUnion(Self.reviewRefs(forWorkspaceName: url.lastPathComponent))
+                        continue
+                    }
+                    own.append(url)
+                }
                 await removeWorktrees(own, of: path)
                 keptRespondRefs = Set(paths.compactMap { WorktreeResolver.respondRef(forWorktreePath: $0) })
             }
@@ -216,7 +227,8 @@ public struct WorktreeManager: Sendable {
         }
         if Self.isSafeRoot(root) {
             let entries = (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
-            for entry in entries where Self.isWorkspaceName(entry.lastPathComponent) && !isKept(entry) {
+            for entry in entries
+            where Self.isWorkspaceName(entry.lastPathComponent) && !keptPaths.contains(CanonicalPath.of(entry.path)) {
                 removeItem(entry)
             }
         } else {
@@ -430,9 +442,21 @@ public struct WorktreeManager: Sendable {
         return cleaned.isEmpty || cleaned.allSatisfy({ $0 == "." }) ? "repo" : cleaned
     }
 
+    /// `nil` if the worktree can go; otherwise why not. The same check as Clean Up and `WorktreeResolver`: uncommitted
+    /// changes, or commits on no branch, remote, tag or `refs/prbar/*` (the run's own refs hold the PR's commits).
+    public func unpushedWork(_ path: String) async -> String? {
+        guard let status = await gitLogged(path, ["status", GitHardening.ignoreSubmodules, "--porcelain", "--untracked-files=all"]) else {
+            return "couldn't be checked with git"
+        }
+        if !status.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "has uncommitted changes" }
+        guard let count = await gitLogged(path, ["rev-list", "--count", "HEAD", "--not", "--branches", "--remotes", "--tags", "--glob=refs/prbar/*"]),
+              let commits = Int(count.trimmingCharacters(in: .whitespacesAndNewlines)) else { return "couldn't be checked with git" }
+        return commits == 0 ? nil : "has \(commits) unpushed commit\(commits == 1 ? "" : "s")"
+    }
+
     /// The two refs of a review folder `<repo>-<N>-<epoch>-<id>` (`refs/prbar/pr-<N>-<id>`, `refs/prbar/base-<N>-<id>`);
     /// none for any other name (diff-only, context, chat or without a run id).
-    static func reviewRefs(forWorkspaceName name: String) -> [String] {
+    public static func reviewRefs(forWorkspaceName name: String) -> [String] {
         guard !isChatWorkspaceName(name), !name.hasSuffix(".context"), !name.hasSuffix("-diff"), isWorkspaceName(name) else { return [] }
         let parts = name.split(separator: "-", omittingEmptySubsequences: false)
         guard parts.count >= 4, let id = parts.last, isRunID(id), let number = Int(parts[parts.count - 3]) else { return [] }

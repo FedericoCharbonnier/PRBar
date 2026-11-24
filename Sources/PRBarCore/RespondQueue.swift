@@ -382,11 +382,25 @@ public final class RespondQueue: ObservableObject {
         guard jobs[prID] == nil, cancelling[prID] == nil else { return }
         pushBlockedByCI[prID] = nil
         modes[prID] = nil
+        let phase = phases[prID]
         phases[prID] = nil
         runs[prID] = nil
         leftWork.remove(prID)
-        if let record = records[prID] { cleanupWorktree(record.draft) }
+        // A pushed run that finished is kept for "Open in Terminal" (`onRetain`): the app removes it, not dismissing.
+        if let record = records[prID], !isRetained(record, phase: phase) { cleanupWorktree(record.draft) }
         records[prID] = nil
+    }
+
+    /// The run finished with a push and the app keeps its worktree (`onRetain`).
+    private func isRetained(_ record: RespondRecord, phase: RespondPhase?) -> Bool {
+        guard case .done? = phase else { return false }
+        return record.pushed && onRetain != nil
+    }
+
+    /// En segundo plano: el worktree queda en disco para "Open in Terminal" (spec T.3).
+    private func releaseWorktree(_ draft: RespondDraft) {
+        let pipeline = self.pipeline
+        Task.detached(priority: .utility) { await pipeline.release(draft: draft) }
     }
 
     /// En segundo plano: el worktree no se vuelve a usar.
@@ -559,6 +573,7 @@ public final class RespondQueue: ObservableObject {
                 self.save(record)
                 self.finish(prID, .done(record))
                 if record.pushed, let onRetain = self.onRetain {
+                    self.releaseWorktree(record.draft)
                     onRetain(record)
                 } else {
                     self.cleanupWorktree(record.draft)

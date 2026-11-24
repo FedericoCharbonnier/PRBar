@@ -63,6 +63,16 @@ struct LiveRespondPipeline: RespondPipelineRunning {
         }
     }
 
+    func release(draft: RespondDraft) async {
+        // Esta Mac deja de contarlo como en uso aunque el runner no esté.
+        WorkspaceRegistry.shared.remove(draft.worktree.path)
+        do {
+            try await pinned(draft, needsClaude: false, reports: false) { await $0.release(draft: draft) }
+        } catch {
+            AppLog.write("Respond: couldn’t release \(draft.worktree.path)\(draft.runner.map { " on \($0)" } ?? ""): \(error.localizedDescription)")
+        }
+    }
+
     /// Siempre en esta Mac: es GitHub.
     func postReplies(draft: RespondDraft, selections: [String: RespondSelection], result: RespondResult?,
                      alreadyPosted: [String: PostedReply],

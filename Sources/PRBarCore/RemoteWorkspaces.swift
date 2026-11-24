@@ -201,6 +201,18 @@ public struct RemoteWorkspaces: Sendable {
         try? await host.removeTree(workspace.contextDirectory.path, root: root)
     }
 
+    /// `WorktreeResolver.unpushedWork` on the host: `nil` if the worktree at `path` (inside the root) can go; otherwise why
+    /// not (uncommitted changes, commits on no branch, remote, tag or `refs/prbar/*`, or git couldn't tell).
+    public func unpushedWork(_ path: String) async -> String? {
+        guard let status = await gitLogged(path, ["status", GitHardening.ignoreSubmodules, "--porcelain", "--untracked-files=all"]) else {
+            return "couldn't be checked with git"
+        }
+        if !status.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "has uncommitted changes" }
+        guard let count = await gitLogged(path, ["rev-list", "--count", "HEAD", "--not", "--branches", "--remotes", "--tags", "--glob=refs/prbar/*"]),
+              let commits = Int(count.trimmingCharacters(in: .whitespacesAndNewlines)) else { return "couldn't be checked with git" }
+        return commits == 0 ? nil : "has \(commits) unpushed commit\(commits == 1 ? "" : "s")"
+    }
+
     // MARK: Respond
 
     /// Como `WorktreeResolver.prepare`, en el host. `worktreeDir` se ignora (siempre `<raíz>/work`).
@@ -251,7 +263,7 @@ public struct RemoteWorkspaces: Sendable {
     /// lápida), y en `work/` y `tmp/` lo que no cambió en `olderThan`. Los trabajos no la esperan: un worktree
     /// registrado sin carpeta se vuelve a mirar antes de sacarlo, y las refs `refs/prbar/*` de un mirror se borran
     /// solo si ya no le queda ningún worktree y no cambiaron en `olderThan`. Nunca lanza.
-    public func cleanupOrphans(olderThan age: TimeInterval = 12 * 3600, keeping kept: Set<String> = []) async {
+    public func cleanupOrphans(olderThan age: TimeInterval = 12 * 3600, keeping kept: Set<String>) async {
         guard let marker = try? ShellQuote.posix(root.markerPath), let lockPath = try? root.child(["cleanup.lock"]),
               let lock = try? ShellQuote.posix(lockPath), let work = try? ShellQuote.posix(root.work),
               let jobs = try? ShellQuote.posix(root.jobs), let tmp = try? ShellQuote.posix(root.tmp),

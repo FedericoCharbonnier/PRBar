@@ -135,6 +135,27 @@ enum RemoteFlowTests {
             let sent = ssh.invocations().flatMap { $0 }.joined()
             try expect(!sent.contains("tok-me"), "un token salió de la Mac")
         },
+        TestCase("remote flow: release de un Respond pusheado deja el worktree en el host y borra la copia de la Mac") {
+            let repo = try TempGitRepo.make()
+            defer { repo.remove() }
+            let ssh = try FakeSSH.make()
+            defer { ssh.remove() }
+            try ssh.installFakeClaude()
+            try stream(ssh, ["status": "done", "summary": "Changed", "commitMessage": "Change it"], call: 2)
+            try Data("printf 'fixed by claude\\n' > feature.txt\n".utf8).write(to: ssh.home.appendingPathComponent("claude-edit-2.sh"))
+            let remote = try await placement(ssh, origin: repo.origin)
+            let pipeline = try respondPipeline(repo, ssh, remote)
+            let draft = try await pipeline.analyze(RespondRequest(item: respondItem(), localPath: repo.local.path, worktreeDir: nil),
+                                                   draftID: UUID()) { _ in }
+            let result = try await pipeline.implement(draft: draft, selections: [draft.items[0].id: fixSelection]) { _, _ in }
+            try await pipeline.push(draft: draft, result: result)
+            try expect(try TempGitRepo.run(repo.local, ["for-each-ref", "--format=%(refname)", "refs/prbar/"]).contains("refs/prbar/remote-"))
+            await pipeline.release(draft: draft)
+            try expect(FileManager.default.fileExists(atPath: draft.worktree.path))
+            try expectEqual(try TempGitRepo.run(repo.local, ["for-each-ref", "--format=%(refname)", "refs/prbar/"]), "")
+            await pipeline.cleanup(draft: draft)
+            try expect(!FileManager.default.fileExists(atPath: draft.worktree.path))
+        },
         TestCase("remote flow: Respond sin carpeta local usa el mirror del host y un clone temporal anotado en WorkspaceRegistry") {
             let repo = try TempGitRepo.make()
             defer { repo.remove() }

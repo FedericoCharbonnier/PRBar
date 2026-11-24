@@ -1,5 +1,4 @@
 import Foundation
-import os
 
 /// Where a kept folder lives and what removes it (spec T.3).
 public struct WorktreeLocation: Codable, Equatable, Hashable, Sendable {
@@ -78,14 +77,51 @@ public struct RetainedWorktreeStore: Sendable {
         self.fileURL = fileURL
     }
 
-    /// Empty if the file doesn't exist or can't be read (logged).
+    /// Empty if the file doesn't exist. Entry by entry: one that can't be decoded (e.g. written by a newer PRBar) is
+    /// skipped and logged, and the file is copied aside first (the next `save` would drop it). A file that can't be
+    /// read at all is moved aside to `retained-worktrees.json.corrupt-<date>` instead of being overwritten later.
     public func load() -> [RetainedWorktree] {
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return [] }
+        let entries: [Lossy]
         do {
-            return try JSONCoding.decoder.decode([RetainedWorktree].self, from: Data(contentsOf: fileURL))
+            entries = try JSONCoding.decoder.decode([Lossy].self, from: Data(contentsOf: fileURL))
         } catch {
             AppLog.write("Retained worktrees: couldn't read \(fileURL.lastPathComponent): \(error)")
+            setAside(move: true)
             return []
+        }
+        let decoded = entries.compactMap(\.value)
+        if decoded.count < entries.count {
+            AppLog.write("Retained worktrees: skipped \(entries.count - decoded.count) entr\(entries.count - decoded.count == 1 ? "y" : "ies") of \(fileURL.lastPathComponent) that couldn't be read.")
+            setAside(move: false)
+        }
+        return decoded
+    }
+
+    /// One entry of the file: `nil` if it can't be decoded.
+    private struct Lossy: Decodable {
+        let value: RetainedWorktree?
+        init(from decoder: Decoder) throws {
+            value = try? RetainedWorktree(from: decoder)
+        }
+    }
+
+    /// Moves (or copies) the file to `<name>.corrupt-<yyyyMMdd-HHmmss>` next to it. Logs failures.
+    private func setAside(move: Bool) {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        let target = fileURL.deletingLastPathComponent()
+            .appendingPathComponent("\(fileURL.lastPathComponent).corrupt-\(formatter.string(from: Date()))-\(UUID().uuidString.prefix(8))")
+        do {
+            if move {
+                try FileManager.default.moveItem(at: fileURL, to: target)
+            } else {
+                try FileManager.default.copyItem(at: fileURL, to: target)
+            }
+            AppLog.write("Retained worktrees: kept the unreadable file as \(target.lastPathComponent).")
+        } catch {
+            AppLog.write("Retained worktrees: couldn't set \(fileURL.lastPathComponent) aside: \(error.localizedDescription)")
         }
     }
 
@@ -131,8 +167,21 @@ public enum RetainedWorktreeRules {
 public enum ProcessCwd {
     public static let lsofPath = "/usr/sbin/lsof"
     public static let lsofArguments = ["-n", "-P", "-w", "-d", "cwd", "-Fn"]
-    /// On a runner: exit 97 when there is no `lsof` (then the folder counts as busy).
-    public static let remoteScript = "command -v lsof >/dev/null 2>&1 || exit 97\nlsof -n -P -w -d cwd -Fn 2>/dev/null\nexit 0"
+    /// The line `remoteScript` prints before `lsof`'s output with each folder's real path (`pwd -P`).
+    static let resolvedPrefix = "prbar-resolved "
+
+    /// On a runner: exit 97 when there is no `lsof` (then the folder counts as busy). First prints each existing
+    /// folder's real path (`prbar-resolved <path>`): `lsof` shows resolved paths, and the runner's root may sit under a
+    /// symlink. Read its output with `anyInside(_:remoteOutput:)`.
+    public static func remoteScript(resolving directories: [String]) throws -> String {
+        var lines = ["command -v lsof >/dev/null 2>&1 || exit 97"]
+        for directory in directories {
+            let quoted = try ShellQuote.posix(directory)
+            lines.append("r=$(cd -P -- \(quoted) 2>/dev/null && pwd -P) && printf 'prbar-resolved %s\\n' \"$r\"")
+        }
+        lines += ["lsof -n -P -w -d cwd -Fn 2>/dev/null", "exit 0"]
+        return lines.joined(separator: "\n")
+    }
 
     /// Some `n<path>` line of the output is one of `directories` or inside one of them.
     public static func anyInside(_ directories: [String], lsofOutput: String) -> Bool {
@@ -143,16 +192,31 @@ public enum ProcessCwd {
             return roots.contains { path == $0 || path.hasPrefix($0 + "/") }
         }
     }
+
+    /// `anyInside` for the output of `remoteScript`: also with the real paths it printed.
+    public static func anyInside(_ directories: [String], remoteOutput: String) -> Bool {
+        let resolved = remoteOutput.split(whereSeparator: \.isNewline)
+            .filter { $0.hasPrefix(resolvedPrefix) }
+            .map { String($0.dropFirst(resolvedPrefix.count)) }
+        return anyInside(directories + resolved, lsofOutput: remoteOutput)
+    }
 }
 
-/// Removes kept folders unless a process has its cwd inside (those come back marked `superseded`).
+/// Removes kept folders unless a process has its cwd inside or they hold work that isn't pushed (uncommitted changes
+/// or commits on no branch, remote, tag or `refs/prbar/*`): those come back marked `superseded`, left for Clean Up
+/// (which skips them while the work is there, and says so).
 public struct RetainedWorktreeCleaner: Sendable {
     let isBusy: @Sendable (WorktreeLocation) async -> Bool
+    /// `nil` if the folder can go; otherwise why not (e.g. "has uncommitted changes"). A folder that isn't a git
+    /// worktree (`repository == nil`, diff only) has nothing to lose: `nil`.
+    let unpushedWork: @Sendable (WorktreeLocation) async -> String?
     let remove: @Sendable (RetainedWorktree) async -> Void
 
     public init(isBusy: @escaping @Sendable (WorktreeLocation) async -> Bool,
+                unpushedWork: @escaping @Sendable (WorktreeLocation) async -> String?,
                 remove: @escaping @Sendable (RetainedWorktree) async -> Void) {
         self.isBusy = isBusy
+        self.unpushedWork = unpushedWork
         self.remove = remove
     }
 
@@ -160,11 +224,17 @@ public struct RetainedWorktreeCleaner: Sendable {
     public func removeUnlessBusy(_ entries: [RetainedWorktree]) async -> [RetainedWorktree] {
         var left: [RetainedWorktree] = []
         for entry in entries {
+            let reason: String?
             if await isBusy(entry.location) {
+                reason = "has a process working in it"
+            } else {
+                reason = await unpushedWork(entry.location)
+            }
+            if let reason {
                 var kept = entry
                 kept.superseded = true
                 left.append(kept)
-                AppLog.write("Retained worktree: a process is working in \(entry.location.directory); left for Clean Up.")
+                AppLog.write("Retained worktree: \(entry.location.directory) \(reason); left for Clean Up.")
             } else {
                 await remove(entry)
             }

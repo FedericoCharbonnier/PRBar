@@ -97,7 +97,7 @@ enum RemoteWorkspacesTests {
             try makeOld(old.directory)
             try makeOld(URL(fileURLWithPath: bare + "/refs/prbar"))
             try makeOld(tmp.appendingPathComponent("leftover.stdin"))
-            await spaces.cleanupOrphans()
+            await spaces.cleanupOrphans(keeping: [])
             try expect(!FileManager.default.fileExists(atPath: old.directory.path))
             try expectEqual(try FileManager.default.contentsOfDirectory(atPath: root.tmp), ["fresh.stdin"])
             try expect(FileManager.default.fileExists(atPath: bare) && FileManager.default.fileExists(atPath: outside.path))
@@ -135,12 +135,12 @@ enum RemoteWorkspacesTests {
             let lock = URL(fileURLWithPath: try root.child(["cleanup.lock"]))
             try FileManager.default.createDirectory(at: lock, withIntermediateDirectories: false)
             try makeOld(fresh.directory)
-            await spaces.cleanupOrphans()
+            await spaces.cleanupOrphans(keeping: [])
             try expect(FileManager.default.fileExists(atPath: fresh.directory.path) && FileManager.default.fileExists(atPath: jobs.appendingPathComponent("dead.pid").path))
             try FileManager.default.removeItem(at: lock)
             try FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: fresh.directory.appendingPathComponent("README.md").path)
 
-            await spaces.cleanupOrphans()
+            await spaces.cleanupOrphans(keeping: [])
             // Lo de esta instalación: el worktree con cambios recientes queda (con sus refs), el trabajo vivo queda,
             // el muerto se va con su lápida.
             try expect(FileManager.default.fileExists(atPath: fresh.directory.path))
@@ -203,7 +203,7 @@ enum RemoteWorkspacesTests {
             try makeOld(old.directory)
             try makeOld(URL(fileURLWithPath: bare + "/refs/prbar"))
             try race("'\(realGit)' -C '\(bare)' update-ref refs/prbar/pr-10-fetchonly \(repo.prSHA)\n")
-            await spaces.cleanupOrphans()
+            await spaces.cleanupOrphans(keeping: [])
             try expect(!FileManager.default.fileExists(atPath: old.directory.path))
             try expectEqual(try refs().trimmingCharacters(in: .whitespacesAndNewlines), "refs/prbar/pr-10-fetchonly")
 
@@ -213,7 +213,7 @@ enum RemoteWorkspacesTests {
             '\(realGit)' -C '\(bare)' update-ref refs/prbar/pr-9-0a0b0c0d \(repo.prSHA)
             '\(realGit)' -C '\(bare)' worktree add -q --detach '\(fresh)' refs/prbar/pr-9-0a0b0c0d
             """)
-            await spaces.cleanupOrphans()
+            await spaces.cleanupOrphans(keeping: [])
             try expect(FileManager.default.fileExists(atPath: fresh + "/README.md"), "the new worktree was removed")
             let worktrees = try TempGitRepo.run(URL(fileURLWithPath: bare), ["worktree", "list", "--porcelain"])
             try expect(worktrees.contains(fresh), worktrees)

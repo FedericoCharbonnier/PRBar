@@ -545,11 +545,11 @@ final class AppModel: ObservableObject {
         let respondOrphans = respondDirs
         orphanCleanup = Task.detached(priority: .utility) {
             for (localPath, worktreeDir) in respondOrphans {
-                await resolver.cleanupOrphans(localPath: localPath, worktreeDir: worktreeDir)
+                await resolver.cleanupOrphans(localPath: localPath, worktreeDir: worktreeDir, keeping: [])
             }
             // Después: borra las refs `refs/prbar/*` que queden y las carpetas de contexto (`*.respond-context`).
-            await manager.cleanupOrphans(localPaths: localPaths)
-            await legacy.cleanupOrphans(localPaths: localPaths)
+            await manager.cleanupOrphans(localPaths: localPaths, keeping: [])
+            await legacy.cleanupOrphans(localPaths: localPaths, keeping: [])
         }
     }
 

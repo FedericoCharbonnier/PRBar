@@ -270,7 +270,7 @@ enum WorktreeResolverTests {
             try repo.git(repo.local, ["worktree", "add", "-q", "--detach", userInDir.path, "origin/feature/x"])
             let userNamedLikeUs = repo.base.appendingPathComponent("elsewhere/r-9-respond-0a1b2c3d")
             try repo.git(repo.local, ["worktree", "add", "-q", "--detach", userNamedLikeUs.path, "origin/feature/x"])
-            await resolver().cleanupOrphans(localPath: repo.local.path, worktreeDir: nil)
+            await resolver().cleanupOrphans(localPath: repo.local.path, worktreeDir: nil, keeping: [])
             try expect(!FileManager.default.fileExists(atPath: orphan.path))
             try expect(FileManager.default.fileExists(atPath: dirty.path), "con cambios sin commitear no se borra")
             try expect(FileManager.default.fileExists(atPath: committed.path), "con commits sin pushear no se borra")
@@ -284,13 +284,13 @@ enum WorktreeResolverTests {
             // La limpieza del arranque de los worktrees de review (`WorktreeManager`) tampoco las borra.
             let manager = WorktreeManager(runner: SystemProcessRunner(), gitPath: TempGitRepo.git,
                                           root: repo.base.appendingPathComponent("prbar-worktrees"))
-            await manager.cleanupOrphans(localPaths: [repo.local.path])
+            await manager.cleanupOrphans(localPaths: [repo.local.path], keeping: [])
             try expectEqual(try repo.git(repo.local, ["for-each-ref", "--format=%(refname)", "refs/prbar/"])
                 .split(separator: "\n").map(String.init).sorted(), refs)
             // Ya pusheado (el commit está en un remoto): se borra con su ref.
             try repo.git(committedURL, ["push", "-q", "origin", "HEAD:refs/heads/feature/x"])
             try repo.git(repo.local, ["fetch", "-q", "origin"])
-            await resolver().cleanupOrphans(localPath: repo.local.path, worktreeDir: nil)
+            await resolver().cleanupOrphans(localPath: repo.local.path, worktreeDir: nil, keeping: [])
             try expect(!FileManager.default.fileExists(atPath: committed.path))
             try expect(FileManager.default.fileExists(atPath: dirty.path))
             try expectEqual(try repo.git(repo.local, ["for-each-ref", "--format=%(refname)", "refs/prbar/"])

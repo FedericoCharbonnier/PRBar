@@ -85,6 +85,8 @@ final class FakeRespondPipeline: RespondPipelineRunning, @unchecked Sendable {
     var pushes: [String] { lock.withLock { _pushes } }
     /// Los drafts cuyo worktree se pidió limpiar, en orden.
     var cleanups: [UUID] { lock.withLock { _cleanups } }
+    private var _releases: [UUID] = []
+    var releases: [UUID] { lock.withLock { _releases } }
     var tests: [String] { lock.withLock { _tests } }
 
     func logURL(for id: UUID) -> URL { URL(fileURLWithPath: "/nonexistent/\(id.uuidString).log") }
@@ -152,6 +154,10 @@ final class FakeRespondPipeline: RespondPipelineRunning, @unchecked Sendable {
         await RespondPublisher(runner: FakeProcessRunner { _, _ in ok("") }, gitPath: "/usr/bin/git", api: api)
             .postReplies(draft: draft, selections: selections, result: result, alreadyPosted: alreadyPosted,
                          token: "tok", onPosted: onPosted)
+    }
+
+    func release(draft: RespondDraft) async {
+        lock.withLock { _releases.append(draft.id) }
     }
 
     func cleanup(draft: RespondDraft) async {
@@ -652,6 +658,28 @@ enum RespondQueueTests {
             await h.settle()
             try expectEqual(h.retained, [draft.id])
             try expectEqual(h.pipeline.cleanups, [])
+            // Se suelta: deja de contar como en uso (y en un runner, la copia de la Mac se va).
+            try await waitUntil { h.pipeline.releases == [draft.id] }
+        },
+        TestCase("respond queue: descartar un push conservado no borra su carpeta") { @MainActor in
+            let h = try Harness(retains: true)
+            try await h.toReadyToPush(1)
+            let draft = try h.saved(1).draft
+            h.queue.publish(prID: prID(1))
+            try await h.events.wait(for: reached(1, "done"))
+            h.queue.dismiss(prID: prID(1))
+            await h.settle()
+            try expectEqual(h.retained, [draft.id])
+            try expectEqual(h.pipeline.cleanups, [])
+        },
+        TestCase("respond queue: sin onRetain, descartar un push terminado sigue borrando") { @MainActor in
+            let h = try Harness()
+            try await h.toReadyToPush(1)
+            let draft = try h.saved(1).draft
+            h.queue.publish(prID: prID(1))
+            try await h.events.wait(for: reached(1, "done"))
+            try await waitUntil { h.pipeline.cleanups == [draft.id] }
+            try expectEqual(h.pipeline.releases, [])
         },
     ] + RespondPipelineTests.cases
 }
@@ -963,6 +991,20 @@ enum RespondPipelineTests {
             try expectEqual(error as? PRBarError, .respond("The PR comes from a fork: PRBar can't push to it"))
             try expectEqual(git.calls.count, 0)
             try expectEqual(claude.calls.count, 0)
+        },
+        TestCase("respond pipeline: release deja el worktree en disco y deja de contarlo como en uso") {
+            let claude = ScriptedClaude { schema, _, _ in
+                schema == RespondSchemas.analysis ? [analysisLine(["thread:A", "thread:B"])] : []
+            }
+            let e = try E2E.make(claude: claude)
+            defer { e.repo.remove() }
+            let draft = try await e.pipeline.analyze(e.request, draftID: UUID()) { _ in }
+            try expect(WorkspaceRegistry.shared.contains(draft.worktree.path))
+            await e.pipeline.release(draft: draft)
+            try expect(!WorkspaceRegistry.shared.contains(draft.worktree.path))
+            try expect(FileManager.default.fileExists(atPath: draft.worktree.path))
+            try expect(try e.git(e.repo.local.path, ["worktree", "list", "--porcelain"]).contains(draft.worktree.path))
+            await e.pipeline.cleanup(draft: draft)
         },
         TestCase("respond pipeline: de punta a punta con git real: análisis, fix, push al remoto y respuestas") { @MainActor in
             let claude = ScriptedClaude { schema, prompt, cwd in

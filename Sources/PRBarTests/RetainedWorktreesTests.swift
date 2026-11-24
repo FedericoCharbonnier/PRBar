@@ -53,13 +53,36 @@ enum RetainedWorktreesTests {
             let busy = entry(1, .review, dir: "/Users/me/wt/r-1")
             let free = entry(2, .review, dir: "/Users/me/wt/r-2")
             let removed = Box<[String]>([])
+            let dirty = entry(3, .respond, dir: "/Users/me/wt/r-3")
             let cleaner = RetainedWorktreeCleaner(
                 isBusy: { $0.directory == "/Users/me/wt/r-1" },
+                unpushedWork: { $0.directory == "/Users/me/wt/r-3" ? "has uncommitted changes" : nil },
                 remove: { removed.value.append($0.location.directory) })
-            let left = await cleaner.removeUnlessBusy([busy, free])
+            let left = await cleaner.removeUnlessBusy([busy, free, dirty])
             try expectEqual(removed.value, ["/Users/me/wt/r-2"])
-            try expectEqual(left.map(\.location.directory), ["/Users/me/wt/r-1"])
+            // Una carpeta con trabajo sin pushear tampoco se borra: queda para Clean Up, que la saltea y lo dice.
+            try expectEqual(left.map(\.location.directory), ["/Users/me/wt/r-1", "/Users/me/wt/r-3"])
             try expect(left.allSatisfy(\.superseded))
+        },
+        TestCase("carpetas conservadas: en un runner, lsof ve la ruta real aunque la raíz esté bajo un symlink") {
+            let script = try ProcessCwd.remoteScript(resolving: ["/home/me/link/work/r-1"])
+            try expect(script.contains("'/home/me/link/work/r-1'") && script.contains("pwd -P"), script)
+            let output = "prbar-resolved /data/me/work/r-1\np12\nfcwd\nn/data/me/work/r-1/src\n"
+            try expect(ProcessCwd.anyInside(["/home/me/link/work/r-1"], remoteOutput: output))
+            try expect(!ProcessCwd.anyInside(["/home/me/link/work/r-1"], lsofOutput: output))
+            try expect(!ProcessCwd.anyInside(["/home/me/link/work/r-1"], remoteOutput: "prbar-resolved /data/me/work/r-1\np12\nfcwd\nn/data/me/work/r-10\n"))
+        },
+        TestCase("carpetas conservadas: las refs de una carpeta de review salen de su nombre") {
+            try expectEqual(WorktreeManager.reviewRefs(forWorkspaceName: "my-repo-2-7-1700000000-0a0a0a0a"),
+                            ["refs/prbar/pr-7-0a0a0a0a", "refs/prbar/base-7-0a0a0a0a"])
+            try expectEqual(WorktreeManager.reviewRefs(forWorkspaceName: "r-7-1700000000-0a0a0a0a-diff"), [])
+            try expectEqual(WorktreeManager.reviewRefs(forWorkspaceName: "r-7-1700000000-0a0a0a0a.context"), [])
+            try expectEqual(WorktreeManager.reviewRefs(forWorkspaceName: "r-7-1700000000"), [])
+            try expectEqual(WorktreeManager.reviewRefs(forWorkspaceName: "my-repo-2-7-1700000000"), [])
+            try expectEqual(WorktreeManager.reviewRefs(forWorkspaceName: "r-7-respond-0a0a0a0a"), [])
+            try expectEqual(WorktreeManager.reviewRefs(forWorkspaceName: "r-7-1700000000-0A0A0A0A"), [])
+            let chat = WorktreeManager.chatWorkspaceName(repo: RepoRef(owner: "o", name: "r"), number: 7, sessionID: UUID())
+            try expectEqual(WorktreeManager.reviewRefs(forWorkspaceName: chat), [])
         },
         TestCase("carpetas conservadas: el archivo, ida y vuelta; ilegible = vacío") {
             let dir = try temporaryDirectory()
@@ -69,8 +92,18 @@ enum RetainedWorktreesTests {
             let entries = [entry(1, .review, dir: "/wt/1"), entry(2, .respond, dir: "/wt/2", runner: "devbox", superseded: true)]
             try store.save(entries)
             try expectEqual(store.load(), entries)
+            // Una entrada que no se entiende (p. ej. de una versión más nueva) se saltea; las demás quedan.
+            let encoded = try JSONSerialization.jsonObject(with: JSONCoding.encoder.encode(entries)) as! [[String: Any]]
+            var unknown = encoded[1]
+            unknown["job"] = "somethingNew"
+            try JSONSerialization.data(withJSONObject: [encoded[0], unknown]).write(to: store.fileURL)
+            try expectEqual(store.load(), [entries[0]])
+            // Ilegible: vacío, y el archivo queda aparte (`.corrupt-<fecha>`) en vez de pisarse.
             try Data("{".utf8).write(to: store.fileURL)
             try expectEqual(store.load(), [])
+            try expect(!FileManager.default.fileExists(atPath: store.fileURL.path))
+            let names = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+            try expect(names.contains { $0.hasPrefix("retained-worktrees.json.corrupt-") }, "\(names)")
         },
         TestCase("carpetas conservadas: lo que hace falta para borrarlas (review y Respond)") {
             let review = entry(7, .review, dir: "/wt/r-7-1700000000-0a0a0a0a").location
@@ -81,6 +114,26 @@ enum RetainedWorktreesTests {
                                            refs: ["refs/prbar/respond-7-0a0a0a0a"])
             try expectEqual(respond.respondWorktree, ResolvedWorktree(path: "/repos/r-worktrees/r-7-respond-0a0a0a0a", origin: .dedicated,
                                                                       localPath: "/repos/r", ref: "refs/prbar/respond-7-0a0a0a0a"))
+        },
+        TestCase("carpetas conservadas: la limpieza del arranque deja un worktree de review con cambios sin commitear") {
+            let repo = try TempGitRepo.make()
+            defer { repo.remove() }
+            let dirty = repo.root.appendingPathComponent("local-7-1700000000-0a0a0a0a")
+            let clean = repo.root.appendingPathComponent("local-8-1700000000-0b0b0b0b")
+            for url in [dirty, clean] {
+                try TempGitRepo.run(repo.local, ["worktree", "add", "--detach", url.path, "HEAD"])
+            }
+            for ref in ["refs/prbar/pr-7-0a0a0a0a", "refs/prbar/base-7-0a0a0a0a", "refs/prbar/pr-8-0b0b0b0b"] {
+                try TempGitRepo.run(repo.local, ["update-ref", ref, "HEAD"])
+            }
+            try Data("wip\n".utf8).write(to: dirty.appendingPathComponent("wip.txt"))
+            await WorktreeManager(runner: SystemProcessRunner(), gitPath: TempGitRepo.git, root: repo.root)
+                .cleanupOrphans(localPaths: [repo.local.path], keeping: [])
+            try expect(FileManager.default.fileExists(atPath: dirty.appendingPathComponent("wip.txt").path))
+            try expect(!FileManager.default.fileExists(atPath: clean.path))
+            let refs = try TempGitRepo.run(repo.local, ["for-each-ref", "--format=%(refname)", "refs/prbar/"])
+            try expectEqual(Set(refs.split(whereSeparator: \.isNewline).map(String.init)),
+                            ["refs/prbar/pr-7-0a0a0a0a", "refs/prbar/base-7-0a0a0a0a"])
         },
         TestCase("carpetas conservadas: la limpieza del arranque no toca las conservadas (review y Respond)") {
             let repo = try TempGitRepo.make()

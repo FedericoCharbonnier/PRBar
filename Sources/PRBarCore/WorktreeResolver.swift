@@ -140,7 +140,7 @@ public struct WorktreeResolver: Sendable {
     /// Igual que Clean Up (`DiskCleanupExecutor.unpushedWork`): un worktree con cambios sin commitear o con commits
     /// que no están en ninguna rama, remoto ni tag (p. ej. "Ready to push" o una implementación cancelada) **no se
     /// borra**, ni su ref; queda en el log. Si git no puede comprobarlo, tampoco se borra.
-    public func cleanupOrphans(localPath: String, worktreeDir: String?, keeping kept: Set<String> = []) async {
+    public func cleanupOrphans(localPath: String, worktreeDir: String?, keeping kept: Set<String>) async {
         let keptPaths = Set(kept.map(CanonicalPath.of))
         let base = worktreeDir ?? Self.defaultWorktreeDir(localPath: localPath)
         if let realBase = Self.realPath(base), let list = await gitLogged(localPath, ["worktree", "list", "--porcelain"]) {
@@ -186,7 +186,7 @@ public struct WorktreeResolver: Sendable {
     /// `nil` si el worktree se puede borrar; si no, el motivo. Lo mismo que mira Clean Up: cambios sin commitear o
     /// commits que no están en ninguna rama, remoto, tag ni `refs/prbar/*` (la ref del propio worktree es la base
     /// del review; lo que Claude commiteó encima sigue contando).
-    func unpushedWork(_ path: String) async -> String? {
+    public func unpushedWork(_ path: String) async -> String? {
         guard let status = await gitLogged(path, ["status", GitHardening.ignoreSubmodules, "--porcelain", "--untracked-files=all"]) else {
             return "couldn't be checked with git"
         }

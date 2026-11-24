@@ -162,6 +162,10 @@ public protocol RespondPipelineRunning: Sendable {
     func push(draft: RespondDraft, result: RespondResult) async throws
     /// Saca el worktree de PRBar y su ref (al terminar o al descartar). Nunca lanza.
     func cleanup(draft: RespondDraft) async
+    /// A pushed run whose worktree is kept for "Open in Terminal" (spec T.3): the worktree and its ref stay, it stops
+    /// counting as in use, and the Mac-side copy of a runner's fixes (temporary clone, `refs/prbar/remote-…`) goes.
+    /// Never throws.
+    func release(draft: RespondDraft) async
     /// Fix CI (spec K.4), justo antes del push: el head del PR en GitHub sigue siendo el que falló y (salvo
     /// `ignoringPassingChecks`, "Push Anyway") el CI no pasó: si todos los checks que fallaron pasan ahora, lanza
     /// `CIPassingNow`. Un Respond normal no verifica nada.
@@ -546,6 +550,15 @@ public struct RespondPipeline: RespondPipelineRunning {
             return
         }
         await removeWorktree(draft.worktree)
+        if let importer, placement != nil { await importer.discard(draft: draft) }
+    }
+
+    public func release(draft: RespondDraft) async {
+        WorkspaceRegistry.shared.remove(draft.worktree.path)
+        guard (try? checkRunner(draft)) != nil else {
+            AppLog.write("Respond: not releasing \(draft.worktree.path): it ran on \(draft.runner ?? "this Mac").")
+            return
+        }
         if let importer, placement != nil { await importer.discard(draft: draft) }
     }
 

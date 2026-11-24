@@ -121,7 +121,7 @@ extension AppModel {
                     group.addTask {
                         do {
                             let placement = try await runners.placement(for: destination)
-                            await placement.workspaces.cleanupOrphans()
+                            await placement.workspaces.cleanupOrphans(keeping: [])
                         } catch {
                             AppLog.write("Runner \(destination.name): skipping the startup cleanup: \(error.localizedDescription)")
                         }

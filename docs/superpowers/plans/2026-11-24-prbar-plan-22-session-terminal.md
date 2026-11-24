@@ -1389,7 +1389,7 @@ Change `cleanupOrphans(localPaths:)` to take the kept folders:
         let isKept: (URL) -> Bool = { keptPaths.contains(CanonicalPath.of($0.path)) }
 ```
 
-and in its body: replace `.filter { isDirectChildOfRoot($0) && Self.isWorkspaceName($0.lastPathComponent) }` with `.filter { isDirectChildOfRoot($0) && Self.isWorkspaceName($0.lastPathComponent) && !isKept($0) }`, and replace `for entry in entries where Self.isWorkspaceName(entry.lastPathComponent) {` with `for entry in entries where Self.isWorkspaceName(entry.lastPathComponent) && !isKept(entry) {`. (A kept worktree's own refs may still be deleted: its HEAD keeps the commit reachable; `cleanup` later logs the missing ref and goes on.)
+and in its body: replace `.filter { isDirectChildOfRoot($0) && Self.isWorkspaceName($0.lastPathComponent) }` with `.filter { isDirectChildOfRoot($0) && Self.isWorkspaceName($0.lastPathComponent) && !isKept($0) }`, and replace `for entry in entries where Self.isWorkspaceName(entry.lastPathComponent) {` with `for entry in entries where Self.isWorkspaceName(entry.lastPathComponent) && !isKept(entry) {`. (As implemented, a kept review worktree keeps its two refs too — `WorktreeManager.reviewRefs(forWorkspaceName:)` derives them from the folder name — because Clean Up's unpushed-work check counts `refs/prbar/*` as safe: without them a fork PR's commits would look unpushed forever. `keeping:` is a required argument on the three `cleanupOrphans`, and `WorktreeManager.cleanupOrphans` also leaves, with its refs, any worktree with uncommitted changes or unpushed commits (logged), like `WorktreeResolver.cleanupOrphans`.)
 
 - [ ] **Step 6: `WorktreeResolver`.** In `Sources/PRBarCore/WorktreeResolver.swift`, change the signature of `cleanupOrphans` to:
 
@@ -2670,7 +2670,8 @@ and after the `AppLog.write("Clean Up freed …")` line:
         }
     }
 
-    /// A pushed Respond or Fix CI (`RespondQueue.onRetain`).
+    /// A pushed Respond or Fix CI (`RespondQueue.onRetain`). The queue already released it (`RespondPipelineRunning
+    /// .release(draft:)`: no longer in use, Mac-side copy of a runner's fixes gone); dismissing it doesn't delete it.
     func retainRespond(_ record: RespondRecord) {
         let draft = record.draft
         let location = WorktreeLocation(directory: draft.worktree.path, runner: draft.runner, repository: draft.worktree.localPath,
@@ -2750,9 +2751,22 @@ and after the `AppLog.write("Clean Up freed …")` line:
                 }
                 guard let destination = settings.destination(named: name),
                       let placement = try? await runners.placement(for: destination),
-                      let result = try? await placement.host.runScript(ProcessCwd.remoteScript, timeout: 30),
+                      let script = try? ProcessCwd.remoteScript(resolving: [location.directory]),
+                      let result = try? await placement.host.runScript(script, timeout: 30),
                       result.status == 0 else { return true }
-                return ProcessCwd.anyInside([location.directory], lsofOutput: result.stdout)
+                return ProcessCwd.anyInside([location.directory], remoteOutput: result.stdout)
+            },
+            // Never lose work (T.3): a folder with uncommitted changes or unpushed commits stays, `superseded`, for
+            // Clean Up (which skips it while the work is there). Diff-only folders aren't git worktrees.
+            unpushedWork: { location in
+                guard location.repository != nil else { return nil }
+                guard let name = location.runner else {
+                    guard let git else { return "couldn't be checked with git" }
+                    return await WorktreeResolver(runner: runner, gitPath: git).unpushedWork(location.directory)
+                }
+                guard let destination = settings.destination(named: name),
+                      let placement = try? await runners.placement(for: destination) else { return "\(name) isn’t reachable" }
+                return await placement.workspaces.unpushedWork(location.directory)
             },
             remove: { entry in
                 let location = entry.location

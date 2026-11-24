@@ -128,6 +128,7 @@ struct SnapshotRespondPipeline: RespondPipelineRunning {
     func runTests(draft: RespondDraft, testCommand: String) async -> TestRun { tests }
     func push(draft: RespondDraft, result: RespondResult) async throws { throw SnapshotFakes.refused }
     func cleanup(draft: RespondDraft) async {}
+    func release(draft: RespondDraft) async {}
 
     func postReplies(draft: RespondDraft, selections: [String: RespondSelection], result: RespondResult?,
                      alreadyPosted: [String: PostedReply],

@@ -212,7 +212,7 @@ enum WorktreeTests {
                 guard args.contains("for-each-ref") else { return ok("") }
                 return args.contains("/repos/a") ? ok("refs/prbar/pr-1\nrefs/prbar/base-1\nrefs/heads/main\n") : ok("")
             }
-            await manager(runner, root: root).cleanupOrphans(localPaths: ["/repos/a", "/repos/b"])
+            await manager(runner, root: root).cleanupOrphans(localPaths: ["/repos/a", "/repos/b"], keeping: [])
             try expectEqual(try gitArgs(runner), [
                 ["-C", "/repos/a", "worktree", "list", "--porcelain"],
                 ["-C", "/repos/a", "for-each-ref", "--format=%(refname)", "refs/prbar/"],
@@ -229,7 +229,7 @@ enum WorktreeTests {
             defer { try? FileManager.default.removeItem(at: root) }
             try FileManager.default.createDirectory(at: root.appendingPathComponent("r-1-1700000000"), withIntermediateDirectories: true)
             try FileManager.default.createDirectory(at: root.appendingPathComponent("Documents"), withIntermediateDirectories: true)
-            await manager(FakeProcessRunner { _, _ in ok("") }, root: root).cleanupOrphans(localPaths: [])
+            await manager(FakeProcessRunner { _, _ in ok("") }, root: root).cleanupOrphans(localPaths: [], keeping: [])
             try expectEqual(try FileManager.default.contentsOfDirectory(atPath: root.path), ["Documents"])
         },
         TestCase("worktree: el id de corrida son 8 caracteres hexadecimales y cambia en cada prepare") {
@@ -312,8 +312,9 @@ enum WorktreeTests {
             let ours = root.appendingPathComponent("r-1-1700000000-0a1b2c3d")
             try FileManager.default.createDirectory(at: ours, withIntermediateDirectories: true)
             let list = "worktree /repos/a\nHEAD 1\n\nworktree /Volumes/Externo/mio\nHEAD 2\nprunable x\n\nworktree \(ours.path)\nHEAD 3\n"
-            let runner = FakeProcessRunner { _, args in args.contains("list") ? ok(list) : ok("") }
-            await manager(runner, root: root).cleanupOrphans(localPaths: ["/repos/a"])
+            // Clean: `status` says nothing and no commit is unpushed.
+            let runner = FakeProcessRunner { _, args in args.contains("list") ? ok(list) : args.contains("rev-list") ? ok("0\n") : ok("") }
+            await manager(runner, root: root).cleanupOrphans(localPaths: ["/repos/a"], keeping: [])
             let args = try gitArgs(runner)
             try expect(!args.contains { $0.contains("prune") }, "\(args)")
             try expectEqual(args.filter { $0.contains("remove") }, [["-C", "/repos/a", "worktree", "remove", "--force", ours.path]])
@@ -367,7 +368,7 @@ enum WorktreeTests {
             try FileManager.default.removeItem(at: b.directory)
             try expectEqual(try repo.worktreeNames().count, 5)
 
-            await m.cleanupOrphans(localPaths: [repo.local.path])
+            await m.cleanupOrphans(localPaths: [repo.local.path], keeping: [])
             try expectEqual(try repo.worktreeNames().sorted(), ["local", "mio", "vivo"])
             try expectEqual(try repo.prbarRefs(), [])
             try expect(!exists(a.directory))
@@ -459,7 +460,7 @@ enum WorktreeTests {
             try expect(other.headOid != repo.prSHA)
             try expect(exists(other.directory.appendingPathComponent("later.txt")))
             // The orphan cleanup at launch removes it (spec B.5: "al cerrar la app").
-            await m.cleanupOrphans(localPaths: [repo.local.path])
+            await m.cleanupOrphans(localPaths: [repo.local.path], keeping: [])
             try expect(!exists(other.directory))
             try expectEqual(try repo.prbarRefs(), [])
         },
