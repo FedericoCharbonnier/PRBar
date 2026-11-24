@@ -168,14 +168,15 @@ private struct PRDetailCommands: ViewModifier {
     let prID: String
     let context: PRTabContext
     let tab: PRTab
-    /// PRBar works in the folder of one of the PR's offered sessions (kept by `SessionBusyWatcher`).
-    @State private var sessionBusy = false
+    /// The folders PRBar is working in (shared with the Terminal button).
+    @ObservedObject var sessionBusy: SessionBusyMonitor
 
     init(model: AppModel, state: MainWindowState, prID: String, context: PRTabContext, tab: PRTab) {
         self.model = model
         self.state = state
         reviews = model.reviews
         respond = model.respond
+        sessionBusy = model.sessionBusy
         self.prID = prID
         self.context = context
         self.tab = tab
@@ -184,7 +185,7 @@ private struct PRDetailCommands: ViewModifier {
     func body(content: Content) -> some View {
         let tabs = PRTabs.tabs(context)
         let sessions = model.offeredSessions(prID: prID)
-        content
+        return content
             .modifier(TabCommand(index: 1, tabs: tabs, selected: tab) { state.choose($0, for: prID) })
             .modifier(TabCommand(index: 2, tabs: tabs, selected: tab) { state.choose($0, for: prID) })
             .modifier(TabCommand(index: 3, tabs: tabs, selected: tab) { state.choose($0, for: prID) })
@@ -194,12 +195,14 @@ private struct PRDetailCommands: ViewModifier {
             .windowCommand(.undoClaude, enabled: undoChat(tab) != nil) {
                 if let chat = undoChat(currentTab) { ChatUndo.perform(chat) }
             }
-            // Pull Request › Open Claude Session in Terminal (⌥⌘T): the most recent one (spec T.4). Looked up when it
-            // runs; `openClaudeSessionFromUI` checks again that PRBar isn't working in its folder.
-            .windowCommand(.openClaudeSession, enabled: !sessions.isEmpty && !sessionBusy) {
-                if let session = SessionOffer.mostRecent(model.offeredSessions(prID: prID)) { model.openClaudeSessionFromUI(session) }
+            // Pull Request › Open Claude Session in Terminal (⌥⌘T): the most recent one, unless PRBar works in its folder
+            // (spec T.4). Looked up when it runs; `openClaudeSessionFromUI` checks the folder again.
+            .windowCommand(.openClaudeSession, enabled: SessionOffer.commandSession(sessions, busyIDs: sessionBusy.busyIDs) != nil) {
+                if let session = SessionOffer.commandSession(model.offeredSessions(prID: prID), busyIDs: sessionBusy.busyIDs) {
+                    model.openClaudeSessionFromUI(session)
+                }
             }
-            .modifier(SessionBusyWatcher(model: model, sessions: sessions, busy: $sessionBusy))
+            .watchingSessionBusy(sessionBusy)
     }
 
     /// La pestaña que se ve ahora (`tab` es la del último render).

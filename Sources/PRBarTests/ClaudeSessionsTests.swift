@@ -141,6 +141,36 @@ enum ClaudeSessionsTests {
             try expectEqual(info.map(\.busy), [false, false, true, false])
             try expectEqual(Set(info.map(\.machine)), ["this Mac"])
         },
+        TestCase("sesiones: Terminal se apaga por carpeta: solo si todas están ocupadas; ⌥⌘T, si la más reciente lo está") {
+            func ref(_ id: String, _ kind: ClaudeSessionRef.Kind, _ dir: String, _ minutes: Double) -> ClaudeSessionRef {
+                ClaudeSessionRef(id: id, label: id, kind: kind, directory: dir, runner: nil, startedAt: t0.addingTimeInterval(minutes * 60))
+            }
+            let review = ref("a", .review, "/wt/review", 1)
+            let fix = ref("b", .fix, "/wt/respond", 10)
+            let sessions = [review, fix]
+
+            let none = SessionOffer.buttonState([], busyIDs: [], terminal: "iTerm")
+            try expect(!none.enabled, "sin sesiones: apagado")
+            try expectEqual(none.help, "No Claude session for this PR yet")
+            let free = SessionOffer.buttonState(sessions, busyIDs: [], terminal: "iTerm")
+            try expect(free.enabled, "libres: prendido")
+            try expectEqual(free.help, "Open Claude’s session in iTerm")
+            // Respond trabaja en su carpeta: la review sigue abriéndose.
+            let oneBusy = SessionOffer.buttonState(sessions, busyIDs: ["b"], terminal: "iTerm")
+            try expect(oneBusy.enabled, "una ocupada: el menú sigue prendido")
+            try expectEqual(oneBusy.help, "Open Claude’s session in iTerm")
+            let allBusy = SessionOffer.buttonState(sessions, busyIDs: ["a", "b"], terminal: "iTerm")
+            try expect(!allBusy.enabled, "todas ocupadas: apagado")
+            try expectEqual(allBusy.help, "Claude is working on it")
+            let single = SessionOffer.buttonState([review], busyIDs: ["a"], terminal: "iTerm")
+            try expect(!single.enabled, "la única ocupada: apagado")
+            try expectEqual(single.help, "Claude is working on it")
+
+            try expectEqual(SessionOffer.commandSession(sessions, busyIDs: [])?.id, "b")
+            try expectEqual(SessionOffer.commandSession(sessions, busyIDs: ["a"])?.id, "b")
+            try expectEqual(SessionOffer.commandSession(sessions, busyIDs: ["b"]), nil)
+            try expectEqual(SessionOffer.commandSession([], busyIDs: []), nil)
+        },
         TestCase("sesiones: el error al abrir lleva a la pestaña de Settings que lo arregla") {
             try expectEqual(SessionOffer.settingsTab(for: TerminalLaunchError.notInstalled("iTerm"), onRunner: true), .general)
             try expectEqual(SessionOffer.settingsTab(for: PRBarError.toolNotFound("claude"), onRunner: false), .general)

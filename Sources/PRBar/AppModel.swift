@@ -154,6 +154,8 @@ final class AppModel: ObservableObject {
     var retainedPrune: Task<Void, Never>?
     /// When each PR that left the list was last asked about (`RetainedWorktreeRules.stateCheckInterval`).
     var retainedCheckedAt: [String: Date] = [:]
+    /// Which kept folders PRBar is working in, for the Terminal buttons and ⌥⌘T (`SessionBusyMonitor`).
+    private(set) lazy var sessionBusy = SessionBusyMonitor(model: self)
     /// Rules, suggestion decisions and the instructions chat (spec E).
     let instructions: InstructionsStore
     /// The findings the user discards when posting (spec E.4).
