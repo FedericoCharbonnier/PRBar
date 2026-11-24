@@ -176,6 +176,17 @@ enum ConfigTests {
             config.setTerminalCommand("   ")
             try expectEqual(config.terminalCommand, nil)
         },
+        TestCase("config: keepSessionFolders is on by default (also in an old config) and round-trips off") {
+            try expectEqual(AppConfig().keepSessionFolders, true)
+            let old = try JSONCoding.decoder.decode(AppConfig.self, from: Data(#"{"launchAtLogin": true}"#.utf8))
+            try expectEqual(old.keepSessionFolders, true)
+            var config = AppConfig()
+            config.setKeepSessionFolders(false)
+            let back = try JSONCoding.decoder.decode(AppConfig.self, from: JSONCoding.encoder.encode(config))
+            try expectEqual(back.keepSessionFolders, false)
+            let garbage = try JSONCoding.decoder.decode(AppConfig.self, from: Data(#"{"keepSessionFolders": "nope"}"#.utf8))
+            try expectEqual(garbage.keepSessionFolders, true)
+        },
         TestCase("config: el comando propio de la CLI se valida; vacío lo borra") {
             var config = AppConfig()
             try config.setTerminalCommand(validating: "open -a Terminal {command}")

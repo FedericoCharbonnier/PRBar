@@ -30,12 +30,13 @@ enum ConfigKey: String, ExpressibleByArgument, CaseIterable {
     case diskWarning = "disk-warning"
     case terminal = "terminal"
     case terminalCommand = "terminal-command"
+    case keepSessionFolders = "keep-session-folders"
 }
 
 struct ConfigSet: RemoteCommand {
     static let configuration = CommandConfiguration(
         commandName: "set", abstract: "Change a general setting.",
-        discussion: "refresh-interval 1|2|5|10 (minutes) · launch-at-login on|off · always-show-in-dock on|off · update-interval 0|6|12|24|168 (hours; 0 = manual only) · disk-warning 1…100|off (GB) · terminal terminal|iterm|warp|ghostty|orca|custom · terminal-command \"<command with {command}, optionally {dir}>\" (only used after `config set terminal custom`; \"\" clears it)")
+        discussion: "refresh-interval 1|2|5|10 (minutes) · launch-at-login on|off · always-show-in-dock on|off · update-interval 0|6|12|24|168 (hours; 0 = manual only) · disk-warning 1…100|off (GB) · terminal terminal|iterm|warp|ghostty|orca|custom · terminal-command \"<command with {command}, optionally {dir}>\" (only used after `config set terminal custom`; \"\" clears it) · keep-session-folders on|off (off: delete each job's folder when it ends)")
     @Argument(help: "The setting.") var key: ConfigKey
     @Argument(help: "Its value.") var value: String
     @OptionGroup var global: GlobalOptions
@@ -69,6 +70,9 @@ struct ConfigSet: RemoteCommand {
             return .setTerminal(terminal: choice)
         case .terminalCommand:
             return .setTerminalCommand(command: value)
+        case .keepSessionFolders:
+            guard let on = OnOff(rawValue: value) else { throw ValidationError("keep-session-folders takes on or off.") }
+            return .setKeepSessionFolders(enabled: on.isOn)
         }
     }
 

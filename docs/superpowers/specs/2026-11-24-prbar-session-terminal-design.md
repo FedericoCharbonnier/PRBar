@@ -52,6 +52,8 @@ Fecha: 2026-11-24. Plan: `2026-11-24-prbar-plan-22-session-terminal.md`.
      con cwd adentro (`lsof`), no se borra en ese momento y queda para Clean Up;
   3. con **Clean Up** (`prbar cleanup`), que nunca borra una carpeta conservada con cambios sin commitear o commits que
      no están en el remoto: la lista como salteada (como hoy los fixes sin pushear).
+- Solo se conserva una carpeta con al menos una sesión de Claude que retomar; sin sesiones se limpia como antes.
+- Con **Keep folders for Terminal** apagado (T.6) no se conserva ninguna: todo se limpia como antes.
 - Activity y `prbar resources` ya suman los worktrees en "worktrees"; las conservadas entran ahí.
 - Mientras PRBar corre algo en esa carpeta (un trabajo o un turno del chat), el botón está deshabilitado. Un trabajo
   nuevo de PRBar sobre el PR usa **otra** carpeta: nunca pisa lo que el usuario está haciendo en la conservada.
@@ -110,8 +112,11 @@ Fecha: 2026-11-24. Plan: `2026-11-24-prbar-plan-22-session-terminal.md`.
   Default: Terminal.
 - Config: `terminal` (`terminal` | `iterm` | `warp` | `ghostty` | `orca` | `custom`) y `terminalCommand` (String,
   solo para `custom`). Una config vieja sin estos campos queda en Terminal.
-- CLI: `prbar config set terminal <valor>` y `prbar config set terminal-command "<comando>"`; `prbar config show` los
-  muestra.
+- **Keep folders for Terminal** (toggle, en la misma sección; config `keepSessionFolders`, default `true`, también en una
+  config vieja): apagado, los trabajos borran su carpeta al terminar como antes, y al apagarlo las conservadas se borran
+  con el mismo limpiador seguro (con un proceso adentro o trabajo sin pushear quedan para Clean Up).
+- CLI: `prbar config set terminal <valor>`, `prbar config set terminal-command "<comando>"` y
+  `prbar config set keep-session-folders on|off`; `prbar config show` los muestra.
 
 ## T.7 Pruebas
 

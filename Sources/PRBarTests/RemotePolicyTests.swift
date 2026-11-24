@@ -62,7 +62,7 @@ enum RemotePolicyTests {
             try expect(RemotePolicy.gatedNames.contains(.remoteSetPresenceRequirement))
         },
         TestCase("remote policy: las sesiones en una terminal y la elección de terminal no se ofrecen en el iPhone (spec T.4)") {
-            for name in [AppCommand.Name.sessionList, .sessionOpen, .setTerminal, .setTerminalCommand] {
+            for name in [AppCommand.Name.sessionList, .sessionOpen, .setTerminal, .setTerminalCommand, .setKeepSessionFolders] {
                 try expect(RemotePolicy.classify(name) == .denied, "\(name)")
                 try expect(!RemotePolicy.gatedNames.contains(name), "\(name)")
             }

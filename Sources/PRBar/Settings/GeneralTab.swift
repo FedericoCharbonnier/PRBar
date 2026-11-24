@@ -57,6 +57,11 @@ struct GeneralTab: View {
                 if configStore.config.terminal == .custom {
                     TerminalCommandField(model: model, saved: configStore.config.terminalCommand)
                 }
+                Toggle("Keep folders for Terminal", isOn: Binding(
+                    get: { configStore.config.keepSessionFolders },
+                    set: { on in model.updateConfig(refresh: false) { $0.setKeepSessionFolders(on) } }
+                ))
+                .help("Keeps the folder of the last review and fixes of each open PR so you can resume Claude’s session. Off: PRBar deletes them when the job ends, as before.")
             } header: {
                 Text("Claude Sessions")
             } footer: {

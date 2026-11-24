@@ -170,7 +170,8 @@ final class AppModel: ObservableObject {
         ),
         history: respondHistory,
         onEvent: { [weak self] prID, phase in self?.respondEvent(prID: prID, phase: phase) },
-        onRetain: { [weak self] record in self?.retainRespond(record) }
+        onRetain: { [weak self] record in self?.retainRespond(record) },
+        keepsFolders: { [weak self] in self?.configStore.config.keepSessionFolders ?? true }
     )
     /// Actualizaciones (spec D). `lazy` por lo mismo que `reviews`: sus closures capturan `self` (débil).
     private(set) lazy var updates = UpdateController(
@@ -426,10 +427,12 @@ final class AppModel: ObservableObject {
     }
 
     func updateConfig(refresh: Bool = true, _ mutate: (inout AppConfig) -> Void) {
-        let runnersBefore = configStore.config.runners
+        let before = configStore.config
+        let runnersBefore = before.runners
         do {
             try configStore.update(mutate)
             runnersChanged(from: runnersBefore)
+            keepSessionFoldersChanged(from: before)
             settingsError = nil
             if refresh { Task { await prStore.refresh() } }
         } catch {

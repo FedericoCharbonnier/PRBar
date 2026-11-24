@@ -22,7 +22,26 @@ extension AppModel {
         try applyConfig { $0.setTerminalCommand(command) }
     }
 
+    /// `prbar config set keep-session-folders on|off` (spec T.6).
+    func configSetKeepSessionFolders(enabled: Bool) throws {
+        try applyConfig { $0.setKeepSessionFolders(enabled) }
+    }
+
     // MARK: Kept folders (spec T.3)
+
+    /// Keep folders for Terminal switched off: the kept folders go through the same safe cleaner (one with a process
+    /// inside or with unpushed work stays, `superseded`, for Clean Up; never deleted).
+    func keepSessionFoldersChanged(from before: AppConfig) {
+        let after = configStore.config
+        guard before.keepSessionFolders, !after.keepSessionFolders, !retainedWorktrees.isEmpty else { return }
+        let retained = retainedWorktrees
+        let cleaner = retainedCleaner()
+        Task { [weak self] in
+            guard let change = await RetainedWorktreeRules.keepSettingChanged(from: before, to: after, retained: retained,
+                                                                              cleaner: cleaner) else { return }
+            self?.forgetRetained(change.removed, keeping: change.left)
+        }
+    }
 
     /// `entry` becomes the kept folder of its (PR, job); the older one goes unless a process works inside or it holds
     /// work that isn't pushed (then it stays, `superseded`, for Clean Up). It stays in the list, `superseded`, until

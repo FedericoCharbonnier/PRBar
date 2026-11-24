@@ -372,6 +372,9 @@ enum CLIParsingTests {
                 try expectEqual(try parsed(["config", "set", "terminal-command", ""]), .setTerminalCommand(command: ""))
                 try expectEqual(try parsed(["config", "set", "terminal-command", "open -na Ghostty --args -e /bin/zsh -lc {command}"]),
                                 .setTerminalCommand(command: "open -na Ghostty --args -e /bin/zsh -lc {command}"))
+                try expectEqual(try parsed(["config", "set", "keep-session-folders", "off"]), .setKeepSessionFolders(enabled: false))
+                try expectEqual(try parsed(["config", "set", "keep-session-folders", "on"]), .setKeepSessionFolders(enabled: true))
+                try expect(rejects(["config", "set", "keep-session-folders", "maybe"]))
                 try expectEqual(try parsed(["cleanup", "--preview"]), .cleanupPreview(olderThanDays: nil))
             },
             TestCase("cli parse: session list y open") {

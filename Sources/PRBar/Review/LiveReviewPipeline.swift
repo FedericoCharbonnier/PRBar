@@ -21,6 +21,8 @@ struct ReviewContext: Sendable {
     let coordinator: RunnerCoordinator
     /// Dónde corre el trabajo de cada PR ("on devbox", fallback): `AppModel.placements`.
     var onPlacement: PlacementSink = { _, _ in }
+    /// Settings › General › Keep folders for Terminal (spec T.3, T.6).
+    var keepSessionFolders = true
 }
 
 /// Pipeline de la app. Las rutas de `git` y `claude` se resuelven de forma asíncrona (y pueden cambiar desde
@@ -55,7 +57,7 @@ struct LiveReviewPipeline: ReviewPipelineRunning {
                 return try await ReviewPipeline(
                     processRunner: runner, streamingRunner: claudeRunner, tokens: tokens,
                     gitPath: git, ghPath: context.tools.gh, claudePath: claude, settings: context.claude, rules: context.rules,
-                    logURLProvider: logURLProvider
+                    logURLProvider: logURLProvider, keepsSessionFolders: context.keepSessionFolders
                 ).run(request, onPhase: onPhase)
             },
             remote: { placement in
@@ -63,7 +65,8 @@ struct LiveReviewPipeline: ReviewPipelineRunning {
                 try await ReviewPipeline(
                     processRunner: runner, streamingRunner: claudeRunner, tokens: tokens,
                     gitPath: context.tools.git ?? "git", ghPath: nil, claudePath: placement.claudePath,
-                    settings: context.claude, rules: context.rules, logURLProvider: logURLProvider, placement: placement
+                    settings: context.claude, rules: context.rules, logURLProvider: logURLProvider, placement: placement,
+                    keepsSessionFolders: context.keepSessionFolders
                 ).run(request, onPhase: onPhase)
             })
     }

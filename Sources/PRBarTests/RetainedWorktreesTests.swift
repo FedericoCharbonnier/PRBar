@@ -79,6 +79,31 @@ enum RetainedWorktreesTests {
             try expectEqual(left.map(\.location.directory), ["/Users/me/wt/r-1", "/Users/me/wt/r-3", "/Users/me/wt/r-4"])
             try expect(left.allSatisfy(\.superseded))
         },
+        TestCase("carpetas conservadas: turning Keep folders for Terminal off removes them safely (busy or dirty ones stay)") {
+            let free = entry(1, .review, dir: "/Users/me/wt/r-1")
+            let busy = entry(2, .review, dir: "/Users/me/wt/r-2")
+            let dirty = entry(3, .respond, dir: "/Users/me/wt/r-3")
+            let removed = Box<[String]>([])
+            let cleaner = RetainedWorktreeCleaner(
+                isBusy: { $0.directory == "/Users/me/wt/r-2" },
+                unpushedWork: { $0.directory == "/Users/me/wt/r-3" ? "has 1 unpushed commit" : nil },
+                remove: { removed.value.append($0.location.directory); return true })
+            var on = AppConfig()
+            var off = AppConfig()
+            off.setKeepSessionFolders(false)
+            // Unchanged or turned on: nothing happens.
+            let unchanged = await RetainedWorktreeRules.keepSettingChanged(from: on, to: on, retained: [free], cleaner: cleaner)
+            let turnedOn = await RetainedWorktreeRules.keepSettingChanged(from: off, to: on, retained: [free], cleaner: cleaner)
+            try expect(unchanged == nil && turnedOn == nil)
+            try expectEqual(removed.value, [])
+            on.setKeepSessionFolders(true)
+            let turnedOff = await RetainedWorktreeRules.keepSettingChanged(from: on, to: off, retained: [free, busy, dirty], cleaner: cleaner)
+            let change = try expectSome(turnedOff)
+            try expectEqual(removed.value, ["/Users/me/wt/r-1"])
+            try expectEqual(change.removed.map(\.location.directory), ["/Users/me/wt/r-1", "/Users/me/wt/r-2", "/Users/me/wt/r-3"])
+            try expectEqual(change.left.map(\.location.directory), ["/Users/me/wt/r-2", "/Users/me/wt/r-3"])
+            try expect(change.left.allSatisfy(\.superseded))
+        },
         TestCase("carpetas conservadas: one on a runner that's no longer in Settings is dropped, not retried forever") {
             let gone = entry(1, .review, dir: "/home/me/work/r-1", runner: "old-box")
             let here = entry(2, .review, dir: "/Users/me/wt/r-2")

@@ -21,6 +21,11 @@ local folder and, for the runner rows, a runner set up in Settings › Claude �
 - [ ] `prbar config set terminal-command "open -a Terminal"` fails (no `{command}`); with `{command}` it saves; `""` clears it.
 - [ ] The Custom field saves on Return or when it loses focus (not on every keystroke); the red line updates while typing.
 - [ ] An old `config.json` without these keys opens with Terminal.
+- [ ] Settings › General › Claude Sessions › Keep folders for Terminal is on by default (hover: "Keeps the folder of the last
+      review and fixes of each open PR…"). Turn it off: the kept folders go (one with `claude --resume` open, or with
+      uncommitted changes, stays and Clean Up lists it); the Terminal button shows no sessions; a new review or a pushed
+      fix deletes its folder when it ends. `prbar config set keep-session-folders on|off` flips it and `prbar config show`
+      shows `"keepSessionFolders"`.
 
 ## Review session
 - [ ] Review a PR. When it finishes, the toolbar's Terminal button (left of Chat) is enabled; with the filter on there

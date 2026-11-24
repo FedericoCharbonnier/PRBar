@@ -133,6 +133,15 @@ public struct RetainedWorktreeStore: Sendable {
 
 /// The retention rules (spec T.3), without side effects.
 public enum RetainedWorktreeRules {
+    /// Settings › Keep folders for Terminal switched off (spec T.6): every kept folder goes through `cleaner` (one with a
+    /// process inside or with unpushed work stays, `superseded`, for Clean Up). `nil` when it wasn't switched off.
+    /// `removed`: all of `retained` (to forget); `left`: those still on disk.
+    public static func keepSettingChanged(from before: AppConfig, to after: AppConfig, retained: [RetainedWorktree],
+                                          cleaner: RetainedWorktreeCleaner) async -> (removed: [RetainedWorktree], left: [RetainedWorktree])? {
+        guard before.keepSessionFolders, !after.keepSessionFolders else { return nil }
+        return (retained, await cleaner.removeUnlessBusy(retained))
+    }
+
     /// How often PRBar asks GitHub whether a PR that left the list was merged or closed.
     public static let stateCheckInterval: TimeInterval = 3600
 

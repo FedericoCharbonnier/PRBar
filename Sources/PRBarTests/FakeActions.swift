@@ -316,6 +316,7 @@ final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActi
     func configSetDiskWarning(gigabytes: Int?) throws { try record("setDiskWarning \(gigabytes ?? 0)") }
     func configSetTerminal(_ terminal: TerminalChoice) throws { try record("setTerminal \(terminal.rawValue)") }
     func configSetTerminalCommand(_ command: String) throws { try record("setTerminalCommand \(command)") }
+    func configSetKeepSessionFolders(enabled: Bool) throws { try record("setKeepSessionFolders \(enabled)") }
 
     // MARK: RunnerActions
     /// Los problemas de la verificación que devuelven `runnersList` y `runnerTest`.

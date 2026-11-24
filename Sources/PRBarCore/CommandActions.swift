@@ -84,6 +84,8 @@ public protocol ConfigActions: AnyObject {
     func configSetTerminal(_ terminal: TerminalChoice) throws
     /// Fails if `TerminalLauncher.validateCustomCommand` rejects the command (empty, no `{command}`, quoted placeholder).
     func configSetTerminalCommand(_ command: String) throws
+    /// Off removes the kept folders through the same safe cleaner (busy or with unpushed work: left for Clean Up).
+    func configSetKeepSessionFolders(enabled: Bool) throws
     func accountList() -> [AccountInfo]
     func accountSetEnabled(login: String, enabled: Bool) throws
     func accountReload() async throws -> [AccountInfo]

@@ -493,6 +493,9 @@ public struct AppConfig: Hashable, Codable, Sendable {
     public var terminal: TerminalChoice = .terminal
     /// Only for `custom`: `{dir}` is the PR's folder, `{command}` runs Claude.
     public var terminalCommand: String?
+    /// Keep the folder of each open PR's last review and fixes so Claude's session can be resumed in Terminal (spec
+    /// T.3, T.6). Off: PRBar deletes them when the job ends, as before.
+    public var keepSessionFolders = true
 
     public init() {}
 
@@ -504,6 +507,7 @@ public struct AppConfig: Hashable, Codable, Sendable {
         case remote
         case alwaysShowInDock
         case terminal, terminalCommand
+        case keepSessionFolders
     }
 
     public init(from decoder: Decoder) throws {
@@ -522,6 +526,7 @@ public struct AppConfig: Hashable, Codable, Sendable {
         remote = (try? c.decodeIfPresent(RemoteSettings.self, forKey: .remote)) ?? .default
         terminal = (try? c.decodeIfPresent(TerminalChoice.self, forKey: .terminal)) ?? .terminal
         terminalCommand = (try? c.decodeIfPresent(String.self, forKey: .terminalCommand)) ?? nil
+        keepSessionFolders = (try? c.decodeIfPresent(Bool.self, forKey: .keepSessionFolders)) ?? true
     }
 }
 
@@ -570,6 +575,10 @@ extension AppConfig {
 
     public mutating func setTerminal(_ choice: TerminalChoice) {
         terminal = choice
+    }
+
+    public mutating func setKeepSessionFolders(_ enabled: Bool) {
+        keepSessionFolders = enabled
     }
 
     /// Vacío o solo espacios = nil.

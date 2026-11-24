@@ -89,6 +89,8 @@ public enum AppCommand: Codable, Equatable, Sendable {
     case setTerminal(terminal: TerminalChoice)
     /// The Custom terminal's command, with `{dir}` and `{command}`.
     case setTerminalCommand(command: String)
+    /// Settings › General › Keep folders for Terminal (spec T.6).
+    case setKeepSessionFolders(enabled: Bool)
     case accountList
     case accountSetEnabled(login: String, enabled: Bool)
     case accountReload
@@ -231,7 +233,7 @@ public enum AppCommand: Codable, Equatable, Sendable {
         case remoteStatus, remoteEnable, remoteDisable, remotePairStart, remotePairWait, remotePairConfirm, remoteDevices
         case remoteRevoke, remoteSetKeepAwake, remoteReset, remoteSetPresenceRequirement, remoteSetMailbox
         case setAlwaysShowInDock
-        case setTerminal, setTerminalCommand
+        case setTerminal, setTerminalCommand, setKeepSessionFolders
         case sessionList, sessionOpen
     }
 
@@ -348,6 +350,7 @@ public enum AppCommand: Codable, Equatable, Sendable {
         case .setDiskWarning: .setDiskWarning
         case .setTerminal: .setTerminal
         case .setTerminalCommand: .setTerminalCommand
+        case .setKeepSessionFolders: .setKeepSessionFolders
         case .sessionList: .sessionList
         case .sessionOpen: .sessionOpen
         case .runnersList: .runnersList

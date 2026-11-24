@@ -48,7 +48,7 @@ public enum RemotePolicy {
         case .historyReopen, .open, .openSettings, .openHistory, .quit, .configShow, .setRefreshInterval,
              .setLaunchAtLogin, .setAlwaysShowInDock, .accountList, .accountSetEnabled, .accountReload, .repoList, .repoAvailable, .repoAdd,
              // La terminal de las sesiones de Claude: el comando propio corre en la Mac (spec T.6).
-             .setTerminal, .setTerminalCommand,
+             .setTerminal, .setTerminalCommand, .setKeepSessionFolders,
              // Abre una terminal en la Mac (spec T.4).
              .sessionList, .sessionOpen,
              .repoRemove, .repoSet, .repoBranches, .followList, .followAdd, .followRemove, .followSuggestions,

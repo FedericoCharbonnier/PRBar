@@ -70,6 +70,8 @@ public struct ReviewPipeline: ReviewPipelineRunning {
     private let logURLProvider: @Sendable (UUID) -> URL
     /// El host donde corre (worktree, contexto y Claude allá); nil = esta Mac.
     private let placement: RemotePlacement?
+    /// Settings › Keep folders for Terminal (spec T.3): off, the folder is cleaned up when the review ends, as before.
+    private let keepsSessionFolders: Bool
 
     /// `logURLProvider` recibe el `id` del draft. `ghPath` solo hace falta en modo solo diff. `api` trae la
     /// descripción del PR (para `pr.md` y el idioma de los comentarios). `settings`: los skills (solo se cargan sus
@@ -78,7 +80,8 @@ public struct ReviewPipeline: ReviewPipelineRunning {
         processRunner: ProcessRunning, streamingRunner: StreamingProcessRunning, tokens: TokenProviding,
         api: GitHubAPI = GitHubClient(), gitPath: String, ghPath: String?, claudePath: String, worktreeRoot: URL = AppPaths.worktreesDir,
         pluginCacheDirectory: URL = ClaudePlugins.defaultCacheDirectory, settings: ClaudeSettings = ClaudeSettings(),
-        rules: [Rule] = [], logURLProvider: @escaping @Sendable (UUID) -> URL, placement: RemotePlacement? = nil
+        rules: [Rule] = [], logURLProvider: @escaping @Sendable (UUID) -> URL, placement: RemotePlacement? = nil,
+        keepsSessionFolders: Bool = true
     ) {
         self.streamingRunner = streamingRunner
         self.tokens = tokens
@@ -92,6 +95,7 @@ public struct ReviewPipeline: ReviewPipelineRunning {
         self.rules = rules
         self.logURLProvider = logURLProvider
         self.placement = placement
+        self.keepsSessionFolders = keepsSessionFolders
     }
 
     /// Lo que cambia entre esta Mac y un host: preparar/limpiar el worktree, dónde va el contexto y con qué corre Claude.
@@ -191,8 +195,9 @@ public struct ReviewPipeline: ReviewPipelineRunning {
                 await Self.cleanup(workspace, parts, after: error)
                 throw error
             }
-            // Kept for "Open in Terminal" (spec T.3) only with a Claude session to resume; otherwise cleaned up as before.
-            let keep = !sessions().isEmpty
+            // Kept for "Open in Terminal" (spec T.3) only with a Claude session to resume and the setting on; otherwise
+            // cleaned up as before.
+            let keep = keepsSessionFolders && !sessions().isEmpty
             if keep {
                 await parts.release(workspace)
             } else {

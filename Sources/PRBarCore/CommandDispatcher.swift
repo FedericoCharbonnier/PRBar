@@ -313,6 +313,9 @@ public enum CommandDispatcher {
         case .setTerminalCommand(let command):
             try actions.configSetTerminalCommand(command)
             return .ok
+        case .setKeepSessionFolders(let enabled):
+            try actions.configSetKeepSessionFolders(enabled: enabled)
+            return .ok
         // Sesiones de Claude en una terminal (spec T.4)
         case .sessionList(let pr):
             return try encode(actions.sessionList(pr: pr))

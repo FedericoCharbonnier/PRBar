@@ -95,7 +95,8 @@ extension AppModel {
         ReviewContext(tools: tools, orphanCleanup: orphanCleanup, claude: configStore.config.claude, rules: instructions.rules,
                       runner: runnerDestination(account: account, repo: repo), runnerSettings: configStore.config.runners,
                       coordinator: runners,
-                      onPlacement: { [weak self] prID, placement in self?.recordPlacement(placement, prID: prID, repo: repo) })
+                      onPlacement: { [weak self] prID, placement in self?.recordPlacement(placement, prID: prID, repo: repo) },
+                      keepSessionFolders: configStore.config.keepSessionFolders)
     }
 
     /// El destino del repo (su "Run Claude on" o el predeterminado); `nil` = esta Mac.

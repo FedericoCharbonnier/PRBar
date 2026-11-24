@@ -380,12 +380,12 @@ private func pluginCache(in root: URL) throws -> URL {
 
 private func pipeline(git: FakeProcessRunner, claude: FakeStreamingRunner, root: URL, logs: URL,
                       tokens: FakeTokens = FakeTokens(), plugins: URL? = nil, api: FakeAPI = FakeAPI(),
-                      settings: ClaudeSettings = ClaudeSettings()) throws -> ReviewPipeline {
+                      settings: ClaudeSettings = ClaudeSettings(), keepsSessionFolders: Bool = true) throws -> ReviewPipeline {
     ReviewPipeline(
         processRunner: git, streamingRunner: claude, tokens: tokens, api: api,
         gitPath: "/usr/bin/git", ghPath: "/usr/local/bin/gh", claudePath: "/usr/local/bin/claude", worktreeRoot: root,
         pluginCacheDirectory: try plugins ?? pluginCache(in: logs), settings: settings,
-        logURLProvider: { logs.appendingPathComponent("\($0.uuidString).log") }
+        logURLProvider: { logs.appendingPathComponent("\($0.uuidString).log") }, keepsSessionFolders: keepsSessionFolders
     )
 }
 
@@ -447,6 +447,18 @@ enum ReviewPipelineTests {
             let draft = try await pipeline(git: git, claude: claude, root: root.appendingPathComponent("wt"), logs: root)
                 .run(clonedRequest(9)) { _ in }
             try expectEqual(draft.sessions.count, 0)
+            try expectEqual(draft.retainedLocation, nil)
+            try expect(cleanedUp(git))
+        },
+        TestCase("review pipeline: with Keep folders for Terminal off, the folder is cleaned up even with a session") {
+            let root = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let git = gitFake()
+            let claude = FakeStreamingRunner { _, _, _ in ([initLine, stageOneEmpty], ok("")) }
+            let draft = try await pipeline(git: git, claude: claude, root: root.appendingPathComponent("wt"), logs: root,
+                                           keepsSessionFolders: false)
+                .run(clonedRequest(9)) { _ in }
+            try expectEqual(draft.sessions.count, 1)
             try expectEqual(draft.retainedLocation, nil)
             try expect(cleanedUp(git))
         },

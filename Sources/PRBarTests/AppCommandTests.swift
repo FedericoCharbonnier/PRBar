@@ -45,6 +45,7 @@ enum AppCommandTests {
                 .resources, .cleanupPreview(olderThanDays: 30), .cleanup(olderThanDays: nil, confirmed: true),
                 .setDiskWarning(gigabytes: nil), .setDiskWarning(gigabytes: 5),
                 .setTerminal(terminal: .orca), .setTerminalCommand(command: "open -a Terminal {dir} {command}"),
+                .setKeepSessionFolders(enabled: false),
                 .sessionList(pr: "api#7"), .sessionOpen(pr: "api#7", job: .ciFix, run: 2), .sessionOpen(pr: "api#7", job: nil, run: nil),
                 .runnersList, .runnerAdd(host: "fede@devbox:2222", name: nil, dir: "/srv/prbar", fallback: false),
                 .runnerSet(name: "devbox", dir: nil, fallback: true), .runnerRemove(name: "devbox"), .runnerTest(name: "devbox"),
@@ -60,7 +61,7 @@ enum AppCommandTests {
             }
         },
         TestCase("app command: Name tiene un caso por comando") {
-            try expectEqual(AppCommand.Name.allCases.count, 131)
+            try expectEqual(AppCommand.Name.allCases.count, 132)
             try expectEqual(AppCommand.slackTokenSet(token: "xoxp-secret").name, .slackTokenSet)
             try expectEqual(AppCommand.reviewCancel(pr: "x").name.rawValue, "reviewCancel")
             try expectEqual(AppCommand.claudePromptShow(stage: .review).name, .claudePromptShow)

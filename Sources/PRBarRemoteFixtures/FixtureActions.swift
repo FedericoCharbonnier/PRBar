@@ -321,6 +321,7 @@ public final class FixtureActions: PRBarActions {
     public func configSetDiskWarning(gigabytes: Int?) throws {}
     public func configSetTerminal(_ terminal: TerminalChoice) throws {}
     public func configSetTerminalCommand(_ command: String) throws {}
+    public func configSetKeepSessionFolders(enabled: Bool) throws {}
 
     // MARK: SessionActions
     public func sessionList(pr: String) throws -> [ClaudeSessionInfo] { [] }

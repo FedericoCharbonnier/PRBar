@@ -230,6 +230,9 @@ private final class Harness {
     var retained: [UUID] = []
     private(set) var queue: RespondQueue!
 
+    /// Settings › Keep folders for Terminal.
+    var keepsFolders = true
+
     init(maxConcurrent: Int = 2, retains: Bool = false) throws {
         pipeline = FakeRespondPipeline(events: events)
         historyDir = try temporaryDirectory()
@@ -237,7 +240,8 @@ private final class Harness {
         queue = RespondQueue(pipeline: pipeline, history: history, maxConcurrent: maxConcurrent, onEvent: { [unowned self] prID, phase in
             self.emitted.append((prID, phase))
             self.events.record(.finished("\(prID)|\(phase.name)"))
-        }, onRetain: retains ? { @MainActor [unowned self] (record: RespondRecord) -> Void in self.retained.append(record.id) } : nil)
+        }, onRetain: retains ? { @MainActor [unowned self] (record: RespondRecord) -> Void in self.retained.append(record.id) } : nil,
+           keepsFolders: { [unowned self] in self.keepsFolders })
     }
 
     func settle() async { try? await Task.sleep(nanoseconds: 20_000_000) }
@@ -681,6 +685,17 @@ enum RespondQueueTests {
         TestCase("respond queue: a pushed run without Claude sessions isn't kept: its folder is cleaned up as before") { @MainActor in
             let h = try Harness(retains: true)
             try await h.toReadyToPush(1)
+            let draft = try h.saved(1).draft
+            h.queue.publish(prID: prID(1))
+            try await h.events.wait(for: reached(1, "done"))
+            try await waitUntil { h.pipeline.cleanups == [draft.id] }
+            try expectEqual(h.retained, [])
+            try expectEqual(h.pipeline.releases, [])
+        },
+        TestCase("respond queue: with Keep folders for Terminal off, a pushed run with sessions is cleaned up as before") { @MainActor in
+            let h = try Harness(retains: true)
+            h.keepsFolders = false
+            try await h.toReadyToPush(1, result: fixResultWithSession)
             let draft = try h.saved(1).draft
             h.queue.publish(prID: prID(1))
             try await h.events.wait(for: reached(1, "done"))

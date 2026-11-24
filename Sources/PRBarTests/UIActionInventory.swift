@@ -312,6 +312,7 @@ enum UIActionInventory {
         .init("Settings/GeneralTab.swift", "Stepper", #"\(limit ?? 5) GB"#, 1, .cli(["config set"])),
         .init("Settings/GeneralTab.swift", "Picker", "Terminal", 1, .cli(["config set"])),   // terminal
         .init("Settings/GeneralTab.swift", "TextField", "Command", 1, .cli(["config set"])),   // terminal-command (Custom…)
+        .init("Settings/GeneralTab.swift", "Toggle", "Keep folders for Terminal", 1, .cli(["config set"])),   // keep-session-folders
         .init("Settings/PathRow.swift", "Button", "-", 1, .cli(["tools reset", "repo set"])),
         .init("Settings/PathRow.swift", "Button", "Choose…", 1, .cli(["tools set", "repo set"])),
         // Settings › Claude

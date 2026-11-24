@@ -112,6 +112,7 @@ let dispatchSamples: [(command: AppCommand, call: String)] = [
     (.setDiskWarning(gigabytes: 5), "setDiskWarning"),
     (.setTerminal(terminal: .warp), "setTerminal"),
     (.setTerminalCommand(command: "x {command}"), "setTerminalCommand"),
+    (.setKeepSessionFolders(enabled: false), "setKeepSessionFolders"),
     (.sessionList(pr: "api#7"), "sessionList"),
     (.sessionOpen(pr: "api#7", job: .review, run: nil), "sessionOpen"),
     (.runnersList, "runnersList"),
