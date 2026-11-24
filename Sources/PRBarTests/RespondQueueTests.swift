@@ -626,6 +626,21 @@ enum RespondQueueTests {
             try expectEqual(try h.saved(1).chat, chat)
             try expectEqual(h.queue.records[prID(1)]?.chat, chat)
         },
+        TestCase("respond queue: guarda las sesiones de Claude de los fixes en el registro") { @MainActor in
+            let h = try Harness()
+            try await h.toReady(1)
+            h.queue.implement(prID: prID(1), selections: bothSelected)
+            try await h.events.wait(for: [.started("implement:\(prID(1))")])
+            let stamp = ClaudeSessionStamp(id: "6f1c2d3e-4a5b-4c6d-8e7f-9a0b1c2d3e4f", startedAt: t0)
+            let result = RespondResult(items: [ItemResult(id: "thread:A", status: .committed, commit: sha1, summary: "ok", session: stamp)],
+                                       diffStat: " README.md | 1 +", tests: nil)
+            h.pipeline.completeImplementation(prID(1), .success(result))
+            try await h.events.wait(for: reached(1, "readyToPush"))
+            let sessions = try h.saved(1).sessions ?? []
+            try expectEqual(sessions.map(\.label), ["Fix 1: Cambiá esto."])
+            try expectEqual(sessions.map(\.directory), ["/wt/1"])
+            try expectEqual(sessions.map(\.kind), [.fix])
+        },
     ] + RespondPipelineTests.cases
 }
 

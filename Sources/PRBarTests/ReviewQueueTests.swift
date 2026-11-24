@@ -364,6 +364,8 @@ private extension ReviewPhase {
 // MARK: - ReviewPipeline real
 
 private let stageOneEmpty = #"{"type":"result","subtype":"success","is_error":false,"result":"","structured_output":{"summary":"Todo bien.","findings":[]}}"#
+private let reviewSessionID = "1b4e28ba-2fa1-11d2-883f-0016d3cca427"
+private let initLine = #"{"type":"system","subtype":"init","session_id":"1b4e28ba-2fa1-11d2-883f-0016d3cca427"}"#
 
 /// Caché de plugins falsa (`<cache>/<marketplace>/<plugin>/<versión>`) con los plugins de los skills por defecto.
 private func pluginCache(in root: URL) throws -> URL {
@@ -622,6 +624,24 @@ enum ReviewPipelineTests {
             let log = try String(contentsOf: root.appendingPathComponent("\(draft.id.uuidString).log"), encoding: .utf8)
             try expect(!log.contains("tok-fede"), log)
             try expectEqual(claude.calls[0].environment?["PATH"], "/usr/bin:/usr/local/bin:/bin:/usr/sbin:/sbin")
+        },
+        TestCase("review pipeline: guarda la sesión de cada etapa (también si Claude falla)") {
+            let root = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let claude = FakeStreamingRunner { _, _, _ in ([initLine, stageOneEmpty], ok("")) }
+            let draft = try await pipeline(git: gitFake(), claude: claude, root: root.appendingPathComponent("wt"), logs: root)
+                .run(clonedRequest(9)) { _ in }
+            try expectEqual(draft.sessions.map(\.label), ["Review · stage 1"])
+            try expectEqual(draft.sessions.map(\.id), [reviewSessionID])
+            try expectEqual(draft.sessions.map(\.runner), [nil])
+            try expect(draft.sessions[0].directory.hasPrefix(root.appendingPathComponent("wt").path), draft.sessions[0].directory)
+
+            let crashed = FakeStreamingRunner { _, _, _ in ([initLine], fail("boom", status: 3)) }
+            let error = try await expectThrows {
+                _ = try await pipeline(git: gitFake(), claude: crashed, root: root.appendingPathComponent("wt2"), logs: root)
+                    .run(clonedRequest(9)) { _ in }
+            }
+            try expectEqual((error as? ReviewFailure)?.sessions.map(\.id), [reviewSessionID])
         },
     ]
 }

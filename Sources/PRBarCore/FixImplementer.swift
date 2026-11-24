@@ -97,8 +97,12 @@ public struct FixImplementer: Sendable {
 
         var results: [ItemResult] = []
         for (index, (item, fixPlan)) in work.enumerated() {
-            results.append(try await implementOne(item, fixPlan: fixPlan, draft: draft, worktree: worktree, start: start,
-                                                  guarded: guarded))
+            // Claude's session of this fix (spec T.2), also when the fix failed after Claude started.
+            let capture = ClaudeSessionCapture()
+            var result = try await implementOne(item, fixPlan: fixPlan, draft: draft, worktree: worktree, start: start,
+                                                guarded: guarded, capture: capture)
+            result.session = capture.stamp
+            results.append(result)
             await onProgress(index + 1, work.count)
         }
         if settings.respond.commitMode == .single && !draft.isCIFix {
@@ -190,7 +194,7 @@ public struct FixImplementer: Sendable {
     // MARK: - Un fix
 
     private func implementOne(_ item: RespondItem, fixPlan: String, draft: RespondDraft, worktree: URL, start: String,
-                              guarded: GitPaths) async throws -> ItemResult {
+                              guarded: GitPaths, capture: ClaudeSessionCapture) async throws -> ItemResult {
         try await ensureClean(worktree)
         try await checkConfigOrigins(worktree)
         let headBefore = try await head(worktree)
@@ -205,7 +209,8 @@ public struct FixImplementer: Sendable {
             prompt: isCI ? CIFixPrompt.prompt(item: item, draft: draft, settings: settings, rules: effectiveRules)
                          : Self.prompt(item: item, fixPlan: fixPlan, settings: settings, rules: effectiveRules),
             schema: RespondSchemas.fix, tools: Self.tools,
-            workingDirectory: worktree, timeout: Self.fixTimeout, logHeader: isCI ? "=== CI fix ===" : "=== fix \(item.id) ==="
+            workingDirectory: worktree, timeout: Self.fixTimeout, logHeader: isCI ? "=== CI fix ===" : "=== fix \(item.id) ===",
+            onSession: { capture.record($0) }
         )
         let output: FixOutput
         do {
@@ -710,7 +715,9 @@ public struct FixImplementer: Sendable {
             throw PRBarError.respond("The single commit \(sha) doesn't descend from \(start): stopping.")
         }
         try await git(worktree, ["update-ref", "--no-deref", "HEAD", sha, last])
-        return results.map { $0.status == .committed ? ItemResult(id: $0.id, status: .committed, commit: sha, summary: $0.summary) : $0 }
+        return results.map {
+            $0.status == .committed ? ItemResult(id: $0.id, status: .committed, commit: sha, summary: $0.summary, session: $0.session) : $0
+        }
     }
 
     /// Valida `startHeadOid` (un sha completo) y que HEAD lo contenga. Devuelve el sha.

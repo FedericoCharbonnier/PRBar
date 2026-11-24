@@ -1676,5 +1676,20 @@ enum FixImplementerTests {
                 do { try await test.body() } catch { throw TestFailure(description: "\(test.name) con el guardián Perl: \(error)") }
             }
         },
+        TestCase("fixes: cada fix guarda la sesión de su corrida de Claude") {
+            let repo = try FixRepo.make()
+            defer { repo.remove() }
+            let session = "0d5b2f4e-8c1a-4e3b-9f6d-2a7c1b3e4f50"
+            let initLine = #"{"type":"system","subtype":"init","session_id":"\#(session)"}"#
+            let claude = FakeStreamingRunner { _, _, cwd in
+                guard let cwd else { throw TestFailure(description: "sin cwd") }
+                try edit("README.md", "chau\n")(cwd)
+                return ([initLine, fixLine("done", message: "Arreglar el README")], ok(""))
+            }
+            let one = item("thread:1", marker: "uno")
+            let result = try await run(implementer(claude, log: try logURL()), try draft(repo, items: [one]), selections([one]))
+            try expectEqual(result.items.map(\.status), [.committed])
+            try expectEqual(result.items.map(\.session?.id), [session])
+        },
     ]
 }

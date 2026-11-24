@@ -48,6 +48,7 @@ public struct ClaudeReviewer: Sendable {
     /// `language`: the PR's language; the finding bodies (published on GitHub) are written in it.
     public func review(
         pr: PullRequest, workspace: ReviewWorkspace, language: PRLanguage, ignorePaths: [String] = [],
+        onSession: @escaping @Sendable (_ stage: Int, ClaudeSessionStamp) -> Void = { _, _ in },
         onProgress: @escaping @MainActor @Sendable (ReviewStage, Int) -> Void
     ) async throws -> (summary: String, items: [ReviewItem]) {
         let rules = RulesPrompt.effective(self.rules, repo: pr.repo, stage: .review)
@@ -55,7 +56,7 @@ public struct ClaudeReviewer: Sendable {
             .reviewing, number: 1,
             prompt: Self.stageOnePrompt(pr: pr, workspace: workspace, language: language, settings: settings, rules: rules,
                                         ignorePaths: ignorePaths),
-            schema: ReviewSchemas.stageOne, workspace: workspace, onProgress: onProgress
+            schema: ReviewSchemas.stageOne, workspace: workspace, onSession: onSession, onProgress: onProgress
         )
         let summary = redact(stageOne.summary)
         let findings = stageOne.findings.map { finding in
@@ -74,7 +75,7 @@ public struct ClaudeReviewer: Sendable {
             .filtering, number: 2,
             prompt: Self.stageTwoPrompt(pr: pr, findingsJSON: Self.encode(findings), workspace: workspace,
                                         settings: settings, rules: rules),
-            schema: ReviewSchemas.stageTwo, workspace: workspace, onProgress: onProgress
+            schema: ReviewSchemas.stageTwo, workspace: workspace, onSession: onSession, onProgress: onProgress
         )
         let items = ReviewItem.combine(findings: findings, verdicts: stageTwo.verdicts).map { item in
             ReviewItem(finding: item.finding, keep: item.keep, reason: item.reason.map(redact))
@@ -222,14 +223,14 @@ public struct ClaudeReviewer: Sendable {
     private func runStage<Output: Decodable>(
         _ stage: ReviewStage, number: Int, prompt: String, schema: String,
         workspace: ReviewWorkspace,
+        onSession: @escaping @Sendable (Int, ClaudeSessionStamp) -> Void,
         onProgress: @escaping @MainActor @Sendable (ReviewStage, Int) -> Void
     ) async throws -> Output {
         let progress = MainActorRelay<Int> { onProgress(stage, $0) }
+        var invocation = Self.invocation(prompt: prompt, schema: schema, workspace: workspace, header: "=== stage \(number) ===")
+        invocation.onSession = { id in onSession(number, ClaudeSessionStamp(id: id, startedAt: Date())) }
         do {
-            let output = try await claude.run(
-                Self.invocation(prompt: prompt, schema: schema, workspace: workspace, header: "=== stage \(number) ==="),
-                as: Output.self, onAgent: { progress.send($0) }
-            )
+            let output = try await claude.run(invocation, as: Output.self, onAgent: { progress.send($0) })
             await progress.finish()
             return output
         } catch {

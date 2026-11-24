@@ -501,6 +501,9 @@ public final class RespondQueue: ObservableObject {
         leftWork.remove(prID)
         records[prID]?.result = result
         records[prID]?.errorMessage = nil
+        // Claude's sessions of the fixes (spec T.2). A test run or a chat turn brings no new ones: they stay.
+        let sessions = ClaudeSessionRef.fixes(draft: draft, items: result.items)
+        if !sessions.isEmpty { records[prID]?.sessions = sessions }
         if let record = records[prID] { save(record) }
         finish(prID, .readyToPush(draft, result))
     }

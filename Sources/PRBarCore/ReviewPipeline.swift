@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 public struct ReviewRequest: Sendable {
     public let item: ClassifiedPR
@@ -41,10 +42,13 @@ public protocol ReviewPipelineRunning: Sendable {
 public struct ReviewFailure: Error, LocalizedError {
     public let underlying: Error
     public let logURL: URL?
+    /// The sessions of the stages that started (spec T.2): History keeps them.
+    public var sessions: [ClaudeSessionRef]
 
-    public init(underlying: Error, logURL: URL?) {
+    public init(underlying: Error, logURL: URL?, sessions: [ClaudeSessionRef] = []) {
         self.underlying = underlying
         self.logURL = logURL
+        self.sessions = sessions
     }
 
     public var errorDescription: String? { underlying.localizedDescription }
@@ -138,6 +142,12 @@ public struct ReviewPipeline: ReviewPipelineRunning {
         let pr = request.item.pr
         let draftID = UUID()
         let logURL = logURLProvider(draftID)
+        // The stages' sessions (spec T.2), by stage: a retry replaces its stage's.
+        let recorded = OSAllocatedUnfairLock(initialState: [Int: ClaudeSessionRef]())
+        let sessions: @Sendable () -> [ClaudeSessionRef] = {
+            recorded.withLock { $0.sorted { $0.key < $1.key }.map(\.value) }
+        }
+        let runnerName = placement?.name
 
         do {
             let token = try await tokens.token(for: request.item.account)
@@ -153,8 +163,14 @@ public struct ReviewPipeline: ReviewPipelineRunning {
             do {
                 headOid = try await parts.writeContext(workspace, description ?? "")
                 try Task.checkCancellation()
-                result = try await parts.reviewer.review(pr: pr, workspace: workspace, language: language,
-                                                   ignorePaths: request.ignorePaths) { stage, agents in
+                result = try await parts.reviewer.review(
+                    pr: pr, workspace: workspace, language: language, ignorePaths: request.ignorePaths,
+                    onSession: { stage, stamp in
+                        let session = ClaudeSessionRef.reviewStage(stage, stamp: stamp, directory: workspace.directory.path,
+                                                                   runner: runnerName)
+                        recorded.withLock { $0[stage] = session }
+                    }
+                ) { stage, agents in
                     onPhase(stage == .reviewing ? .reviewing(agents: agents) : .filtering)
                 }
             } catch {
@@ -172,17 +188,18 @@ public struct ReviewPipeline: ReviewPipelineRunning {
                 language: language
             )
             draft.id = draftID
+            draft.sessions = sessions()
             return draft
         } catch {
             if RemoteUnstoppedJobs.isNotStopped(error) {
                 // Claude puede seguir corriendo en el host: el error lo dice (también si fue un Stop).
                 let existingLog = FileManager.default.fileExists(atPath: logURL.path) ? logURL : nil
-                throw ReviewFailure(underlying: error, logURL: existingLog)
+                throw ReviewFailure(underlying: error, logURL: existingLog, sessions: sessions())
             }
             if error is CancellationError || Task.isCancelled { throw CancellationError() }
             if let failure = error as? ReviewFailure { throw failure }
             let existingLog = FileManager.default.fileExists(atPath: logURL.path) ? logURL : nil
-            throw ReviewFailure(underlying: error, logURL: existingLog)
+            throw ReviewFailure(underlying: error, logURL: existingLog, sessions: sessions())
         }
     }
 

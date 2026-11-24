@@ -134,6 +134,10 @@ public struct ReviewDraft: Codable, Equatable, Sendable, Identifiable {
     public var edits: ReviewEdits?
     /// Claude's usage for the review (stage 1 and the filter, spec O). Nil in older history files.
     public var usage: ClaudeUsage?
+    /// The Claude sessions of this run's stages (spec T.2), until `AppModel` saves them in the record. Not encoded.
+    public var sessions: [ClaudeSessionRef] = []
+    /// The review's folder kept for "Open in Terminal" (spec T.3, Task 5); nil = it was removed. Not encoded.
+    public var retainedLocation: WorktreeLocation? = nil
 
     public init(prID: String, repo: RepoRef, number: Int, title: String, url: URL, author: String,
                 headOid: String, account: String, summary: String, items: [ReviewItem], language: PRLanguage = .english,

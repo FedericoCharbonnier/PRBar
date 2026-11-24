@@ -628,7 +628,8 @@ final class AppModel: ObservableObject {
         var record: ReviewRecord
         switch result {
         case .success(let draft):
-            record = ReviewRecord(draft: draft, startedAt: startedAt, finishedAt: Date(), status: .ready)
+            record = ReviewRecord(draft: draft, startedAt: startedAt, finishedAt: Date(), status: .ready,
+                                  sessions: draft.sessions.isEmpty ? nil : draft.sessions)
         case .failure(let error):
             var draft = ReviewDraft(
                 prID: item.id, repo: item.pr.repo, number: item.pr.number, title: item.pr.title, url: item.pr.url,
@@ -643,6 +644,7 @@ final class AppModel: ObservableObject {
             record = ReviewRecord(
                 draft: draft, startedAt: startedAt, finishedAt: Date(), status: .failed, errorMessage: error.localizedDescription
             )
+            if let sessions = (error as? ReviewFailure)?.sessions, !sessions.isEmpty { record.sessions = sessions }
         }
         if run?.requestedOnPhone == true { record.requestedOnPhone = true }
         do {
