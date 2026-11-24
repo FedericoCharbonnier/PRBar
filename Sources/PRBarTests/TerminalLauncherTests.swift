@@ -25,8 +25,8 @@ enum TerminalLauncherTests {
         },
         TestCase("terminal: Orca usa su CLI con la carpeta como worktree; sin carpeta no se puede") {
             try expectEqual(try TerminalLauncher.plan(request, choice: .orca, customCommand: nil), .orca(arguments: [
-                "terminal", "create", "--worktree", "path:/tmp/PR Bar/it's", "--title", "o/r#7 · Review · stage 1",
-                "--command", request.command, "--focus", "--json",
+                "terminal", "create", "--worktree=path:/tmp/PR Bar/it's", "--title=o/r#7 · Review · stage 1",
+                "--command=\(request.command)", "--focus", "--json",
             ]))
             var noFolder = request
             noFolder.directory = nil
@@ -40,6 +40,10 @@ enum TerminalLauncherTests {
             try expectEqual(TerminalLauncher.orcaOutcome(stdout: #"{"ok":false,"error":{"code":"boom","message":"No runtime"}}"#, status: 1),
                             .failed("No runtime"))
             try expectEqual(TerminalLauncher.orcaOutcome(stdout: "", status: 2), .failed("orca exited with status 2"))
+            try expectEqual(TerminalLauncher.orcaOutcome(stdout: "", stderr: "orca: no runtime\n", status: 2), .failed("orca: no runtime"))
+            try expectEqual(TerminalLauncher.orcaOutcome(stdout: "not json", stderr: "boom", status: 1), .failed("boom"))
+            try expectEqual(TerminalLauncher.orcaOutcome(stdout: "not json", stderr: "", status: 1), .failed("not json"))
+            try expectEqual(TerminalLauncher.orcaOutcome(stdout: "created", stderr: "", status: 0), nil)
             try expectEqual(TerminalLaunchError.notInOrca.errorDescription,
                             "This folder isn’t in Orca. Add the repo in Orca or choose another terminal.")
         },
@@ -61,6 +65,49 @@ enum TerminalLauncherTests {
             let result = try await SystemProcessRunner().run("/bin/sh", ["-c", command], environment: nil, currentDirectory: nil, timeout: 10)
             try expectEqual(result.stdout, "/tmp/{command} $HOME `id`\nit's|echo `id` $(id) $HOME 'x'\ny {dir}")
         },
+        TestCase("terminal: Custom no acepta comillas, \\, $ ni backticks pegados a {dir} o {command}") {
+            for template in [#"sh -c "{command}""#, "sh -c '{command}'", #"x --dir="{dir}" {command}"#, "x '--dir={dir}' {command}",
+                             "x {dir}' {command}", #"sh -c "cd {dir}; {command}""#, "sh -c 'run {command} now'",
+                             #"x \{command}"#, "x ${command}", "x `{command}`", "x {command}\"", "x a{dir}'b {command}"] {
+                var error: Error?
+                do { try TerminalLauncher.validateCustomCommand(template) } catch let thrown { error = thrown }
+                try expect(error as? TerminalLaunchError == .quotedPlaceholder, "\(template): \(String(describing: error))")
+                let viaPlan = try await expectThrows { _ = try TerminalLauncher.plan(request, choice: .custom, customCommand: template) }
+                try expectEqual(viaPlan as? TerminalLaunchError, .quotedPlaceholder)
+            }
+            try expectEqual(TerminalLaunchError.quotedPlaceholder.errorDescription,
+                            "Don’t put quotes around {dir} or {command}: PRBar quotes them.")
+            for template in ["open -na Ghostty --args --working-directory={dir} -e /bin/zsh -lc {command}",
+                             "kitty --directory {dir} /bin/zsh -lc {command}", "x 'quoted text' {command} \"other\" {dir}",
+                             "wezterm start --cwd={dir} -- /bin/zsh -lc {command}"] {
+                try TerminalLauncher.validateCustomCommand(template)
+            }
+            let empty = try await expectThrows { try TerminalLauncher.validateCustomCommand(" ") }
+            try expectEqual(empty as? TerminalLaunchError, .noCustomCommand)
+            let missing = try await expectThrows { try TerminalLauncher.validateCustomCommand("open {dir}") }
+            try expectEqual(missing as? TerminalLaunchError, .customCommandWithoutPlaceholder)
+        },
+        TestCase("terminal: Custom se lanza aparte, no espera a un comando que sigue corriendo y avisa si falla enseguida") {
+            let dir = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: dir) }
+            let pidFile = dir.appendingPathComponent("pid")
+            let opener = TerminalOpener(runner: SystemProcessRunner(), directory: dir)
+            let start = Date()
+            // Un terminal que se queda en primer plano (`kitty`, `alacritty -e`): acá, `sleep 60`. `{command}` va en un comentario.
+            try await opener.open(request, choice: .custom, customCommand: "echo $$ > \(pidFile.path); exec sleep 60 # {command}")
+            try expect(Date().timeIntervalSince(start) < 5, "took \(Date().timeIntervalSince(start)) s")
+            var pid: Int32?
+            for _ in 0..<50 where pid == nil {
+                pid = (try? String(contentsOf: pidFile, encoding: .utf8)).flatMap { Int32($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+                if pid == nil { try await Task.sleep(nanoseconds: 100_000_000) }
+            }
+            let child = try expectSome(pid)
+            try expect(kill(child, 0) == 0, "the custom command should still be running")
+            try expect(getpgid(child) != getpgid(getpid()) && getpgid(child) == child, "it should lead its own process group")
+            kill(child, SIGKILL)
+            let failed = try await expectThrows { try await opener.open(request, choice: .custom, customCommand: "exit 3 # {command}") }
+            try expectEqual(failed as? TerminalLaunchError, .failed("the custom command exited with status 3"))
+        },
         TestCase("terminal: el opener escribe el .command 755, lo abre con open -a y borra los de más de un día") {
             let dir = try temporaryDirectory()
             defer { try? FileManager.default.removeItem(at: dir) }
@@ -68,6 +115,9 @@ enum TerminalLauncherTests {
             let fresh = dir.appendingPathComponent("prbar-session-fresh.command")
             try Data("x".utf8).write(to: old)
             try Data("x".utf8).write(to: fresh)
+            let foreign = dir.appendingPathComponent("someone-else.command")
+            try Data("x".utf8).write(to: foreign)
+            try FileManager.default.setAttributes([.modificationDate: t0.addingTimeInterval(-2 * 86_400)], ofItemAtPath: foreign.path)
             try FileManager.default.setAttributes([.modificationDate: t0.addingTimeInterval(-2 * 86_400)], ofItemAtPath: old.path)
             try FileManager.default.setAttributes([.modificationDate: t0.addingTimeInterval(-3600)], ofItemAtPath: fresh.path)
             let runner = FakeProcessRunner { _, _ in ok("") }
@@ -82,6 +132,7 @@ enum TerminalLauncherTests {
             try expectEqual(mode, 0o755)
             try expect(!FileManager.default.fileExists(atPath: old.path))
             try expect(FileManager.default.fileExists(atPath: fresh.path))
+            try expect(FileManager.default.fileExists(atPath: foreign.path), "only PRBar’s prbar-session-*.command files are pruned")
         },
         TestCase("terminal: Orca sin su binario no está instalado; con ok:false avisa") {
             let dir = try temporaryDirectory()

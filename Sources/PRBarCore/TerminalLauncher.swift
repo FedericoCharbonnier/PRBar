@@ -29,6 +29,7 @@ public enum TerminalLaunchError: Error, Equatable, LocalizedError {
     case notInstalled(String)
     case noCustomCommand
     case customCommandWithoutPlaceholder
+    case quotedPlaceholder
     case notInOrca
     case failed(String)
 
@@ -37,6 +38,7 @@ public enum TerminalLaunchError: Error, Equatable, LocalizedError {
         case .notInstalled(let name): "\(name) isn’t installed. Choose another terminal in Settings › General."
         case .noCustomCommand: "There’s no custom terminal command. Set one in Settings › General."
         case .customCommandWithoutPlaceholder: "The custom terminal command needs {command}: it’s where Claude runs."
+        case .quotedPlaceholder: "Don’t put quotes around {dir} or {command}: PRBar quotes them."
         case .notInOrca: "This folder isn’t in Orca. Add the repo in Orca or choose another terminal."
         case .failed(let message): "The terminal couldn’t open Claude’s session: \(message)"
         }
@@ -74,28 +76,74 @@ public enum TerminalLauncher {
         case .orca:
             return .orca(arguments: try orcaArguments(request))
         case .custom:
-            guard let template = customCommand?.trimmingCharacters(in: .whitespacesAndNewlines), !template.isEmpty else {
-                throw TerminalLaunchError.noCustomCommand
-            }
+            let template = customCommand?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return .shell(command: try expand(template, request))
         case .terminal, .iterm, .warp, .ghostty:
             throw TerminalLaunchError.failed("unknown terminal")   // `appName` covers them.
         }
     }
 
-    /// `terminal create --worktree path:<folder> --title <title> --command <command> --focus --json` (verified with
-    /// Orca: only a worktree of a repo added in Orca works).
+    /// `terminal create --worktree=path:<folder> --title=<title> --command=<command> --focus --json` (verified with
+    /// Orca: only a worktree of a repo added in Orca works). Each value is glued to its flag with `=` so a value that
+    /// starts with `-` can't be read as another flag (Orca's parser accepts `--flag=value`, checked 2026-11-24).
     public static func orcaArguments(_ request: TerminalRequest) throws -> [String] {
         guard let directory = request.directory else { throw TerminalLaunchError.notInOrca }
-        return ["terminal", "create", "--worktree", "path:\(directory)", "--title", request.title,
-                "--command", request.command, "--focus", "--json"]
+        return ["terminal", "create", "--worktree=path:\(directory)", "--title=\(request.title)",
+                "--command=\(request.command)", "--focus", "--json"]
     }
 
-    /// `{dir}` and `{command}`, each as one single-quoted word. Without `{command}` Claude wouldn't run.
+    static let placeholders = ["{dir}", "{command}"]
+
+    /// What Settings › General checks while typing the Custom command (and `plan` before running it): not empty, with
+    /// `{command}`, and each placeholder a bare word. PRBar inserts them already single-quoted, so inside `"…"`, `'…'` or
+    /// backticks, or glued to a quote, `\` or `$` (`$'…'`), the quotes would pair differently and part of the value
+    /// would run as shell.
+    public static func validateCustomCommand(_ template: String) throws {
+        let template = template.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !template.isEmpty else { throw TerminalLaunchError.noCustomCommand }
+        guard template.contains("{command}") else { throw TerminalLaunchError.customCommandWithoutPlaceholder }
+        let characters = Array(template.unicodeScalars)
+        var quote: Unicode.Scalar?   // `'`, `"` or `` ` `` while inside one.
+        var index = 0
+        while index < characters.count {
+            let character = characters[index]
+            if let length = placeholderLength(characters, at: index) {
+                let before = index > 0 ? characters[index - 1] : " "
+                let after = index + length < characters.count ? characters[index + length] : " "
+                if quote != nil || "'\"\\$`".unicodeScalars.contains(before) || "'\"`".unicodeScalars.contains(after) {
+                    throw TerminalLaunchError.quotedPlaceholder
+                }
+                index += length
+                continue
+            }
+            switch (quote, character) {
+            case (nil, "\\"), ("\"", "\\"), ("`", "\\"):   // Escapes the next character (never a placeholder's `{`).
+                if placeholderLength(characters, at: index + 1) != nil { throw TerminalLaunchError.quotedPlaceholder }
+                index += 1
+            case (nil, "'"), (nil, "\""), (nil, "`"): quote = character
+            case let (open?, close) where open == close: quote = nil
+            default: break
+            }
+            index += 1
+        }
+        if quote != nil { throw TerminalLaunchError.quotedPlaceholder }   // An unclosed quote would swallow what follows.
+    }
+
+    private static func placeholderLength(_ characters: [Unicode.Scalar], at index: Int) -> Int? {
+        for placeholder in placeholders {
+            let scalars = Array(placeholder.unicodeScalars)
+            if index + scalars.count <= characters.count, Array(characters[index..<index + scalars.count]) == scalars {
+                return scalars.count
+            }
+        }
+        return nil
+    }
+
+    /// `{dir}` and `{command}`, each as one single-quoted word (`validateCustomCommand` first).
     /// One pass over the template: a value that contains `{command}` or `{dir}` (a folder can be named that) is never
     /// expanded again, which would leave the other value outside the quotes.
     public static func expand(_ template: String, _ request: TerminalRequest) throws -> String {
-        guard template.contains("{command}") else { throw TerminalLaunchError.customCommandWithoutPlaceholder }
+        try validateCustomCommand(template)
         let values = ["{dir}": try ShellQuote.posix(request.directory ?? NSHomeDirectory()),
                       "{command}": try ShellQuote.posix(request.command)]
         var result = ""
@@ -111,11 +159,15 @@ public enum TerminalLauncher {
         return result
     }
 
-    /// nil = Orca opened it (`"ok": true`).
-    public static func orcaOutcome(stdout: String, status: Int32) -> TerminalLaunchError? {
+    /// nil = Orca opened it (`"ok": true`). Without a JSON answer (an older Orca, or a wrapper on the PATH), the exit
+    /// status decides: 0 counts as opened, since `--json` output is the only thing that could say otherwise; a failure
+    /// shows stderr, else stdout, else the status.
+    public static func orcaOutcome(stdout: String, stderr: String = "", status: Int32) -> TerminalLaunchError? {
         guard let data = stdout.data(using: .utf8),
               let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
-            return status == 0 ? nil : .failed(stdout.isEmpty ? "orca exited with status \(status)" : stdout)
+            guard status != 0 else { return nil }
+            let text = [stderr, stdout].map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.first { !$0.isEmpty }
+            return .failed(text ?? "orca exited with status \(status)")
         }
         if object["ok"] as? Bool == true { return nil }
         let error = object["error"] as? [String: Any]
@@ -155,12 +207,33 @@ public struct TerminalOpener: Sendable {
         case .orca(let arguments):
             guard let orca = Self.orcaCandidates.first(where: isExecutable) else { throw TerminalLaunchError.notInstalled("Orca") }
             let result = try await runner.run(orca, arguments, environment: nil, currentDirectory: nil, timeout: 30)
-            if let error = TerminalLauncher.orcaOutcome(stdout: result.stdout, status: result.status) { throw error }
+            if let error = TerminalLauncher.orcaOutcome(stdout: result.stdout, stderr: result.stderr, status: result.status) { throw error }
         case .shell(let command):
-            let result = try await runner.run("/bin/sh", ["-c", command], environment: nil, currentDirectory: nil, timeout: 30)
-            guard result.status == 0 else { throw TerminalLaunchError.failed(Self.message(result)) }
+            let result = try await runner.run("/bin/sh", ["-c", Self.detachedLauncher, "prbar-terminal", command],
+                                              environment: nil, currentDirectory: nil, timeout: 30)
+            guard result.status == 0 else {
+                throw TerminalLaunchError.failed("the custom command exited with status \(result.status)")
+            }
         }
     }
+
+    /// Runs `$1` (the Custom command) in the background so a terminal that stays in the foreground (`kitty`,
+    /// `alacritty -e`, `wezterm start`) isn't waited for nor killed by the runner's timeout: `set -m` puts it in its own
+    /// process group (the runner signals only the launcher's), with stdin/stdout/stderr on /dev/null so no pipe of
+    /// PRBar stays open. The launcher waits up to a second: if the command already ended, its status is the launcher's
+    /// (an immediate failure is reported); if it is still running, the launch counts as done.
+    static let detachedLauncher = """
+        set -m
+        /bin/sh -c "$1" </dev/null >/dev/null 2>&1 &
+        pid=$!
+        i=0
+        while [ "$i" -lt 10 ]; do
+          if ! kill -0 "$pid" 2>/dev/null; then wait "$pid"; exit $?; fi
+          sleep 0.1
+          i=$((i + 1))
+        done
+        exit 0
+        """
 
     func writeCommandFile(_ script: String) throws -> URL {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -171,10 +244,10 @@ public struct TerminalOpener: Sendable {
         return file
     }
 
-    /// Deletes the `.command` files modified more than `commandFileLifetime` ago.
+    /// Deletes PRBar's `prbar-session-*.command` files modified more than `commandFileLifetime` ago.
     static func prune(_ directory: URL, now: Date) {
         let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
-        for file in files where file.pathExtension == "command" {
+        for file in files where file.pathExtension == "command" && file.lastPathComponent.hasPrefix("prbar-session-") {
             guard let date = try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
                   now.timeIntervalSince(date) > commandFileLifetime else { continue }
             try? FileManager.default.removeItem(at: file)
