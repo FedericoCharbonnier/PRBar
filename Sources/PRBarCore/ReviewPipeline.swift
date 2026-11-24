@@ -98,6 +98,9 @@ public struct ReviewPipeline: ReviewPipelineRunning {
     private struct Parts: Sendable {
         let prepare: @Sendable () async throws -> ReviewWorkspace
         let cleanup: @Sendable (ReviewWorkspace) async -> Void
+        /// Success (spec T.3): the folder stays, without its context.
+        let release: @Sendable (ReviewWorkspace) async -> Void
+        let location: @Sendable (ReviewWorkspace) -> WorktreeLocation
         let writeContext: @Sendable (ReviewWorkspace, String) async throws -> String
         let reviewer: ClaudeReviewer
     }
@@ -112,6 +115,12 @@ public struct ReviewPipeline: ReviewPipelineRunning {
             return Parts(
                 prepare: { try await worktrees.prepare(repo: pr.repo, number: pr.number, baseRef: request.baseRef, localPath: request.localPath) },
                 cleanup: { workspace in await worktrees.cleanup(workspace, localPath: request.localPath) },
+                release: { workspace in worktrees.release(workspace) },
+                location: { workspace in
+                    WorktreeLocation(directory: workspace.directory.path, runner: nil,
+                                     repository: workspace.isDiffOnly ? nil : request.localPath,
+                                     refs: [workspace.prRef, workspace.baseRef].compactMap { $0 })
+                },
                 writeContext: { workspace, description in
                     try await context.write(pr: pr, workspace: workspace, token: token, description: description)
                 },
@@ -130,6 +139,11 @@ public struct ReviewPipeline: ReviewPipelineRunning {
                 }
             },
             cleanup: { workspace in await spaces.cleanup(workspace, localPath: bare) },
+            release: { workspace in await spaces.release(workspace) },
+            location: { workspace in
+                WorktreeLocation(directory: workspace.directory.path, runner: remote.name, repository: bare,
+                                 refs: [workspace.prRef, workspace.baseRef].compactMap { $0 })
+            },
             writeContext: { workspace, description in
                 try await remote.preparing { try await context.write(pr: pr, workspace: workspace, token: token, description: description) }
             },
@@ -177,8 +191,11 @@ public struct ReviewPipeline: ReviewPipelineRunning {
                 await Self.cleanup(workspace, parts, after: error)
                 throw error
             }
-            await Self.cleanup(workspace, parts, after: nil)
-            try Task.checkCancellation()
+            await parts.release(workspace)
+            if Task.isCancelled {
+                await Self.cleanup(workspace, parts, after: nil)
+                throw CancellationError()
+            }
 
             var draft = ReviewDraft(
                 prID: request.item.id, repo: pr.repo, number: pr.number, title: pr.title, url: pr.url,
@@ -189,6 +206,7 @@ public struct ReviewPipeline: ReviewPipelineRunning {
             )
             draft.id = draftID
             draft.sessions = sessions()
+            draft.retainedLocation = parts.location(workspace)
             return draft
         } catch {
             if RemoteUnstoppedJobs.isNotStopped(error) {

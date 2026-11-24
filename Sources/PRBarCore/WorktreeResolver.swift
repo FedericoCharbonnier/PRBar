@@ -140,12 +140,15 @@ public struct WorktreeResolver: Sendable {
     /// Igual que Clean Up (`DiskCleanupExecutor.unpushedWork`): un worktree con cambios sin commitear o con commits
     /// que no están en ninguna rama, remoto ni tag (p. ej. "Ready to push" o una implementación cancelada) **no se
     /// borra**, ni su ref; queda en el log. Si git no puede comprobarlo, tampoco se borra.
-    public func cleanupOrphans(localPath: String, worktreeDir: String?) async {
+    public func cleanupOrphans(localPath: String, worktreeDir: String?, keeping kept: Set<String> = []) async {
+        let keptPaths = Set(kept.map(CanonicalPath.of))
         let base = worktreeDir ?? Self.defaultWorktreeDir(localPath: localPath)
         if let realBase = Self.realPath(base), let list = await gitLogged(localPath, ["worktree", "list", "--porcelain"]) {
             for path in Self.detachedWorktreePaths(fromPorcelain: list) {
                 let parent = Self.realPath((path as NSString).deletingLastPathComponent) ?? (path as NSString).deletingLastPathComponent
                 guard parent == realBase, Self.isRespondWorktreeName((path as NSString).lastPathComponent) else { continue }
+                // Kept for "Open in Terminal" (spec T.3): it goes when its PR is merged or closed, or with Clean Up.
+                if keptPaths.contains(CanonicalPath.of(path)) { continue }
                 if let reason = await unpushedWork(path) {
                     AppLog.write("Respond: kept \(path) at launch: it \(reason)")
                     continue

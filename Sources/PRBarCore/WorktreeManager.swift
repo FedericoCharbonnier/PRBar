@@ -176,10 +176,22 @@ public struct WorktreeManager: Sendable {
         WorkspaceRegistry.shared.remove(workspace.contextDirectory.path)
     }
 
+    /// The review's folder stays for "Open in Terminal" (spec T.3): its context folder goes, the worktree and its refs
+    /// stay, and it stops counting as in use (Activity and Clean Up see it). Never throws.
+    public func release(_ workspace: ReviewWorkspace) {
+        if isDirectChildOfRoot(workspace.contextDirectory) { removeItem(workspace.contextDirectory) }
+        WorkspaceRegistry.shared.remove(workspace.directory.path)
+        WorkspaceRegistry.shared.remove(workspace.contextDirectory.path)
+    }
+
     /// Al arrancar: en cada `localPath`, saca los worktrees que `git worktree list --porcelain` muestra dentro
     /// de `root` (y solo esos) y borra cada ref en `refs/prbar/` salvo las de los worktrees de Responder que siguen
-    /// en pie; después borra lo que haya quedado en `root`.
-    public func cleanupOrphans(localPaths: [String]) async {
+    /// en pie; después borra lo que haya quedado en `root`. `kept`: the folders kept for "Open in Terminal" (spec T.3),
+    /// left in place with their two refs (Clean Up counts on them to tell the PR's commits from unpushed work).
+    public func cleanupOrphans(localPaths: [String], keeping kept: Set<String> = []) async {
+        let keptPaths = Set(kept.map(CanonicalPath.of))
+        let isKept: (URL) -> Bool = { keptPaths.contains(CanonicalPath.of($0.path)) }
+        let keptRefs = Set(kept.flatMap { Self.reviewRefs(forWorkspaceName: ($0 as NSString).lastPathComponent) })
         for path in localPaths {
             // Las refs de Responder de los worktrees que siguen en pie no se tocan: `WorktreeResolver.cleanupOrphans`
             // guarda los que tienen trabajo sin pushear.
@@ -188,14 +200,14 @@ public struct WorktreeManager: Sendable {
                 let paths = Self.worktreePaths(fromPorcelain: list)
                 let own = paths
                     .map { URL(fileURLWithPath: $0) }
-                    .filter { isDirectChildOfRoot($0) && Self.isWorkspaceName($0.lastPathComponent) }
+                    .filter { isDirectChildOfRoot($0) && Self.isWorkspaceName($0.lastPathComponent) && !isKept($0) }
                 await removeWorktrees(own, of: path)
                 keptRespondRefs = Set(paths.compactMap { WorktreeResolver.respondRef(forWorktreePath: $0) })
             }
             guard let output = await gitLogged(path, ["for-each-ref", "--format=%(refname)", Self.refPrefix]) else { continue }
             let refs = output.split(whereSeparator: \.isNewline)
                 .map { $0.trimmingCharacters(in: .whitespaces) }
-                .filter { Self.isOwnRef($0) }
+                .filter { Self.isOwnRef($0) && !keptRefs.contains($0) }
                 // Sin la lista no se sabe qué worktree de Responder sigue en pie: ninguna de sus refs se borra.
                 .filter { ref in keptRespondRefs.map { !$0.contains(ref) } ?? !ref.hasPrefix(WorktreeResolver.refPrefix) }
             for ref in refs {
@@ -204,7 +216,7 @@ public struct WorktreeManager: Sendable {
         }
         if Self.isSafeRoot(root) {
             let entries = (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
-            for entry in entries where Self.isWorkspaceName(entry.lastPathComponent) {
+            for entry in entries where Self.isWorkspaceName(entry.lastPathComponent) && !isKept(entry) {
                 removeItem(entry)
             }
         } else {
@@ -416,6 +428,15 @@ public struct WorktreeManager: Sendable {
     private static func sanitize(_ name: String) -> String {
         let cleaned = name.replacingOccurrences(of: "/", with: "_")
         return cleaned.isEmpty || cleaned.allSatisfy({ $0 == "." }) ? "repo" : cleaned
+    }
+
+    /// The two refs of a review folder `<repo>-<N>-<epoch>-<id>` (`refs/prbar/pr-<N>-<id>`, `refs/prbar/base-<N>-<id>`);
+    /// none for any other name (diff-only, context, chat or without a run id).
+    static func reviewRefs(forWorkspaceName name: String) -> [String] {
+        guard !isChatWorkspaceName(name), !name.hasSuffix(".context"), !name.hasSuffix("-diff"), isWorkspaceName(name) else { return [] }
+        let parts = name.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count >= 4, let id = parts.last, isRunID(id), let number = Int(parts[parts.count - 3]) else { return [] }
+        return [prRef(number, String(id)), baseRef(number, String(id))]
     }
 
     static func prRef(_ number: Int, _ id: String) -> String { "\(refPrefix)pr-\(number)-\(id)" }

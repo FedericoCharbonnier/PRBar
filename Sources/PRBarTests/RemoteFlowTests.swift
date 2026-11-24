@@ -70,7 +70,7 @@ private let fixSelection = RespondSelection(implement: true, fixPlan: "Change it
 
 enum RemoteFlowTests {
     static let cases: [TestCase] = [
-        TestCase("remote flow: un review corre en el host (worktree, contexto, claude aislado) y limpia todo") {
+        TestCase("remote flow: un review corre en el host (worktree, contexto, claude aislado) y conserva solo el worktree") {
             let repo = try TempGitRepo.make()
             defer { repo.remove() }
             let ssh = try FakeSSH.make()
@@ -97,7 +97,10 @@ enum RemoteFlowTests {
             try expect(args.contains("--add-dir") && args.contains { $0.hasSuffix(".context") }, "\(args)")
             let prompt = try String(contentsOf: ssh.home.appendingPathComponent("claude-calls/1/prompt.txt"), encoding: .utf8)
             try expect(!prompt.isEmpty && !args.contains(prompt), "el prompt no fue por stdin")
-            try expectEqual(try FileManager.default.contentsOfDirectory(atPath: remote.root.work), [])
+            let kept = try expectSome(draft.retainedLocation)
+            try expectEqual(kept.runner, remote.name)
+            try expectEqual(try FileManager.default.contentsOfDirectory(atPath: remote.root.work),
+                            [URL(fileURLWithPath: kept.directory).lastPathComponent])
             let sent = ssh.invocations().flatMap { $0 }.joined()
             try expect(!sent.contains("tok-me"), "un token salió de la Mac")
         },

@@ -53,17 +53,21 @@ public final class RespondQueue: ObservableObject {
     private let history: RespondHistory
     private let scheduler: JobScheduler<String>
     private let onEvent: @MainActor (String, RespondPhase) -> Void
+    /// A push finished (spec T.3): the worktree is kept for "Open in Terminal" instead of deleted. `nil` = delete it.
+    private let onRetain: (@MainActor (RespondRecord) -> Void)?
     /// El job vigente de cada PR (en cola o corriendo): lo que avise una corrida vieja se ignora.
     private var jobs: [String: Job] = [:]
     /// Implementaciones canceladas que todavía están restaurando el árbol.
     private var cancelling: [String: UUID] = [:]
 
     public init(pipeline: RespondPipelineRunning, history: RespondHistory = RespondHistory(), maxConcurrent: Int = 2,
-                onEvent: @escaping @MainActor (String, RespondPhase) -> Void) {
+                onEvent: @escaping @MainActor (String, RespondPhase) -> Void,
+                onRetain: (@MainActor (RespondRecord) -> Void)? = nil) {
         self.pipeline = pipeline
         self.history = history
         self.scheduler = JobScheduler(maxConcurrent: maxConcurrent)
         self.onEvent = onEvent
+        self.onRetain = onRetain
     }
 
     /// PRs with work that isn't pushed: fixes ready to push (or whose push failed) and implementations canceled or
@@ -554,7 +558,11 @@ public final class RespondQueue: ObservableObject {
                 self.records[prID] = record
                 self.save(record)
                 self.finish(prID, .done(record))
-                self.cleanupWorktree(record.draft)
+                if record.pushed, let onRetain = self.onRetain {
+                    onRetain(record)
+                } else {
+                    self.cleanupWorktree(record.draft)
+                }
             case .failure(let error as CIPassingNow):
                 // Nothing was pushed: back to the diff, with "Push Anyway" (spec K.6.6).
                 // Through `finish`, like any other end of a job: the app updates Activity and History and notifies

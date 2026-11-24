@@ -214,16 +214,18 @@ private final class Harness {
     let history: RespondHistory
     let historyDir: URL
     var emitted: [(String, RespondPhase)] = []
+    /// The drafts `RespondQueue` handed to `onRetain` (only with `retains: true`).
+    var retained: [UUID] = []
     private(set) var queue: RespondQueue!
 
-    init(maxConcurrent: Int = 2) throws {
+    init(maxConcurrent: Int = 2, retains: Bool = false) throws {
         pipeline = FakeRespondPipeline(events: events)
         historyDir = try temporaryDirectory()
         history = RespondHistory(historyDir: historyDir)
-        queue = RespondQueue(pipeline: pipeline, history: history, maxConcurrent: maxConcurrent) { [unowned self] prID, phase in
+        queue = RespondQueue(pipeline: pipeline, history: history, maxConcurrent: maxConcurrent, onEvent: { [unowned self] prID, phase in
             self.emitted.append((prID, phase))
             self.events.record(.finished("\(prID)|\(phase.name)"))
-        }
+        }, onRetain: retains ? { @MainActor [unowned self] (record: RespondRecord) -> Void in self.retained.append(record.id) } : nil)
     }
 
     func settle() async { try? await Task.sleep(nanoseconds: 20_000_000) }
@@ -640,6 +642,16 @@ enum RespondQueueTests {
             try expectEqual(sessions.map(\.label), ["Fix 1: Cambiá esto."])
             try expectEqual(sessions.map(\.directory), ["/wt/1"])
             try expectEqual(sessions.map(\.kind), [.fix])
+        },
+        TestCase("respond queue: con onRetain, un push terminado conserva la carpeta en vez de borrarla") { @MainActor in
+            let h = try Harness(retains: true)
+            try await h.toReadyToPush(1)
+            let draft = try h.saved(1).draft
+            h.queue.publish(prID: prID(1))
+            try await h.events.wait(for: reached(1, "done"))
+            await h.settle()
+            try expectEqual(h.retained, [draft.id])
+            try expectEqual(h.pipeline.cleanups, [])
         },
     ] + RespondPipelineTests.cases
 }

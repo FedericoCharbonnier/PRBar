@@ -96,5 +96,27 @@ enum DiskCleanupTests {
             try expect(FileManager.default.fileExists(atPath: busy.path) && FileManager.default.fileExists(atPath: outside.path))
             try expectEqual(result.skipped.count, 2)
         },
+        TestCase("cleanup: una carpeta de review conservada con cambios sin commitear se saltea; limpia se borra") {
+            let repo = try TempGitRepo.make()
+            defer { repo.remove() }
+            let clean = repo.root.appendingPathComponent("local-7-1700000000-0a0a0a0a")
+            let dirty = repo.root.appendingPathComponent("local-7-1700000000-0b0b0b0b")
+            try TempGitRepo.run(repo.local, ["worktree", "add", "--detach", clean.path, "HEAD"])
+            try TempGitRepo.run(repo.local, ["worktree", "add", "--detach", dirty.path, "HEAD"])
+            try Data("wip\n".utf8).write(to: dirty.appendingPathComponent("wip.txt"))
+            let executor = DiskCleanupExecutor(runner: SystemProcessRunner(), gitPath: TempGitRepo.git, worktreeRoots: [repo.root],
+                                               repos: [DiskScanInput.RespondDir(repo: "acme/local", path: repo.base.appendingPathComponent("local-worktrees").path,
+                                                                                localPath: repo.local.path)],
+                                               retained: [clean.path, dirty.path],
+                                               gitEnvironment: ["GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"],
+                                               registry: WorkspaceRegistry())
+            let result = await executor.run(CleanupPlan(candidates: [
+                CleanupCandidate(path: clean.path, bytes: 1, kind: .workspace, clone: repo.local.path, title: "clean"),
+                CleanupCandidate(path: dirty.path, bytes: 1, kind: .workspace, clone: repo.local.path, title: "dirty"),
+            ]))
+            try expectEqual(result.removed, [clean.path])
+            try expectEqual(result.skipped, ["dirty: has uncommitted changes"])
+            try expect(FileManager.default.fileExists(atPath: dirty.path))
+        },
     ]
 }

@@ -102,10 +102,13 @@ public struct DiskCleanupExecutor: Sendable {
     let updaterDirectories: [URL]
     let oldFileRoots: [URL]
     let repos: [DiskScanInput.RespondDir]
+    /// Folders kept for "Open in Terminal" (spec T.3), canonical: never removed with uncommitted or unpushed work.
+    let retained: Set<String>
     /// Se pregunta justo antes de borrar cada carpeta del updater (decisión I.1.19).
     let isUpdateInProgress: @Sendable () async -> Bool
 
     public init(runner: ProcessRunning, gitPath: String, worktreeRoots: [URL], repos: [DiskScanInput.RespondDir],
+                retained: [String] = [],
                 gitEnvironment: [String: String] = [:],
                 registry: WorkspaceRegistry = .shared,
                 updaterDirectories: [URL] = [AppPaths.updateSourceDir.appendingPathComponent(".build"), AppPaths.updateStagingDir],
@@ -116,6 +119,7 @@ public struct DiskCleanupExecutor: Sendable {
         self.worktreeRoots = worktreeRoots.map(\.standardizedFileURL)
         self.gitEnvironment = gitEnvironment
         self.repos = repos
+        self.retained = Set(retained.map(CanonicalPath.of))
         self.isUpdateInProgress = isUpdateInProgress
         self.registry = registry
         self.updaterDirectories = updaterDirectories.map(\.standardizedFileURL)
@@ -149,6 +153,10 @@ public struct DiskCleanupExecutor: Sendable {
                 }
                 if listed == nil { listed = await listedWorktrees() }
                 if let clone = listed?[path] {
+                    if retained.contains(path), let reason = await unpushedWork(url) {
+                        result.skipped.append("\(candidate.title): \(reason)")
+                        continue
+                    }
                     // Un worktree de review/chat de un clone configurado: §8.5, con la raíz real (git guarda rutas reales).
                     let manager = WorktreeManager(runner: runner, gitPath: gitPath, root: URL(fileURLWithPath: realParent))
                     await manager.cleanup(ReviewWorkspace(directory: url, baseRef: nil, isDiffOnly: false), localPath: clone)

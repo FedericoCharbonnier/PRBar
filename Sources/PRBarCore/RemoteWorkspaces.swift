@@ -196,6 +196,11 @@ public struct RemoteWorkspaces: Sendable {
         try? await host.removeTree(directory, root: root)
     }
 
+    /// The review's folder stays on the host for "Open in Terminal" (spec T.3): only its context folder goes.
+    public func release(_ workspace: ReviewWorkspace) async {
+        try? await host.removeTree(workspace.contextDirectory.path, root: root)
+    }
+
     // MARK: Respond
 
     /// Como `WorktreeResolver.prepare`, en el host. `worktreeDir` se ignora (siempre `<raíz>/work`).
@@ -246,7 +251,7 @@ public struct RemoteWorkspaces: Sendable {
     /// lápida), y en `work/` y `tmp/` lo que no cambió en `olderThan`. Los trabajos no la esperan: un worktree
     /// registrado sin carpeta se vuelve a mirar antes de sacarlo, y las refs `refs/prbar/*` de un mirror se borran
     /// solo si ya no le queda ningún worktree y no cambiaron en `olderThan`. Nunca lanza.
-    public func cleanupOrphans(olderThan age: TimeInterval = 12 * 3600) async {
+    public func cleanupOrphans(olderThan age: TimeInterval = 12 * 3600, keeping kept: Set<String> = []) async {
         guard let marker = try? ShellQuote.posix(root.markerPath), let lockPath = try? root.child(["cleanup.lock"]),
               let lock = try? ShellQuote.posix(lockPath), let work = try? ShellQuote.posix(root.work),
               let jobs = try? ShellQuote.posix(root.jobs), let tmp = try? ShellQuote.posix(root.tmp),
@@ -298,6 +303,8 @@ public struct RemoteWorkspaces: Sendable {
             present.insert(path)
             if parts[0] == "old" { stale.insert(path) }
         }
+        // Kept for "Open in Terminal" (spec T.3): never stale, however old.
+        stale.subtract(kept)
 
         let listing = "for d in \(repos)/*/*.git; do [ -d \"$d/objects\" ] && printf '%s\\n' \"$d\"; done; exit 0"
         let mirrors = ((try? await host.runScript(listing, timeout: 60))?.stdout ?? "")

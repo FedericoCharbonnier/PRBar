@@ -107,6 +107,10 @@ public enum AppPaths {
     public static var socketFile: URL { appSupport.appendingPathComponent("prbar.sock") }
     public static var stateFile: URL { appSupport.appendingPathComponent("state.json") }
     public static var slackStateFile: URL { appSupport.appendingPathComponent("slack-state.json") }
+    /// The folders kept for "Open in Terminal" (spec T.3).
+    public static var retainedWorktreesFile: URL { appSupport.appendingPathComponent("retained-worktrees.json") }
+    /// The `.command` scripts that open a Claude session in a terminal (spec T.5); the ones older than a day go.
+    public static var terminalDir: URL { appSupport.appendingPathComponent("terminal", isDirectory: true) }
     /// Registros y logs de las reviews.
     public static var historyDir: URL { appSupport.appendingPathComponent("history", isDirectory: true) }
     /// Clon propio del repo de PRBar del que se compilan las actualizaciones (spec D.3). Nunca es el checkout de

@@ -408,7 +408,7 @@ private func cleanedUp(_ git: FakeProcessRunner) -> Bool {
 
 enum ReviewPipelineTests {
     static let cases: [TestCase] = [
-        TestCase("review pipeline: éxito arma el draft con headOid, account y url, y limpia") {
+        TestCase("review pipeline: éxito arma el draft con headOid, account y url, y conserva la carpeta sin su contexto") {
             let root = try temporaryDirectory()
             defer { try? FileManager.default.removeItem(at: root) }
             let git = gitFake()
@@ -428,7 +428,14 @@ enum ReviewPipelineTests {
             let args = claude.calls[0].arguments
             try expectEqual(args.filter { $0 == "--plugin-dir" }.count, 2)
             try expect(args.contains(root.appendingPathComponent("plugins/official/superpowers/1.0").path), "\(args)")
-            try expect(cleanedUp(git))
+            // Spec T.3: la carpeta y sus refs quedan para "Open in Terminal"; el contexto (pr.diff, pr.md) no.
+            try expect(!cleanedUp(git))
+            let kept = try expectSome(draft.retainedLocation)
+            try expectEqual(kept.repository, "/repos/r")
+            try expectEqual(kept.runner, nil)
+            try expectEqual(kept.refs.count, 2)
+            try expect(!FileManager.default.fileExists(atPath: kept.directory + ".context"))
+            try expect(!WorkspaceRegistry.shared.contains(kept.directory))
             // El log usa el id del draft.
             try expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("\(draft.id.uuidString).log").path))
         },
