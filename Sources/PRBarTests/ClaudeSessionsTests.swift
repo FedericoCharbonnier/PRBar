@@ -141,5 +141,14 @@ enum ClaudeSessionsTests {
             try expectEqual(info.map(\.busy), [false, false, true, false])
             try expectEqual(Set(info.map(\.machine)), ["this Mac"])
         },
+        TestCase("sesiones: el error al abrir lleva a la pestaña de Settings que lo arregla") {
+            try expectEqual(SessionOffer.settingsTab(for: TerminalLaunchError.notInstalled("iTerm"), onRunner: true), .general)
+            try expectEqual(SessionOffer.settingsTab(for: PRBarError.toolNotFound("claude"), onRunner: false), .general)
+            try expectEqual(SessionOffer.settingsTab(for: RemoteRunnerError.unreachable(host: "devbox", detail: ""), onRunner: true), .claude)
+            try expectEqual(SessionOffer.settingsTab(for: CommandFailure(.notFound, "The runner devbox isn’t set up any more."),
+                                                     onRunner: true), .claude)
+            try expectEqual(SessionOffer.settingsTab(for: CommandFailure(.invalidState, "Claude is working on it"), onRunner: true), .general)
+            try expectEqual(SessionOffer.settingsTab(for: CommandFailure(.notFound, "x"), onRunner: false), .general)
+        },
     ]
 }

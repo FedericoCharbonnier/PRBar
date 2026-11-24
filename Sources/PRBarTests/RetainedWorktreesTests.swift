@@ -17,10 +17,20 @@ enum RetainedWorktreesTests {
             let other = entry(8, .review, dir: "/wt/r-8-a")
             let newer = entry(7, .review, dir: "/wt/r-7-b")
             let (entries, replaced) = RetainedWorktreeRules.retain(newer, in: [review, respond, other])
-            try expectEqual(replaced, [review])
-            try expectEqual(Set(entries.map(\.location.directory)), ["/wt/r-7-b", "/repos/r-worktrees/r-7-respond-0a0a0a0a", "/wt/r-8-a"])
-            // Volver a conservar la misma carpeta no la reemplaza.
-            try expectEqual(RetainedWorktreeRules.retain(newer, in: entries).replaced, [])
+            var superseded = review
+            superseded.superseded = true
+            try expectEqual(replaced, [superseded])
+            // The replaced one stays in the list, superseded (not offered, still protected), until it's really gone:
+            // a quit before its removal mustn't turn it into an orphan.
+            try expectEqual(Set(entries.map(\.location.directory)),
+                            ["/wt/r-7-a", "/wt/r-7-b", "/repos/r-worktrees/r-7-respond-0a0a0a0a", "/wt/r-8-a"])
+            try expectEqual(entries.filter(\.superseded), [superseded])
+            // Volver a conservar la misma carpeta no la reemplaza (la vieja sigue pendiente).
+            let again = RetainedWorktreeRules.retain(newer, in: entries)
+            try expectEqual(again.replaced.map(\.location.directory), ["/wt/r-7-a"])
+            try expectEqual(again.entries.filter { !$0.superseded }.map(\.location.directory).sorted(),
+                            ["/repos/r-worktrees/r-7-respond-0a0a0a0a", "/wt/r-7-b", "/wt/r-8-a"])
+            try expectEqual(again.entries.count, 4)
         },
         TestCase("carpetas conservadas: se borran al mergear o cerrar; abiertas o sin respuesta quedan") {
             let merged = entry(1, .review, dir: "/wt/1")
@@ -54,14 +64,19 @@ enum RetainedWorktreesTests {
             let free = entry(2, .review, dir: "/Users/me/wt/r-2")
             let removed = Box<[String]>([])
             let dirty = entry(3, .respond, dir: "/Users/me/wt/r-3")
+            let stuck = entry(4, .review, dir: "/Users/me/wt/r-4")
             let cleaner = RetainedWorktreeCleaner(
                 isBusy: { $0.directory == "/Users/me/wt/r-1" },
                 unpushedWork: { $0.directory == "/Users/me/wt/r-3" ? "has uncommitted changes" : nil },
-                remove: { removed.value.append($0.location.directory) })
-            let left = await cleaner.removeUnlessBusy([busy, free, dirty])
-            try expectEqual(removed.value, ["/Users/me/wt/r-2"])
-            // Una carpeta con trabajo sin pushear tampoco se borra: queda para Clean Up, que la saltea y lo dice.
-            try expectEqual(left.map(\.location.directory), ["/Users/me/wt/r-1", "/Users/me/wt/r-3"])
+                remove: { entry in
+                    removed.value.append(entry.location.directory)
+                    return entry.location.directory != "/Users/me/wt/r-4"   // r-4: still on disk afterwards.
+                })
+            let left = await cleaner.removeUnlessBusy([busy, free, dirty, stuck])
+            try expectEqual(removed.value, ["/Users/me/wt/r-2", "/Users/me/wt/r-4"])
+            // Una carpeta con trabajo sin pushear tampoco se borra: queda para Clean Up, que la saltea y lo dice. Una
+            // que no se pudo borrar (runner caído, git que falla) queda para reintentar al arrancar.
+            try expectEqual(left.map(\.location.directory), ["/Users/me/wt/r-1", "/Users/me/wt/r-3", "/Users/me/wt/r-4"])
             try expect(left.allSatisfy(\.superseded))
         },
         TestCase("carpetas conservadas: en un runner, lsof ve la ruta real aunque la raíz esté bajo un symlink") {
@@ -71,6 +86,14 @@ enum RetainedWorktreesTests {
             try expect(ProcessCwd.anyInside(["/home/me/link/work/r-1"], remoteOutput: output))
             try expect(!ProcessCwd.anyInside(["/home/me/link/work/r-1"], lsofOutput: output))
             try expect(!ProcessCwd.anyInside(["/home/me/link/work/r-1"], remoteOutput: "prbar-resolved /data/me/work/r-1\np12\nfcwd\nn/data/me/work/r-10\n"))
+
+            // Several folders in one run: one resolved line each, in order (empty when the folder is gone).
+            let several = try ProcessCwd.remoteScript(resolving: ["/w/a", "/w/b", "/w/c"])
+            try expect(several.contains("'/w/c'"), several)
+            let busyOutput = "prbar-resolved /real/a\nprbar-resolved \nprbar-resolved /real/c\np1\nfcwd\nn/real/c/src\np2\nfcwd\nn/w/b\n"
+            try expectEqual(ProcessCwd.busyDirectories(["/w/a", "/w/b", "/w/c"], remoteOutput: busyOutput), ["/w/b", "/w/c"])
+            // Lines that don't match the folders: can't tell which one, so all count as busy.
+            try expectEqual(ProcessCwd.busyDirectories(["/w/a", "/w/b"], remoteOutput: "prbar-resolved /real/a\n"), ["/w/a", "/w/b"])
         },
         TestCase("carpetas conservadas: las refs de una carpeta de review salen de su nombre") {
             try expectEqual(WorktreeManager.reviewRefs(forWorkspaceName: "my-repo-2-7-1700000000-0a0a0a0a"),
@@ -160,6 +183,25 @@ enum RetainedWorktreesTests {
             let refs = try TempGitRepo.run(repo.local, ["for-each-ref", "--format=%(refname)", "refs/prbar/"])
             try expectEqual(Set(refs.split(whereSeparator: \.isNewline).map(String.init)),
                             ["refs/prbar/pr-7-0a0a0a0a", "refs/prbar/base-7-0a0a0a0a"])
+        },
+        TestCase("carpetas conservadas: la limpieza del arranque no vacía la raíz de worktrees con trabajo sin pushear") {
+            // A review folder of a repo that isn't set up any more (its `worktree list` isn't asked): the last pass
+            // that empties the root keeps it if it has work, and removes it when clean.
+            let repo = try TempGitRepo.make()
+            defer { repo.remove() }
+            let dirty = repo.root.appendingPathComponent("local-7-1700000000-0a0a0a0a")
+            let clean = repo.root.appendingPathComponent("local-8-1700000000-0b0b0b0b")
+            let diffOnly = repo.root.appendingPathComponent("local-9-1700000000-0c0c0c0c-diff")
+            for url in [dirty, clean] {
+                try TempGitRepo.run(repo.local, ["worktree", "add", "--detach", url.path, "HEAD"])
+            }
+            try FileManager.default.createDirectory(at: diffOnly, withIntermediateDirectories: true)
+            try Data("wip\n".utf8).write(to: dirty.appendingPathComponent("wip.txt"))
+            await WorktreeManager(runner: SystemProcessRunner(), gitPath: TempGitRepo.git, root: repo.root)
+                .cleanupOrphans(localPaths: [], keeping: [])
+            try expect(FileManager.default.fileExists(atPath: dirty.appendingPathComponent("wip.txt").path))
+            try expect(!FileManager.default.fileExists(atPath: clean.path))
+            try expect(!FileManager.default.fileExists(atPath: diffOnly.path))
         },
     ]
 }

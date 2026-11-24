@@ -136,13 +136,23 @@ public enum RetainedWorktreeRules {
     /// How often PRBar asks GitHub whether a PR that left the list was merged or closed.
     public static let stateCheckInterval: TimeInterval = 3600
 
-    /// `entry` becomes the kept folder of its (PR, job); the previous ones of that pair come back to be removed.
+    /// `entry` becomes the kept folder of its (PR, job); the previous ones of that pair come back to be removed. They
+    /// also stay in `entries`, `superseded` (not offered, still protected from the orphan cleanups), until they are
+    /// really gone (`AppModel.forgetRetained`): quitting before their removal mustn't turn them into orphans.
     public static func retain(_ entry: RetainedWorktree, in entries: [RetainedWorktree])
         -> (entries: [RetainedWorktree], replaced: [RetainedWorktree]) {
         let isSamePair: (RetainedWorktree) -> Bool = { $0.prID == entry.prID && $0.job == entry.job }
-        let replaced = entries.filter { isSamePair($0) && $0.location.directory != entry.location.directory }
+        // Another folder: a different path, or the same path on another machine.
+        let isOtherFolder: (RetainedWorktree) -> Bool = {
+            $0.location.directory != entry.location.directory || $0.location.runner != entry.location.runner
+        }
+        let replaced = entries.filter { isSamePair($0) && isOtherFolder($0) }.map { old in
+            var old = old
+            old.superseded = true
+            return old
+        }
         let kept = entries.filter { !isSamePair($0) }
-        return (kept + [entry], replaced)
+        return (kept + replaced + [entry], replaced)
     }
 
     /// The entries whose PR isn't in the list any more, whose repo was fetched fine in this refresh and that weren't
@@ -170,14 +180,15 @@ public enum ProcessCwd {
     /// The line `remoteScript` prints before `lsof`'s output with each folder's real path (`pwd -P`).
     static let resolvedPrefix = "prbar-resolved "
 
-    /// On a runner: exit 97 when there is no `lsof` (then the folder counts as busy). First prints each existing
-    /// folder's real path (`prbar-resolved <path>`): `lsof` shows resolved paths, and the runner's root may sit under a
-    /// symlink. Read its output with `anyInside(_:remoteOutput:)`.
+    /// On a runner: exit 97 when there is no `lsof` (then the folder counts as busy). First prints each folder's real
+    /// path (`prbar-resolved <path>`, one line per folder in order, empty if it's gone): `lsof` shows resolved paths,
+    /// and the runner's root may sit under a symlink. Read its output with `anyInside(_:remoteOutput:)` or
+    /// `busyDirectories(_:remoteOutput:)`.
     public static func remoteScript(resolving directories: [String]) throws -> String {
         var lines = ["command -v lsof >/dev/null 2>&1 || exit 97"]
         for directory in directories {
             let quoted = try ShellQuote.posix(directory)
-            lines.append("r=$(cd -P -- \(quoted) 2>/dev/null && pwd -P) && printf 'prbar-resolved %s\\n' \"$r\"")
+            lines.append("r=$(cd -P -- \(quoted) 2>/dev/null && pwd -P); printf 'prbar-resolved %s\\n' \"$r\"")
         }
         lines += ["lsof -n -P -w -d cwd -Fn 2>/dev/null", "exit 0"]
         return lines.joined(separator: "\n")
@@ -200,6 +211,18 @@ public enum ProcessCwd {
             .map { String($0.dropFirst(resolvedPrefix.count)) }
         return anyInside(directories + resolved, lsofOutput: remoteOutput)
     }
+
+    /// Which of `directories` (the ones given to `remoteScript`, same order) have a process inside. If the resolved
+    /// lines don't match them one to one (a path with a newline, a truncated output), all count as busy.
+    public static func busyDirectories(_ directories: [String], remoteOutput: String) -> Set<String> {
+        let resolved = remoteOutput.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { $0.hasPrefix(resolvedPrefix) }
+            .map { String($0.dropFirst(resolvedPrefix.count)) }
+        guard resolved.count == directories.count else { return Set(directories) }
+        return Set(zip(directories, resolved).filter { directory, real in
+            anyInside([directory, real], lsofOutput: remoteOutput)
+        }.map(\.0))
+    }
 }
 
 /// Removes kept folders unless a process has its cwd inside or they hold work that isn't pushed (uncommitted changes
@@ -210,33 +233,33 @@ public struct RetainedWorktreeCleaner: Sendable {
     /// `nil` if the folder can go; otherwise why not (e.g. "has uncommitted changes"). A folder that isn't a git
     /// worktree (`repository == nil`, diff only) has nothing to lose: `nil`.
     let unpushedWork: @Sendable (WorktreeLocation) async -> String?
-    let remove: @Sendable (RetainedWorktree) async -> Void
+    /// Removes it; `true` if the folder is gone afterwards (checked on disk, not assumed).
+    let remove: @Sendable (RetainedWorktree) async -> Bool
 
     public init(isBusy: @escaping @Sendable (WorktreeLocation) async -> Bool,
                 unpushedWork: @escaping @Sendable (WorktreeLocation) async -> String?,
-                remove: @escaping @Sendable (RetainedWorktree) async -> Void) {
+                remove: @escaping @Sendable (RetainedWorktree) async -> Bool) {
         self.isBusy = isBusy
         self.unpushedWork = unpushedWork
         self.remove = remove
     }
 
-    /// Returns the ones left on disk, with `superseded` set.
+    /// Returns the ones left on disk, with `superseded` set (also those whose removal failed: retried at launch).
     public func removeUnlessBusy(_ entries: [RetainedWorktree]) async -> [RetainedWorktree] {
         var left: [RetainedWorktree] = []
         for entry in entries {
-            let reason: String?
+            var reason: String?
             if await isBusy(entry.location) {
                 reason = "has a process working in it"
             } else {
                 reason = await unpushedWork(entry.location)
             }
+            if reason == nil, await !remove(entry) { reason = "couldn’t be removed" }
             if let reason {
                 var kept = entry
                 kept.superseded = true
                 left.append(kept)
                 AppLog.write("Retained worktree: \(entry.location.directory) \(reason); left for Clean Up.")
-            } else {
-                await remove(entry)
             }
         }
         return left

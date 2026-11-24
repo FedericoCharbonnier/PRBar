@@ -104,6 +104,9 @@ public struct DiskCleanupExecutor: Sendable {
     let repos: [DiskScanInput.RespondDir]
     /// Folders kept for "Open in Terminal" (spec T.3), canonical: never removed with uncommitted or unpushed work.
     let retained: Set<String>
+    /// A process has its cwd inside this retained folder (`lsof`, e.g. a `claude --resume` left open): it's skipped.
+    /// Asked only for `retained` paths, with the canonical path.
+    let isBusy: @Sendable (String) async -> Bool
     /// Se pregunta justo antes de borrar cada carpeta del updater (decisión I.1.19).
     let isUpdateInProgress: @Sendable () async -> Bool
 
@@ -113,7 +116,8 @@ public struct DiskCleanupExecutor: Sendable {
                 registry: WorkspaceRegistry = .shared,
                 updaterDirectories: [URL] = [AppPaths.updateSourceDir.appendingPathComponent(".build"), AppPaths.updateStagingDir],
                 oldFileRoots: [URL] = [AppPaths.historyDir, AppPaths.logFile.deletingLastPathComponent()],
-                isUpdateInProgress: @escaping @Sendable () async -> Bool = { false }) {
+                isUpdateInProgress: @escaping @Sendable () async -> Bool = { false },
+                isBusy: @escaping @Sendable (String) async -> Bool = { _ in false }) {
         self.runner = runner
         self.gitPath = gitPath
         self.worktreeRoots = worktreeRoots.map(\.standardizedFileURL)
@@ -121,6 +125,7 @@ public struct DiskCleanupExecutor: Sendable {
         self.repos = repos
         self.retained = Set(retained.map(CanonicalPath.of))
         self.isUpdateInProgress = isUpdateInProgress
+        self.isBusy = isBusy
         self.registry = registry
         self.updaterDirectories = updaterDirectories.map(\.standardizedFileURL)
         self.oldFileRoots = oldFileRoots.map(\.standardizedFileURL)
@@ -138,6 +143,10 @@ public struct DiskCleanupExecutor: Sendable {
             let realParent = CanonicalPath.realPath(url.deletingLastPathComponent().path)
             if registry.contains(path) || registry.contains(candidate.path) {
                 result.skipped.append("\(candidate.title): in use")
+                continue
+            }
+            if retained.contains(path), await isBusy(path) {
+                result.skipped.append("\(candidate.title): has a process working in it")
                 continue
             }
             switch candidate.kind {

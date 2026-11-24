@@ -303,20 +303,24 @@ public struct RemoteWorkspaces: Sendable {
         cd -- \(work) || exit 0
         for d in * .[!.]* ..?*; do
           [ -e "$d" ] || [ -L "$d" ] || continue
-          if [ -z "$(find "$d" -mmin -\(minutes) -print 2>/dev/null | head -n 1)" ]; then printf 'old %s\\n' "$d"; else printf 'new %s\\n' "$d"; fi
+          g=; [ -e "$d/.git" ] && g=+git
+          if [ -z "$(find "$d" -mmin -\(minutes) -print 2>/dev/null | head -n 1)" ]; then printf 'old%s %s\\n' "$g" "$d"; else printf 'new%s %s\\n' "$g" "$d"; fi
         done
         exit 0
         """
         var stale: Set<String> = []
         var present: Set<String> = []
+        var gitWorktrees: Set<String> = []
         for line in ((try? await host.runScript(workScript, timeout: 300))?.stdout ?? "").split(separator: "\n") {
             let parts = line.split(separator: " ", maxSplits: 1).map(String.init)
             guard parts.count == 2, let path = try? root.child(["work", parts[1]]) else { continue }
             present.insert(path)
-            if parts[0] == "old" { stale.insert(path) }
+            if parts[0].hasPrefix("old") { stale.insert(path) }
+            if parts[0].hasSuffix("+git") { gitWorktrees.insert(path) }
         }
         // Kept for "Open in Terminal" (spec T.3): never stale, however old.
         stale.subtract(kept)
+        stale.subtract(await protectedStale(stale, gitWorktrees: gitWorktrees))
 
         let listing = "for d in \(repos)/*/*.git; do [ -d \"$d/objects\" ] && printf '%s\\n' \"$d\"; done; exit 0"
         let mirrors = ((try? await host.runScript(listing, timeout: 60))?.stdout ?? "")
@@ -349,6 +353,32 @@ public struct RemoteWorkspaces: Sendable {
         _ = try? await host.runScript("[ -f \(marker) ] || exit 96\nfind \(tmp) -mindepth 1 -maxdepth 1 -mmin +\(minutes) -exec rm -rf -- {} +",
                                       timeout: 300)
         _ = try? await host.runScript("rmdir -- \(lock)", timeout: 30)
+    }
+
+    /// The old `work/` folders that must stay (like the local cleanups): a process has its cwd inside (`lsof`; if it
+    /// can't be checked, all of them), or a git worktree with uncommitted changes or unpushed commits (or git can't
+    /// tell). Each one is logged.
+    private func protectedStale(_ stale: Set<String>, gitWorktrees: Set<String>) async -> Set<String> {
+        let candidates = stale.sorted()
+        guard !candidates.isEmpty else { return [] }
+        var protected: Set<String> = []
+        if let script = try? ProcessCwd.remoteScript(resolving: candidates),
+           let result = try? await host.runScript(script, timeout: 60), result.status == 0 {
+            protected = ProcessCwd.busyDirectories(candidates, remoteOutput: result.stdout)
+            for path in protected.sorted() {
+                AppLog.write("Remote (\(host.name)): kept \(path) at launch: it has a process working in it")
+            }
+        } else {
+            AppLog.write("Remote (\(host.name)): couldn’t check with lsof which old folders are in use; keeping them.")
+            return Set(candidates)
+        }
+        for path in candidates where gitWorktrees.contains(path) && !protected.contains(path) {
+            if let reason = await unpushedWork(path) {
+                AppLog.write("Remote (\(host.name)): kept \(path) at launch: it \(reason)")
+                protected.insert(path)
+            }
+        }
+        return protected
     }
 
     /// Si `path` existe en el host (también un symlink roto). Ante la duda, sí.

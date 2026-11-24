@@ -88,11 +88,19 @@ extension AppModel: ResourceActions {
         guard confirmed else { throw CommandFailure(.confirmationRequired, "Clean Up needs confirmation: run it again with --yes.") }
         guard let git = tools.git else { throw CommandFailure(.failed, PRBarError.toolNotFound("git").localizedDescription) }
         let session = updates.session
+        // Kept folders with a process inside (a `claude --resume` left open) are skipped: `lsof` read once, before
+        // removing anything; if it can't tell, every kept folder counts as busy.
+        let localRetained = retainedWorktrees.filter { $0.location.runner == nil }.map(\.location.directory)
+        let lsofOutput = localRetained.isEmpty ? "" : await Self.localLsofOutput(runner)
         let executor = DiskCleanupExecutor(runner: runner, gitPath: git,
                                            worktreeRoots: [AppPaths.worktreesDir, AppPaths.legacyWorktreesDir],
                                            repos: diskScanInput().respondDirs,
-                                           retained: retainedWorktrees.filter { $0.location.runner == nil }.map(\.location.directory),
-                                           isUpdateInProgress: { await MainActor.run { session.isInstalling } })
+                                           retained: localRetained,
+                                           isUpdateInProgress: { await MainActor.run { session.isInstalling } },
+                                           isBusy: { path in
+                                               guard let lsofOutput else { return true }
+                                               return ProcessCwd.anyInside([path], lsofOutput: lsofOutput)
+                                           })
         // Cuenta como trabajo: una actualización que empiece ahora espera a que termine (`activeJobCount`).
         let result = await cleanups.track { await executor.run(plan) }
         AppLog.write("Clean Up freed \(result.freedBytes) bytes; skipped \(result.skipped.count); failed \(result.failed.count)")

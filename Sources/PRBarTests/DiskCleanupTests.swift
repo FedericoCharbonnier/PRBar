@@ -118,5 +118,32 @@ enum DiskCleanupTests {
             try expectEqual(result.skipped, ["dirty: has uncommitted changes"])
             try expect(FileManager.default.fileExists(atPath: dirty.path))
         },
+        TestCase("cleanup: una carpeta conservada con un proceso adentro (una sesión abierta) se saltea") {
+            let repo = try TempGitRepo.make()
+            defer { repo.remove() }
+            let open = repo.root.appendingPathComponent("local-7-1700000000-0a0a0a0a")
+            let closed = repo.root.appendingPathComponent("local-7-1700000000-0b0b0b0b")
+            try TempGitRepo.run(repo.local, ["worktree", "add", "--detach", open.path, "HEAD"])
+            try TempGitRepo.run(repo.local, ["worktree", "add", "--detach", closed.path, "HEAD"])
+            let asked = Box<[String]>([])
+            let executor = DiskCleanupExecutor(runner: SystemProcessRunner(), gitPath: TempGitRepo.git, worktreeRoots: [repo.root],
+                                               repos: [DiskScanInput.RespondDir(repo: "acme/local", path: repo.base.appendingPathComponent("local-worktrees").path,
+                                                                                localPath: repo.local.path)],
+                                               retained: [open.path, closed.path],
+                                               gitEnvironment: ["GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"],
+                                               registry: WorkspaceRegistry(),
+                                               isBusy: { path in
+                                                   asked.value.append(path)
+                                                   return path == CanonicalPath.of(open.path)
+                                               })
+            let result = await executor.run(CleanupPlan(candidates: [
+                CleanupCandidate(path: open.path, bytes: 1, kind: .workspace, clone: repo.local.path, title: "open"),
+                CleanupCandidate(path: closed.path, bytes: 1, kind: .workspace, clone: repo.local.path, title: "closed"),
+            ]))
+            try expectEqual(result.removed, [closed.path])
+            try expectEqual(result.skipped, ["open: has a process working in it"])
+            try expect(FileManager.default.fileExists(atPath: open.path))
+            try expectEqual(asked.value.count, 2)
+        },
     ]
 }

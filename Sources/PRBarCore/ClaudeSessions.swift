@@ -174,6 +174,14 @@ public enum SessionOffer {
         return "Open Claude’s session in \(terminal)"
     }
 
+    /// Where "Open Settings" goes when opening failed: Claude (Run On) for a runner that isn't set up or can't be
+    /// reached; otherwise General (the terminal, and the tools' paths such as claude's).
+    public static func settingsTab(for error: Error, onRunner: Bool) -> SettingsTabName {
+        guard onRunner else { return .general }
+        if error is RemoteRunnerError || (error as? CommandFailure)?.code == .notFound { return .claude }
+        return .general
+    }
+
     /// `busy`: the ids of the sessions whose folder PRBar is working in.
     public static func info(_ sessions: [ClaudeSessionRef], busy: Set<String>) -> [ClaudeSessionInfo] {
         sessions.enumerated().map { index, session in

@@ -229,6 +229,13 @@ public struct WorktreeManager: Sendable {
             let entries = (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
             for entry in entries
             where Self.isWorkspaceName(entry.lastPathComponent) && !keptPaths.contains(CanonicalPath.of(entry.path)) {
+                // A git worktree no `worktree list` above covered (its repo isn't set up any more, or git failed
+                // there): never lose its work. One that can't be checked stays too.
+                if FileManager.default.fileExists(atPath: entry.appendingPathComponent(".git").path),
+                   let reason = await unpushedWork(entry.path) {
+                    AppLog.write("Worktree: kept \(entry.path) at launch: it \(reason)")
+                    continue
+                }
                 removeItem(entry)
             }
         } else {

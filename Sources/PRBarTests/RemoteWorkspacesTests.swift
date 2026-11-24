@@ -219,6 +219,39 @@ enum RemoteWorkspacesTests {
             try expect(worktrees.contains(fresh), worktrees)
             try expect(try refs().contains("refs/prbar/pr-9-0a0b0c0d"))
         },
+        TestCase("remote workspaces: la limpieza de huérfanos deja un worktree viejo con trabajo sin pushear o con un proceso adentro") {
+            let repo = try TempGitRepo.make()
+            defer { repo.remove() }
+            let (ssh, host, info, root) = try await verifiedFake()
+            defer { ssh.remove() }
+            let spaces = remoteWorkspaces(host, info, root, origin: repo.origin)
+            let bare = try await spaces.mirror(RepoRef(owner: "o", name: "r"))
+            func prepare() async throws -> ReviewWorkspace {
+                try await spaces.prepare(repo: RepoRef(owner: "o", name: "r"), number: 7, baseRef: "main", localPath: bare,
+                                         name: nil, pinnedHeadOid: nil)
+            }
+            let dirty = try await prepare()
+            let busy = try await prepare()
+            let clean = try await prepare()
+            try Data("wip\n".utf8).write(to: dirty.directory.appendingPathComponent("wip.txt"))
+            for workspace in [dirty, busy, clean] { try makeOld(workspace.directory) }
+            // A `claude --resume` left open in the folder: its cwd is inside.
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/sleep")
+            process.arguments = ["60"]
+            process.currentDirectoryURL = busy.directory
+            try process.run()
+            defer { process.terminate() }
+
+            await spaces.cleanupOrphans(keeping: [])
+            try expect(FileManager.default.fileExists(atPath: dirty.directory.appendingPathComponent("wip.txt").path))
+            try expect(FileManager.default.fileExists(atPath: busy.directory.path))
+            try expect(!FileManager.default.fileExists(atPath: clean.directory.path))
+            let worktrees = try TempGitRepo.run(URL(fileURLWithPath: bare), ["worktree", "list", "--porcelain"])
+            try expect(worktrees.contains(dirty.directory.path) && worktrees.contains(busy.directory.path), worktrees)
+            // Their refs stay too (a worktree is left in the mirror).
+            try expect(!(try TempGitRepo.run(URL(fileURLWithPath: bare), ["for-each-ref", "refs/prbar/"])).isEmpty)
+        },
     ]
 }
 
