@@ -304,6 +304,8 @@ enum UIActionInventory {
         .init("Settings/GeneralTab.swift", "Button", "Open System Settings…", 1, .cli(["notify system-settings"])),
         .init("Settings/GeneralTab.swift", "Toggle", "Warn when PRBar uses more than", 1, .cli(["config set"])),   // disk-warning
         .init("Settings/GeneralTab.swift", "Stepper", #"\(limit ?? 5) GB"#, 1, .cli(["config set"])),
+        .init("Settings/GeneralTab.swift", "Picker", "Terminal", 1, .cli(["config set"])),   // terminal
+        .init("Settings/GeneralTab.swift", "TextField", "Command", 1, .cli(["config set"])),   // terminal-command (Custom…)
         .init("Settings/PathRow.swift", "Button", "-", 1, .cli(["tools reset", "repo set"])),
         .init("Settings/PathRow.swift", "Button", "Choose…", 1, .cli(["tools set", "repo set"])),
         // Settings › Claude

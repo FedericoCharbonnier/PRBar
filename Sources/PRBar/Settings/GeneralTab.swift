@@ -42,6 +42,35 @@ struct GeneralTab: View {
             }
 
             Section {
+                Picker("Terminal", selection: Binding(
+                    get: { configStore.config.terminal },
+                    set: { choice in model.updateConfig(refresh: false) { $0.setTerminal(choice) } }
+                )) {
+                    ForEach(TerminalApps.offered(current: configStore.config.terminal), id: \.self) { choice in
+                        Text(TerminalApps.menuTitle(choice)).tag(choice)
+                    }
+                }
+                if configStore.config.terminal == .custom {
+                    TextField("Command", text: Binding(
+                        get: { configStore.config.terminalCommand ?? "" },
+                        set: { text in model.updateConfig(refresh: false) { $0.setTerminalCommand(text) } }
+                    ), prompt: Text("open -na Ghostty --args -e /bin/zsh -lc {command}"))
+                    // The same check `TerminalOpener` runs before launching (empty, no {command}, quoted placeholder).
+                    if let problem = customCommandProblem(configStore.config.terminalCommand) {
+                        Text(problem).font(.caption).foregroundStyle(Theme.redText)
+                    }
+                }
+            } header: {
+                Text("Claude Sessions")
+            } footer: {
+                Text(configStore.config.terminal == .custom
+                     ? "{dir} is the PR’s folder, {command} runs Claude. PRBar quotes both: don’t put them in quotes. PRBar runs the command in the background, so it should open the terminal and return."
+                     : "Where the Terminal button opens Claude’s session of a PR.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
                 Toggle(isOn: notification(\.enabled)) {
                     Text("Show notifications")
                     Text("Uses the style set in System Settings")
@@ -98,6 +127,16 @@ struct GeneralTab: View {
         .task { await model.refreshNotificationPermission() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await model.refreshNotificationPermission() }
+        }
+    }
+
+    /// What `TerminalLauncher.validateCustomCommand` says about the Custom command (nil = fine).
+    private func customCommandProblem(_ command: String?) -> String? {
+        do {
+            try TerminalLauncher.validateCustomCommand(command ?? "")
+            return nil
+        } catch {
+            return error.localizedDescription
         }
     }
 
