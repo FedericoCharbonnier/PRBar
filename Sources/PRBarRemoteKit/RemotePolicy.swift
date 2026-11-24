@@ -47,6 +47,8 @@ public enum RemotePolicy {
         // limpieza y ajustes de la Mac: nada de eso desde el teléfono.
         case .historyReopen, .open, .openSettings, .openHistory, .quit, .configShow, .setRefreshInterval,
              .setLaunchAtLogin, .setAlwaysShowInDock, .accountList, .accountSetEnabled, .accountReload, .repoList, .repoAvailable, .repoAdd,
+             // La terminal de las sesiones de Claude: el comando propio corre en la Mac (spec T.6).
+             .setTerminal, .setTerminalCommand,
              .repoRemove, .repoSet, .repoBranches, .followList, .followAdd, .followRemove, .followSuggestions,
              .claudeShow, .claudeSet, .claudeReset, .claudeSkills, .toolsList, .toolsSet, .slackShow,
              .slackSetEnabled, .slackSetProvider, .slackTokenSet, .slackTokenClear, .slackSetToggle, .slackSetEmoji,

@@ -366,6 +366,11 @@ enum CLIParsingTests {
                 try expectEqual(try parsed(["config", "set", "disk-warning", "off"]), .setDiskWarning(gigabytes: nil))
                 try expect(rejects(["config", "set", "disk-warning", "0"]))
                 try expect(rejects(["config", "set", "disk-warning", "101"]))
+                try expectEqual(try parsed(["config", "set", "terminal", "iterm"]), .setTerminal(terminal: .iterm))
+                try expectEqual(try parsed(["config", "set", "terminal", "custom"]), .setTerminal(terminal: .custom))
+                try expect(rejects(["config", "set", "terminal", "kitty"]))
+                try expectEqual(try parsed(["config", "set", "terminal-command", "open -na Ghostty --args -e /bin/zsh -lc {command}"]),
+                                .setTerminalCommand(command: "open -na Ghostty --args -e /bin/zsh -lc {command}"))
                 try expectEqual(try parsed(["cleanup", "--preview"]), .cleanupPreview(olderThanDays: nil))
             },
             TestCase("cli parse: runners y repo set --run-on") {

@@ -161,5 +161,20 @@ enum ConfigTests {
             let old = try JSONDecoder().decode(AppConfig.self, from: Data(#"{"refreshIntervalMinutes":5}"#.utf8))
             try expectEqual(old.resources.diskWarningGB, nil)
         },
+        TestCase("config: la terminal es Terminal por defecto; un comando propio vacío no se guarda") {
+            let old = try JSONCoding.decoder.decode(AppConfig.self, from: Data(#"{"launchAtLogin": true}"#.utf8))
+            try expectEqual(old.terminal, .terminal)
+            try expectEqual(old.terminalCommand, nil)
+            let unknown = try JSONCoding.decoder.decode(AppConfig.self, from: Data(#"{"terminal": "kitty"}"#.utf8))
+            try expectEqual(unknown.terminal, .terminal)
+            var config = AppConfig()
+            config.setTerminal(.custom)
+            config.setTerminalCommand("open -na Ghostty --args -e /bin/zsh -lc {command}")
+            let back = try JSONCoding.decoder.decode(AppConfig.self, from: JSONCoding.encoder.encode(config))
+            try expectEqual(back.terminal, .custom)
+            try expectEqual(back.terminalCommand, "open -na Ghostty --args -e /bin/zsh -lc {command}")
+            config.setTerminalCommand("   ")
+            try expectEqual(config.terminalCommand, nil)
+        },
     ]
 }

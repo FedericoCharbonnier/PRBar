@@ -319,6 +319,8 @@ public final class FixtureActions: PRBarActions {
     public func cleanupPreview(olderThanDays: Int?) async -> CleanupPlan { CleanupPlan(candidates: []) }
     public func cleanup(olderThanDays: Int?, confirmed: Bool, paths: [String]?) async throws -> CleanupResult { CleanupResult() }
     public func configSetDiskWarning(gigabytes: Int?) throws {}
+    public func configSetTerminal(_ terminal: TerminalChoice) throws {}
+    public func configSetTerminalCommand(_ command: String) throws {}
 
     // MARK: RunnerActions
     public func runnersList() async -> [RunnerInfo] { [] }

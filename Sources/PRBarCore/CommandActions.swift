@@ -81,6 +81,9 @@ public protocol ConfigActions: AnyObject {
     func configSetRefreshInterval(minutes: Int) throws
     func configSetLaunchAtLogin(enabled: Bool) throws
     func configSetAlwaysShowInDock(enabled: Bool) throws
+    func configSetTerminal(_ terminal: TerminalChoice) throws
+    /// Fails if `TerminalLauncher.validateCustomCommand` rejects the command (empty, no `{command}`, quoted placeholder).
+    func configSetTerminalCommand(_ command: String) throws
     func accountList() -> [AccountInfo]
     func accountSetEnabled(login: String, enabled: Bool) throws
     func accountReload() async throws -> [AccountInfo]

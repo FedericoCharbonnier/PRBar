@@ -307,6 +307,12 @@ public enum CommandDispatcher {
         case .setDiskWarning(let gigabytes):
             try actions.configSetDiskWarning(gigabytes: gigabytes)
             return .ok
+        case .setTerminal(let terminal):
+            try actions.configSetTerminal(terminal)
+            return .ok
+        case .setTerminalCommand(let command):
+            try actions.configSetTerminalCommand(command)
+            return .ok
         // Dónde corre Claude (spec J)
         case .runnersList:
             return try encode(await actions.runnersList())

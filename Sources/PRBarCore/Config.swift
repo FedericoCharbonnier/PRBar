@@ -489,6 +489,10 @@ public struct AppConfig: Hashable, Codable, Sendable {
     public var runners = RunnerSettings()
     /// El acceso desde el iPhone (spec Q).
     public var remote = RemoteSettings.default
+    /// Where "Terminal" opens Claude's session of a PR (Settings › General, spec T.6).
+    public var terminal: TerminalChoice = .terminal
+    /// Only for `custom`: `{dir}` is the PR's folder, `{command}` runs Claude.
+    public var terminalCommand: String?
 
     public init() {}
 
@@ -499,6 +503,7 @@ public struct AppConfig: Hashable, Codable, Sendable {
         case runners
         case remote
         case alwaysShowInDock
+        case terminal, terminalCommand
     }
 
     public init(from decoder: Decoder) throws {
@@ -515,6 +520,8 @@ public struct AppConfig: Hashable, Codable, Sendable {
         resources = (try? c.decodeIfPresent(ResourceSettings.self, forKey: .resources)) ?? ResourceSettings()
         runners = (try? c.decodeIfPresent(RunnerSettings.self, forKey: .runners)) ?? RunnerSettings()
         remote = (try? c.decodeIfPresent(RemoteSettings.self, forKey: .remote)) ?? .default
+        terminal = (try? c.decodeIfPresent(TerminalChoice.self, forKey: .terminal)) ?? .terminal
+        terminalCommand = (try? c.decodeIfPresent(String.self, forKey: .terminalCommand)) ?? nil
     }
 }
 
@@ -559,6 +566,15 @@ extension AppConfig {
     /// Vacío o solo espacios = nil (sin tests).
     public mutating func setTestCommand(_ command: String?, repoID: String, login: String) {
         withRepo(repoID, login: login) { $0.testCommand = Self.nonBlank(command) }
+    }
+
+    public mutating func setTerminal(_ choice: TerminalChoice) {
+        terminal = choice
+    }
+
+    /// Vacío o solo espacios = nil.
+    public mutating func setTerminalCommand(_ command: String?) {
+        terminalCommand = Self.nonBlank(command)
     }
 
     /// Normalized: trimmed, without empty patterns or repeats.

@@ -312,6 +312,8 @@ final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActi
         try record("cleanup \(olderThanDays ?? 0) confirmed=\(confirmed)" + (paths.map { " paths=" + $0.joined(separator: ",") } ?? "")); return CleanupResult()
     }
     func configSetDiskWarning(gigabytes: Int?) throws { try record("setDiskWarning \(gigabytes ?? 0)") }
+    func configSetTerminal(_ terminal: TerminalChoice) throws { try record("setTerminal \(terminal.rawValue)") }
+    func configSetTerminalCommand(_ command: String) throws { try record("setTerminalCommand \(command)") }
 
     // MARK: RunnerActions
     /// Los problemas de la verificación que devuelven `runnersList` y `runnerTest`.

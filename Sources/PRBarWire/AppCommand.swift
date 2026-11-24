@@ -79,6 +79,10 @@ public enum AppCommand: Codable, Equatable, Sendable {
     case setAlwaysShowInDock(enabled: Bool)
     /// Settings › General › umbral de disco; nil = apagado.
     case setDiskWarning(gigabytes: Int?)
+    /// Settings › General › Terminal (spec T.6).
+    case setTerminal(terminal: TerminalChoice)
+    /// The Custom terminal's command, with `{dir}` and `{command}`.
+    case setTerminalCommand(command: String)
     case accountList
     case accountSetEnabled(login: String, enabled: Bool)
     case accountReload
@@ -221,6 +225,7 @@ public enum AppCommand: Codable, Equatable, Sendable {
         case remoteStatus, remoteEnable, remoteDisable, remotePairStart, remotePairWait, remotePairConfirm, remoteDevices
         case remoteRevoke, remoteSetKeepAwake, remoteReset, remoteSetPresenceRequirement, remoteSetMailbox
         case setAlwaysShowInDock
+        case setTerminal, setTerminalCommand
     }
 
     public var name: Name {
@@ -334,6 +339,8 @@ public enum AppCommand: Codable, Equatable, Sendable {
         case .cleanupPreview: .cleanupPreview
         case .cleanup: .cleanup
         case .setDiskWarning: .setDiskWarning
+        case .setTerminal: .setTerminal
+        case .setTerminalCommand: .setTerminalCommand
         case .runnersList: .runnersList
         case .runnerAdd: .runnerAdd
         case .runnerSet: .runnerSet
