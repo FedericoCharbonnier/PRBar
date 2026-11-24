@@ -142,6 +142,9 @@ struct MainWindow: View {
                 Button { NSWorkspace.shared.open(url) } label: { Label("Open on GitHub", systemImage: "arrow.up.right.square") }
                     .help("Open on GitHub")
             }
+            if let prID = selectedTabs?.0 {
+                PRDetailToolbar.terminalButton(model: model, prID: prID)
+            }
             if selectedTabs != nil && model.chatEnabled {
                 PRDetailToolbar.chatButton(detail: detail)
             }

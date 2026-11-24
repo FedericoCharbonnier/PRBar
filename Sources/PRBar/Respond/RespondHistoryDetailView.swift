@@ -10,6 +10,8 @@ struct RespondHistoryDetailView: View {
     /// La corrida sigue en la cola: se puede abrir su ventana.
     let canOpen: Bool
     let open: () -> Void
+    /// "Open in Terminal" (spec T.4): only when the record's folder is still kept.
+    var terminal: SessionTerminalButton? = nil
 
     private var draft: RespondDraft { record.draft }
 
@@ -184,6 +186,7 @@ struct RespondHistoryDetailView: View {
 
     private var footer: some View {
         HistoryDetailBar(logURL: logURL) {
+            if let terminal { terminal }
             if canOpen {
                 Button(record.draft.isCIFix ? "Show Fix CI" : "Show Response", action: open)
                     .buttonStyle(.borderedProminent)

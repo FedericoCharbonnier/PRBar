@@ -189,13 +189,15 @@ struct HistoryDetailPane: View {
             HistoryDetailView(
                 record: record, canReopen: HistoryActions.canReopen(record, model: model, entries: entries.all),
                 logURL: model.history.logURL(for: record.id),
-                reopen: { model.reopenFromHistory(record.draft) }
+                reopen: { model.reopenFromHistory(record.draft) },
+                terminal: terminalButton(record.id)
             )
             .id(record.id)
         case .respond(let record)?:
             RespondHistoryDetailView(
                 record: record, logURL: model.respondHistory.logURL(for: record.id),
-                canOpen: HistoryActions.canOpen(record, respond: respond), open: { model.openRespond(prID: record.draft.prID) }
+                canOpen: HistoryActions.canOpen(record, respond: respond), open: { model.openRespond(prID: record.draft.prID) },
+                terminal: terminalButton(record.id)
             )
             .id(record.id)
         case .merge(let record)?:
@@ -210,6 +212,12 @@ struct HistoryDetailPane: View {
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+
+    /// The record's sessions while its folder is kept; nil hides the button.
+    private func terminalButton(_ recordID: UUID) -> SessionTerminalButton? {
+        let sessions = SessionOffer.ofRecord(recordID, retained: model.retainedWorktrees)
+        return sessions.isEmpty ? nil : SessionTerminalButton(model: model, sessions: sessions, title: "Open in Terminal")
     }
 }
 

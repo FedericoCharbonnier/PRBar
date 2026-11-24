@@ -22,6 +22,7 @@ public enum KeyboardShortcutList {
             Shortcut(keys: "⌘.", action: "Stop Claude"),
             Shortcut(keys: "⌘Z", action: "Undo Claude's last change (outside text fields)"),
             Shortcut(keys: "⌥⌘I", action: "Show or hide the chat"),
+            Shortcut(keys: "⌥⌘T", action: "Open Claude's session of the PR in your terminal"),
             Shortcut(keys: "⌃⌘S", action: "Show or hide the sidebar"),
             Shortcut(keys: "⇧⌘O", action: "Open the PR in a new window"),
             Shortcut(keys: "⌘R", action: "Refresh"),

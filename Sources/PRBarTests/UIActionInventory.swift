@@ -56,6 +56,7 @@ enum UIActionInventory {
         .init("AppMenu.swift", "MenuItem", "Tab \\(index)", 1, .viewOnly("navigation in the main window")),   // ⌥⌘1–3
         .init("AppMenu.swift", "MenuItem", "Merge…", 1, .cli(["merge"])),
         .init("AppMenu.swift", "MenuItem", "Stop Claude", 1, .cli(["review cancel", "respond cancel", "ci cancel"])),
+        .init("AppMenu.swift", "MenuItem", "Open Claude Session in Terminal", 1, .cli(["session open"])),   // ⌥⌘T, the most recent
         .init("Main/PRDetailView.swift", "Component:TabCommand", "-", 3, .viewOnly("navigation in the main window")),   // ⌥⌘1–3
         .init("Main/PRDetailView.swift", "ConfirmAlert", "Cancel this review?", 1, .cli(["review cancel"])),   // ⌘.
         .init("Main/PRDetailView.swift", "ConfirmAlert", "Stop fixing the CI?", 1, .cli(["respond cancel", "ci cancel"])),   // or "Stop this response?"
@@ -99,6 +100,11 @@ enum UIActionInventory {
         .init("Main/PRTabBar.swift", "Picker", "Show", 1, .viewOnly("filters History (`prbar history --kind`)")),
         .init("Main/PRDetailView.swift", "Button", "-", 1, .cli(["chat"])),   // Chat (toggles the inspector)
         .init("Main/PRDetailView.swift", "Button", "Open on GitHub", 1, .cli(["open"])),   // a PR that's no longer in the list
+        // Terminal (toolbar) and History › Open in Terminal: one session is a button (labeled by its SF Symbol)…
+        .init("Main/SessionTerminalButton.swift", "Button", "terminal", 1, .cli(["session open"])),
+        // …several, a menu with one item per session (session list shows them).
+        .init("Main/SessionTerminalButton.swift", "Button", "-", 1, .cli(["session open"])),
+        .init("AppModel+Sessions.swift", "ConfirmAlert", "Couldn’t open Claude’s session", 1, .cli(["session open"])),   // "Open Settings"
         .init("Main/PRDetailView.swift", "Component:MessageView", "questionmark.folder", 1, .viewOnly("a message; its action is a Button in this file")),
         // Pestaña Review (plan 21, spec M.1): Review/ReviewEditor.swift (antes ReviewWindow.swift) y ReviewPane.swift
         .init("Review/ReviewEditor.swift", "Button", "-", 2, .cli(["review publish", "review show"])),   // discarded / hidden sections

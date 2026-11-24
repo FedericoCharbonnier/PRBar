@@ -8,6 +8,8 @@ struct HistoryDetailView: View {
     let canReopen: Bool
     let logURL: URL
     let reopen: () -> Void
+    /// "Open in Terminal" (spec T.4): only when the record's folder is still kept.
+    var terminal: SessionTerminalButton? = nil
 
     private var draft: ReviewDraft { record.draft }
     /// The findings as the chat left them (edited titles, added ones), or the draft's.
@@ -142,6 +144,7 @@ struct HistoryDetailView: View {
 
     private var footer: some View {
         HistoryDetailBar(logURL: logURL) {
+            if let terminal { terminal }
             if let url = record.reviewURL {
                 ExternalLink("View Review", destination: url)
             }

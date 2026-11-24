@@ -25,6 +25,8 @@ enum WindowCommand: Hashable {
     case stopClaude
     /// ⌘Z outside a text field: undo Claude's last change from the tab's chat.
     case undoClaude
+    /// ⌥⌘T: Claude's most recent session of the PR in the terminal (spec T.4).
+    case openClaudeSession
 }
 
 @MainActor
@@ -75,6 +77,7 @@ final class WindowCommandCenter: NSObject, NSMenuItemValidation {
     @objc func openOnGitHub(_ sender: Any?) { perform(.openOnGitHub) }
     @objc func merge(_ sender: Any?) { perform(.merge) }
     @objc func stopClaude(_ sender: Any?) { perform(.stopClaude) }
+    @objc func openClaudeSession(_ sender: Any?) { perform(.openClaudeSession) }
 
     /// ⌥⌘1…3: the menu item's `tag` is the tab's number.
     @objc func selectTab(_ sender: Any?) {
@@ -136,6 +139,7 @@ final class WindowCommandCenter: NSObject, NSMenuItemValidation {
         case #selector(openOnGitHub(_:)): return handler(.openOnGitHub)?.enabled ?? false
         case #selector(merge(_:)): return handler(.merge)?.enabled ?? false
         case #selector(stopClaude(_:)): return handler(.stopClaude)?.enabled ?? false
+        case #selector(openClaudeSession(_:)): return handler(.openClaudeSession)?.enabled ?? false
         case #selector(find(_:)): return handler(.find)?.enabled ?? (searchItem() != nil)
         case #selector(selectTab(_:)):
             let handler = handler(.tab(menuItem.tag))

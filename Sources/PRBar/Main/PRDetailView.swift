@@ -57,6 +57,9 @@ struct PRDetailView: View {
                         ToolbarItem(placement: .principal) {
                             PRDetailToolbar.tabBar(model: model, state: state, prID: prID, context: context, tab: tab)
                         }
+                        ToolbarItem(placement: .primaryAction) {
+                            PRDetailToolbar.terminalButton(model: model, prID: prID)
+                        }
                         if model.chatEnabled {
                             ToolbarItem(placement: .primaryAction) {
                                 PRDetailToolbar.chatButton(detail: detail)
@@ -87,13 +90,18 @@ struct PRDetailView: View {
     }
 }
 
-/// Las piezas del detalle que van en la toolbar: las pestañas y el botón del chat.
+/// Las piezas del detalle que van en la toolbar: las pestañas, Terminal y el botón del chat.
 @MainActor
 enum PRDetailToolbar {
     static func tabBar(model: AppModel, state: MainWindowState, prID: String, context: PRTabContext, tab: PRTab) -> some View {
         PRTabBar(tabs: PRTabs.tabs(context), selected: tab,
                  indicator: { ClaudeTasksSidebar.indicator(prID: prID, tab: $0, rows: model.claudeTaskRows()) },
                  choose: { state.choose($0, for: prID) })
+    }
+
+    /// To the left of Chat (spec T.4).
+    static func terminalButton(model: AppModel, prID: String) -> some View {
+        SessionTerminalButton(model: model, sessions: model.offeredSessions(prID: prID))
     }
 
     static func chatButton(detail: PRDetailState) -> some View {
@@ -160,6 +168,8 @@ private struct PRDetailCommands: ViewModifier {
     let prID: String
     let context: PRTabContext
     let tab: PRTab
+    /// PRBar works in the folder of one of the PR's offered sessions (kept by `SessionBusyWatcher`).
+    @State private var sessionBusy = false
 
     init(model: AppModel, state: MainWindowState, prID: String, context: PRTabContext, tab: PRTab) {
         self.model = model
@@ -173,6 +183,7 @@ private struct PRDetailCommands: ViewModifier {
 
     func body(content: Content) -> some View {
         let tabs = PRTabs.tabs(context)
+        let sessions = model.offeredSessions(prID: prID)
         content
             .modifier(TabCommand(index: 1, tabs: tabs, selected: tab) { state.choose($0, for: prID) })
             .modifier(TabCommand(index: 2, tabs: tabs, selected: tab) { state.choose($0, for: prID) })
@@ -183,6 +194,12 @@ private struct PRDetailCommands: ViewModifier {
             .windowCommand(.undoClaude, enabled: undoChat(tab) != nil) {
                 if let chat = undoChat(currentTab) { ChatUndo.perform(chat) }
             }
+            // Pull Request › Open Claude Session in Terminal (⌥⌘T): the most recent one (spec T.4). Looked up when it
+            // runs; `openClaudeSessionFromUI` checks again that PRBar isn't working in its folder.
+            .windowCommand(.openClaudeSession, enabled: !sessions.isEmpty && !sessionBusy) {
+                if let session = SessionOffer.mostRecent(model.offeredSessions(prID: prID)) { model.openClaudeSessionFromUI(session) }
+            }
+            .modifier(SessionBusyWatcher(model: model, sessions: sessions, busy: $sessionBusy))
     }
 
     /// La pestaña que se ve ahora (`tab` es la del último render).
