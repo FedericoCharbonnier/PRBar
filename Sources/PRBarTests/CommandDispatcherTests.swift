@@ -112,6 +112,8 @@ let dispatchSamples: [(command: AppCommand, call: String)] = [
     (.setDiskWarning(gigabytes: 5), "setDiskWarning"),
     (.setTerminal(terminal: .warp), "setTerminal"),
     (.setTerminalCommand(command: "x {command}"), "setTerminalCommand"),
+    (.sessionList(pr: "api#7"), "sessionList"),
+    (.sessionOpen(pr: "api#7", job: .review, run: nil), "sessionOpen"),
     (.runnersList, "runnersList"),
     (.runnerAdd(host: "fede@devbox:2222", name: "devbox", dir: nil, fallback: true), "runnerAdd"),
     (.runnerSet(name: "devbox", dir: "/srv/prbar", fallback: false), "runnerSet"),
@@ -181,6 +183,8 @@ enum CommandDispatcherTests {
         try expectEqual(notShown, .success(try JSONValue(encoding: PopoverInfo(tab: .mine, shown: false))))
         let result = await run(.reviewCancel(pr: "x"), fake)
         try expectEqual(result, .success(.ok))
+        _ = await run(.sessionOpen(pr: "api#7", job: .ciFix, run: 2), fake)
+        try expectEqual(fake.calls.last, "sessionOpen api#7 ci-fix 2")
     }
 
     /// Si la CLI se va (Ctrl-C) mientras se mergea, publica o habla con Slack, la llamada termina igual: cortarla a

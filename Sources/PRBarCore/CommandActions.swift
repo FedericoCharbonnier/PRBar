@@ -214,7 +214,15 @@ public protocol RemoteActions: AnyObject {
     func remoteSetMailbox(enabled: Bool) async throws -> RemoteStatusInfo
 }
 
+/// Claude's sessions in a terminal (spec T.4).
+@MainActor
+public protocol SessionActions: AnyObject {
+    func sessionList(pr: String) throws -> [ClaudeSessionInfo]
+    /// `invalidState` (exit 6) when there is none or PRBar is working in its folder.
+    func sessionOpen(pr: String, job: SessionJob?, run: Int?) async throws -> ClaudeSessionInfo
+}
+
 /// Lo que la app tiene que saber hacer para abrir el socket.
 public typealias PRBarActions = StatusActions & ReviewActions & RespondActions & MergeActions & ConfigActions
     & SlackActions & ChatCommandActions & UpdateCommandActions & InstructionCommandActions & ResourceActions
-    & RunnerActions & CIFixUsageActions & RemoteActions
+    & RunnerActions & CIFixUsageActions & RemoteActions & SessionActions

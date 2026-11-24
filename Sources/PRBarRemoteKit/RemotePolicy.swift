@@ -49,6 +49,8 @@ public enum RemotePolicy {
              .setLaunchAtLogin, .setAlwaysShowInDock, .accountList, .accountSetEnabled, .accountReload, .repoList, .repoAvailable, .repoAdd,
              // La terminal de las sesiones de Claude: el comando propio corre en la Mac (spec T.6).
              .setTerminal, .setTerminalCommand,
+             // Abre una terminal en la Mac (spec T.4).
+             .sessionList, .sessionOpen,
              .repoRemove, .repoSet, .repoBranches, .followList, .followAdd, .followRemove, .followSuggestions,
              .claudeShow, .claudeSet, .claudeReset, .claudeSkills, .toolsList, .toolsSet, .slackShow,
              .slackSetEnabled, .slackSetProvider, .slackTokenSet, .slackTokenClear, .slackSetToggle, .slackSetEmoji,

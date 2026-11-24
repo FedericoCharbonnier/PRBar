@@ -69,6 +69,7 @@ enum CLIIntegrationTests {
         TestCase("integración: update espera a la versión nueva solo si la app se estaba reiniciando") { try await updateRelaunch() },
         TestCase("integración: chat --json sin mensaje en una terminal no se queda leyendo la terminal") { try await chatJSONWithoutMessage() },
         TestCase("integración: prbar ci y prbar usage (Fix CI y costo estimado, specs K y O)") { try await ciAndUsage() },
+        TestCase("integración: prbar session list y open (spec T.4); sin sesión o con PRBar trabajando → exit 6") { try await sessions() },
         TestCase("chat: el mensaje sale de stdin solo si no es una terminal; no vacío") {
             let tty = Terminal(stdinIsTTY: true, stdoutIsTTY: false, colors: false)
             let error = try await expectThrows { _ = try ChatInput.readMessage(terminal: tty) { "never read" } }
@@ -205,6 +206,35 @@ enum CLIIntegrationTests {
         let decoded = try JSONDecoder().decode([String: JSONValue].self, from: Data(json.out.utf8))
         guard case .object(let data)? = decoded["data"] else { throw TestFailure(description: json.out) }
         try expectEqual(data["latest"], .string("2.0.0"))
+    }
+
+    @MainActor
+    private static func sessions() async throws {
+        let harness = try Harness()
+        defer { harness.server.stop() }
+        let empty = try await runCLI(["session", "list", "api#7"], socket: harness.url)
+        try expectEqual(empty.code, 0)
+        try expect(empty.out.contains("No Claude session for this PR yet."), empty.out)
+        harness.fake.sessions = [
+            ClaudeSessionInfo(number: 1, label: "Review · stage 1", kind: "review", machine: "this Mac", directory: "/wt/7",
+                              startedAt: t0, sessionID: "0d5b2f4e-8c1a-4e3b-9f6d-2a7c1b3e4f50", busy: false),
+            ClaudeSessionInfo(number: 2, label: "CI fix", kind: "ci-fix", machine: "devbox", directory: "/srv/prbar/7",
+                              startedAt: t0, sessionID: "1d5b2f4e-8c1a-4e3b-9f6d-2a7c1b3e4f50", busy: true),
+        ]
+        let list = try await runCLI(["session", "list", "api#7"], socket: harness.url)
+        try expectEqual(list.code, 0)
+        try expect(list.out.contains("Review · stage 1") && list.out.contains("/wt/7"), list.out)
+        try expect(list.out.contains("CI fix (Claude is working on it)") && list.out.contains("devbox"), list.out)
+        let json = try await runCLI(["session", "list", "api#7", "--json"], socket: harness.url)
+        try expect(json.out.contains("\"sessionID\" : \"1d5b2f4e") && json.out.contains("\"busy\" : true"), json.out)
+        let open = try await runCLI(["session", "open", "api#7", "--job", "review"], socket: harness.url)
+        try expectEqual(open.code, 0)
+        try expect(open.out.contains("Opened Review · stage 1 (this Mac)."), open.out)
+        try expectEqual(harness.fake.calls.last, "sessionOpen api#7 review -")
+        harness.fake.failure = CommandFailure(.invalidState, "No Claude session for this PR yet.")
+        let none = try await runCLI(["session", "open", "api#7"], socket: harness.url)
+        try expectEqual(none.code, CLIExit.invalidState)
+        try expect(none.err.contains("No Claude session for this PR yet."), none.err)
     }
 
     @MainActor

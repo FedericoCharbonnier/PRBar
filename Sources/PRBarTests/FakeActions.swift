@@ -17,6 +17,8 @@ final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActi
     }
     /// Si no es nil, los métodos que pueden fallar la lanzan.
     var failure: Error?
+    /// What `sessionList` returns.
+    var sessions: [ClaudeSessionInfo] = []
     /// Eventos que mandan los comandos con `wait`.
     var waitEvents: [CommandEvent] = []
     /// Lo que devuelven `reviewShow` y `respondShow` (las preguntas de publicar, pushear y responder lo miran antes).
@@ -404,4 +406,17 @@ extension FakeActions: RemoteActions {
         return info
     }
     func remoteSetMailbox(enabled: Bool) async throws -> RemoteStatusInfo { try record("remoteSetMailbox \(enabled)"); return remoteInfo }
+}
+
+extension FakeActions: SessionActions {
+    func sessionList(pr: String) throws -> [ClaudeSessionInfo] {
+        try record("sessionList \(pr)")
+        return sessions
+    }
+
+    func sessionOpen(pr: String, job: SessionJob?, run: Int?) async throws -> ClaudeSessionInfo {
+        try record("sessionOpen \(pr) \(job?.rawValue ?? "-") \(run.map(String.init) ?? "-")")
+        return ClaudeSessionInfo(number: 1, label: "Review · stage 1", kind: "review", machine: "this Mac", directory: "/wt/7",
+                                 startedAt: t0, sessionID: "0d5b2f4e-8c1a-4e3b-9f6d-2a7c1b3e4f50", busy: false)
+    }
 }

@@ -71,6 +71,12 @@ public enum AppCommand: Codable, Equatable, Sendable {
     /// Clean Up. Con algo para borrar exige `confirmed` (lo verifica la app). `paths`: las rutas de la vista previa que
     /// se confirmó; la app solo borra las que sigan en su plan nuevo (nil = todo el plan nuevo).
     case cleanup(olderThanDays: Int?, confirmed: Bool, paths: [String]? = nil)
+    // Sesiones de Claude en una terminal (spec T.4)
+    /// The PR's sessions PRBar offers.
+    case sessionList(pr: String)
+    /// Opens one in the terminal of Settings: `run` = the number of `sessionList`; `job` = the most recent of that job;
+    /// neither = the most recent.
+    case sessionOpen(pr: String, job: SessionJob?, run: Int?)
     // Configuración
     case configShow
     case setRefreshInterval(minutes: Int)
@@ -226,6 +232,7 @@ public enum AppCommand: Codable, Equatable, Sendable {
         case remoteRevoke, remoteSetKeepAwake, remoteReset, remoteSetPresenceRequirement, remoteSetMailbox
         case setAlwaysShowInDock
         case setTerminal, setTerminalCommand
+        case sessionList, sessionOpen
     }
 
     public var name: Name {
@@ -341,6 +348,8 @@ public enum AppCommand: Codable, Equatable, Sendable {
         case .setDiskWarning: .setDiskWarning
         case .setTerminal: .setTerminal
         case .setTerminalCommand: .setTerminalCommand
+        case .sessionList: .sessionList
+        case .sessionOpen: .sessionOpen
         case .runnersList: .runnersList
         case .runnerAdd: .runnerAdd
         case .runnerSet: .runnerSet

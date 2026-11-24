@@ -313,6 +313,11 @@ public enum CommandDispatcher {
         case .setTerminalCommand(let command):
             try actions.configSetTerminalCommand(command)
             return .ok
+        // Sesiones de Claude en una terminal (spec T.4)
+        case .sessionList(let pr):
+            return try encode(actions.sessionList(pr: pr))
+        case .sessionOpen(let pr, let job, let run):
+            return try encode(await actions.sessionOpen(pr: pr, job: job, run: run))
         // Dónde corre Claude (spec J)
         case .runnersList:
             return try encode(await actions.runnersList())

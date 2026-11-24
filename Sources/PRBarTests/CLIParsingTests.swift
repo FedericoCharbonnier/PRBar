@@ -374,6 +374,19 @@ enum CLIParsingTests {
                                 .setTerminalCommand(command: "open -na Ghostty --args -e /bin/zsh -lc {command}"))
                 try expectEqual(try parsed(["cleanup", "--preview"]), .cleanupPreview(olderThanDays: nil))
             },
+            TestCase("cli parse: session list y open") {
+                try expectEqual(try parsed(["session", "list", "api#7"]), .sessionList(pr: "api#7"))
+                try expectEqual(try parsed(["session", "list", "api#7", "--json"]), .sessionList(pr: "api#7"))
+                try expectEqual(try parsed(["session", "open", "api#7"]), .sessionOpen(pr: "api#7", job: nil, run: nil))
+                try expectEqual(try parsed(["session", "open", "api#7", "--job", "ci-fix", "--run", "2"]),
+                                .sessionOpen(pr: "api#7", job: .ciFix, run: 2))
+                try expectEqual(try parsed(["session", "open", "api#7", "--job", "review"]),
+                                .sessionOpen(pr: "api#7", job: .review, run: nil))
+                try expect(rejects(["session", "open", "api#7", "--job", "chat"]))
+                try expect(rejects(["session", "open", "api#7", "--run", "0"]))
+                try expect(rejects(["session", "list"]))
+                try expect(rejects(["session", "open"]))
+            },
             TestCase("cli parse: runners y repo set --run-on") {
                 try expectEqual(try parsed(["runners", "list"]), .runnersList)
                 try expectEqual(try parsed(["runners"]), .runnersList)

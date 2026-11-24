@@ -98,6 +98,9 @@ public enum CLIRouter {
         // Chat (plan 6)
         .init("chat", [.chatSend, .chatShow, .chatUndo, .chatStop],
               ["chat", "api#1", "hi"], ["chat", "api#1", "--show"], ["chat", "api#1", "--undo"], ["chat", "api#1", "--stop"]),
+        // Sesiones de Claude en una terminal (plan 22)
+        .init("session list", [.sessionList], ["session", "list", "api#7"]),
+        .init("session open", [.sessionOpen], ["session", "open", "api#7"], ["session", "open", "api#7", "--job", "ci-fix", "--run", "2"]),
         // Actualizaciones (plan 8)
         .init("update", [.updateCheck, .updateInstall, .updateCancel, .updateSkip],
               ["update", "--check"], ["update", "--yes"], ["update", "--cancel"], ["update", "--skip"]),

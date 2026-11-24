@@ -254,3 +254,34 @@ extension AppModel {
         }
     }
 }
+
+// MARK: - SessionActions (CLI)
+
+extension AppModel: SessionActions {
+    func sessionList(pr: String) throws -> [ClaudeSessionInfo] {
+        let sessions = offeredSessions(prID: try resolvePRID(pr))
+        return SessionOffer.info(sessions, busy: busyIDs(sessions))
+    }
+
+    /// Exit 6 (`invalidState`) when there's none or PRBar is working in its folder; exit 1 with the terminal's error.
+    func sessionOpen(pr: String, job: SessionJob?, run: Int?) async throws -> ClaudeSessionInfo {
+        let sessions = offeredSessions(prID: try resolvePRID(pr))
+        let session = try SessionOffer.pick(sessions, job: job, run: run)
+        // Its row of `session list`, taken before opening: the list may change while the terminal opens.
+        guard let info = SessionOffer.info(sessions, busy: busyIDs(sessions)).first(where: { $0.sessionID == session.id }) else {
+            throw CommandFailure(.failed, "The session isn’t listed any more. See prbar session list.")
+        }
+        do {
+            try await openClaudeSession(session)
+        } catch let failure as CommandFailure {
+            throw failure
+        } catch {
+            throw CommandFailure(.failed, error.localizedDescription)
+        }
+        return info
+    }
+
+    private func busyIDs(_ sessions: [ClaudeSessionRef]) -> Set<String> {
+        Set(sessions.filter { isSessionBusy($0) }.map(\.id))
+    }
+}

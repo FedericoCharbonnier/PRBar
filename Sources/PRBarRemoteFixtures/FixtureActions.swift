@@ -322,6 +322,10 @@ public final class FixtureActions: PRBarActions {
     public func configSetTerminal(_ terminal: TerminalChoice) throws {}
     public func configSetTerminalCommand(_ command: String) throws {}
 
+    // MARK: SessionActions
+    public func sessionList(pr: String) throws -> [ClaudeSessionInfo] { [] }
+    public func sessionOpen(pr: String, job: SessionJob?, run: Int?) async throws -> ClaudeSessionInfo { throw missing("sessions") }
+
     // MARK: RunnerActions
     public func runnersList() async -> [RunnerInfo] { [] }
     public func runnerAdd(host: String, name: String?, dir: String?, fallback: Bool) async throws -> RunnerInfo { throw missing("runners") }
