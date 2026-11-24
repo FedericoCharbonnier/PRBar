@@ -31,7 +31,8 @@ extension AppModel: ResourceActions {
         }
         var active = WorkspaceRegistry.shared.all()
         for record in respond.records.values { active.insert(record.draft.worktree.path) }
-        return .live(respondDirs: respondDirs, activePaths: active, repoByClone: repoByClone)
+        let retained = Set(retainedWorktrees.filter { $0.location.runner == nil }.map(\.location.directory))
+        return .live(respondDirs: respondDirs, activePaths: active, repoByClone: repoByClone, retained: retained)
     }
 
     func checkDiskWarning(_ disk: DiskUsage) {

@@ -30,7 +30,8 @@ struct ResourcesCommand: RemoteCommand {
             output.line()
             output.line("Claude this month: \(UsageFormat.summary(claude)) — see `prbar usage`")
         }
-        let orphans = info.disk.items.filter { $0.state == .orphan }
+        // Folders kept for Terminal aren't leftovers (Clean Up still lists them, tagged).
+        let orphans = info.disk.items.filter { $0.state == .orphan && $0.keptForTerminal != true }
         if !orphans.isEmpty {
             output.line(output.paint("\(orphans.count) leftover worktree\(orphans.count == 1 ? "" : "s") (\(Bytes.text(orphans.map(\.bytes).reduce(0, +)))). Run `prbar cleanup`.", .yellow))
         }
@@ -68,7 +69,7 @@ struct CleanupCommand: RemoteCommand {
         guard let plan = shown, !plan.isEmpty else { return nil }
         // Sin terminal (y sin --yes) sale con 4 enseguida: la tabla solo cuando se va a preguntar (L17).
         if output.terminal.isInteractive && !output.json {
-            output.table(["Delete", "Size"], plan.candidates.map { [$0.title, Bytes.text($0.bytes)] })
+            output.table(["Delete", "Size"], plan.candidates.map { [$0.displayTitle, Bytes.text($0.bytes)] })
         }
         return "Delete \(plan.candidates.count) item\(plan.candidates.count == 1 ? "" : "s") and free \(Bytes.text(plan.totalBytes))?"
     }
@@ -82,7 +83,7 @@ struct CleanupCommand: RemoteCommand {
         if preview {
             let plan: CleanupPlan = try result.decode()
             guard !plan.isEmpty else { return output.line("Nothing to clean up.") }
-            output.table(["Delete", "Size"], plan.candidates.map { [$0.title, Bytes.text($0.bytes)] })
+            output.table(["Delete", "Size"], plan.candidates.map { [$0.displayTitle, Bytes.text($0.bytes)] })
             return output.line("Would free \(Bytes.text(plan.totalBytes)).")
         }
         let done: CleanupResult = try result.decode()

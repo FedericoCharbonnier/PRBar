@@ -118,6 +118,30 @@ enum DiskCleanupTests {
             try expectEqual(result.skipped, ["dirty: has uncommitted changes"])
             try expect(FileManager.default.fileExists(atPath: dirty.path))
         },
+        TestCase("cleanup: a leftover review/chat worktree (not kept) with uncommitted or unpushed work is skipped, never deleted") {
+            let repo = try TempGitRepo.make()
+            defer { repo.remove() }
+            let dirty = repo.root.appendingPathComponent("local-7-1700000000-0b0b0b0b")
+            let committed = repo.root.appendingPathComponent("local-7-1700000000-0c0c0c0c")
+            try TempGitRepo.run(repo.local, ["worktree", "add", "--detach", dirty.path, "HEAD"])
+            try TempGitRepo.run(repo.local, ["worktree", "add", "--detach", committed.path, "HEAD"])
+            try Data("wip\n".utf8).write(to: dirty.appendingPathComponent("wip.txt"))
+            try Data("mine\n".utf8).write(to: committed.appendingPathComponent("mine.txt"))
+            try TempGitRepo.run(committed, ["add", "-A"])
+            try TempGitRepo.run(committed, ["commit", "-q", "-m", "my work"])
+            let executor = DiskCleanupExecutor(runner: SystemProcessRunner(), gitPath: TempGitRepo.git, worktreeRoots: [repo.root],
+                                               repos: [DiskScanInput.RespondDir(repo: "acme/local", path: repo.base.appendingPathComponent("local-worktrees").path,
+                                                                                localPath: repo.local.path)],
+                                               gitEnvironment: ["GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"],
+                                               registry: WorkspaceRegistry())
+            let result = await executor.run(CleanupPlan(candidates: [
+                CleanupCandidate(path: dirty.path, bytes: 1, kind: .workspace, clone: repo.local.path, title: "dirty"),
+                CleanupCandidate(path: committed.path, bytes: 1, kind: .workspace, clone: repo.local.path, title: "committed"),
+            ]))
+            try expectEqual(result.removed, [])
+            try expectEqual(result.skipped, ["dirty: has uncommitted changes", "committed: has 1 unpushed commit"])
+            try expect(FileManager.default.fileExists(atPath: dirty.path) && FileManager.default.fileExists(atPath: committed.path))
+        },
         TestCase("cleanup: una carpeta conservada con un proceso adentro (una sesión abierta) se saltea") {
             let repo = try TempGitRepo.make()
             defer { repo.remove() }

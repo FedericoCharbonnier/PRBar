@@ -15,14 +15,19 @@ public struct CleanupCandidate: Codable, Equatable, Sendable, Identifiable {
     public var kind: CleanupKind
     public var clone: String?
     public var title: String
+    /// Kept for "Open in Terminal" (spec T.3): the preview says so. `nil` = not kept.
+    public var keptForTerminal: Bool?
     public var id: String { path }
+    /// What the Clean Up preview shows.
+    public var displayTitle: String { keptForTerminal == true ? "\(title) (kept for Terminal)" : title }
 
-    public init(path: String, bytes: Int64, kind: CleanupKind, clone: String?, title: String) {
+    public init(path: String, bytes: Int64, kind: CleanupKind, clone: String?, title: String, keptForTerminal: Bool? = nil) {
         self.path = path
         self.bytes = bytes
         self.kind = kind
         self.clone = clone
         self.title = title
+        self.keptForTerminal = keptForTerminal
     }
 }
 
@@ -59,7 +64,8 @@ public enum DiskCleanup {
             switch (item.kind, item.state) {
             case (.worktrees, .orphan):
                 let kind: CleanupKind = WorktreeResolver.isRespondWorktreeName(item.title) ? .respondWorktree : .workspace
-                candidates.append(CleanupCandidate(path: item.path, bytes: item.bytes, kind: kind, clone: item.clone, title: item.title))
+                candidates.append(CleanupCandidate(path: item.path, bytes: item.bytes, kind: kind, clone: item.clone, title: item.title,
+                                                   keptForTerminal: item.keptForTerminal))
             case (.updater, .cache) where !updateInProgress:
                 let kind: CleanupKind = item.path.hasSuffix("/.build") ? .updaterBuild : .updaterStaging
                 candidates.append(CleanupCandidate(path: item.path, bytes: item.bytes, kind: kind, clone: nil, title: item.title))
@@ -162,7 +168,9 @@ public struct DiskCleanupExecutor: Sendable {
                 }
                 if listed == nil { listed = await listedWorktrees() }
                 if let clone = listed?[path] {
-                    if retained.contains(path), let reason = await unpushedWork(url) {
+                    // Kept or not: a leftover worktree with uncommitted changes or unpushed commits is never deleted (the
+                    // startup cleanup keeps it too); it's listed as skipped, for the user to look at.
+                    if let reason = await unpushedWork(url) {
                         result.skipped.append("\(candidate.title): \(reason)")
                         continue
                     }

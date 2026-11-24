@@ -507,6 +507,7 @@ struct ActivityPane: View {
 
     private func worktreeRow(_ item: DiskItem) -> some View {
         let finished = item.state == .orphan
+        let kept = finished && item.keptForTerminal == true
         return HStack(spacing: 8) {
             Text((item.path as NSString).lastPathComponent)
                 .font(.callout.monospaced())
@@ -516,8 +517,9 @@ struct ActivityPane: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             Group {
                 Text(item.repo ?? "—").lineLimit(1).frame(width: Self.worktreeColumns[1], alignment: .leading)
-                Text(finished ? "Finished" : "In use")
-                    .foregroundStyle(finished ? Theme.orangeText : .secondary)
+                Text(kept ? "Kept" : finished ? "Finished" : "In use")
+                    .foregroundStyle(finished && !kept ? Theme.orangeText : .secondary)
+                    .help(kept ? "Kept for Terminal: you can resume Claude’s session in it" : "")
                     .frame(width: Self.worktreeColumns[2], alignment: .leading)
                 Text(ResourceFooter.bytes(item.bytes)).frame(width: Self.worktreeColumns[3], alignment: .trailing)
             }
@@ -599,7 +601,7 @@ struct ActivityPane: View {
             lastResult = "Nothing to clean up."
             return
         }
-        let list = plan.candidates.prefix(8).map { "• \($0.title) (\(ResourceFooter.bytes($0.bytes)))" }.joined(separator: "\n")
+        let list = plan.candidates.prefix(8).map { "• \($0.displayTitle) (\(ResourceFooter.bytes($0.bytes)))" }.joined(separator: "\n")
         let more = plan.candidates.count > 8 ? "\n…and \(plan.candidates.count - 8) more" : ""
         ConfirmAlert.present(
             title: "Free \(ResourceFooter.bytes(plan.totalBytes))?",

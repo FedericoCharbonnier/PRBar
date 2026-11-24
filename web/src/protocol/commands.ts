@@ -650,6 +650,7 @@ export interface DiskItem {
   repo?: string;
   clone?: string;
   title: string;
+  keptForTerminal?: boolean;
 }
 
 export interface DiskUsage {

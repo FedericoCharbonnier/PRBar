@@ -22,6 +22,8 @@ public struct DiskScanInput: Sendable {
     public var activePaths: Set<String>
     /// clone → `owner/repo`, para poner el repo en los worktrees de la raíz temporal.
     public var repoByClone: [String: String]
+    /// The folders kept for "Open in Terminal" on this Mac (spec T.3): tagged `keptForTerminal`.
+    public var retained: Set<String> = []
     public var now: Date
 
     public init(appSupport: URL, worktreeRoots: [URL], logsDir: URL, respondDirs: [RespondDir], activePaths: Set<String>,
@@ -35,10 +37,13 @@ public struct DiskScanInput: Sendable {
         self.now = now
     }
 
-    public static func live(respondDirs: [RespondDir], activePaths: Set<String>, repoByClone: [String: String]) -> DiskScanInput {
-        DiskScanInput(appSupport: AppPaths.appSupport, worktreeRoots: [AppPaths.worktreesDir, AppPaths.legacyWorktreesDir],
-                      logsDir: AppPaths.logFile.deletingLastPathComponent(), respondDirs: respondDirs,
-                      activePaths: activePaths, repoByClone: repoByClone)
+    public static func live(respondDirs: [RespondDir], activePaths: Set<String>, repoByClone: [String: String],
+                            retained: Set<String> = []) -> DiskScanInput {
+        var input = DiskScanInput(appSupport: AppPaths.appSupport, worktreeRoots: [AppPaths.worktreesDir, AppPaths.legacyWorktreesDir],
+                                  logsDir: AppPaths.logFile.deletingLastPathComponent(), respondDirs: respondDirs,
+                                  activePaths: activePaths, repoByClone: repoByClone)
+        input.retained = retained
+        return input
     }
 }
 
@@ -118,6 +123,8 @@ public enum DiskScanner {
         let configuredClones = Dictionary(input.repoByClone.map { (CanonicalPath.of($0.key), (clone: $0.key, repo: $0.value)) },
                                           uniquingKeysWith: { first, _ in first })
         var seen = Set<String>()
+        let retained = Set(input.retained.map(CanonicalPath.of))
+        func kept(_ path: String) -> Bool? { retained.contains(path) ? true : nil }
 
         func state(_ path: String) -> DiskItemState {
             if active.contains(path) { return .active }
@@ -143,14 +150,16 @@ public enum DiskScanner {
                 let url = URL(fileURLWithPath: entry.path)
                 let configured = cloneOfWorktree(url).flatMap { configuredClones[CanonicalPath.of($0)] }
                 items.append(DiskItem(path: entry.path, bytes: allocatedSize(url), kind: .worktrees, state: state(entry.path),
-                                      repo: configured?.repo, clone: configured?.clone, title: entry.name))
+                                      repo: configured?.repo, clone: configured?.clone, title: entry.name,
+                                      keptForTerminal: kept(entry.path)))
             }
         }
         // Worktrees de Responder (solo los que tienen nombre de PRBar).
         for dir in input.respondDirs {
             for entry in entries(of: dir.path, WorktreeResolver.isRespondWorktreeName) {
                 items.append(DiskItem(path: entry.path, bytes: allocatedSize(URL(fileURLWithPath: entry.path)), kind: .worktrees,
-                                      state: state(entry.path), repo: dir.repo, clone: dir.localPath, title: entry.name))
+                                      state: state(entry.path), repo: dir.repo, clone: dir.localPath, title: entry.name,
+                                      keptForTerminal: kept(entry.path)))
             }
         }
         // Application Support.

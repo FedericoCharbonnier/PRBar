@@ -855,11 +855,14 @@ public struct DiskItem: Codable, Equatable, Sendable, Identifiable {
     /// El clone del usuario al que pertenece el worktree (para sacarlo con git).
     public var clone: String?
     public var title: String
+    /// A finished job's folder kept for "Open in Terminal" (spec T.3): still `orphan` (Clean Up may remove it), but
+    /// shown as kept. `nil` = not kept.
+    public var keptForTerminal: Bool?
 
     public var id: String { path }
 
     public init(path: String, bytes: Int64, kind: DiskCategoryKind, state: DiskItemState, repo: String? = nil,
-                clone: String? = nil, title: String) {
+                clone: String? = nil, title: String, keptForTerminal: Bool? = nil) {
         self.path = path
         self.bytes = bytes
         self.kind = kind
@@ -867,6 +870,7 @@ public struct DiskItem: Codable, Equatable, Sendable, Identifiable {
         self.repo = repo
         self.clone = clone
         self.title = title
+        self.keptForTerminal = keptForTerminal
     }
 }
 

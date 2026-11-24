@@ -101,6 +101,26 @@ enum DiskUsageTests {
             input.now = Date()
             try expectEqual(DiskScanner.scan(input).items.first { $0.path == CanonicalPath.of(fresh.path) }?.state, .active)
         },
+        TestCase("disk: a folder kept for Terminal is tagged, stays removable, and its Clean Up title says so") {
+            let base = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: base) }
+            let layout = Layout(base: base)
+            let kept = layout.worktrees.appendingPathComponent("api-300-1700000000-deadbeef")
+            let other = layout.worktrees.appendingPathComponent("api-301-1700000000-0badf00d")
+            try write(kept.appendingPathComponent("f"), bytes: 10)
+            try write(other.appendingPathComponent("f"), bytes: 10)
+            var input = layout.input()
+            input.retained = [kept.path]
+            let usage = DiskScanner.scan(input)
+            let keptItem = try expectSome(usage.items.first { $0.path == CanonicalPath.of(kept.path) })
+            let otherItem = try expectSome(usage.items.first { $0.path == CanonicalPath.of(other.path) })
+            try expectEqual(keptItem.state, .orphan)
+            try expectEqual(keptItem.keptForTerminal, true)
+            try expectEqual(otherItem.keptForTerminal, nil)
+            let plan = DiskCleanup.plan(usage: usage, oldFiles: [], updateInProgress: false)
+            let titles = plan.candidates.map(\.displayTitle).sorted()
+            try expectEqual(titles, ["api-300-1700000000-deadbeef (kept for Terminal)", "api-301-1700000000-0badf00d"])
+        },
         TestCase("disk: el registro de workspaces anota y borra") {
             let registry = WorkspaceRegistry()
             registry.insert("/tmp/x/../a")
