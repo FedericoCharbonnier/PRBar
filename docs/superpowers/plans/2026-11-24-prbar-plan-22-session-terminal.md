@@ -2283,16 +2283,34 @@ enum TerminalApps {
                         get: { configStore.config.terminalCommand ?? "" },
                         set: { text in model.updateConfig(refresh: false) { $0.setTerminalCommand(text) } }
                     ), prompt: Text("open -na Ghostty --args -e /bin/zsh -lc {command}"))
+                    // The same check `TerminalOpener` runs before launching (empty, no {command}, quoted placeholder).
+                    if let problem = customCommandProblem(configStore.config.terminalCommand) {
+                        Text(problem).font(.caption).foregroundStyle(.red)
+                    }
                 }
             } header: {
                 Text("Claude Sessions")
             } footer: {
                 Text(configStore.config.terminal == .custom
-                     ? "{dir} is the PR’s folder, {command} runs Claude."
+                     ? "{dir} is the PR’s folder, {command} runs Claude. PRBar quotes both: don’t put them in quotes. PRBar runs the command in the background, so it should open the terminal and return."
                      : "Where the Terminal button opens Claude’s session of a PR.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+```
+
+and, in the same view:
+
+```swift
+    /// What `TerminalLauncher.validateCustomCommand` says about the Custom command (nil = fine).
+    private func customCommandProblem(_ command: String?) -> String? {
+        do {
+            try TerminalLauncher.validateCustomCommand(command ?? "")
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
 ```
 
 - [ ] **Step 5: Build and check parity for these two**
@@ -3416,7 +3434,13 @@ local folder and, for the runner rows, a runner set up in Settings › Claude �
 ## Settings and config
 - [ ] Settings › General › Claude Sessions › Terminal lists Terminal, the installed ones among iTerm, Warp, Ghostty and
       Orca, and Custom…; an uninstalled one isn't listed (unless it was the saved one).
-- [ ] Custom… shows the Command field with the help "{dir} is the PR’s folder, {command} runs Claude."
+- [ ] Custom… shows the Command field with the help "{dir} is the PR’s folder, {command} runs Claude. PRBar quotes both: don’t
+      put them in quotes. PRBar runs the command in the background, so it should open the terminal and return."
+- [ ] A Custom command with `"{command}"` or `'{dir}'` shows "Don’t put quotes around {dir} or {command}: PRBar quotes them."
+      under the field, and the Terminal button shows the same alert.
+- [ ] A Custom command that stays in the foreground (`/Applications/kitty.app/Contents/MacOS/kitty --directory {dir}
+      /bin/zsh -lc {command}`, or `alacritty --working-directory {dir} -e /bin/zsh -lc {command}`) opens the session, and
+      it is still alive more than 30 s later.
 - [ ] `prbar config set terminal ghostty` changes the picker; `prbar config show` shows `"terminal": "ghostty"`.
 - [ ] `prbar config set terminal-command "open -a Terminal"` fails (no `{command}`); with `{command}` it saves.
 - [ ] An old `config.json` without these keys opens with Terminal.
@@ -3430,6 +3454,8 @@ local folder and, for the runner rows, a runner set up in Settings › Claude �
 - [ ] After `/exit` the window stays open with a shell in the folder.
 - [ ] Orca with a repo not added in Orca: alert "This folder isn’t in Orca. Add the repo in Orca or choose another
       terminal." with "Open Settings" (opens Settings › General).
+- [ ] Orca with a repo whose local folder has a non-ASCII character (e.g. `~/Code/café`, added in Orca): the kept
+      worktree under it opens in Orca (the `--worktree=path:…` selector matches; no "isn’t in Orca" alert).
 - [ ] An uninstalled terminal saved in config (edit config.json): alert "<name> isn’t installed…".
 - [ ] Publish the review: the folder is still there (`prbar session list <pr>` still lists the stages).
 - [ ] Review the same PR again: the new review's sessions replace the old; the old folder is gone. Repeat with a
