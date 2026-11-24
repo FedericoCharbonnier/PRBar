@@ -324,6 +324,7 @@ final class AppModel: ObservableObject {
             self?.merges.prune(keeping: Set(snapshot.items.map(\.id)))
             self?.reviews.dropOutdatedPublished(
                 heads: Dictionary(snapshot.items.map { ($0.id, $0.pr.headOid) }, uniquingKeysWith: { first, _ in first }))
+            self?.dropRespondRunsWithNewFeedback(snapshot)
             self?.updateMergeSessions(snapshot)
             self?.pruneRetainedWorktrees(snapshot)
         }
@@ -1097,6 +1098,16 @@ final class AppModel: ObservableObject {
         ConfirmAlert.present(title: RespondDiscardCopy.title,
                              message: RespondDiscardCopy.message(worktree: respond.records[item.id]?.draft.worktree.path),
                              action: "Discard and Start Over", perform: restart)
+    }
+
+    /// A finished Respond / Fix CI with feedback after it goes back to idle: the tab shows the new comments and
+    /// Start Respond instead of the old "Responded" (the run stays in History).
+    private func dropRespondRunsWithNewFeedback(_ snapshot: Snapshot) {
+        var latest: [String: Date] = [:]
+        for item in snapshot.items where PopoverTabs.isMine(item) {
+            if let date = ActionClassifier.latestFeedbackAt(item.pr, me: item.account) { latest[item.id] = date }
+        }
+        for prID in respond.finishedRunsWithNewFeedback(latestFeedback: latest) { dismissRespond(prID: prID) }
     }
 
     func dismissRespond(prID: String) {

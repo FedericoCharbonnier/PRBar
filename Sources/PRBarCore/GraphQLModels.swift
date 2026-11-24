@@ -35,6 +35,7 @@ enum Queries {
             }
           }
           reviews(last: 50) { nodes { databaseId state body submittedAt url author { login __typename } } }
+          comments(last: 50) { nodes { databaseId body createdAt url author { login __typename } } }
         }
       }
     }
@@ -347,6 +348,7 @@ struct PRFeedbackNode: Decodable {
     let commits: Nodes<CommitWrapper>
     let reviewThreads: ThreadConnection
     let reviews: Nodes<ReviewNode>
+    let comments: Nodes<CommentNode>?
 
     func toFeedback() -> PRFeedback {
         let threads = reviewThreads.nodes.compactMap { node -> FeedbackItem? in
@@ -371,10 +373,17 @@ struct PRFeedbackNode: Decodable {
             let item = FeedbackItem(id: "review:\(id)", kind: .reviewBody, path: nil, line: nil, isOutdated: false, comments: [comment])
             return FeedbackReview(item: item, state: state, submittedAt: submittedAt)
         }
+        let conversation = (comments?.nodes ?? []).compactMap { node -> FeedbackItem? in
+            guard let node, let id = node.databaseId else { return nil }
+            let comment = FeedbackComment(
+                databaseID: id, author: node.author?.login ?? "ghost", isBot: node.author?.isBot ?? false,
+                body: node.body, createdAt: node.createdAt, url: node.url)
+            return FeedbackItem(id: "comment:\(id)", kind: .conversation, path: nil, line: nil, isOutdated: false, comments: [comment])
+        }
         let lastCommit = commits.nodes.compactMap { $0 }.last?.commit.committedDate
         return PRFeedback(
             headRefName: headRefName, headRefOid: headRefOid, isCrossRepository: isCrossRepository,
-            lastCommitAt: lastCommit ?? .distantPast, threads: threads, reviews: reviewBodies)
+            lastCommitAt: lastCommit ?? .distantPast, threads: threads, reviews: reviewBodies, conversation: conversation)
     }
 }
 

@@ -19,7 +19,10 @@ private let feedbackJSON = """
   {"id":"PRRT_3","isResolved":false,"isOutdated":false,"path":"c.rb","line":2,"comments":{"nodes":[]}}]},
  "reviews":{"nodes":[
   {"databaseId":900,"state":"CHANGES_REQUESTED","body":"Falta manejar errores","submittedAt":"2026-11-18T10:00:00Z","url":"https://github.com/o/r/pull/7#pullrequestreview-900","author":{"login":"ana","__typename":"User"}},
-  {"databaseId":null,"state":"PENDING","body":"","submittedAt":null,"url":"https://github.com/o/r/pull/7#pullrequestreview-0","author":{"login":"me","__typename":"User"}}]}
+  {"databaseId":null,"state":"PENDING","body":"","submittedAt":null,"url":"https://github.com/o/r/pull/7#pullrequestreview-0","author":{"login":"me","__typename":"User"}}]},
+ "comments":{"nodes":[
+  {"databaseId":501,"body":"¿Probaste vacío?","createdAt":"2026-11-18T11:00:00Z","url":"https://github.com/o/r/pull/7#issuecomment-501","author":{"login":"luis","__typename":"User"}},
+  {"databaseId":null,"body":"x","createdAt":"2026-11-18T11:01:00Z","url":"https://github.com/o/r/pull/7#issuecomment-0","author":null}]}
 }}}}
 """
 
@@ -45,6 +48,16 @@ enum FeedbackAPITests {
             try expectEqual(second.line, nil)
             try expectEqual(second.comments.map(\.author), ["codecov", "ghost"])
             try expectEqual(second.comments.map(\.isBot), [true, false])
+        },
+        TestCase("feedback api: mapea los comentarios generales del PR") {
+            let transport = FakeTransport([(200, [:], feedbackJSON)])
+            let feedback = try await GitHubClient(transport: transport).reviewFeedback(repo: repo, number: 7, token: "tok")
+            try expectEqual(feedback.conversation.map(\.id), ["comment:501"])
+            let general = feedback.conversation[0]
+            try expectEqual(general.kind, .conversation)
+            try expectEqual(general.reviewer, "luis")
+            try expectEqual(general.comments[0].body, "¿Probaste vacío?")
+            try expectEqual(general.replyToCommentID, nil)
         },
         TestCase("feedback api: mapea cuerpos de review y descarta los pendientes") {
             let transport = FakeTransport([(200, [:], feedbackJSON)])

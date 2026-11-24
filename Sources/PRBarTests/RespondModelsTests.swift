@@ -28,6 +28,15 @@ private func select(
     FeedbackFilter.select(threads: threads, reviewBodies: reviews, me: "me", lastCommitAt: lastCommitAt).map(\.id)
 }
 
+private func general(_ id: Int, _ author: String, bot: Bool = false, body: String = "¿Probaste vacío?", at offset: TimeInterval = 100) -> FeedbackItem {
+    FeedbackItem(id: "comment:\(id)", kind: .conversation, path: nil, line: nil, isOutdated: false,
+                 comments: [comment(id, author, bot: bot, body: body, at: offset)])
+}
+
+private func selectConversation(_ conversation: [FeedbackItem], lastCommitAt: Date = feedbackEpoch) -> [String] {
+    FeedbackFilter.select(threads: [], reviewBodies: [], conversation: conversation, me: "me", lastCommitAt: lastCommitAt).map(\.id)
+}
+
 private func respondItem(_ action: FeedbackAction) -> RespondItem {
     RespondItem(
         feedback: thread("x", [comment(1, "ana")]), assessment: "ok", action: action, fixPlan: "cambiar X", reply: "Respuesta de Claude")
@@ -66,6 +75,30 @@ enum RespondModelsTests {
         TestCase("feedback filter: hilos primero, después reviews") {
             let ids = select(threads: [thread("a", [comment(1, "ana")])], reviews: [reviewBody(9, "ana")])
             try expectEqual(ids, ["thread:a", "review:9"])
+        },
+        TestCase("feedback filter: comentarios generales de otros, con texto y posteriores al último commit") {
+            let before = general(1, "ana", at: 10)
+            let bot = general(2, "codecov", bot: true)
+            let mine = general(3, "me", at: 20)
+            let empty = general(4, "ana", body: " \n ")
+            let after = general(5, "ana", at: 100)
+            try expectEqual(selectConversation([before, bot, mine, empty, after], lastCommitAt: feedbackEpoch.addingTimeInterval(50)),
+                            ["comment:5"])
+        },
+        TestCase("feedback filter: un comentario general que ya respondí (mío después) no vuelve") {
+            let answered = general(1, "ana", at: 100)
+            let reply = general(2, "ME", at: 200)
+            let newer = general(3, "luis", at: 300)
+            try expectEqual(selectConversation([newer, reply, answered]), ["comment:3"])
+        },
+        TestCase("feedback filter: hilos, después reviews, después comentarios generales") {
+            let feedback = PRFeedback(
+                headRefName: "f", headRefOid: "abc", isCrossRepository: false, lastCommitAt: feedbackEpoch,
+                threads: [thread("a", [comment(1, "ana")])],
+                reviews: [FeedbackReview(item: reviewBody(9, "ana").item, state: .changesRequested,
+                                         submittedAt: feedbackEpoch.addingTimeInterval(100))],
+                conversation: [general(20, "luis", at: 300), general(10, "ana", at: 150)])
+            try expectEqual(FeedbackFilter.select(feedback, me: "me").map(\.id), ["thread:a", "review:9", "comment:10", "comment:20"])
         },
         TestCase("respond selection: valores por defecto según la acción") {
             let fix = RespondSelection.defaults(for: respondItem(.fix))

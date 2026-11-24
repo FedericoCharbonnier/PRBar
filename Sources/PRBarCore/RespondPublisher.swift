@@ -211,7 +211,7 @@ public struct RespondPublisher: Sendable {
                     }
                     url = try await api.replyToReviewComment(repo: draft.repo, number: draft.number, commentID: commentID,
                                                              body: text, token: token)
-                case .reviewBody:
+                case .reviewBody, .conversation:
                     url = try await api.addIssueComment(repo: draft.repo, number: draft.number,
                                                         body: Self.reviewBodyReply(item.feedback, text: text), token: token)
                 case .ciChecks:

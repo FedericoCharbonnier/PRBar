@@ -78,7 +78,9 @@ private struct RespondStartView: View {
     let mode: RespondMode
 
     var body: some View {
-        if let item = model.currentItem(prID) {
+        if let item = model.currentItem(prID), mode == .feedback {
+            feedbackStart(item)
+        } else if let item = model.currentItem(prID) {
             VStack(alignment: .leading, spacing: 0) {
                 RespondItemHeaderView(item: item, mode: mode)
                 Divider()
@@ -136,6 +138,62 @@ private struct RespondStartView: View {
             MessageView(icon: "questionmark.folder", title: "This PR is no longer in your list",
                         text: "There’s nothing to respond to or fix.")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    /// Respond (not Fix CI): the comments Claude will answer, then Start Respond and the previous run (spec R.2).
+    private func feedbackStart(_ item: ClassifiedPR) -> some View {
+        let reason = unavailableReason(item)
+        let previous = model.lastFinishedRespond(prID: prID)
+        return VStack(alignment: .leading, spacing: 0) {
+            RespondItemHeaderView(item: item, mode: mode)
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Claude reads these comments and proposes fixes and replies. You choose what to do before anything is pushed.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    RespondFeedbackList(model: model, item: item)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            Divider()
+            VStack(spacing: 8) {
+                if case .failed(let message, let logURL)? = model.respond.phases[prID] {
+                    HStack(spacing: 8) {
+                        ErrorBanner(messages: [message])
+                        if let logURL {
+                            Button("Show Log") { NSWorkspace.shared.open(logURL) }
+                                .controlSize(.small)
+                        }
+                    }
+                }
+                HStack(spacing: 12) {
+                    if let previous {
+                        Button("Previous run: \(previous.draft.isCIFix ? "CI fix" : "Responded") \(ReviewDates.ago(previous.finishedAt ?? previous.startedAt)) ›") {
+                            model.openHistory(selecting: previous.id)
+                        }
+                        .buttonStyle(.link)
+                        .font(.callout)
+                        .help("Open the previous run in History")
+                    }
+                    Spacer()
+                    if let reason {
+                        Text(reason).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    }
+                    Button("Start Respond") { model.startRespond(item) }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                        .keyboardShortcut(.return, modifiers: .command)
+                        .disabled(reason != nil)
+                        .help(reason ?? "Respond to the comments with Claude")
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
         }
     }
 

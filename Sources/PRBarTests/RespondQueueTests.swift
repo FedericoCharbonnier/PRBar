@@ -284,6 +284,19 @@ private final class Harness {
 
 enum RespondQueueTests {
     static let cases: [TestCase] = [
+        TestCase("respond queue: una corrida terminada con feedback posterior vuelve a idle; antes o sin feedback, no") { @MainActor in
+            let h = try Harness()
+            try await h.toReadyToPush(1)
+            try expectEqual(h.queue.finishedRunsWithNewFeedback(latestFeedback: [prID(1): .distantFuture]), [])   // sin pushear
+            h.queue.publish(prID: prID(1))
+            try await h.events.wait(for: reached(1, "done"))
+            guard case .done(let record)? = h.queue.phases[prID(1)], let finished = record.finishedAt else {
+                throw TestFailure(description: "esperaba .done con finishedAt")
+            }
+            try expectEqual(h.queue.finishedRunsWithNewFeedback(latestFeedback: [:]), [])
+            try expectEqual(h.queue.finishedRunsWithNewFeedback(latestFeedback: [prID(1): finished.addingTimeInterval(-60)]), [])
+            try expectEqual(h.queue.finishedRunsWithNewFeedback(latestFeedback: [prID(1): finished.addingTimeInterval(60)]), [prID(1)])
+        },
         TestCase("respond queue: transiciones felices y registro guardado en cada una") { @MainActor in
             let h = try Harness()
             h.queue.analyze(classified(1), localPath: "/repos/r", worktreeDir: nil)

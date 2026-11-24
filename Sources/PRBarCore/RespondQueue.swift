@@ -381,6 +381,17 @@ public final class RespondQueue: ObservableObject {
         scheduler.cancelAll()
     }
 
+    /// Los PRs cuya corrida terminó (`done`) y recibieron feedback después (`latestFeedback`: la fecha del último
+    /// feedback de otra persona por PR): la app los vuelve a idle con `dismiss` para que la pestaña muestre lo nuevo y
+    /// Start Respond. Una corrida en curso, lista para elegir o con trabajo sin pushear no aparece.
+    public func finishedRunsWithNewFeedback(latestFeedback: [String: Date]) -> [String] {
+        phases.compactMap { prID, phase in
+            guard case .done(let record) = phase, jobs[prID] == nil, cancelling[prID] == nil,
+                  let latest = latestFeedback[prID], latest > (record.finishedAt ?? record.startedAt) else { return nil }
+            return prID
+        }.sorted()
+    }
+
     /// Vuelve a idle, olvida el registro (queda en el historial) y borra el worktree de PRBar. No toca un PR con
     /// un job.
     public func dismiss(prID: String) {

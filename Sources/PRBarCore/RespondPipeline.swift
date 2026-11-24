@@ -255,10 +255,7 @@ public struct RespondPipeline: RespondPipelineRunning {
         let token = try await tokens.token(for: item.account)
         let feedback = try await api.reviewFeedback(repo: pr.repo, number: pr.number, token: token)
         if feedback.isCrossRepository { throw PRBarError.respond(Self.forkMessage) }
-        let items = FeedbackFilter.select(
-            threads: feedback.threads,
-            reviewBodies: feedback.reviews.map { ($0.item, $0.state, $0.submittedAt) },
-            me: item.account, lastCommitAt: feedback.lastCommitAt)
+        let items = FeedbackFilter.select(feedback, me: item.account)
         guard !items.isEmpty else { throw PRBarError.respond(Self.noItemsMessage) }
         // On demand (the refresh doesn't bring it): context for Claude and the language of the replies.
         let description = try await ReviewPipeline.description(of: pr, api: api, token: token)

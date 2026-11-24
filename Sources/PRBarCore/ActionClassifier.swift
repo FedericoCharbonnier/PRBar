@@ -50,6 +50,17 @@ public enum ActionClassifier {
         return summary(reviews: reviews, comments: comments)
     }
 
+    /// La fecha del último feedback de otra persona (no bot): review con cambios pedidos o comentarios, o comentario
+    /// general. Decide si una corrida de Respond terminada quedó vieja (`RespondQueue.finishedRunsWithNewFeedback`).
+    public static func latestFeedbackAt(_ pr: PullRequest, me: String) -> Date? {
+        let me = me.lowercased()
+        let reviews = pr.reviews.filter {
+            !$0.isBot && $0.author.lowercased() != me && ($0.state == .changesRequested || $0.state == .commented)
+        }.map(\.submittedAt)
+        let comments = pr.comments.filter { !$0.isBot && $0.author.lowercased() != me }.map(\.createdAt)
+        return (reviews + comments).max()
+    }
+
     /// El feedback nuevo que todavía impide Ready to Merge (spec F.8.18): sin lo de quien aprobó después (su última
     /// aprobación es posterior) ni los comentarios que ya respondí con un comentario mío posterior. Solo decide
     /// Ready to Merge: My PRs with Feedback sigue usando `newFeedback`.

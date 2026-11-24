@@ -57,11 +57,14 @@ public struct PRFeedback: Equatable, Sendable {
     public let lastCommitAt: Date
     public let threads: [FeedbackItem]
     public let reviews: [FeedbackReview]
+    /// Los comentarios generales del PR (`conversation`), todos (también los míos: `FeedbackFilter` los usa).
+    public let conversation: [FeedbackItem]
 
     public init(
         headRefName: String, headRefOid: String, isCrossRepository: Bool, lastCommitAt: Date,
-        threads: [FeedbackItem], reviews: [FeedbackReview]
+        threads: [FeedbackItem], reviews: [FeedbackReview], conversation: [FeedbackItem] = []
     ) {
+        self.conversation = conversation
         self.headRefName = headRefName
         self.headRefOid = headRefOid
         self.isCrossRepository = isCrossRepository

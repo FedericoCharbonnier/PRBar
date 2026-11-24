@@ -20,9 +20,10 @@ public struct FeedbackComment: Codable, Equatable, Sendable {
 
 public struct FeedbackItem: Codable, Equatable, Sendable, Identifiable {
     /// `ciChecks`: los checks fallidos de un Fix CI (spec K.6.2); sus "comentarios" son los checks.
-    public enum Kind: String, Codable, Sendable { case thread, reviewBody, ciChecks }
+    /// `conversation`: un comentario general del PR (la pestaña Conversation de GitHub), no de una línea.
+    public enum Kind: String, Codable, Sendable { case thread, reviewBody, ciChecks, conversation }
 
-    /// "thread:<nodeID>" | "review:<databaseID>" | "ci:<headOid>"
+    /// "thread:<nodeID>" | "review:<databaseID>" | "ci:<headOid>" | "comment:<databaseID>"
     public let id: String
     public let kind: Kind
     public let path: String?
@@ -30,7 +31,7 @@ public struct FeedbackItem: Codable, Equatable, Sendable, Identifiable {
     public let isOutdated: Bool
     /// Solo para hilos: GitHub lo marca como resuelto. `FeedbackFilter` descarta esos hilos.
     public let isResolved: Bool
-    /// Hilo completo, en orden; para `reviewBody`, uno solo.
+    /// Hilo completo, en orden; para `reviewBody` y `conversation`, uno solo.
     public let comments: [FeedbackComment]
 
     public init(id: String, kind: Kind, path: String?, line: Int?, isOutdated: Bool, isResolved: Bool = false, comments: [FeedbackComment]) {

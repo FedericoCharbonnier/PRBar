@@ -7,6 +7,13 @@ private func classify(_ pr: PullRequest, me: String = "me", watching: Set<String
 
 enum ClassifierTests {
     static let cases: [TestCase] = [
+        TestCase("latest feedback: la review o el comentario más reciente de otra persona (sin bots, sin los míos ni aprobaciones)") {
+            let pr = makePR(author: "me", reviews: [review("ana", .changesRequested, at: 10), review("luis", .approved, at: 90),
+                                                    review("me", .commented, at: 95), review("bot", .commented, at: 99, bot: true)],
+                            comments: [comment("ana", at: 30), comment("ME", at: 80), comment("ci", at: 98, bot: true)])
+            try expectEqual(ActionClassifier.latestFeedbackAt(pr, me: "me"), at(30))
+            try expectEqual(ActionClassifier.latestFeedbackAt(makePR(author: "me"), me: "me"), nil)
+        },
         TestCase("classifier: autor no seguido y sin pedido de review → irrelevante") {
             try expectEqual(classify(makePR(author: "otro")), nil)
         },

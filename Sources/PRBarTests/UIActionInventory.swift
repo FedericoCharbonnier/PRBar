@@ -247,6 +247,11 @@ enum UIActionInventory {
         .init("Respond/RespondPane.swift", "Button", "-", 5, .cli(["respond push", "ci push", "respond diff", "chat", "open"])),   // Push & Reply / Push, file chips (diff), Undo (chat /undo), Show Worktree in Finder, a message's action
         .init("Respond/RespondPane.swift", "Button", "Push Anyway…", 2, .cli(["respond push", "ci push"])),   // --anyway (tests failed / CI passes now)
         .init("Respond/RespondPane.swift", "Button", "Fix CI", 1, .cli(["ci fix"])),   // or "Fix CI Again"
+        .init("Respond/RespondPane.swift", "Button", "Start Respond", 1, .cli(["respond start"])),   // with the comments list (spec R.2)
+        .init("Respond/RespondPane.swift", "Button", #"Previous run: \(previous.draft.isCIFix ? "#, 1, .cli(["history show"])),
+        .init("Respond/RespondFeedbackList.swift", "Button", "Retry", 1, .viewOnly("loads the comments list again")),
+        .init("Respond/RespondFeedbackList.swift", "Button", "Show Less", 1, .viewOnly("expands a long comment")),   // or "Show More"
+        .init("Respond/RespondFeedbackList.swift", "ExternalLink", "GitHub", 1, .cli(["open"])),   // the comment on GitHub
         .init("Respond/RespondPane.swift", "Button", "Start Fix CI", 1, .cli(["ci fix", "respond start"])),   // or "Start Respond"
         .init("Respond/RespondPane.swift", "ExternalLink", "Details", 1, .cli(["ci show"])),   // the check's details URL
         .init("Respond/RespondPane.swift", "Component:CIPassingBanner", "-", 1, .cli(["ci push"])),   // --anyway
@@ -261,7 +266,7 @@ enum UIActionInventory {
         .init("Respond/RespondPane.swift", "Button", "Close", 2, .viewOnly("closes a PR window; hidden in the main window's tab")),
         .init("Respond/RespondPane.swift", "Button", "Go to Respond", 1, .viewOnly("navigation in the main window")),   // or "Go to Fix CI"
         .init("Respond/RespondPane.swift", "Button", "Open Log", 1, .viewOnly("opens Claude's log of the run")),
-        .init("Respond/RespondPane.swift", "Button", "Show Log", 1, .viewOnly("opens Claude's log of the failed run")),
+        .init("Respond/RespondPane.swift", "Button", "Show Log", 2, .viewOnly("opens Claude's log of the failed run")),
         .init("Respond/RespondPane.swift", "Picker", "Show", 1, .viewOnly("Diff · Tests · Log; `prbar respond|ci diff` and `test` print them")),
         .init("Respond/RespondPane.swift", "DisclosureGroup", "-", 2, .viewOnly("test output and what Claude saw of a failing check; `prbar respond|ci show --full` prints them")),
         .init("Respond/RespondPane.swift", "ExternalLink", "View Reply", 1, .cli(["respond show"])),
