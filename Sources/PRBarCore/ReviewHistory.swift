@@ -18,11 +18,13 @@ public struct ReviewRecord: Codable, Equatable, Sendable, Identifiable {
     public var kind: String = "review"   // "respond" en el Plan 3
     /// La pidió un iPhone (spec M.4); nil = desde la Mac o un registro viejo.
     public var requestedOnPhone: Bool?
+    /// The Claude sessions of the review's stages (spec T.2). Nil in older records (synthesized decoding: optional).
+    public var sessions: [ClaudeSessionRef]?
 
     public init(
         draft: ReviewDraft, startedAt: Date, finishedAt: Date? = nil, status: Status, errorMessage: String? = nil,
         published: [String: String] = [:], generalComment: String? = nil, action: Action = .none,
-        reviewURL: URL? = nil, kind: String = "review", requestedOnPhone: Bool? = nil
+        reviewURL: URL? = nil, kind: String = "review", requestedOnPhone: Bool? = nil, sessions: [ClaudeSessionRef]? = nil
     ) {
         self.draft = draft
         self.startedAt = startedAt
@@ -35,6 +37,7 @@ public struct ReviewRecord: Codable, Equatable, Sendable, Identifiable {
         self.reviewURL = reviewURL
         self.kind = kind
         self.requestedOnPhone = requestedOnPhone
+        self.sessions = sessions
     }
 }
 

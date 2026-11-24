@@ -56,11 +56,13 @@ public struct RespondRecord: Codable, Equatable, Sendable, Identifiable {
     public var usage: ClaudeUsage?
     /// La pidió un iPhone (spec M.4); nil = desde la Mac o un registro viejo.
     public var requestedOnPhone: Bool?
+    /// The Claude sessions of the fixes or the Fix CI (spec T.2). Nil in older history files.
+    public var sessions: [ClaudeSessionRef]?
 
     public init(draft: RespondDraft, selections: [String: RespondSelection] = [:], result: RespondResult? = nil,
                 posted: [String: PostedReply] = [:], pushed: Bool = false, startedAt: Date, finishedAt: Date? = nil,
                 errorMessage: String? = nil, chat: ChatSession? = nil, usage: ClaudeUsage? = nil,
-                requestedOnPhone: Bool? = nil) {
+                requestedOnPhone: Bool? = nil, sessions: [ClaudeSessionRef]? = nil) {
         self.draft = draft
         self.selections = selections
         self.result = result
@@ -72,10 +74,12 @@ public struct RespondRecord: Codable, Equatable, Sendable, Identifiable {
         self.chat = chat
         self.usage = usage
         self.requestedOnPhone = requestedOnPhone
+        self.sessions = sessions
     }
 
     private enum CodingKeys: String, CodingKey {
         case draft, selections, result, posted, pushed, startedAt, finishedAt, errorMessage, chat, usage, requestedOnPhone
+        case sessions
     }
 
     /// The run and its chat (spec O.4.4); nil if neither has data (older history files).
@@ -95,6 +99,7 @@ public struct RespondRecord: Codable, Equatable, Sendable, Identifiable {
         chat = (try? c.decodeIfPresent(ChatSession.self, forKey: .chat)) ?? nil
         usage = (try? c.decodeIfPresent(ClaudeUsage.self, forKey: .usage)) ?? nil
         requestedOnPhone = try c.decodeIfPresent(Bool.self, forKey: .requestedOnPhone)
+        sessions = (try? c.decodeIfPresent([ClaudeSessionRef].self, forKey: .sessions)) ?? nil
     }
 }
 

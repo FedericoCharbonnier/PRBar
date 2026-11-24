@@ -232,12 +232,15 @@ public struct ItemResult: Codable, Equatable, Sendable {
     public let status: Status
     public let commit: String?
     public let summary: String
+    /// The Claude Code session of this fix (spec T.2); nil if Claude never started or in older records.
+    public var session: ClaudeSessionStamp?
 
-    public init(id: String, status: Status, commit: String?, summary: String) {
+    public init(id: String, status: Status, commit: String?, summary: String, session: ClaudeSessionStamp? = nil) {
         self.id = id
         self.status = status
         self.commit = commit
         self.summary = summary
+        self.session = session
     }
 }
 
