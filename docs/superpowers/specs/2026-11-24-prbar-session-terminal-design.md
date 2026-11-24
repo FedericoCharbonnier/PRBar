@@ -41,6 +41,10 @@ Fecha: 2026-11-24. Plan: `2026-11-24-prbar-plan-22-session-terminal.md`.
 - Al **publicar** una review y al **pushear** fixes (Respond o Fix CI), la carpeta ya no se borra: queda registrada como
   **conservada** para `(PR, tipo)` con tipo `review` o `respond` (Respond y Fix CI comparten la carpeta del branch).
   El registro vive en Application Support (`retained-worktrees.json`) y sobrevive a reiniciar PRBar.
+- La carpeta de la review hoy se borra apenas termina Claude, antes de publicar. Por eso se conserva **al terminar bien
+  la review** (publicada después o no): es la carpeta de la última review del PR. Una review que falla se limpia como
+  hoy (sus sesiones quedan en el registro, pero no se ofrecen).
+- Al mergear o cerrar el PR también se mira `lsof`: una carpeta con un proceso adentro queda para Clean Up.
 - Una carpeta conservada se borra:
   1. cuando el PR se **mergea o se cierra** (la misma pasada que hoy limpia worktrees que sobran);
   2. cuando un trabajo **nuevo del mismo tipo** del mismo PR deja otra carpeta conservada; si en la vieja hay un proceso
@@ -72,16 +76,21 @@ Fecha: 2026-11-24. Plan: `2026-11-24-prbar-plan-22-session-terminal.md`.
   - Runner: `ssh -t <destino del runner> "cd '<carpeta>' && '<claude del runner>' --resume <id>"`, con las mismas
     opciones de conexión que `SSHCommand`.
   - Todo valor va entre comillas simples con escape (`ShellQuote`); el ID se valida como UUID.
-- `TerminalLauncher` lo abre según la terminal elegida:
-  - **Terminal** e **iTerm**: un script `.command` ejecutable en Application Support (`terminal/`, se borran los de
-    más de un día) abierto con `open -a <app>`; no pide permiso de automatización.
-  - **Ghostty**: `open -na Ghostty --args --working-directory=<carpeta> -e /bin/zsh -lc <comando>`.
-  - **Warp**: una launch configuration en `~/.warp/launch_configurations/prbar-session.yaml`, abierta con
-    `warp://launch/prbar-session.yaml`.
-  - **Orca**: su CLI (`orca`), abriendo una terminal en la carpeta con el comando.
+- `TerminalLauncher` lo abre según la terminal elegida (verificado en esta Mac el 2026-11-24, con una carpeta con
+  espacios en la ruta):
+  - **Terminal**, **iTerm**, **Warp** y **Ghostty**: un script `.command` ejecutable (`#!/bin/zsh`,
+    `cd '<carpeta>' && <comando>` y después `exec /bin/zsh -l`, para que la ventana quede abierta al salir de Claude)
+    en Application Support (`terminal/`, modo 755; los de más de un día se borran en cada apertura), abierto con
+    `open -a <app>` (`Terminal`, `iTerm`, `Warp`, `Ghostty`). No pide permiso de automatización y Warp no necesita
+    una launch configuration. Instaladas según su bundle id: `com.apple.Terminal`, `com.googlecode.iterm2`,
+    `dev.warp.Warp-Stable`, `com.mitchellh.ghostty`.
+  - **Orca** (`com.stablyai.orca`): `orca terminal create --worktree "path:<carpeta>" --title "<título>"
+    --command "<comando>" --focus --json` (el binario está en `/Applications/Orca.app/Contents/Resources/bin/orca`).
+    Solo funciona si la carpeta es un worktree de un repo agregado en Orca (`orca repo list`); si no, contesta
+    `"ok": false` con `"code": "selector_not_found"` y PRBar avisa "This folder isn’t in Orca. Add the repo in Orca or
+    choose another terminal." Para una sesión de un runner, la carpeta es la carpeta local del repo (Settings › Repos) y
+    el comando, el de `ssh`.
   - **Custom**: un comando con `{dir}` y `{command}` (ya entre comillas), corrido con `/bin/sh -c`.
-  - La forma exacta de cada una se verifica primero en el plan (spike). Si alguna no se puede abrir de forma confiable,
-    se avisa al usuario antes de seguir.
 - Si la terminal elegida no está instalada o falla al abrir: una alerta con el error y "Open Settings". La CLI sale con
   el mensaje y exit 1.
 
