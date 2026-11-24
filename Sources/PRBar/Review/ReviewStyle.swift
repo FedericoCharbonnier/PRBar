@@ -119,9 +119,18 @@ struct PRReferenceLine: View {
     }
 }
 
+/// Escrito a mano en vez de `@Entry`: esa macro necesita Xcode y PRBar tiene que compilar solo con las
+/// Command Line Tools (el Update de la app compila desde el código).
+private struct ShowsPRReferenceKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
 extension EnvironmentValues {
     /// Whether the PR headers start with `owner/repo #N` (not in a PR window, whose title already has it).
-    @Entry var showsPRReference = true
+    var showsPRReference: Bool {
+        get { self[ShowsPRReferenceKey.self] }
+        set { self[ShowsPRReferenceKey.self] = newValue }
+    }
 }
 
 /// Link a una página web con la flecha ↗: sigue el color de acento del sistema y muestra la mano solo acá.
