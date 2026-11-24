@@ -233,6 +233,8 @@ export function decodeCommand(data: Uint8Array | string): AppCommand {
 
 export type PolicyDecision = "allowed" | "gated";
 
+// Mac-only (denied in RemotePolicy.swift, so never phone commands): sessionList, sessionOpen, setTerminal and
+// setTerminalCommand open or choose a terminal on the Mac (spec T.4).
 /** Los comandos que pueden pedir Face ID, en el orden de `AppCommand.Name.allCases` (`RemotePolicy.gatedNames`). */
 export const GATED_NAMES: readonly PhoneCommandName[] = [
   "reviewPublish", "respondTest", "respondPush", "respondPushAnyway", "respondReplyOnly", "merge",
