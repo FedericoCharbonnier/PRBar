@@ -164,7 +164,9 @@ private final class SnapshotSession {
             discardStats: DiscardStatsStore(fileURL: dir.appendingPathComponent("discard-stats.json")),
             mergeHistory: MergeHistory(historyDir: historyDir),
             popoverDefaults: nil,   // the popover's tab only in memory: the user's UserDefaults aren't touched
-            usageLedger: ledger
+            usageLedger: ledger,
+            // Nothing outside the snapshot folder (spec T.3's file included).
+            retainedWorktrees: RetainedWorktreeStore(fileURL: dir.appendingPathComponent("retained-worktrees.json"))
         )
         let model = AppModel(services: services, startsServices: false)
         model.applySnapshotState(tools: SnapshotFixtures.tools, ghAccounts: SnapshotFixtures.ghAccounts, launchAtLogin: true)

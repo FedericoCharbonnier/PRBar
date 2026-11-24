@@ -1121,3 +1121,33 @@ public struct RemotePairResult: Codable, Equatable, Sendable {
         self.device = device
     }
 }
+
+// MARK: - Sesiones de Claude (spec T.4)
+
+/// One of the PR's Claude sessions PRBar offers (`prbar session list`).
+public struct ClaudeSessionInfo: Codable, Equatable, Sendable {
+    /// From 1, in the order of `prbar session list` (what `--run` takes).
+    public var number: Int
+    public var label: String
+    /// `review`, `fix` or `ci-fix`.
+    public var kind: String
+    /// `this Mac` or the runner's name.
+    public var machine: String
+    public var directory: String
+    public var startedAt: Date
+    public var sessionID: String
+    /// PRBar is running something in that folder: it can't be opened now.
+    public var busy: Bool
+
+    public init(number: Int, label: String, kind: String, machine: String, directory: String, startedAt: Date,
+                sessionID: String, busy: Bool) {
+        self.number = number
+        self.label = label
+        self.kind = kind
+        self.machine = machine
+        self.directory = directory
+        self.startedAt = startedAt
+        self.sessionID = sessionID
+        self.busy = busy
+    }
+}

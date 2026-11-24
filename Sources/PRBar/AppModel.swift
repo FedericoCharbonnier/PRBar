@@ -55,6 +55,8 @@ struct AppModelServices {
     var usageLedger: UsageLedger? = nil
     /// El acceso desde el iPhone (spec Q). `nil`: sin red ni llavero (el modo de capturas).
     var remoteAccess: RemoteServiceEnvironment? = nil
+    /// `nil`: `retained-worktrees.json` in Application Support (spec T.3).
+    var retainedWorktrees: RetainedWorktreeStore? = nil
 
     static func live(runner: SystemProcessRunner) -> AppModelServices {
         let accounts = AccountProvider(runner: runner, ghPath: nil)
@@ -144,6 +146,14 @@ final class AppModel: ObservableObject {
     )
     /// Corridas de "Responder" (spec §14), en `history/respond/`.
     let respondHistory: RespondHistory
+    /// The folders kept for "Open in Terminal" (spec T.3), saved in `retainedStore`. Changed only through
+    /// `AppModel+Sessions` (`setRetained`), which saves it.
+    @Published var retainedWorktrees: [RetainedWorktree] = []
+    let retainedStore: RetainedWorktreeStore
+    /// The merged/closed check of kept folders in flight (one at a time).
+    var retainedPrune: Task<Void, Never>?
+    /// When each PR that left the list was last asked about (`RetainedWorktreeRules.stateCheckInterval`).
+    var retainedCheckedAt: [String: Date] = [:]
     /// Rules, suggestion decisions and the instructions chat (spec E).
     let instructions: InstructionsStore
     /// The findings the user discards when posting (spec E.4).
@@ -157,7 +167,8 @@ final class AppModel: ObservableObject {
             context: { [weak self] account, repo in self?.jobContext(account: account, repo: repo) ?? .closed }
         ),
         history: respondHistory,
-        onEvent: { [weak self] prID, phase in self?.respondEvent(prID: prID, phase: phase) }
+        onEvent: { [weak self] prID, phase in self?.respondEvent(prID: prID, phase: phase) },
+        onRetain: { [weak self] record in self?.retainRespond(record) }
     )
     /// Actualizaciones (spec D). `lazy` por lo mismo que `reviews`: sus closures capturan `self` (débil).
     private(set) lazy var updates = UpdateController(
@@ -275,6 +286,8 @@ final class AppModel: ObservableObject {
         self.slack = slack
         self.history = services.history
         self.respondHistory = services.respondHistory
+        self.retainedStore = services.retainedWorktrees ?? RetainedWorktreeStore()
+        self.retainedWorktrees = retainedStore.load()
         self.instructions = services.instructionsStore ?? InstructionsStore()
         self.discardStats = services.discardStats ?? DiscardStatsStore()
         self.mergeHistory = services.mergeHistory ?? MergeHistory()
@@ -309,6 +322,7 @@ final class AppModel: ObservableObject {
             self?.reviews.dropOutdatedPublished(
                 heads: Dictionary(snapshot.items.map { ($0.id, $0.pr.headOid) }, uniquingKeysWith: { first, _ in first }))
             self?.updateMergeSessions(snapshot)
+            self?.pruneRetainedWorktrees(snapshot)
         }
         mainSectionObserver = prStore.$snapshot.compactMap { $0 }.sink { [weak self] snapshot in
             self?.main.reconcile(with: snapshot)
@@ -543,14 +557,17 @@ final class AppModel: ObservableObject {
         let legacy = WorktreeManager(runner: runner, gitPath: git, root: AppPaths.legacyWorktreesDir)
         let resolver = WorktreeResolver(runner: runner, gitPath: git)
         let respondOrphans = respondDirs
+        // The folders kept for "Open in Terminal" (spec T.3) on this Mac stay, with their refs.
+        let kept = Set(retainedWorktrees.filter { $0.location.runner == nil }.map(\.location.directory))
         orphanCleanup = Task.detached(priority: .utility) {
             for (localPath, worktreeDir) in respondOrphans {
-                await resolver.cleanupOrphans(localPath: localPath, worktreeDir: worktreeDir, keeping: [])
+                await resolver.cleanupOrphans(localPath: localPath, worktreeDir: worktreeDir, keeping: kept)
             }
             // Después: borra las refs `refs/prbar/*` que queden y las carpetas de contexto (`*.respond-context`).
-            await manager.cleanupOrphans(localPaths: localPaths, keeping: [])
-            await legacy.cleanupOrphans(localPaths: localPaths, keeping: [])
+            await manager.cleanupOrphans(localPaths: localPaths, keeping: kept)
+            await legacy.cleanupOrphans(localPaths: localPaths, keeping: kept)
         }
+        retrySupersededRetained()
     }
 
     func startReview(_ item: ClassifiedPR) {
@@ -630,6 +647,11 @@ final class AppModel: ObservableObject {
         case .success(let draft):
             record = ReviewRecord(draft: draft, startedAt: startedAt, finishedAt: Date(), status: .ready,
                                   sessions: draft.sessions.isEmpty ? nil : draft.sessions)
+            if let location = draft.retainedLocation {
+                retain(RetainedWorktree(prID: item.id, account: item.account, repo: item.pr.repo, number: item.pr.number,
+                                        job: .review, recordID: draft.id, location: location, sessions: draft.sessions,
+                                        retainedAt: Date()))
+            }
         case .failure(let error):
             var draft = ReviewDraft(
                 prID: item.id, repo: item.pr.repo, number: item.pr.number, title: item.pr.title, url: item.pr.url,

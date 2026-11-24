@@ -60,6 +60,12 @@ public enum TerminalChoice: String, Codable, CaseIterable, Sendable {
     }
 }
 
+/// `prbar session open --job` (spec T.4).
+public enum SessionJob: String, Codable, CaseIterable, Sendable {
+    case review, respond
+    case ciFix = "ci-fix"
+}
+
 public enum NotificationSettingName: String, Codable, CaseIterable, Sendable {
     case newToReview = "new-to-review"
     case reviewedUpdated = "reviewed-updated"

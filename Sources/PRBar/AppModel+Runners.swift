@@ -115,13 +115,16 @@ extension AppModel {
         let destinations = configStore.config.runners.destinations
         guard !destinations.isEmpty else { return }
         let runners = self.runners
+        let retained = retainedWorktrees
         Task.detached(priority: .utility) {
             await withTaskGroup(of: Void.self) { group in
                 for destination in destinations {
                     group.addTask {
                         do {
                             let placement = try await runners.placement(for: destination)
-                            await placement.workspaces.cleanupOrphans(keeping: [])
+                            // Its folders kept for "Open in Terminal" (spec T.3) stay: the exact paths stored.
+                            let kept = Set(retained.filter { $0.location.runner == destination.name }.map(\.location.directory))
+                            await placement.workspaces.cleanupOrphans(keeping: kept)
                         } catch {
                             AppLog.write("Runner \(destination.name): skipping the startup cleanup: \(error.localizedDescription)")
                         }

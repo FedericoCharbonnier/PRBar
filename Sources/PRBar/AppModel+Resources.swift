@@ -91,10 +91,15 @@ extension AppModel: ResourceActions {
         let executor = DiskCleanupExecutor(runner: runner, gitPath: git,
                                            worktreeRoots: [AppPaths.worktreesDir, AppPaths.legacyWorktreesDir],
                                            repos: diskScanInput().respondDirs,
+                                           retained: retainedWorktrees.filter { $0.location.runner == nil }.map(\.location.directory),
                                            isUpdateInProgress: { await MainActor.run { session.isInstalling } })
         // Cuenta como trabajo: una actualización que empiece ahora espera a que termine (`activeJobCount`).
         let result = await cleanups.track { await executor.run(plan) }
         AppLog.write("Clean Up freed \(result.freedBytes) bytes; skipped \(result.skipped.count); failed \(result.failed.count)")
+        // The kept folders Clean Up removed aren't offered any more (spec T.3).
+        let removed = Set(result.removed.map(CanonicalPath.of))
+        forgetRetained(retainedWorktrees.filter { $0.location.runner == nil && removed.contains(CanonicalPath.of($0.location.directory)) },
+                       keeping: [])
         resources.jobFinished()
         return result
     }
