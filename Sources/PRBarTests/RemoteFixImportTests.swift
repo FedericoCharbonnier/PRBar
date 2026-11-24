@@ -105,6 +105,27 @@ enum RemoteFixImportTests {
             let pushed = try TempGitRepo.run(repo.origin, ["rev-parse", "refs/heads/feature"]).trimmingCharacters(in: .whitespacesAndNewlines)
             try expectEqual(pushed, result.headOid)
         },
+        TestCase("remote fixes: after the push the run's ref on the runner's mirror moves to the pushed sha (folder not unpushed)") {
+            let (repo, ssh, spaces, worktree, start, importer) = try await remoteFix()
+            defer { repo.remove(); ssh.remove() }
+            let d = draft(worktree, start: start)
+            let result = try await importer.importFixes(draft: d, localPath: repo.local.path, items: [], integrity: "x")
+            let before = await spaces.unpushedWork(worktree.path)
+            try expect(before != nil, "before the push the fix is unpushed")
+            try await importer.push(draft: d, result: result, token: nil)
+            let bare = try expectNotNil(worktree.localPath)
+            let ref = try expectNotNil(worktree.ref)
+            let atRef = try TempGitRepo.run(URL(fileURLWithPath: bare), ["rev-parse", ref]).trimmingCharacters(in: .whitespacesAndNewlines)
+            try expectEqual(atRef, result.headOid)
+            let afterPush = await spaces.unpushedWork(worktree.path)
+            try expectEqual(afterPush, nil)
+            // A commit the user adds later in the terminal still counts.
+            let wt = URL(fileURLWithPath: worktree.path)
+            try Data("later\n".utf8).write(to: wt.appendingPathComponent("feature.txt"))
+            try TempGitRepo.run(wt, ["commit", "-q", "-am", "later"])
+            let later = await spaces.unpushedWork(worktree.path)
+            try expectEqual(later, "has 1 unpushed commit")
+        },
         TestCase("remote fixes: sin localPath usa un clone temporal mínimo y lo borra") {
             let (repo, ssh, _, worktree, start, importer) = try await remoteFix()
             defer { repo.remove(); ssh.remove() }

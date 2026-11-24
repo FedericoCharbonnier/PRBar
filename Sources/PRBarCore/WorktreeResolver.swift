@@ -196,6 +196,15 @@ public struct WorktreeResolver: Sendable {
         return commits == 0 ? nil : "has \(commits) unpushed commit\(commits == 1 ? "" : "s")"
     }
 
+    /// After a successful push: the run's own `refs/prbar/respond-…` ref moves to the pushed sha, so the kept folder
+    /// doesn't look unpushed once `origin/<headRef>` no longer has it (branch deleted after merge and pruned, a
+    /// force-push by the author, a single-branch clone). Commits added later on top still count. Never throws.
+    public func markPushed(_ worktree: ResolvedWorktree, sha: String) async {
+        guard worktree.origin == .dedicated, let localPath = worktree.localPath, let ref = worktree.ref, Self.isOwnRef(ref),
+              FixImplementer.isFullSHA(sha) else { return }
+        await gitLogged(localPath, ["update-ref", ref, sha])
+    }
+
     static func isOwnRef(_ ref: String) -> Bool {
         ref.hasPrefix(refPrefix) && ref.count > refPrefix.count && !ref.contains("..")
     }

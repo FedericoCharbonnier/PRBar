@@ -243,6 +243,15 @@ public struct RemoteWorkspaces: Sendable {
         }
     }
 
+    /// `WorktreeResolver.markPushed` on the host: the push ran from the Mac, so the run's `refs/prbar/respond-…` in the
+    /// mirror moves to the pushed sha (the mirror has no branches: otherwise the kept folder always looks unpushed).
+    /// Never throws.
+    public func markPushed(_ worktree: ResolvedWorktree, sha: String) async {
+        guard worktree.origin == .dedicated, let bare = worktree.localPath, root.contains(bare), let ref = worktree.ref,
+              ref.hasPrefix("refs/prbar/respond-"), !ref.contains(".."), FixImplementer.isFullSHA(sha) else { return }
+        await gitLogged(bare, ["update-ref", ref, sha])
+    }
+
     public func cleanupRespond(_ worktree: ResolvedWorktree) async {
         guard worktree.origin == .dedicated, let bare = worktree.localPath, root.contains(bare),
               WorktreeResolver.isRespondWorktreeName((worktree.path as NSString).lastPathComponent) else { return }

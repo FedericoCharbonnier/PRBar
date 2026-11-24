@@ -59,6 +59,11 @@ public struct RespondPublisher: Sendable {
     /// Ver la documentación del tipo. Si el remoto avanzó lanza `PRBarError.respond(rejectedMessage + stderr)`;
     /// cualquier otro rechazo (p. ej. un pre-push que falla) también es `.respond`, con el stderr.
     public func push(draft: RespondDraft, result: RespondResult) async throws {
+        try await pushReviewed(draft: draft, result: result)
+        if let reviewed = result.headOid { await branches.markPushed(draft.worktree, sha: reviewed) }
+    }
+
+    private func pushReviewed(draft: RespondDraft, result: RespondResult) async throws {
         let headRef = draft.headRef
         try await branches.validateBranchName(headRef)
         guard draft.worktree.origin == .dedicated, let reviewed = result.headOid, FixImplementer.isFullSHA(reviewed),

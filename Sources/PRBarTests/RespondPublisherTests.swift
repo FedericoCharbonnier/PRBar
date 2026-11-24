@@ -188,7 +188,9 @@ enum RespondPublisherTests {
             let runner = FakeProcessRunner(handler)
             try await publisher(runner: runner, originMatches: { WorktreeResolver.originMatches($0, repo: $1) }).push(draft: draft(path: "/tmp/wt"), result: result)
             let calls = runner.calls
-            let push = try calls.last ?? { throw TestFailure(description: "sin llamadas") }()
+            let push = try calls.last(where: { $0.arguments.contains("push") }) ?? { throw TestFailure(description: "sin push") }()
+            // After the push, the run's ref moves to the pushed sha (kept folders don't look unpushed).
+            try expectEqual(calls.last?.arguments.suffix(3), ["update-ref", "refs/prbar/respond-7-0a1b2c3d", reviewed])
             try expectEqual(push.arguments, ["-C", "/tmp/wt", "-c", "core.fsmonitor=false", "-c", "submodule.recurse=false",
                                              "-c", "core.untrackedCache=false", "-c", "maintenance.auto=false", "-c", "gc.auto=0", "push",
                                              "--force-with-lease=refs/heads/feature/7:\(String(repeating: "0", count: 40))", "origin", "\(reviewed):refs/heads/feature/7"])
@@ -196,11 +198,12 @@ enum RespondPublisherTests {
             try expect(calls.allSatisfy { $0.executable == TempGitRepo.git })
             try expect(calls.allSatisfy { $0.environment?["GIT_TERMINAL_PROMPT"] == "0" })
             // Lo de antes del push: todo endurecido (salvo check-ref-format, que no mira ningún repo).
-            let verbs = calls.dropLast().map { call in
+            let beforePush = calls.prefix { !$0.arguments.contains("push") }
+            let verbs = beforePush.map { call in
                 call.arguments.contains("check-ref-format") ? "check-ref-format" : call.arguments.dropFirst(2 + GitHardening.arguments.count).first ?? ""
             }
             try expectEqual(verbs, ["check-ref-format", "rev-parse", "config", "remote", "rev-parse", "merge-base"])
-            for call in calls.dropLast() where !call.arguments.contains("check-ref-format") {
+            for call in beforePush where !call.arguments.contains("check-ref-format") {
                 try expectEqual(Array(call.arguments.dropFirst(2).prefix(GitHardening.arguments.count)), GitHardening.arguments)
             }
             let flat = push.arguments
@@ -267,6 +270,26 @@ enum RespondPublisherTests {
             try await publisher().push(draft: repo.draft(), result: result)
             try expectEqual(try repo.remoteHead(), result.headOid)
             try expect(FileManager.default.fileExists(atPath: marker.path), "el pre-push del usuario tiene que correr")
+        },
+        TestCase("respond publisher: after the push the run's ref moves to the pushed sha (not unpushed once the branch is gone)") {
+            let repo = try PushRepo.make()
+            defer { repo.remove() }
+            let result = try await repo.result()
+            try await publisher().push(draft: repo.draft(), result: result)
+            let atRef = try TempGitRepo.run(repo.local, ["rev-parse", "refs/prbar/respond-7-0a1b2c3d"])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            try expectEqual(atRef, result.headOid)
+            // The PR merged and its branch was deleted; `fetch --prune` drops `origin/feature/7`.
+            try TempGitRepo.run(repo.remote, ["update-ref", "-d", "refs/heads/feature/7"])
+            try TempGitRepo.run(repo.local, ["fetch", "-q", "--prune", "origin"])
+            let resolver = WorktreeResolver(runner: SystemProcessRunner(), gitPath: TempGitRepo.git, environment: gitEnvironment)
+            let afterPush = await resolver.unpushedWork(repo.work.path)
+            try expectEqual(afterPush, nil)
+            // A commit the user adds later in the terminal still counts.
+            try repo.write("README.md", "hola\nfix\nlater\n")
+            try TempGitRepo.run(repo.work, ["commit", "-q", "-am", "later"])
+            let later = await resolver.unpushedWork(repo.work.path)
+            try expectEqual(later, "has 1 unpushed commit")
         },
         TestCase("respond publisher: si la rama del remoto ya no está en startHeadOid (rebobinada o borrada), no se pushea") {
             let repo = try PushRepo.make()

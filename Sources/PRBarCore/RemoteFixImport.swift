@@ -219,6 +219,11 @@ public struct RemoteFixImport: Sendable {
 
     /// Verifica todo de nuevo y pushea `<sha>:refs/heads/<rama>` desde la Mac (decisión J.7.9).
     public func push(draft: RespondDraft, result: RespondResult, token: String?) async throws {
+        try await pushReviewed(draft: draft, result: result, token: token)
+        if let reviewed = result.headOid { await spaces.markPushed(draft.worktree, sha: reviewed) }
+    }
+
+    private func pushReviewed(draft: RespondDraft, result: RespondResult, token: String?) async throws {
         guard let objects = result.remoteObjects, let reviewed = result.headOid, FixImplementer.isFullSHA(reviewed) else {
             throw PRBarError.respond("This result can’t be pushed. Analyze the PR again.")
         }
