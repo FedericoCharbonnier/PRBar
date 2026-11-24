@@ -33,6 +33,24 @@ public enum SSHCommandBuilder {
         return args
     }
 
+    /// The connection options of `fixedOptions` that also make sense for a person at a terminal (spec T.5): no agent,
+    /// X11, forwardings, local commands, sent variables or `RemoteCommand`. Without `BatchMode` (ssh may ask for a
+    /// passphrase or a new host key) and with a TTY.
+    public static let interactiveOptions = [
+        "ConnectTimeout=10", "ForwardAgent=no", "ForwardX11=no", "ClearAllForwardings=yes", "PermitLocalCommand=no",
+        "ServerAliveInterval=15", "ServerAliveCountMax=4", "LogLevel=ERROR", "SendEnv=-*", "Tunnel=no",
+        "SessionType=default", "ForkAfterAuthentication=no", "StdinNull=no", "RemoteCommand=none",
+    ]
+
+    /// `ssh -t` for Claude's session on a runner: `remoteCommand` is **one** argument, run by the login shell.
+    public static func interactiveArguments(_ destination: RunnerDestination, remoteCommand: String) -> [String] {
+        var args: [String] = []
+        for option in interactiveOptions { args += ["-o", option] }
+        args += target(destination)
+        args += ["-t", "--", destination.endpoint.host, remoteCommand]
+        return args
+    }
+
     /// `ssh -G`: la config efectiva del usuario para ese host (no conecta).
     public static func configArguments(_ destination: RunnerDestination) -> [String] {
         ["-G"] + target(destination) + ["--", destination.endpoint.host]
