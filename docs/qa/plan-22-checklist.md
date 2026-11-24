@@ -13,6 +13,10 @@ local folder and, for the runner rows, a runner set up in Settings â€º Claude â€
 - [ ] A Custom command that stays in the foreground (`/Applications/kitty.app/Contents/MacOS/kitty --directory {dir}
       /bin/zsh -lc {command}`, or `alacritty --working-directory {dir} -e /bin/zsh -lc {command}`) opens the session, and
       it is still alive more than 30 s later.
+- [ ] Custom and Orca run from PRBar's GUI environment (minimal `PATH`): with `claude` installed through npm/nvm, a
+      template without a login shell may fail to find it; `/bin/zsh -lc {command}` in the template fixes it. Note the result.
+- [ ] With `CLAUDE_CONFIG_DIR` set in your shell: PRBar's sessions are saved under its own environment (`~/.claude`);
+      check whether `--resume` in the terminal says "No conversation found" and note it (known limitation, spec T.5).
 - [ ] `prbar config set terminal ghostty` changes the picker; `prbar config show` shows `"terminal": "ghostty"`.
 - [ ] `prbar config set terminal-command "open -a Terminal"` fails (no `{command}`); with `{command}` it saves; `""` clears it.
 - [ ] The Custom field saves on Return or when it loses focus (not on every keystroke); the red line updates while typing.
@@ -66,5 +70,14 @@ local folder and, for the runner rows, a runner set up in Settings â€º Claude â€
       Clean Up lists it as skipped ("has uncommitted changes").
 - [ ] With `claude --resume` open in a clean kept folder, Clean Up skips it ("has a process working in it").
 - [ ] Restart PRBar: kept folders survive the startup orphan cleanup (also on the runner).
-- [ ] Activity and `prbar resources` count kept folders under worktrees.
+- [ ] Activity and `prbar resources` count kept folders under worktrees; Activity shows them as "Kept", `prbar resources`
+      doesn't count them as leftover, and the Clean Up preview (Activity and `prbar cleanup --preview`) tags them
+      "(kept for Terminal)".
+- [ ] Push fixes, then delete the PR's branch on GitHub and `git fetch --prune` in the clone: the kept fix folder is not
+      reported as having unpushed commits (Clean Up removes it; a commit you add in it afterwards makes Clean Up skip it).
+- [ ] A review that recorded no Claude session (or a pushed run without fix sessions): its folder is deleted as before.
+- [ ] Remove a runner from Settings that had kept folders: the next time PRBar tries to remove them (at launch for
+      replaced ones, or when the PR closes) their entries are dropped (logged), not retried forever.
+- [ ] A leftover review/chat worktree (not kept) with uncommitted changes: kept at launch and listed by Clean Up as
+      skipped, never deleted.
 - [ ] `~/Library/Application Support/PRBar/terminal/` keeps no `.command` files older than a day after an opening.

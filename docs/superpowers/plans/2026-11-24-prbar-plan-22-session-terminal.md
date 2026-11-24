@@ -12,7 +12,7 @@
 
 ## Conventions for every task
 
-- Work only in `/Users/federico/Documents/PRBar-wt-term` (branch `feat/session-terminal`).
+- Work only in `<worktree>` (branch `feat/session-terminal`).
 - Tests: `swift run PRBarTests "<substring of the TestCase name>"` (a filter, case-insensitive). New test files are registered in `Sources/PRBarTests/main.swift` (`+ XTests.cases`).
 - Assertions: `try expect(cond, "message")`, `try expectEqual(a, b)` (no message argument), `try expectSome(x)`, `try await expectThrows { … }`.
 - Builds: `swift build --product PRBar`, `swift build --product PRBarCLI`, `swift build --product PRBarTests`.
@@ -131,8 +131,8 @@ with:
 - [ ] **Step 3: Commit**
 
 ```bash
-git -C /Users/federico/Documents/PRBar-wt-term add docs/superpowers/specs/2026-11-24-prbar-session-terminal-design.md
-git -C /Users/federico/Documents/PRBar-wt-term commit -m "Spec T.5: terminal launch forms verified by the spike"
+git -C <worktree> add docs/superpowers/specs/2026-11-24-prbar-session-terminal-design.md
+git -C <worktree> commit -m "Spec T.5: terminal launch forms verified by the spike"
 ```
 
 ---
@@ -303,8 +303,8 @@ Expected: all pass, including the two new cases.
 - [ ] **Step 7: Commit**
 
 ```bash
-git -C /Users/federico/Documents/PRBar-wt-term add Sources/PRBarCore/ClaudeStream.swift Sources/PRBarCore/ClaudeRunner.swift Sources/PRBarCore/ClaudeSessions.swift Sources/PRBarTests/ClaudeStreamTests.swift Sources/PRBarTests/ClaudeRunnerTests.swift
-git -C /Users/federico/Documents/PRBar-wt-term commit -m "Read Claude's session id from stream-json and report it per run"
+git -C <worktree> add Sources/PRBarCore/ClaudeStream.swift Sources/PRBarCore/ClaudeRunner.swift Sources/PRBarCore/ClaudeSessions.swift Sources/PRBarTests/ClaudeStreamTests.swift Sources/PRBarTests/ClaudeRunnerTests.swift
+git -C <worktree> commit -m "Read Claude's session id from stream-json and report it per run"
 ```
 
 ---
@@ -609,8 +609,8 @@ Expected: 4/4 passed. Then `swift build --product PRBar` (no errors).
 - [ ] **Step 8: Commit**
 
 ```bash
-git -C /Users/federico/Documents/PRBar-wt-term add Sources/PRBarCore/ClaudeSessions.swift Sources/PRBarCore/ReviewHistory.swift Sources/PRBarCore/RespondPipeline.swift Sources/PRBarCore/RespondModels.swift Sources/PRBarTests/ClaudeSessionsTests.swift Sources/PRBarTests/main.swift
-git -C /Users/federico/Documents/PRBar-wt-term commit -m "ClaudeSessionRef and sessions on review and respond records"
+git -C <worktree> add Sources/PRBarCore/ClaudeSessions.swift Sources/PRBarCore/ReviewHistory.swift Sources/PRBarCore/RespondPipeline.swift Sources/PRBarCore/RespondModels.swift Sources/PRBarTests/ClaudeSessionsTests.swift Sources/PRBarTests/main.swift
+git -C <worktree> commit -m "ClaudeSessionRef and sessions on review and respond records"
 ```
 
 ---
@@ -949,8 +949,8 @@ Expected: all pass. `swift build --product PRBar` succeeds.
 - [ ] **Step 10: Commit**
 
 ```bash
-git -C /Users/federico/Documents/PRBar-wt-term add Sources/PRBarCore Sources/PRBar/AppModel.swift Sources/PRBarTests/ReviewQueueTests.swift Sources/PRBarTests/FixImplementerTests.swift Sources/PRBarTests/RespondQueueTests.swift
-git -C /Users/federico/Documents/PRBar-wt-term commit -m "Record Claude sessions of review stages, fixes and Fix CI"
+git -C <worktree> add Sources/PRBarCore Sources/PRBar/AppModel.swift Sources/PRBarTests/ReviewQueueTests.swift Sources/PRBarTests/FixImplementerTests.swift Sources/PRBarTests/RespondQueueTests.swift
+git -C <worktree> commit -m "Record Claude sessions of review stages, fixes and Fix CI"
 ```
 
 ---
@@ -1538,8 +1538,8 @@ Expected: all pass.
 - [ ] **Step 12: Commit**
 
 ```bash
-git -C /Users/federico/Documents/PRBar-wt-term add Sources/PRBarCore Sources/PRBarTests
-git -C /Users/federico/Documents/PRBar-wt-term commit -m "Keep review and pushed-fix folders for Claude sessions"
+git -C <worktree> add Sources/PRBarCore Sources/PRBarTests
+git -C <worktree> commit -m "Keep review and pushed-fix folders for Claude sessions"
 ```
 
 ---
@@ -1670,8 +1670,8 @@ Expected: all pass.
 - [ ] **Step 6: Commit**
 
 ```bash
-git -C /Users/federico/Documents/PRBar-wt-term add Sources/PRBarCore/SSHCommand.swift Sources/PRBarCore/ClaudeSessionCommand.swift Sources/PRBarTests/ClaudeSessionCommandTests.swift Sources/PRBarTests/main.swift
-git -C /Users/federico/Documents/PRBar-wt-term commit -m "Quoted claude --resume command, local and over ssh"
+git -C <worktree> add Sources/PRBarCore/SSHCommand.swift Sources/PRBarCore/ClaudeSessionCommand.swift Sources/PRBarTests/ClaudeSessionCommandTests.swift Sources/PRBarTests/main.swift
+git -C <worktree> commit -m "Quoted claude --resume command, local and over ssh"
 ```
 
 ---
@@ -1989,8 +1989,8 @@ Expected: 6/6 passed.
 - [ ] **Step 6: Commit**
 
 ```bash
-git -C /Users/federico/Documents/PRBar-wt-term add Sources/PRBarWire/AppCommandTypes.swift Sources/PRBarCore/TerminalLauncher.swift Sources/PRBarTests/TerminalLauncherTests.swift Sources/PRBarTests/main.swift
-git -C /Users/federico/Documents/PRBar-wt-term commit -m "TerminalLauncher: command files, Orca and custom command"
+git -C <worktree> add Sources/PRBarWire/AppCommandTypes.swift Sources/PRBarCore/TerminalLauncher.swift Sources/PRBarTests/TerminalLauncherTests.swift Sources/PRBarTests/main.swift
+git -C <worktree> commit -m "TerminalLauncher: command files, Orca and custom command"
 ```
 
 ---
@@ -2213,8 +2213,8 @@ Expected: all pass (`web vectors` still matches: the new names are denied, so th
 - [ ] **Step 9: Commit**
 
 ```bash
-git -C /Users/federico/Documents/PRBar-wt-term add Sources
-git -C /Users/federico/Documents/PRBar-wt-term commit -m "Terminal settings in config and prbar config set terminal"
+git -C <worktree> add Sources
+git -C <worktree> commit -m "Terminal settings in config and prbar config set terminal"
 ```
 
 ---
@@ -2321,8 +2321,8 @@ Expected: build succeeds; the two GeneralTab entries no longer appear in the fai
 - [ ] **Step 6: Commit**
 
 ```bash
-git -C /Users/federico/Documents/PRBar-wt-term add Sources/PRBar/Settings/TerminalApps.swift Sources/PRBar/Settings/GeneralTab.swift Sources/PRBarTests/UIActionInventory.swift
-git -C /Users/federico/Documents/PRBar-wt-term commit -m "Settings: choose the terminal for Claude sessions"
+git -C <worktree> add Sources/PRBar/Settings/TerminalApps.swift Sources/PRBar/Settings/GeneralTab.swift Sources/PRBarTests/UIActionInventory.swift
+git -C <worktree> commit -m "Settings: choose the terminal for Claude sessions"
 ```
 
 ---
@@ -2859,8 +2859,8 @@ Expected: success. Then `swift run PRBarTests "sesiones:"` and `swift run PRBarT
 - [ ] **Step 12: Commit**
 
 ```bash
-git -C /Users/federico/Documents/PRBar-wt-term add Sources
-git -C /Users/federico/Documents/PRBar-wt-term commit -m "AppModel: keep folders, offer and open Claude sessions"
+git -C <worktree> add Sources
+git -C <worktree> commit -m "AppModel: keep folders, offer and open Claude sessions"
 ```
 
 ---
@@ -3083,8 +3083,8 @@ Expected: build succeeds; the shortcut test passes. (`paridad UI` now fails for 
 - [ ] **Step 9: Commit**
 
 ```bash
-git -C /Users/federico/Documents/PRBar-wt-term add Sources
-git -C /Users/federico/Documents/PRBar-wt-term commit -m "Terminal button, Pull Request menu item and History Open in Terminal"
+git -C <worktree> add Sources
+git -C <worktree> commit -m "Terminal button, Pull Request menu item and History Open in Terminal"
 ```
 
 ---
@@ -3343,8 +3343,8 @@ Expected: all pass. `swift build --product PRBarCLI` and `swift build --product 
 - [ ] **Step 9: Commit**
 
 ```bash
-git -C /Users/federico/Documents/PRBar-wt-term add Sources docs/cli.md
-git -C /Users/federico/Documents/PRBar-wt-term commit -m "prbar session list and open"
+git -C <worktree> add Sources docs/cli.md
+git -C <worktree> commit -m "prbar session list and open"
 ```
 
 ---
@@ -3382,14 +3382,14 @@ Expected: pass (the classification was added in Tasks 8 and 12; this test pins i
 
 - [ ] **Step 4: Run the web unit tests**
 
-Run: `cd /Users/federico/Documents/PRBar-wt-term/web && npx vitest run test/unit/protocol/commands.test.ts`
+Run: `cd <worktree>/web && npx vitest run test/unit/protocol/commands.test.ts`
 Expected: all pass. Also `swift run PRBarTests "web vectors"` passes.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git -C /Users/federico/Documents/PRBar-wt-term add Sources/PRBarTests/RemotePolicyTests.swift web/src/protocol/commands.ts
-git -C /Users/federico/Documents/PRBar-wt-term commit -m "iPhone: Claude sessions in a terminal are Mac-only"
+git -C <worktree> add Sources/PRBarTests/RemotePolicyTests.swift web/src/protocol/commands.ts
+git -C <worktree> commit -m "iPhone: Claude sessions in a terminal are Mac-only"
 ```
 
 ---
@@ -3432,8 +3432,8 @@ Expected: all parity tests pass (UI and CLI).
 - [ ] **Step 4: Commit**
 
 ```bash
-git -C /Users/federico/Documents/PRBar-wt-term add Sources/PRBarTests/UIActionInventory.swift
-git -C /Users/federico/Documents/PRBar-wt-term commit -m "UI parity: Terminal button, menu item and History entry"
+git -C <worktree> add Sources/PRBarTests/UIActionInventory.swift
+git -C <worktree> commit -m "UI parity: Terminal button, menu item and History entry"
 ```
 
 ---
@@ -3517,8 +3517,8 @@ local folder and, for the runner rows, a runner set up in Settings › Claude �
 - [ ] **Step 2: Commit**
 
 ```bash
-git -C /Users/federico/Documents/PRBar-wt-term add docs/qa/plan-22-checklist.md
-git -C /Users/federico/Documents/PRBar-wt-term commit -m "QA checklist for plan 22"
+git -C <worktree> add docs/qa/plan-22-checklist.md
+git -C <worktree> commit -m "QA checklist for plan 22"
 ```
 
 ---
@@ -3540,7 +3540,7 @@ Expected: `N/N passed`. Fix any failure in the task it belongs to (re-read that 
 
 - [ ] **Step 3: Web unit tests**
 
-Run: `cd /Users/federico/Documents/PRBar-wt-term/web && npm test`
+Run: `cd <worktree>/web && npm test`
 Expected: pass.
 
 - [ ] **Step 4: Snapshots.** The PR toolbar now has a (disabled) Terminal button and Settings › General a Claude Sessions section:
@@ -3549,8 +3549,8 @@ Run: `Scripts/snapshots.sh /tmp/prbar-plan22-snapshots light`
 Expected: the PNGs render; check the PR window/main window toolbar (Terminal left of Chat, disabled with no sessions) and Settings › General. Only if the repo's `docs/screenshots` are kept in sync for these screens, regenerate them with `Scripts/snapshots.sh` (defaults) and commit:
 
 ```bash
-git -C /Users/federico/Documents/PRBar-wt-term add docs/screenshots
-git -C /Users/federico/Documents/PRBar-wt-term commit -m "Screenshots: Terminal button and terminal setting"
+git -C <worktree> add docs/screenshots
+git -C <worktree> commit -m "Screenshots: Terminal button and terminal setting"
 ```
 
 - [ ] **Step 5: Manual QA** with `docs/qa/plan-22-checklist.md`.

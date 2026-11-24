@@ -74,8 +74,9 @@ Fecha: 2026-11-24. Plan: `2026-11-24-prbar-plan-22-session-terminal.md`.
 
 - `ClaudeSessionCommand` arma el comando:
   - Esta Mac: `cd '<carpeta>' && '<claude>' --resume <id>`, con el `claude` de Settings › Tools.
-  - Runner: `ssh -t <destino del runner> "cd '<carpeta>' && '<claude del runner>' --resume <id>"`, con las mismas
-    opciones de conexión que `SSHCommand`.
+  - Runner: `ssh -t <destino del runner> "cd '<carpeta>' && '<claude del runner>' --resume <id>"`, con un
+    subconjunto interactivo de las opciones de `SSHCommand` (`SSHCommandBuilder.interactiveOptions`: sin `BatchMode`,
+    con TTY), no exactamente las mismas.
   - Todo valor va entre comillas simples con escape (`ShellQuote`); el ID se valida como UUID.
 - `TerminalLauncher` lo abre según la terminal elegida (verificado en esta Mac el 2026-11-24, con una carpeta con
   espacios en la ruta):
@@ -94,6 +95,13 @@ Fecha: 2026-11-24. Plan: `2026-11-24-prbar-plan-22-session-terminal.md`.
   - **Custom**: un comando con `{dir}` y `{command}` (ya entre comillas), corrido con `/bin/sh -c`.
 - Si la terminal elegida no está instalada o falla al abrir: una alerta con el error y "Open Settings". La CLI sale con
   el mensaje y exit 1.
+
+### Limitaciones conocidas
+
+- Custom y Orca corren desde el entorno de la app (un `PATH` mínimo): un `claude` instalado con npm/nvm puede necesitar
+  un shell de login en la plantilla (`/bin/zsh -lc {command}`).
+- Con `CLAUDE_CONFIG_DIR` en el shell del usuario: PRBar corre Claude con su propio entorno (`~/.claude`), así que las
+  sesiones quedan ahí y `--resume` desde una terminal con otro `CLAUDE_CONFIG_DIR` puede decir "No conversation found".
 
 ## T.6 Settings y configuración
 
