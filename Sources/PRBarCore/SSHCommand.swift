@@ -21,7 +21,8 @@ public enum SSHCommandBuilder {
         return args
     }
 
-    /// `remoteCommand` es **un** argumento (`/bin/sh -c '<script>'`): ssh lo manda tal cual al shell de login.
+    /// `remoteCommand` es **un** argumento que ssh manda tal cual al shell de login del host (`SSHHost.runScript` manda
+    /// `/bin/sh -c '<script>'`; `interactiveArguments`, el comando de la sesión de Claude).
     public static func arguments(_ destination: RunnerDestination, controlDirectory: String, enforceHostKey: Bool,
                                  remoteCommand: String) -> [String] {
         var args: [String] = []
@@ -42,7 +43,10 @@ public enum SSHCommandBuilder {
         "SessionType=default", "ForkAfterAuthentication=no", "StdinNull=no", "RemoteCommand=none",
     ]
 
-    /// `ssh -t` for Claude's session on a runner: `remoteCommand` is **one** argument, run by the login shell.
+    /// `ssh -t` for Claude's session on a runner: `remoteCommand` is **one** argument, evaluated as shell by the
+    /// runner's login shell (no `/bin/sh -c` wrapper, so the session keeps the user's shell environment). Its POSIX
+    /// single quotes are only safe because `RunnerProbe` accepts a runner only if its login shell passes the quoting
+    /// test (sh, bash or zsh; fish or csh would fail it).
     public static func interactiveArguments(_ destination: RunnerDestination, remoteCommand: String) -> [String] {
         var args: [String] = []
         for option in interactiveOptions { args += ["-o", option] }
