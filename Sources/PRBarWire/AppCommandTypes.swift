@@ -44,6 +44,22 @@ public enum SettingsTabName: String, Codable, CaseIterable, Sendable {
     case general, claude, instructions, accounts, repos, slack, iphone
 }
 
+/// Where "Terminal" opens Claude's session of a PR (Settings › General, spec T.6).
+public enum TerminalChoice: String, Codable, CaseIterable, Sendable {
+    case terminal, iterm, warp, ghostty, orca, custom
+
+    public var displayName: String {
+        switch self {
+        case .terminal: "Terminal"
+        case .iterm: "iTerm"
+        case .warp: "Warp"
+        case .ghostty: "Ghostty"
+        case .orca: "Orca"
+        case .custom: "Custom"
+        }
+    }
+}
+
 public enum NotificationSettingName: String, Codable, CaseIterable, Sendable {
     case newToReview = "new-to-review"
     case reviewedUpdated = "reviewed-updated"
