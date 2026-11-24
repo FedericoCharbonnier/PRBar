@@ -180,7 +180,9 @@ extension AppModel {
                 }
                 var info = stat()
                 return lstat(location.directory, &info) != 0 && errno == ENOENT
-            })
+            },
+            // A runner removed from Settings: PRBar no longer manages that machine, so its entries are dropped.
+            isManaged: { location in location.runner.map { settings.destination(named: $0) != nil } ?? true })
     }
 
     /// `lsof -d cwd` on this Mac; nil if it can't tell (then the folders count as busy).

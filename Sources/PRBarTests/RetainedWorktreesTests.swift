@@ -79,6 +79,20 @@ enum RetainedWorktreesTests {
             try expectEqual(left.map(\.location.directory), ["/Users/me/wt/r-1", "/Users/me/wt/r-3", "/Users/me/wt/r-4"])
             try expect(left.allSatisfy(\.superseded))
         },
+        TestCase("carpetas conservadas: one on a runner that's no longer in Settings is dropped, not retried forever") {
+            let gone = entry(1, .review, dir: "/home/me/work/r-1", runner: "old-box")
+            let here = entry(2, .review, dir: "/Users/me/wt/r-2")
+            let asked = Box<[String]>([])
+            let cleaner = RetainedWorktreeCleaner(
+                isBusy: { asked.value.append($0.directory); return true },
+                unpushedWork: { _ in nil },
+                remove: { _ in true },
+                isManaged: { $0.runner != "old-box" })
+            let left = await cleaner.removeUnlessBusy([gone, here])
+            // Never touched (PRBar no longer manages that machine) and not left for a retry.
+            try expectEqual(asked.value, ["/Users/me/wt/r-2"])
+            try expectEqual(left.map(\.location.directory), ["/Users/me/wt/r-2"])
+        },
         TestCase("carpetas conservadas: en un runner, lsof ve la ruta real aunque la raíz esté bajo un symlink") {
             let script = try ProcessCwd.remoteScript(resolving: ["/home/me/link/work/r-1"])
             try expect(script.contains("'/home/me/link/work/r-1'") && script.contains("pwd -P"), script)

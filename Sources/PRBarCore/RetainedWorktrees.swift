@@ -235,19 +235,29 @@ public struct RetainedWorktreeCleaner: Sendable {
     let unpushedWork: @Sendable (WorktreeLocation) async -> String?
     /// Removes it; `true` if the folder is gone afterwards (checked on disk, not assumed).
     let remove: @Sendable (RetainedWorktree) async -> Bool
+    /// `false` when PRBar no longer manages where the folder is (its runner was removed from Settings): the entry is
+    /// dropped and logged, nothing is touched there and it isn't retried.
+    let isManaged: @Sendable (WorktreeLocation) -> Bool
 
     public init(isBusy: @escaping @Sendable (WorktreeLocation) async -> Bool,
                 unpushedWork: @escaping @Sendable (WorktreeLocation) async -> String?,
-                remove: @escaping @Sendable (RetainedWorktree) async -> Bool) {
+                remove: @escaping @Sendable (RetainedWorktree) async -> Bool,
+                isManaged: @escaping @Sendable (WorktreeLocation) -> Bool = { _ in true }) {
         self.isBusy = isBusy
         self.unpushedWork = unpushedWork
         self.remove = remove
+        self.isManaged = isManaged
     }
 
     /// Returns the ones left on disk, with `superseded` set (also those whose removal failed: retried at launch).
     public func removeUnlessBusy(_ entries: [RetainedWorktree]) async -> [RetainedWorktree] {
         var left: [RetainedWorktree] = []
         for entry in entries {
+            guard isManaged(entry.location) else {
+                AppLog.write("Retained worktree: \(entry.location.directory) is on \(entry.location.runner ?? "a machine") that PRBar no "
+                             + "longer manages (removed from Settings); forgetting it, the folder stays there.")
+                continue
+            }
             var reason: String?
             if await isBusy(entry.location) {
                 reason = "has a process working in it"
