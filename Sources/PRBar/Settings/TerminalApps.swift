@@ -12,12 +12,18 @@ enum TerminalApps {
         }
     }
 
-    /// What the picker lists: the installed ones, Custom, and the saved one even if it was uninstalled (so it shows).
-    static func offered(current: TerminalChoice) -> [TerminalChoice] {
-        TerminalChoice.allCases.filter { isInstalled($0) || $0 == current }
+    /// Asks Launch Services for each terminal: Settings keeps the answer instead of asking on every redraw.
+    static func installed() -> Set<TerminalChoice> {
+        Set(TerminalChoice.allCases.filter(isInstalled))
     }
 
-    static func menuTitle(_ choice: TerminalChoice) -> String {
-        choice == .custom ? "Custom…" : choice.displayName
+    /// What the picker lists: the installed ones, Custom, and the saved one even if it was uninstalled (so it shows).
+    static func offered(current: TerminalChoice, installed: Set<TerminalChoice>) -> [TerminalChoice] {
+        TerminalChoice.allCases.filter { installed.contains($0) || $0 == current }
+    }
+
+    static func menuTitle(_ choice: TerminalChoice, installed: Bool) -> String {
+        if choice == .custom { return "Custom…" }
+        return installed ? choice.displayName : "\(choice.displayName) (not installed)"
     }
 }

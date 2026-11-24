@@ -35,7 +35,7 @@ enum ConfigKey: String, ExpressibleByArgument, CaseIterable {
 struct ConfigSet: RemoteCommand {
     static let configuration = CommandConfiguration(
         commandName: "set", abstract: "Change a general setting.",
-        discussion: "refresh-interval 1|2|5|10 (minutes) · launch-at-login on|off · always-show-in-dock on|off · update-interval 0|6|12|24|168 (hours; 0 = manual only) · disk-warning 1…100|off (GB) · terminal terminal|iterm|warp|ghostty|orca|custom · terminal-command \"<command with {dir} and {command}>\"")
+        discussion: "refresh-interval 1|2|5|10 (minutes) · launch-at-login on|off · always-show-in-dock on|off · update-interval 0|6|12|24|168 (hours; 0 = manual only) · disk-warning 1…100|off (GB) · terminal terminal|iterm|warp|ghostty|orca|custom · terminal-command \"<command with {command}, optionally {dir}>\" (only used after `config set terminal custom`; \"\" clears it)")
     @Argument(help: "The setting.") var key: ConfigKey
     @Argument(help: "Its value.") var value: String
     @OptionGroup var global: GlobalOptions

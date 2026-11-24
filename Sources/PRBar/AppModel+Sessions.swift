@@ -10,10 +10,12 @@ extension AppModel {
         try applyConfig { $0.setTerminal(terminal) }
     }
 
-    /// The same check `TerminalOpener` runs before launching: not empty, has `{command}`, no quoted placeholders.
+    /// Empty clears it; otherwise the same check `TerminalOpener` runs before launching (has `{command}`, no quoted
+    /// placeholders).
     func configSetTerminalCommand(_ command: String) throws {
         do {
-            try TerminalLauncher.validateCustomCommand(command)
+            var probe = AppConfig()
+            try probe.setTerminalCommand(validating: command)
         } catch {
             throw CommandFailure(.invalidUsage, "\(error.localizedDescription) {dir} is the PR’s folder, {command} runs Claude.")
         }

@@ -176,5 +176,15 @@ enum ConfigTests {
             config.setTerminalCommand("   ")
             try expectEqual(config.terminalCommand, nil)
         },
+        TestCase("config: el comando propio de la CLI se valida; vacío lo borra") {
+            var config = AppConfig()
+            try config.setTerminalCommand(validating: "open -a Terminal {command}")
+            try expectEqual(config.terminalCommand, "open -a Terminal {command}")
+            try await expectThrows { try config.setTerminalCommand(validating: "open -a Terminal") }
+            try await expectThrows { try config.setTerminalCommand(validating: "x '{command}'") }
+            try expectEqual(config.terminalCommand, "open -a Terminal {command}")
+            try config.setTerminalCommand(validating: "  ")
+            try expectEqual(config.terminalCommand, nil)
+        },
     ]
 }

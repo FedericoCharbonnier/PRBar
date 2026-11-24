@@ -577,6 +577,13 @@ extension AppConfig {
         terminalCommand = Self.nonBlank(command)
     }
 
+    /// `prbar config set terminal-command`: vacío lo borra; si no, tiene que pasar `TerminalLauncher
+    /// .validateCustomCommand` (con `{command}`, sin comillas alrededor de los marcadores) o no cambia nada.
+    public mutating func setTerminalCommand(validating command: String) throws {
+        if Self.nonBlank(command) != nil { try TerminalLauncher.validateCustomCommand(command) }
+        setTerminalCommand(command)
+    }
+
     /// Normalized: trimmed, without empty patterns or repeats.
     public mutating func setIgnorePaths(_ patterns: [String], repoID: String, login: String) {
         withRepo(repoID, login: login) { $0.ignorePaths = ReviewOptions.normalizePatterns(patterns) }

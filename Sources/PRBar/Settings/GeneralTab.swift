@@ -5,6 +5,8 @@ import SwiftUI
 struct GeneralTab: View {
     @ObservedObject var model: AppModel
     @ObservedObject var configStore: ConfigStore
+    /// The installed terminals, looked up once when the tab appears (nil until then: no "not installed" labels yet).
+    @State private var installedTerminals: Set<TerminalChoice>?
 
     private static let notificationSettingsURL = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension")!
 
@@ -46,19 +48,14 @@ struct GeneralTab: View {
                     get: { configStore.config.terminal },
                     set: { choice in model.updateConfig(refresh: false) { $0.setTerminal(choice) } }
                 )) {
-                    ForEach(TerminalApps.offered(current: configStore.config.terminal), id: \.self) { choice in
-                        Text(TerminalApps.menuTitle(choice)).tag(choice)
+                    let installed = installedTerminals ?? [.terminal, .custom, configStore.config.terminal]
+                    ForEach(TerminalApps.offered(current: configStore.config.terminal, installed: installed), id: \.self) { choice in
+                        Text(TerminalApps.menuTitle(choice, installed: installed.contains(choice))).tag(choice)
                     }
                 }
+                .onAppear { if installedTerminals == nil { installedTerminals = TerminalApps.installed() } }
                 if configStore.config.terminal == .custom {
-                    TextField("Command", text: Binding(
-                        get: { configStore.config.terminalCommand ?? "" },
-                        set: { text in model.updateConfig(refresh: false) { $0.setTerminalCommand(text) } }
-                    ), prompt: Text("open -na Ghostty --args -e /bin/zsh -lc {command}"))
-                    // The same check `TerminalOpener` runs before launching (empty, no {command}, quoted placeholder).
-                    if let problem = customCommandProblem(configStore.config.terminalCommand) {
-                        Text(problem).font(.caption).foregroundStyle(Theme.redText)
-                    }
+                    TerminalCommandField(model: model, saved: configStore.config.terminalCommand)
                 }
             } header: {
                 Text("Claude Sessions")
@@ -130,21 +127,56 @@ struct GeneralTab: View {
         }
     }
 
-    /// What `TerminalLauncher.validateCustomCommand` says about the Custom command (nil = fine).
-    private func customCommandProblem(_ command: String?) -> String? {
-        do {
-            try TerminalLauncher.validateCustomCommand(command ?? "")
-            return nil
-        } catch {
-            return error.localizedDescription
-        }
-    }
-
     private func notification(_ keyPath: WritableKeyPath<NotificationSettings, Bool>) -> Binding<Bool> {
         Binding(
             get: { configStore.config.notifications[keyPath: keyPath] },
             set: { value in model.updateConfig(refresh: false) { $0.notifications[keyPath: keyPath] = value } }
         )
+    }
+}
+
+/// The Custom terminal's command: saved on Return, when leaving the field or closing Settings (like `TestCommandField`),
+/// not on every keystroke. The red line checks the draft as you type.
+private struct TerminalCommandField: View {
+    let model: AppModel
+    let saved: String?
+
+    @State private var text = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            TextField("Command", text: $text, prompt: Text("open -na Ghostty --args -e /bin/zsh -lc {command}"))
+                .font(.system(.body, design: .monospaced))
+                .autocorrectionDisabled()
+                .focused($focused)
+                .onSubmit(commit)
+            // The same check `TerminalOpener` runs before launching (empty, no {command}, quoted placeholder).
+            if let problem = Self.problem(text) {
+                Text(problem).font(.caption).foregroundStyle(Theme.redText)
+            }
+        }
+        .onAppear { text = saved ?? "" }
+        .onDisappear(perform: commit)
+        .onChange(of: saved) { _, value in if !focused { text = value ?? "" } }
+        .onChange(of: focused) { _, isFocused in if !isFocused { commit() } }
+    }
+
+    @MainActor
+    private func commit() {
+        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard value != (saved ?? "") else { return }
+        model.updateConfig(refresh: false) { $0.setTerminalCommand(value) }
+    }
+
+    /// What `TerminalLauncher.validateCustomCommand` says about the command (nil = fine).
+    private static func problem(_ command: String) -> String? {
+        do {
+            try TerminalLauncher.validateCustomCommand(command)
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
     }
 }
 

@@ -468,6 +468,7 @@ enum UIActionInventory {
         .init("Settings/InstructionsTab.swift", "Component:StageChip", "-", 2, .cli(["rules add", "rules edit"])),   // --applies-to
         .init("Settings/InstructionsTab.swift", "ConfirmAlert", "Undo Claude’s changes?", 1, .cli(["rules chat"])),   // --undo --yes
         .init("Settings/InstructionsTab.swift", "onKeyPress", "-", 1, .cli(["rules chat"])),   // ↩ sends
+        .init("Settings/GeneralTab.swift", "onSubmit", "-", 1, .cli(["config set"])),   // terminal-command (Custom…)
         .init("Settings/InstructionsTab.swift", "onSubmit", "-", 2, .cli(["rules edit", "rules add"])),
         .init("Settings/PatternListField.swift", "onSubmit", "-", 1, .cli(["claude review set", "repo set"])),
         .init("Settings/ReposTab.swift", "Component:PatternListField", "Ignore paths", 1, .cli(["repo set"])),
