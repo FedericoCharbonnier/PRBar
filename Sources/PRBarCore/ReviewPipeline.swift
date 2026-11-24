@@ -191,9 +191,15 @@ public struct ReviewPipeline: ReviewPipelineRunning {
                 await Self.cleanup(workspace, parts, after: error)
                 throw error
             }
-            await parts.release(workspace)
-            if Task.isCancelled {
+            // Kept for "Open in Terminal" (spec T.3) only with a Claude session to resume; otherwise cleaned up as before.
+            let keep = !sessions().isEmpty
+            if keep {
+                await parts.release(workspace)
+            } else {
                 await Self.cleanup(workspace, parts, after: nil)
+            }
+            if Task.isCancelled {
+                if keep { await Self.cleanup(workspace, parts, after: nil) }
                 throw CancellationError()
             }
 
@@ -206,7 +212,7 @@ public struct ReviewPipeline: ReviewPipelineRunning {
             )
             draft.id = draftID
             draft.sessions = sessions()
-            draft.retainedLocation = parts.location(workspace)
+            draft.retainedLocation = keep ? parts.location(workspace) : nil
             return draft
         } catch {
             if RemoteUnstoppedJobs.isNotStopped(error) {

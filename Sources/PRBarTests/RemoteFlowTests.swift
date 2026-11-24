@@ -18,9 +18,10 @@ private func placement(_ ssh: FakeSSH, origin: URL) async throws -> RemotePlacem
 }
 
 /// Una salida de Claude para la llamada `n` del `claude` de mentira (o para todas, sin `n`).
-private func stream(_ ssh: FakeSSH, _ output: [String: Any], call n: Int? = nil) throws {
+private func stream(_ ssh: FakeSSH, _ output: [String: Any], call n: Int? = nil, session: String? = nil) throws {
     let name = n.map { "claude-stream-\($0).jsonl" } ?? "claude-stream.jsonl"
-    try Data((line(["type": "result", "subtype": "success", "is_error": false, "result": "", "structured_output": output]) + "\n").utf8)
+    let initLine = session.map { line(["type": "system", "subtype": "init", "session_id": $0]) + "\n" } ?? ""
+    try Data((initLine + line(["type": "result", "subtype": "success", "is_error": false, "result": "", "structured_output": output]) + "\n").utf8)
         .write(to: ssh.home.appendingPathComponent(name))
 }
 
@@ -77,7 +78,7 @@ enum RemoteFlowTests {
             defer { ssh.remove() }
             try ssh.installFakeClaude()
             let finding: [String: Any] = ["id": "f1", "severity": "high", "file": "feature.txt", "line": 1, "title": "T", "body": "B"]
-            try stream(ssh, ["summary": "One issue", "findings": [finding]])
+            try stream(ssh, ["summary": "One issue", "findings": [finding]], session: "1b4e28ba-2fa1-11d2-883f-0016d3cca427")
             let remote = try await placement(ssh, origin: repo.origin)
             var settings = ClaudeSettings()
             settings.filterEnabled = false

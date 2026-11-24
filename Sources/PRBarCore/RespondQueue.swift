@@ -55,6 +55,8 @@ public final class RespondQueue: ObservableObject {
     private let onEvent: @MainActor (String, RespondPhase) -> Void
     /// A push finished (spec T.3): the worktree is kept for "Open in Terminal" instead of deleted. `nil` = delete it.
     private let onRetain: (@MainActor (RespondRecord) -> Void)?
+    /// The runs (record ids) whose worktree was kept at the end (`onRetain`): dismissing them doesn't delete it.
+    private var retainedRuns: Set<UUID> = []
     /// El job vigente de cada PR (en cola o corriendo): lo que avise una corrida vieja se ignora.
     private var jobs: [String: Job] = [:]
     /// Implementaciones canceladas que todavía están restaurando el árbol.
@@ -387,14 +389,17 @@ public final class RespondQueue: ObservableObject {
         runs[prID] = nil
         leftWork.remove(prID)
         // A pushed run that finished is kept for "Open in Terminal" (`onRetain`): the app removes it, not dismissing.
-        if let record = records[prID], !isRetained(record, phase: phase) { cleanupWorktree(record.draft) }
+        if let record = records[prID] {
+            if !isRetained(record, phase: phase) { cleanupWorktree(record.draft) }
+            retainedRuns.remove(record.id)
+        }
         records[prID] = nil
     }
 
     /// The run finished with a push and the app keeps its worktree (`onRetain`).
     private func isRetained(_ record: RespondRecord, phase: RespondPhase?) -> Bool {
         guard case .done? = phase else { return false }
-        return record.pushed && onRetain != nil
+        return retainedRuns.contains(record.id)
     }
 
     /// En segundo plano: el worktree queda en disco para "Open in Terminal" (spec T.3).
@@ -572,7 +577,9 @@ public final class RespondQueue: ObservableObject {
                 self.records[prID] = record
                 self.save(record)
                 self.finish(prID, .done(record))
-                if record.pushed, let onRetain = self.onRetain {
+                // Kept only with a Claude session to resume (spec T.3); otherwise cleaned up as before.
+                if record.pushed, let onRetain = self.onRetain, !(record.sessions ?? []).isEmpty {
+                    self.retainedRuns.insert(record.id)
                     self.releaseWorktree(record.draft)
                     onRetain(record)
                 } else {

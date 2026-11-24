@@ -41,6 +41,12 @@ private let bothSelected: [String: RespondSelection] = [
 private let fixResult = RespondResult(items: [ItemResult(id: "thread:A", status: .committed, commit: sha1, summary: "ok")],
                                       diffStat: " README.md | 1 +", tests: nil)
 
+/// `fixResult` with the fix's Claude session (spec T.2): a pushed run with sessions is kept for Terminal.
+private let fixResultWithSession = RespondResult(
+    items: [ItemResult(id: "thread:A", status: .committed, commit: sha1, summary: "ok",
+                       session: ClaudeSessionStamp(id: "6f1c2d3e-4a5b-4c6d-8e7f-9a0b1c2d3e4f", startedAt: t0))],
+    diffStat: " README.md | 1 +", tests: nil)
+
 private let postA = FakeFeedbackAPI.Post.reply(commentID: 101, body: "Arreglado en https://github.com/o/r/commit/\(sha1).")
 private let postB = FakeFeedbackAPI.Post.reply(commentID: 102, body: "Lo dejo así.")
 
@@ -261,11 +267,11 @@ private final class Harness {
     }
 
     /// ready → implementing → readyToPush.
-    func toReadyToPush(_ number: Int) async throws {
+    func toReadyToPush(_ number: Int, result: RespondResult = fixResult) async throws {
         try await toReady(number)
         queue.implement(prID: prID(number), selections: bothSelected)
         try await events.wait(for: [.started("implement:\(prID(number))")])
-        pipeline.completeImplementation(prID(number), .success(fixResult))
+        pipeline.completeImplementation(prID(number), .success(result))
         try await events.wait(for: reached(number, "readyToPush"))
     }
 }
@@ -651,7 +657,7 @@ enum RespondQueueTests {
         },
         TestCase("respond queue: con onRetain, un push terminado conserva la carpeta en vez de borrarla") { @MainActor in
             let h = try Harness(retains: true)
-            try await h.toReadyToPush(1)
+            try await h.toReadyToPush(1, result: fixResultWithSession)
             let draft = try h.saved(1).draft
             h.queue.publish(prID: prID(1))
             try await h.events.wait(for: reached(1, "done"))
@@ -663,7 +669,7 @@ enum RespondQueueTests {
         },
         TestCase("respond queue: descartar un push conservado no borra su carpeta") { @MainActor in
             let h = try Harness(retains: true)
-            try await h.toReadyToPush(1)
+            try await h.toReadyToPush(1, result: fixResultWithSession)
             let draft = try h.saved(1).draft
             h.queue.publish(prID: prID(1))
             try await h.events.wait(for: reached(1, "done"))
@@ -671,6 +677,16 @@ enum RespondQueueTests {
             await h.settle()
             try expectEqual(h.retained, [draft.id])
             try expectEqual(h.pipeline.cleanups, [])
+        },
+        TestCase("respond queue: a pushed run without Claude sessions isn't kept: its folder is cleaned up as before") { @MainActor in
+            let h = try Harness(retains: true)
+            try await h.toReadyToPush(1)
+            let draft = try h.saved(1).draft
+            h.queue.publish(prID: prID(1))
+            try await h.events.wait(for: reached(1, "done"))
+            try await waitUntil { h.pipeline.cleanups == [draft.id] }
+            try expectEqual(h.retained, [])
+            try expectEqual(h.pipeline.releases, [])
         },
         TestCase("respond queue: sin onRetain, descartar un push terminado sigue borrando") { @MainActor in
             let h = try Harness()

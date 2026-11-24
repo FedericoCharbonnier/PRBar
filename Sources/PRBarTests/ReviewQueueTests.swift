@@ -412,7 +412,7 @@ enum ReviewPipelineTests {
             let root = try temporaryDirectory()
             defer { try? FileManager.default.removeItem(at: root) }
             let git = gitFake()
-            let claude = FakeStreamingRunner { _, _, _ in ([stageOneEmpty], ok("")) }
+            let claude = FakeStreamingRunner { _, _, _ in ([initLine, stageOneEmpty], ok("")) }
             let phases = Box<[ReviewPhase]>([])
             let req = clonedRequest(9)
             let draft = try await pipeline(git: git, claude: claude, root: root.appendingPathComponent("wt"), logs: root)
@@ -438,6 +438,17 @@ enum ReviewPipelineTests {
             try expect(!WorkspaceRegistry.shared.contains(kept.directory))
             // El log usa el id del draft.
             try expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("\(draft.id.uuidString).log").path))
+        },
+        TestCase("review pipeline: without a Claude session the folder is cleaned up as before (nothing to resume)") {
+            let root = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let git = gitFake()
+            let claude = FakeStreamingRunner { _, _, _ in ([stageOneEmpty], ok("")) }
+            let draft = try await pipeline(git: git, claude: claude, root: root.appendingPathComponent("wt"), logs: root)
+                .run(clonedRequest(9)) { _ in }
+            try expectEqual(draft.sessions.count, 0)
+            try expectEqual(draft.retainedLocation, nil)
+            try expect(cleanedUp(git))
         },
         TestCase("review pipeline: fetches the description, puts it in pr.md and reviews in the PR's language") {
             let root = try temporaryDirectory()
