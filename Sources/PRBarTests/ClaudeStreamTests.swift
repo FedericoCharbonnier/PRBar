@@ -78,5 +78,18 @@ enum ClaudeStreamTests {
                             "Using the superpowers:receiving-code-review skill")
             try expectEqual(ChatActivity.describe(.text("hi"), root: root), nil)
         },
+        TestCase("claude stream: lee el session_id del evento init; sin init no hay ID") {
+            var parser = ClaudeStreamParser()
+            try expectEqual(parser.sessionID, nil)
+            _ = parser.consumeAll(readLine)
+            _ = parser.consumeAll(resultLine)
+            try expectEqual(parser.sessionID, nil)
+            let initLine = #"{"type":"system","subtype":"init","session_id":"1b4e28ba-2fa1-11d2-883f-0016d3cca427","tools":["Read"]}"#
+            try expectEqual(parser.consumeAll(initLine), [])
+            try expectEqual(parser.sessionID, "1b4e28ba-2fa1-11d2-883f-0016d3cca427")
+            // Otros eventos de sistema (hooks, compactación) traen session_id: no lo pisan.
+            _ = parser.consumeAll(#"{"type":"system","subtype":"hook_response","session_id":"otro"}"#)
+            try expectEqual(parser.sessionID, "1b4e28ba-2fa1-11d2-883f-0016d3cca427")
+        },
     ]
 }

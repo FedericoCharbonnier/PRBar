@@ -36,10 +36,14 @@ public struct ClaudeInvocation: Sendable {
     /// A budget shared by several runs (the chat: one user message, spec B.4): each attempt, retries included, gets
     /// at most what's left until then, and none starts once it's passed. `nil` = only `timeout`.
     public var deadline: Date?
+    /// Called with the run's Claude Code session id as soon as `claude -p` reports it (spec T.2), from any thread;
+    /// once per attempt (a retry is another run). `nil` = nobody keeps it.
+    public var onSession: (@Sendable (String) -> Void)?
 
     public init(prompt: String, schema: String, tools: [String], workingDirectory: URL,
                 additionalDirectories: [URL] = [], timeout: TimeInterval, logHeader: String,
-                session: ClaudeSessionFlag? = nil, deadline: Date? = nil) {
+                session: ClaudeSessionFlag? = nil, deadline: Date? = nil,
+                onSession: (@Sendable (String) -> Void)? = nil) {
         self.prompt = prompt
         self.schema = schema
         self.tools = tools
@@ -49,6 +53,7 @@ public struct ClaudeInvocation: Sendable {
         self.logHeader = logHeader
         self.session = session
         self.deadline = deadline
+        self.onSession = onSession
     }
 }
 
@@ -357,11 +362,18 @@ public struct ClaudeRunner: Sendable {
             let stdinRunner = promptViaStandardInput ? runner as? StandardInputStreamingRunning : nil   // `validate` ya lo exigió.
             let arguments = Self.arguments(for: invocation, pluginDirs: pluginDirs, model: model,
                                            promptInArguments: stdinRunner == nil)
+            let onSession = invocation.onSession
             let onLine: @Sendable (String) -> Void = { line in
                 // Redacted before parsing: the decoded output and the errors don't carry the token either.
                 let line = Redactor.redact(line, secrets: secrets)
                 log.append(line + "\n")
-                for event in parser.withLock({ $0.consumeAll(line) }) { onEvent(event) }
+                let (events, newSession) = parser.withLock { parser -> ([ClaudeStreamEvent], String?) in
+                    let before = parser.sessionID
+                    let events = parser.consumeAll(line)
+                    return (events, parser.sessionID != before ? parser.sessionID : nil)
+                }
+                if let newSession { onSession?(newSession) }
+                for event in events { onEvent(event) }
             }
             if let stdinRunner {
                 result = try await stdinRunner.runStreamingIsolated(

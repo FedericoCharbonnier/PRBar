@@ -402,5 +402,26 @@ enum ClaudeRunnerTests {
             _ = try await claude(runner, log: try logFile()).run(invocation(), as: Answer.self, onEvent: { events.value.append($0) })
             try expectEqual(events.value, [.agentStarted(total: 0), .text("Mirando."), .toolUse(name: "Read", detail: "/tmp/wt/r-7-1/a.ts")])
         },
+        TestCase("claude runner: avisa el session_id de cada intento, también si la corrida falla después de arrancar") {
+            let initLine = #"{"type":"system","subtype":"init","session_id":"1b4e28ba-2fa1-11d2-883f-0016d3cca427"}"#
+            let seen = Box<[String]>([])
+            var failing = invocation()
+            failing.onSession = { seen.value.append($0) }
+            let crashed = FakeStreamingRunner { _, _, _ in ([initLine], fail("boom", status: 3)) }
+            _ = try await expectThrows { _ = try await claude(crashed, log: try logFile()).run(failing, as: Answer.self, onAgent: { _ in }) }
+            try expectEqual(seen.value, ["1b4e28ba-2fa1-11d2-883f-0016d3cca427"])
+
+            // Salida inválida: el reintento es otra corrida con su propio init.
+            seen.value = []
+            let retried = FakeStreamingRunner { _, _, _ in ([initLine, invalidLine], ok("")) }
+            _ = try await expectThrows { _ = try await claude(retried, log: try logFile()).run(failing, as: Answer.self, onAgent: { _ in }) }
+            try expectEqual(seen.value.count, 2)
+
+            // Sin init no se avisa nada.
+            seen.value = []
+            let plain = FakeStreamingRunner { _, _, _ in ([validLine], ok("")) }
+            _ = try await claude(plain, log: try logFile()).run(failing, as: Answer.self, onAgent: { _ in })
+            try expectEqual(seen.value, [])
+        },
     ]
 }

@@ -36,6 +36,8 @@ public struct ClaudeResult: Equatable, Sendable {
 public struct ClaudeStreamParser: Sendable {
     public private(set) var agentCount = 0
     public private(set) var result: ClaudeResult?
+    /// The Claude Code session of this run (`session_id` of the `system/init` event, spec T.2); nil until it arrives.
+    public private(set) var sessionID: String?
 
     public init() {}
 
@@ -96,6 +98,13 @@ public struct ClaudeStreamParser: Sendable {
                 costUSD: (object["total_cost_usd"] as? NSNumber)?.doubleValue,
                 usage: ClaudeTokenUsage.parse(object["usage"])
             )
+            return []
+        case "system":
+            // Solo el `init` dice de qué sesión es la corrida; los otros eventos de sistema no la cambian.
+            if object["subtype"] as? String == "init", sessionID == nil,
+               let id = object["session_id"] as? String, !id.isEmpty {
+                sessionID = id
+            }
             return []
         default:
             return []
