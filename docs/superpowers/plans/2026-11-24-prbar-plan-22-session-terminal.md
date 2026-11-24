@@ -2877,6 +2877,12 @@ git -C /Users/federico/Documents/PRBar-wt-term commit -m "AppModel: keep folders
 - Modify: `Sources/PRBar/Review/HistoryDetailView.swift`, `Sources/PRBar/Respond/RespondHistoryDetailView.swift`, `Sources/PRBar/Review/HistoryPane.swift`
 - Test: `Sources/PRBarTests/KeyboardShortcutListTests.swift`
 
+> **Busy state (from the Task 10 review).** `AppModel.isSessionBusy` asks `WorkspaceRegistry.contains` (a `realpath`/`stat`
+> per call), and `WorkspaceRegistry` isn't observable. Views must not call it in `body` on every render, nor expect the
+> view to refresh when it changes. Derive "busy" from published state (`respond.phases`, `respond.chatting`,
+> `respond.runningTests`, `reviews.phases`) and/or recompute it on a short timer or when those publishers change,
+> keeping the result in view state.
+
 - [ ] **Step 1: Write the failing test.** In `Sources/PRBarTests/KeyboardShortcutListTests.swift`, add `"⌥⌘T"` to the `expected` list (after `"⌥⌘I"`).
 
 - [ ] **Step 2: Run and see it fail**
@@ -3261,7 +3267,7 @@ extension SessionJob: ExpressibleByArgument {}
 struct SessionGroup: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "session", abstract: "Claude’s sessions of a PR, resumed in your terminal.",
-        discussion: "The sessions of the PR’s last review, fixes and Fix CI whose folder PRBar kept. They open with claude --resume in the terminal of Settings › General (prbar config set terminal).",
+        discussion: "The sessions of the PR’s last review and of its last Respond or Fix CI (they share the branch’s folder) whose folder PRBar kept. They open with claude --resume in the terminal of Settings › General (prbar config set terminal).",
         subcommands: [SessionList.self, SessionOpen.self])
 }
 
@@ -3319,7 +3325,7 @@ In `Sources/PRBarCLIKit/CLIRouter.swift`, after the `chat` row:
 - [ ] **Step 7: docs/cli.md.** In the Commands table, after the `prbar open …` row add:
 
 ```markdown
-| `prbar session list <pr> [--json]` | Claude’s sessions of the PR you can open in a terminal: those of its last review (`Review · stage N`), fixes (`Fix N: <title>`) and Fix CI whose folder PRBar kept, with their number, kind, machine (this Mac or the runner), folder and time. Marked “Claude is working on it” while PRBar runs something in that folder |
+| `prbar session list <pr> [--json]` | Claude’s sessions of the PR you can open in a terminal: those of its last review (`Review · stage N`) and of its last Respond (`Fix N: <title>`) or Fix CI (`CI fix`) — they share the branch’s folder — whose folder PRBar kept, with their number, kind, machine (this Mac or the runner), folder and time. Marked “Claude is working on it” while PRBar runs something in that folder |
 | `prbar session open <pr> [--job review\|respond\|ci-fix] [--run N]` | Resume one (`claude --resume`) in the terminal of Settings › General: `--run N` the number in `session list`, `--job` that job’s most recent, neither the most recent. Exit 6 if there’s none or PRBar is working in its folder; exit 1 with the terminal’s error if it couldn’t open |
 ```
 
@@ -3558,7 +3564,7 @@ git -C /Users/federico/Documents/PRBar-wt-term commit -m "Screenshots: Terminal 
 | Spec | Where |
 |---|---|
 | Decisions 1–4 | Tasks 4–5 (sessions, kept folders), 7 (terminals), 10–12 (button, menu, CLI) |
-| T.1 What is offered (last job of each kind, kept folder + id, labels, grouping, order) | Task 3 (labels, truncation to 50), Task 5 (one kept folder per (PR, review/respond); newer replaces), Task 10 (`SessionOffer.offered/groups/mostRecent`), Task 11 (menu) |
+| T.1 What is offered (last review and last Respond / Fix CI — one shared `respond` folder —, kept folder + id, labels, grouping, order) | Task 3 (labels, truncation to 50), Task 5 (one kept folder per (PR, review/respond); newer replaces), Task 10 (`SessionOffer.offered/groups/mostRecent`), Task 11 (menu) |
 | T.2 Session id (`init` event, also on failure, `ClaudeSessionRef` fields, records, not for non-PR runs) | Task 2 (parser + `onSession`, failure test), Task 3 (`ClaudeSessionRef`, optional decoding), Task 4 (review stages, fixes, Fix CI, `ReviewFailure.sessions`); other runs (skills filter, runner checks, Instructions, chat) pass no `onSession`, so nothing is stored |
 | T.3 Kept folders (retain on publish/push, `retained-worktrees.json`, merged/closed, replaced + lsof, Clean Up skips dirty/unpushed, Activity counts them, busy disables, new jobs use another folder) | Task 5 (store, rules, `ProcessCwd`, cleaner, release, orphan `keeping`, Clean Up `retained`, `onRetain`), Task 10 (wiring: retain, prune via GitHub state, superseded retry, Clean Up forget, `isSessionBusy`); Activity needs no change (released folders are no longer registered as in use, so the scanner counts them); new jobs already create new folders (`WorktreeManager.prepare`/`WorktreeResolver.prepare` use a new run id) |
 | T.4 Toolbar button (left of Chat, one/several/none/busy, help texts), Pull Request menu ⌥⌘T, History, CLI list/open with exit 6, iPhone not offered | Task 10 (`SessionOffer.help`), Task 11 (button, menu, shortcut list, History), Task 12 (CLI + IPC + docs), Tasks 8/12/13 (RemotePolicy + web) |

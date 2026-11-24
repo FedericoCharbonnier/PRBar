@@ -19,8 +19,9 @@ Fecha: 2026-11-24. Plan: `2026-11-24-prbar-plan-22-session-terminal.md`.
 
 - Una **sesión** es una corrida de `claude -p` de un trabajo: cada etapa de la review, cada fix de Respond y el Fix CI.
   El chat de PRBar no entra (ya se usa desde el inspector).
-- Por PR se ofrecen las del **último** trabajo de cada tipo: la última review, el último Respond (fixes) y el último
-  Fix CI. Solo las que tienen su carpeta conservada (T.3) y su ID de sesión (T.2).
+- Por PR se ofrecen las del **último** trabajo de cada tipo: la última review y el último de Respond / Fix CI (comparten
+  la carpeta del branch del PR, T.3: un Fix CI después de un Respond lo reemplaza, y al revés). Solo las que tienen su
+  carpeta conservada (T.3) y su ID de sesión (T.2).
 - Nombres: `Review · stage N`, `Fix N: <título del hallazgo, truncado a 50>`, `CI fix`. En el menú, agrupadas bajo
   **Review**, **Fixes** y **CI fix**, en el orden en que corrieron.
 
