@@ -173,7 +173,9 @@ step "Building PRBar.app the way the in-app updater does"
 # Lo mismo que corre `UpdateInstaller` en cada Mac: release y exactamente lo de Package.resolved. Si esto no compila,
 # ninguna actualización compilaría.
 BUILD_OUT="$(mktemp -d -t prbar-release-build)"
-bash Scripts/bundle.sh --output "$BUILD_OUT"
+# /bin/bash, como `UpdateInstaller`: un `bash` x86_64 del PATH (Homebrew Intel) corre `swift` bajo Rosetta, compila
+# en .build/x86_64-… y el chequeo de abajo (`--show-bin-path`, arm64) leería otra compilación.
+/bin/bash Scripts/bundle.sh --output "$BUILD_OUT"
 APP="$BUILD_OUT/PRBar.app"
 
 step "Checking the built app"
