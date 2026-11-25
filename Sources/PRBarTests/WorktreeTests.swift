@@ -384,14 +384,14 @@ enum WorktreeTests {
             defer { try? FileManager.default.removeItem(at: outsideTarget) }
             let secret = outsideTarget.appendingPathComponent("id_rsa")
             try Data("CLAVE PRIVADA\n".utf8).write(to: secret)
-            let repo = try TempGitRepo.make { origin in
+            let repo = try TempGitRepo.make(prSetup: { origin in
                 let fm = FileManager.default
                 try fm.createSymbolicLink(atPath: origin.appendingPathComponent("secreto").path, withDestinationPath: secret.path)
                 try fm.createDirectory(at: origin.appendingPathComponent("sub"), withIntermediateDirectories: true)
                 try fm.createSymbolicLink(atPath: origin.appendingPathComponent("sub/relativo").path, withDestinationPath: "../../../afuera.txt")
                 try fm.createSymbolicLink(atPath: origin.appendingPathComponent("roto").path, withDestinationPath: "/no/existe")
                 try fm.createSymbolicLink(atPath: origin.appendingPathComponent("adentro").path, withDestinationPath: "feature.txt")
-            }
+            })
             defer { repo.remove() }
             let m = WorktreeManager(runner: SystemProcessRunner(), gitPath: TempGitRepo.git, root: repo.root)
             let ws = try await m.prepare(repo: prRepoRef, number: 7, baseRef: "main", localPath: repo.local.path)

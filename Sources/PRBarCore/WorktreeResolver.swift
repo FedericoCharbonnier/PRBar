@@ -75,6 +75,26 @@ public struct WorktreeResolver: Sendable {
         }
     }
 
+    /// La ref de la base de un Resolve Conflicts (decisión C.9.1): la de la corrida con `-base`.
+    public static func baseRef(forRunRef ref: String) -> String { ref + "-base" }
+
+    /// Resolve Conflicts (spec C.3.2): trae `+refs/heads/<baseRef>` (endurecido, sin `FETCH_HEAD`) a la ref de la base de
+    /// la corrida, en el clone del usuario, y devuelve su commit. No toca ramas locales.
+    public func fetchBase(_ worktree: ResolvedWorktree, baseRef: String) async throws -> String {
+        guard worktree.origin == .dedicated, let localPath = worktree.localPath, let ref = worktree.ref, Self.isOwnRef(ref) else {
+            throw PRBarError.respond("This worktree isn’t PRBar’s: resolve the conflicts again.")
+        }
+        try await validateBranchName(baseRef)
+        let target = Self.baseRef(forRunRef: ref)
+        try await git(localPath, ["fetch", "--no-write-fetch-head", "origin", "+refs/heads/\(baseRef):\(target)"],
+                      timeout: WorktreeManager.slowTimeout)
+        let output = try await git(localPath, ["rev-parse", "--verify", "--quiet", "\(target)^{commit}"])
+        guard let sha = CommitSHA.parse(output) else {
+            throw PRBarError.respond("git rev-parse \(target) returned \"\(output.prefix(80))\"")
+        }
+        return sha
+    }
+
     /// `<localPath>-worktrees` (sin la barra final de `localPath`).
     public static func defaultWorktreeDir(localPath: String) -> String {
         var path = localPath
@@ -130,6 +150,8 @@ public struct WorktreeResolver: Sendable {
         }
         if let ref = worktree.ref, Self.isOwnRef(ref) {
             await gitLogged(localPath, ["update-ref", "-d", ref])
+            // La de la base de un Resolve Conflicts (`update-ref -d` de una ref que no existe sale con 0).
+            await gitLogged(localPath, ["update-ref", "-d", Self.baseRef(forRunRef: ref)])
         }
         WorkspaceRegistry.shared.remove(worktree.path)
     }
@@ -158,7 +180,8 @@ public struct WorktreeResolver: Sendable {
         }
         // Las refs de los worktrees de Responder que siguen en pie (los que se guardaron, o los de otra carpeta) quedan.
         guard let list = await gitLogged(localPath, ["worktree", "list", "--porcelain"]) else { return }
-        let kept = Set(WorktreeManager.worktreePaths(fromPorcelain: list).compactMap { Self.respondRef(forWorktreePath: $0) })
+        let kept = Set(WorktreeManager.worktreePaths(fromPorcelain: list).compactMap { Self.respondRef(forWorktreePath: $0) }
+            .flatMap { [$0, Self.baseRef(forRunRef: $0)] })
         guard let refs = await gitLogged(localPath, ["for-each-ref", "--format=%(refname)", "refs/prbar/"]) else { return }
         for ref in refs.split(whereSeparator: \.isNewline).map(String.init) where Self.isOwnRef(ref) && !kept.contains(ref) {
             await gitLogged(localPath, ["update-ref", "-d", ref])

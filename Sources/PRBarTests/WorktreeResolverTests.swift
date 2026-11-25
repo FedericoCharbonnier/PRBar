@@ -296,6 +296,25 @@ enum WorktreeResolverTests {
             try expectEqual(try repo.git(repo.local, ["for-each-ref", "--format=%(refname)", "refs/prbar/"])
                 .trimmingCharacters(in: .whitespacesAndNewlines), "refs/prbar/respond-9-eeeeeeee")
         },
+        TestCase("resolver (git real): la base de un Resolve Conflicts va a <ref>-base, se valida y se borra con el worktree") {
+            let repo = try TempGitRepo.make()
+            defer { repo.remove() }
+            let base = try repo.advanceBase { try Data("b\n".utf8).write(to: $0.appendingPathComponent("b.txt")) }
+            let resolver = resolver()
+            let (worktree, _) = try await resolver.prepare(localPath: repo.local.path, repo: repoRef, number: 7, headRef: "feature",
+                                                           worktreeDir: repo.root.path, runID: "0a0b0c0d")
+            let sha = try await resolver.fetchBase(worktree, baseRef: "main")
+            try expectEqual(sha, base)
+            try expectEqual(try repo.prbarRefs().sorted(), ["refs/prbar/respond-7-0a0b0c0d", "refs/prbar/respond-7-0a0b0c0d-base"])
+            // La rama local `main` del usuario no se mueve.
+            try expect(try TempGitRepo.run(repo.local, ["rev-parse", "refs/heads/main"]).trimmingCharacters(in: .whitespacesAndNewlines) != base)
+            _ = try await expectThrows { _ = try await resolver.fetchBase(worktree, baseRef: "--upload-pack=evil") }
+            // Al arrancar, la ref de la base de un worktree que sigue en pie no se toca.
+            await resolver.cleanupOrphans(localPath: repo.local.path, worktreeDir: repo.root.path, keeping: [worktree.path])
+            try expectEqual(try repo.prbarRefs().count, 2)
+            await resolver.cleanup(worktree)
+            try expectEqual(try repo.prbarRefs(), [])
+        },
         TestCase("config: worktreeDir y testCommand son opcionales y tienen setters") {
             let json = #"{"accounts":[{"login":"me","repos":[{"owner":"o","name":"r"}]}]}"#
             var config = try JSONCoding.decoder.decode(AppConfig.self, from: Data(json.utf8))

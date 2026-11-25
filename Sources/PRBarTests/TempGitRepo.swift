@@ -15,12 +15,14 @@ struct TempGitRepo {
     /// SHA del commit del PR #7.
     let prSHA: String
 
-    /// `prSetup` corre dentro de `origin`, en la rama del PR, antes del commit (p. ej. para crear symlinks).
-    static func make(prSetup: (URL) throws -> Void = { _ in }) throws -> TempGitRepo {
+    /// `baseSetup` corre dentro de `origin`, en `main`, antes del commit "base"; `prSetup`, en la rama del PR, antes
+    /// del commit del PR (p. ej. para crear symlinks).
+    static func make(baseSetup: (URL) throws -> Void = { _ in }, prSetup: (URL) throws -> Void = { _ in }) throws -> TempGitRepo {
         let base = try temporaryDirectory()
         let origin = base.appendingPathComponent("origin", isDirectory: true)
         try run(base, ["init", "-q", "-b", "main", origin.path])
         try Data("hola\n".utf8).write(to: origin.appendingPathComponent("README.md"))
+        try baseSetup(origin)
         try run(origin, ["add", "-A"])
         try run(origin, ["commit", "-q", "-m", "base"])
         try run(origin, ["checkout", "-q", "-b", "feature"])
@@ -36,6 +38,15 @@ struct TempGitRepo {
     }
 
     func remove() { try? FileManager.default.removeItem(at: base) }
+
+    /// Un commit nuevo en `main` de `origin` (la base avanzó después del PR). Devuelve su sha.
+    @discardableResult
+    func advanceBase(_ message: String = "base change", _ change: (URL) throws -> Void) throws -> String {
+        try change(origin)
+        try Self.run(origin, ["add", "-A"])
+        try Self.run(origin, ["commit", "-q", "-m", message])
+        return try Self.run(origin, ["rev-parse", "HEAD"]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     /// `git -C <directory> <args>` con una configuración aislada (sin la global ni la del sistema).
     @discardableResult

@@ -136,10 +136,12 @@ enum FeedbackAPITests {
             try expectEqual(status2, 422)
         },
         TestCase("details api: GETs /pulls/{n} and returns the description, title and head commit") {
-            let json = #"{"number":7,"title":"Validar email","body":"Agrega la validación.\r\n\r\nDetalles.","head":{"sha":"deadbeef","ref":"feature/x"},"base":{"ref":"main"},"user":{"login":"ana"}}"#
+            let json = #"{"number":7,"title":"Validar email","body":"Agrega la validación.\r\n\r\nDetalles.","head":{"sha":"deadbeef","ref":"feature/x"},"base":{"ref":"develop"},"user":{"login":"ana"}}"#
             let transport = FakeTransport([(200, [:], json)])
             let details = try await GitHubClient(transport: transport).pullRequestDetails(repo: repo, number: 7, token: "tok")
-            try expectEqual(details, PRDetails(title: "Validar email", body: "Agrega la validación.\r\n\r\nDetalles.", headOid: "deadbeef"))
+            try expectEqual(details, PRDetails(title: "Validar email", body: "Agrega la validación.\r\n\r\nDetalles.", headOid: "deadbeef",
+                                                baseRef: "develop"))
+            try expectEqual(details.baseRef, "develop")
             let request = transport.requests[0]
             try expectEqual(request.httpMethod ?? "GET", "GET")
             try expectEqual(request.url?.absoluteString, "https://api.github.com/repos/o/r/pulls/7")

@@ -87,13 +87,16 @@ public struct PRDetails: Equatable, Sendable {
     /// `nil` if GitHub didn't say.
     public let state: State?
     public let mergedAt: Date?
+    /// La rama base del PR (`base.ref`); nil si GitHub no la dijo.
+    public let baseRef: String?
 
-    public init(title: String, body: String, headOid: String?, state: State? = nil, mergedAt: Date? = nil) {
+    public init(title: String, body: String, headOid: String?, state: State? = nil, mergedAt: Date? = nil, baseRef: String? = nil) {
         self.title = title
         self.body = body
         self.headOid = headOid
         self.state = state
         self.mergedAt = mergedAt
+        self.baseRef = baseRef
     }
 }
 
@@ -251,10 +254,12 @@ public struct GitHubClient: GitHubAPI, CIChecksAPI {
 
     public func pullRequestDetails(repo: RepoRef, number: Int, token: String) async throws -> PRDetails {
         struct Head: Decodable { let sha: String? }
+        struct Base: Decodable { let ref: String? }
         struct Pull: Decodable {
             let title: String?
             let body: String?
             let head: Head?
+            let base: Base?
             let state: String?
             let merged: Bool?
             let merged_at: Date?
@@ -268,7 +273,7 @@ public struct GitHubClient: GitHubAPI, CIChecksAPI {
                 switch pull.state { case "open": .open; case "closed": .closed; default: nil }
             }
             return PRDetails(title: pull.title ?? "", body: pull.body ?? "", headOid: pull.head?.sha, state: state,
-                             mergedAt: pull.merged_at)
+                             mergedAt: pull.merged_at, baseRef: pull.base?.ref)
         } catch {
             throw PRBarError.invalidResponse("PR details: \(error)")
         }
