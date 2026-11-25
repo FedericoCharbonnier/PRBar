@@ -77,9 +77,9 @@ struct StatusPill: View {
             return StatusPill(text: "Failed", color: Theme.redText, background: Theme.tint(Theme.red))
         }
         if record.finishedAt != nil {
-            return StatusPill(text: record.draft.isCIFix ? "CI fixed" : "Responded", color: Theme.greenText, background: Theme.tint(Theme.green))
+            return StatusPill(text: record.draft.isCIFix ? "CI fixed" : record.draft.isConflicts ? "Conflicts resolved" : "Responded", color: Theme.greenText, background: Theme.tint(Theme.green))
         }
-        return StatusPill(text: record.draft.isCIFix ? "Not pushed" : "Not posted", color: Theme.blueText, background: Theme.tint(Theme.blue))
+        return StatusPill(text: record.draft.isCIFix || record.draft.isConflicts ? "Not pushed" : "Not posted", color: Theme.blueText, background: Theme.tint(Theme.blue))
     }
 }
 

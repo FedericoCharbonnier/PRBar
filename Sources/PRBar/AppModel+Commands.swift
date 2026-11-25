@@ -116,8 +116,8 @@ extension AppModel: StatusActions {
     func historyList(repo: String?, kind: HistoryKind?, limit: Int?, search: String?) -> [HistoryEntryInfo] {
         var entries: [HistoryEntryInfo] = []
         if kind == nil || kind == .review { entries += history.all().map(HistoryEntryInfo.init(review:)) }
-        // Respond and Fix CI share `respondHistory`; `listing` keeps the requested kind only.
-        if kind == nil || kind == .respond || kind == .ciFix {
+        // Respond, Fix CI and Resolve Conflicts share `respondHistory`; `listing` keeps the requested kind only.
+        if kind == nil || kind == .respond || kind == .ciFix || kind == .conflicts {
             entries += respondHistory.all().map(HistoryEntryInfo.init(respond:))
         }
         if kind == nil || kind == .merge { entries += mergeHistory.all().map(HistoryEntryInfo.init(merge:)) }
@@ -432,6 +432,15 @@ extension AppModel: RespondActions {
             case .preparing?: "Reading the failing checks and preparing the worktree…"
             case .implementing?: "Claude is fixing the CI…"
             case .pushing?: "Checking the CI again and pushing…"
+            default: "Finishing…"
+            }
+        }
+        if respond.mode(of: prID) == .conflicts {
+            return switch respond.phases[prID] {
+            case .queued?: "Queued…"
+            case .preparing?: "Merging the base and preparing the worktree…"
+            case .implementing?: "Claude is resolving the conflicts…"
+            case .pushing?: "Checking the PR again and pushing…"
             default: "Finishing…"
             }
         }

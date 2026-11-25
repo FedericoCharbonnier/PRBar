@@ -21,6 +21,8 @@ enum WindowCommand: Hashable {
     case tab(Int)
     /// ⇧⌘M in the Merge tab.
     case merge
+    /// Resolve Conflicts of the PR in front (spec C.2).
+    case resolveConflicts
     /// ⌘. while Claude works on the tab's PR.
     case stopClaude
     /// ⌘Z outside a text field: undo Claude's last change from the tab's chat.
@@ -76,6 +78,7 @@ final class WindowCommandCenter: NSObject, NSMenuItemValidation {
     @objc func openInNewWindow(_ sender: Any?) { perform(.openInNewWindow) }
     @objc func openOnGitHub(_ sender: Any?) { perform(.openOnGitHub) }
     @objc func merge(_ sender: Any?) { perform(.merge) }
+    @objc func resolveConflicts(_ sender: Any?) { perform(.resolveConflicts) }
     @objc func stopClaude(_ sender: Any?) { perform(.stopClaude) }
     @objc func openClaudeSession(_ sender: Any?) { perform(.openClaudeSession) }
 
@@ -138,6 +141,7 @@ final class WindowCommandCenter: NSObject, NSMenuItemValidation {
         case #selector(openInNewWindow(_:)): return handler(.openInNewWindow)?.enabled ?? false
         case #selector(openOnGitHub(_:)): return handler(.openOnGitHub)?.enabled ?? false
         case #selector(merge(_:)): return handler(.merge)?.enabled ?? false
+        case #selector(resolveConflicts(_:)): return handler(.resolveConflicts)?.enabled ?? false
         case #selector(stopClaude(_:)): return handler(.stopClaude)?.enabled ?? false
         case #selector(openClaudeSession(_:)): return handler(.openClaudeSession)?.enabled ?? false
         case #selector(find(_:)): return handler(.find)?.enabled ?? (searchItem() != nil)

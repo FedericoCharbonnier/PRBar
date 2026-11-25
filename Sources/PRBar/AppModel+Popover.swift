@@ -43,6 +43,10 @@ extension AppModel {
             self?.startCIFix(item)
             self?.navigate(to: .pr(prID: prID, tab: .fixCI))
         }
+        let startConflicts = { [weak self] in
+            self?.startConflicts(item)
+            self?.navigate(to: .pr(prID: prID, tab: .respond))
+        }
         return PRRowActions(
             review: ReviewButtonActions(
                 start: startReview,
@@ -63,6 +67,13 @@ extension AppModel {
                 cancel: { [weak self] in self?.cancelRespond(prID: prID) },
                 open: { [weak self] in self?.openRespond(prID: prID) },
                 retry: { [weak self] in hasWork() ? self?.openRespond(prID: prID) : startCIFix() },
+                dismiss: { [weak self] in self?.confirmDismissRespond(prID: prID) }
+            ),
+            conflicts: RespondButtonActions(
+                start: startConflicts,
+                cancel: { [weak self] in self?.cancelRespond(prID: prID) },
+                open: { [weak self] in self?.openRespond(prID: prID) },
+                retry: { [weak self] in hasWork() ? self?.openRespond(prID: prID) : startConflicts() },
                 dismiss: { [weak self] in self?.confirmDismissRespond(prID: prID) }
             ),
             merge: MergeButtonActions(

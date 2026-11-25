@@ -54,6 +54,13 @@ struct PRListRow: View {
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
+                // Fuera de Ready to Merge también avisa que la rama choca con la base (spec C.2).
+                if item.category != .readyToMerge && model.isConflictsCandidate(item) {
+                    ConflictsStatusLabel()
+                        .font(.subheadline)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
                 HStack(spacing: 6) {
                     CIIcon(state: pr.ciState).font(.caption2.weight(.bold))
                     // Never squeezed (they wrapped digit by digit next to a wide pill with the chat open).
@@ -119,6 +126,7 @@ struct PRListRow: View {
         if item.category == .myFeedback {
             parts.append(FeedbackLabel.text(for: ActionClassifier.newFeedback(pr, me: item.account)))
         }
+        if model.isConflictsCandidate(item) { parts.append(MergePolicy.conflicts) }
         return parts.joined(separator: ", ")
     }
 }

@@ -51,7 +51,8 @@ private struct RespondItemHeaderView: View {
                 .font(.system(size: 20, weight: .semibold))
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
-            Label(status, systemImage: mode == .ciFix ? "xmark.octagon.fill" : "bubble.left.and.exclamationmark.bubble.right")
+            Label(status, systemImage: mode == .ciFix ? "xmark.octagon.fill"
+                                       : mode == .conflicts ? "exclamationmark.triangle.fill" : "bubble.left.and.exclamationmark.bubble.right")
                 .font(.callout.weight(.semibold))
                 .foregroundStyle(mode == .ciFix ? Theme.redText : Theme.orangeText)
         }
@@ -64,6 +65,9 @@ private struct RespondItemHeaderView: View {
     private var status: String {
         if mode == .ciFix {
             return item.pr.ciState == .failure ? "Checks failed on \(item.pr.headRef)" : "The CI isn’t failing"
+        }
+        if mode == .conflicts {
+            return item.pr.merge.hasConflicts ? "\(MergePolicy.conflicts) with \(item.pr.baseRef)" : "No conflicts with \(item.pr.baseRef)"
         }
         let feedback = ActionClassifier.newFeedback(item.pr, me: item.account)
         let comments = feedback.count == 1 ? "1 new comment" : "\(feedback.count) new comments"
@@ -86,13 +90,17 @@ private struct RespondStartView: View {
                 Divider()
                 VStack(spacing: 14) {
                     Spacer()
-                    Image(systemName: mode == .ciFix ? "wrench.and.screwdriver" : "arrowshape.turn.up.left.2")
+                    Image(systemName: mode == .ciFix ? "wrench.and.screwdriver"
+                                      : mode == .conflicts ? "arrow.triangle.merge" : "arrowshape.turn.up.left.2")
                         .font(.system(size: 38, weight: .light))
                         .foregroundStyle(Theme.violet)
                         .accessibilityHidden(true)
-                    Text(mode == .ciFix ? "Fix the CI with Claude" : "Respond with Claude").font(.title3.weight(.semibold))
+                    Text(mode == .ciFix ? "Fix the CI with Claude"
+                         : mode == .conflicts ? "Resolve the conflicts with Claude" : "Respond with Claude").font(.title3.weight(.semibold))
                     Text(mode == .ciFix
                          ? "Claude reads the failing checks and their logs and fixes the code in PRBar’s worktree. You review the diff before pushing."
+                         : mode == .conflicts
+                         ? "PRBar merges \(item.pr.baseRef) into this branch in its own worktree and Claude resolves the conflicts. You review the merge before pushing."
                          : "Claude reads the unresolved comments and proposes fixes and replies. You choose what to do before anything is pushed.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
@@ -119,13 +127,19 @@ private struct RespondStartView: View {
                         .frame(maxWidth: 520)
                     }
                     let reason = unavailableReason(item)
-                    Button(mode == .ciFix ? "Start Fix CI" : "Start Respond") {
-                        if mode == .ciFix { model.startCIFix(item) } else { model.startRespond(item) }
+                    Button(mode == .ciFix ? "Start Fix CI" : mode == .conflicts ? "Start Resolve Conflicts" : "Start Respond") {
+                        switch mode {
+                        case .ciFix: model.startCIFix(item)
+                        case .conflicts: model.startConflicts(item)
+                        case .feedback: model.startRespond(item)
+                        }
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
                     .disabled(reason != nil)
-                    .help(reason ?? (mode == .ciFix ? "Fix the failing checks with Claude" : "Respond to the comments with Claude"))
+                    .help(reason ?? (mode == .ciFix ? "Fix the failing checks with Claude"
+                                     : mode == .conflicts ? "Merge the base and resolve the conflicts with Claude"
+                                     : "Respond to the comments with Claude"))
                     if let reason {
                         Text(reason).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 460)
                     }
@@ -173,7 +187,7 @@ private struct RespondStartView: View {
                 }
                 HStack(spacing: 12) {
                     if let previous {
-                        Button("Previous run: \(previous.draft.isCIFix ? "CI fix" : "Responded") \(ReviewDates.ago(previous.finishedAt ?? previous.startedAt)) ›") {
+                        Button("Previous run: \(previous.draft.isCIFix ? "CI fix" : previous.draft.isConflicts ? "Resolved conflicts" : "Responded") \(ReviewDates.ago(previous.finishedAt ?? previous.startedAt)) ›") {
                             model.openHistory(selecting: previous.id)
                         }
                         .buttonStyle(.link)
@@ -198,8 +212,11 @@ private struct RespondStartView: View {
     }
 
     private func unavailableReason(_ item: ClassifiedPR) -> String? {
-        mode == .ciFix ? model.ciFixUnavailableReason(item)
-                       : model.respondUnavailableReason(item) ?? model.respondSlotConflictReason(prID, starting: .feedback)
+        switch mode {
+        case .ciFix: model.ciFixUnavailableReason(item)
+        case .conflicts: model.conflictsUnavailableReason(item)
+        case .feedback: model.respondUnavailableReason(item) ?? model.respondSlotConflictReason(prID, starting: .feedback)
+        }
     }
 }
 
@@ -214,20 +231,22 @@ private struct RespondAnalyzingView: View {
             if let item = model.currentItem(prID) {
                 RespondItemHeaderView(item: item, mode: mode)
             }
-            RespondProgressCard(model: model, prID: prID, isCI: mode == .ciFix, draft: nil)
+            RespondProgressCard(model: model, prID: prID, mode: mode, draft: nil)
                 .padding(.horizontal, 20)
                 .padding(.bottom, 12)
             Divider()
             VStack(spacing: 12) {
                 ProgressView().controlSize(.large).tint(Theme.violet)
-                Text(mode == .ciFix ? "Reading the failing checks and preparing the worktree…" : "Claude is analyzing the comments…")
+                Text(mode == .ciFix ? "Reading the failing checks and preparing the worktree…"
+                     : mode == .conflicts ? "Merging \(baseRef) and preparing the worktree…" : "Claude is analyzing the comments…")
                     .font(.title3)
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             HStack {
                 Button("Stop") {
-                    ConfirmAlert.present(title: mode == .ciFix ? "Stop fixing the CI?" : "Stop this response?",
+                    ConfirmAlert.present(title: mode == .ciFix ? "Stop fixing the CI?"
+                                             : mode == .conflicts ? "Stop resolving the conflicts?" : "Stop this response?",
                                          message: "Claude stops and what it did so far is lost.", action: "Stop") {
                         model.cancelRespond(prID: prID)
                     }
@@ -241,6 +260,8 @@ private struct RespondAnalyzingView: View {
             .windowBar()
         }
     }
+
+    private var baseRef: String { model.currentItem(prID)?.pr.baseRef ?? "the base" }
 }
 
 /// La corrida abierta del PR es del otro tipo (un Respond y un Fix CI comparten el lugar; spec K.2.1).
@@ -250,13 +271,18 @@ private struct RespondOtherRunView: View {
     let mode: RespondMode
     let showTab: (PRTab) -> Void
 
+    /// La corrida que ocupa el lugar (Respond, Fix CI o Resolve Conflicts).
+    private var open: RespondMode { model.respond.mode(of: prID) }
+
     var body: some View {
         VStack(spacing: 10) {
             MessageView(icon: "arrow.left.arrow.right",
-                        title: mode == .ciFix ? "A Respond Run Is Open" : "A Fix CI Run Is Open",
+                        title: open == .feedback ? "A Respond Run Is Open"
+                            : open == .conflicts ? "A Resolve Conflicts Run Is Open" : "A Fix CI Run Is Open",
                         text: model.respondSlotConflictReason(prID, starting: mode)
                             ?? "Finish or dismiss the other run first.")
-            Button(mode == .ciFix ? "Go to Respond" : "Go to Fix CI") { showTab(mode == .ciFix ? .respond : .fixCI) }
+            // Respond y Resolve Conflicts se ven en la pestaña Respond; Fix CI en la suya.
+            Button(open == .ciFix ? "Go to Fix CI" : "Go to Respond") { showTab(open == .ciFix ? .fixCI : .respond) }
                 .buttonStyle(.borderedProminent)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -269,17 +295,19 @@ struct RespondProgressCard: View {
     @ObservedObject var model: AppModel
     @ObservedObject var queue: RespondQueue
     let prID: String
-    let isCI: Bool
+    let mode: RespondMode
     /// nil mientras analiza (todavía no hay draft).
     let draft: RespondDraft?
 
-    init(model: AppModel, prID: String, isCI: Bool, draft: RespondDraft?) {
+    init(model: AppModel, prID: String, mode: RespondMode, draft: RespondDraft?) {
         self.model = model
         queue = model.respond
         self.prID = prID
-        self.isCI = isCI
+        self.mode = mode
         self.draft = draft
     }
+
+    private var isCI: Bool { mode == .ciFix }
 
     private var phase: RespondPhase? { queue.phases[prID] }
     private var running: Bool { phase?.isActive == true || queue.runningTests.contains(prID) }
@@ -330,8 +358,8 @@ struct RespondProgressCard: View {
         let state: String = switch phase {
         case .queued?: "Queued"
         case .preparing?, .analyzing?: "Analyzing"
-        case .ready?: isCI ? "Ready to fix" : "Choose what to fix"
-        case .implementing?: "Implementing"
+        case .ready?: isCI ? "Ready to fix" : mode == .conflicts ? "Ready to resolve" : "Choose what to fix"
+        case .implementing?: mode == .conflicts ? "Resolving" : "Implementing"
         case .readyToPush? where queue.runningTests.contains(prID): "Running tests"
         case .readyToPush?: "Ready to push"
         case .pushing?: "Pushing"
@@ -339,7 +367,7 @@ struct RespondProgressCard: View {
         case .failed?: "Stopped"
         case nil: ""
         }
-        return "\(isCI ? "Fix CI" : "Respond") · \(state)"
+        return "\(isCI ? "Fix CI" : mode == .conflicts ? "Resolve Conflicts" : "Respond") · \(state)"
     }
 
     /// "1:12 · $0.42": desde que empezó la primera etapa hasta ahora (o hasta que terminó la última).
@@ -392,10 +420,13 @@ struct RespondProgressCard: View {
                 let count = draft.ci?.checkNames.count ?? 0
                 return count == 1 ? "1 check" : "\(count) checks"
             }
+            if let context = draft.conflicts {
+                return context.files.count == 1 ? "1 file in conflict" : "\(context.files.count) files in conflict"
+            }
             return draft.items.count == 1 ? "1 comment" : "\(draft.items.count) comments"
         case .implementing:
             if case .implementing(let done, let total)? = phase {
-                return isCI ? "Fixing" : "Fix \(min(done + 1, max(total, 1))) of \(max(total, 1))"
+                return isCI ? "Fixing" : mode == .conflicts ? "Resolving" : "Fix \(min(done + 1, max(total, 1))) of \(max(total, 1))"
             }
             guard stage.status == .done, let result = record?.result else { return nil }
             let commits = RespondCounts.commits(result)
@@ -471,6 +502,8 @@ struct RespondRunView: View {
 
     /// A Fix CI (spec K): the checks instead of comments, no replies, "Push" instead of "Push and Reply".
     private var isCI: Bool { draft.isCIFix }
+    /// A Resolve Conflicts (spec C): the files in conflict instead of comments, no replies, "Push".
+    private var isConflicts: Bool { draft.isConflicts }
 
     private var stage: Stage {
         switch queue.phases[prID] {
@@ -479,7 +512,9 @@ struct RespondRunView: View {
         case .queued?:
             return .waiting(record?.result == nil ? "Queued…" : "Queued to post…")
         case .preparing?:
-            return .waiting(isCI ? "Reading the failing checks and preparing the worktree…" : "Preparing the worktree…")
+            return .waiting(isCI ? "Reading the failing checks and preparing the worktree…"
+                            : isConflicts ? "Merging \(draft.conflicts?.baseRef ?? "the base") and preparing the worktree…"
+                            : "Preparing the worktree…")
         case .analyzing?:
             return .waiting("Claude is analyzing the comments…")
         case .implementing(let done, let total)?:
@@ -513,8 +548,8 @@ struct RespondRunView: View {
     private var chatLock: String? {
         switch stage {
         case .waiting: "Wait for the analysis to finish."
-        case .implementing: isCI ? "Claude is fixing the CI." : "Claude is implementing the fixes."
-        case .pushing: isCI ? "Pushing…" : "Pushing and posting the replies…"
+        case .implementing: isCI ? "Claude is fixing the CI." : isConflicts ? "Claude is resolving the conflicts." : "Claude is implementing the fixes."
+        case .pushing: isCI || isConflicts ? "Pushing…" : "Pushing and posting the replies…"
         case .review where runningTests: "The tests are running."
         default: nil
         }
@@ -536,7 +571,7 @@ struct RespondRunView: View {
                 .padding(.top, 14)
                 .padding(.bottom, 12)
             if showsProgressCard {
-                RespondProgressCard(model: model, prID: prID, isCI: isCI, draft: draft)
+                RespondProgressCard(model: model, prID: prID, mode: draft.mode, draft: draft)
                     .padding(.horizontal, 20)
                     .padding(.bottom, 12)
             }
@@ -560,7 +595,13 @@ struct RespondRunView: View {
     private var content: some View {
         switch stage {
         case .choosing(let error, let canAct):
-            if isCI { ciChoosing(error: error, canAct: canAct) } else { choosing(error: error, canAct: canAct) }
+            if isCI {
+                ciChoosing(error: error, canAct: canAct)
+            } else if isConflicts {
+                conflictsChoosing(error: error, canAct: canAct)
+            } else {
+                choosing(error: error, canAct: canAct)
+            }
         case .waiting(let text):
             VStack(spacing: 0) {
                 progress(text)
@@ -571,7 +612,9 @@ struct RespondRunView: View {
         case .review(let result, let error):
             review(result, error: error)
         case .pushing:
-            progress(isCI ? "Checking the CI again and pushing to \(draft.headRef)…" : "Pushing to \(draft.headRef) and posting the replies…")
+            progress(isCI ? "Checking the CI again and pushing to \(draft.headRef)…"
+                     : isConflicts ? "Checking the PR again and pushing to \(draft.headRef)…"
+                     : "Pushing to \(draft.headRef) and posting the replies…")
         case .done(let record):
             RespondDoneView(record: record, close: close)
         case .superseded:
@@ -580,7 +623,8 @@ struct RespondRunView: View {
                     text: "This is the previous one.", action: nil)
         case .gone(let error):
             message(icon: error == nil ? "tray" : "exclamationmark.triangle",
-                    title: error == nil ? "Discarded" : isCI ? "Couldn’t Fix the CI" : "Couldn’t Analyze the PR",
+                    title: error == nil ? "Discarded" : isCI ? "Couldn’t Fix the CI"
+                        : isConflicts ? "Couldn’t Resolve the Conflicts" : "Couldn’t Analyze the PR",
                     text: error ?? "This analysis is no longer in progress. It’s still in History.", action: nil)
         }
     }
@@ -615,6 +659,40 @@ struct RespondRunView: View {
                           || chat.isRunning
                           || model.jobsBlockedReason != nil)
                 .help(model.jobsBlockedReason ?? "Claude fixes the code; you review the diff before pushing")
+            }
+        }
+    }
+
+    // MARK: Etapa: Resolve Conflicts sin arrancar
+
+    /// A Resolve Conflicts whose resolution didn't start on its own (or failed before committing): the files in
+    /// conflict and "Resolve Conflicts". After a failure the worktree is mid-merge: "Again" asks before discarding it.
+    private func conflictsChoosing(error: String?, canAct: Bool) -> some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    if let error { ErrorBanner(messages: [error]).padding(.horizontal, -10) }
+                    if let context = draft.conflicts { ConflictFilesSection(context: context, summaries: []) }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            bottomBar(running: false,
+                      help: "Claude resolves the conflicts in PRBar’s worktree. Nothing is pushed until you push.") {
+                Button(canAct ? "Resolve Conflicts" : "Resolve Conflicts Again") {
+                    if canAct {
+                        queue.implementCI(prID: prID)
+                    } else if let item = currentItem {
+                        model.discardAndRestartRespond(item, mode: .conflicts)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.return, modifiers: .command)
+                .disabled((!canAct && currentItem.map { model.conflictsUnavailableReason($0, ignoringUnpushed: true) } != .some(nil))
+                          || chat.isRunning
+                          || model.jobsBlockedReason != nil)
+                .help(model.jobsBlockedReason ?? "PRBar merges the base again and Claude resolves the conflicts; you review the merge before pushing")
             }
         }
     }
@@ -732,6 +810,8 @@ struct RespondRunView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     if isCI {
                         CIChecksSection(draft: draft, result: nil)
+                    } else if let context = draft.conflicts {
+                        ConflictFilesSection(context: context, summaries: [])
                     } else if !chosen.isEmpty {
                         VStack(alignment: .leading, spacing: 0) {
                             ForEach(Array(chosen.enumerated()), id: \.element.id) { index, item in
@@ -753,7 +833,8 @@ struct RespondRunView: View {
                         ProgressView().controlSize(.small).tint(Theme.violet)
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Claude is editing…").font(.callout.weight(.semibold))
-                            Text(isCI ? "Fixing the failing checks in PRBar’s worktree" : "Fix \(fix) of \(max(total, 1))")
+                            Text(isCI ? "Fixing the failing checks in PRBar’s worktree"
+                                 : isConflicts ? "Resolving the conflicts in PRBar’s worktree" : "Fix \(fix) of \(max(total, 1))")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }
@@ -803,6 +884,13 @@ struct RespondRunView: View {
                     if isCI {
                         CIChecksSection(draft: draft, result: result, localTests: result.tests)
                     }
+                    if let context = draft.conflicts {
+                        // Lo que Claude tocó fuera de los conflictos va primero: el combined diff lo esconde (C.9.16).
+                        if let outside = result.outsideConflicts, !outside.isEmpty {
+                            OutsideConflictsBanner(paths: outside)
+                        }
+                        ConflictFilesSection(context: context, summaries: result.items.first?.conflictFiles ?? [])
+                    }
                     if !result.sensitiveChanges.isEmpty {
                         SensitiveChangesBanner(paths: result.sensitiveChanges)
                     }
@@ -811,7 +899,7 @@ struct RespondRunView: View {
                         DependencyChangesBanner(paths: dependencies)
                     }
                     commitsSection(result)
-                    if !isCI { repliesSection() }
+                    if !isCI && !isConflicts { repliesSection() }
                     // Diff · Tests · Log. Abre en Diff: el diff completo se ve antes de correr los tests o pushear.
                     outputSection(result)
                 }
@@ -835,6 +923,12 @@ struct RespondRunView: View {
             .fixedSize()
             switch output {
             case .diff:
+                if isConflicts {
+                    Text(result.diff == "" ? "No conflicts were left: the merge has no changes of its own"
+                                           : "The merge’s resolution (combined diff)")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
                 fileChips(result)
                 fullDiffSection(result)
             case .tests:
@@ -895,7 +989,7 @@ struct RespondRunView: View {
         return section("Commits (\(commits))") {
             ForEach(Array(result.items.enumerated()), id: \.element.id) { index, itemResult in
                 if index > 0 { Divider() }
-                CommitRow(result: itemResult, item: draft.items.first { $0.id == itemResult.id },
+                CommitRow(result: itemResult, item: isConflicts ? nil : draft.items.first { $0.id == itemResult.id },
                           commitURL: record?.pushed == true ? commitURL(itemResult.commit) : nil)
             }
             if result.items.isEmpty {
@@ -953,7 +1047,7 @@ struct RespondRunView: View {
         let commits = RespondCounts.commits(result)
         let pending = record.map(RespondCounts.pendingReplies) ?? 0
         let pushed = record?.pushed == true
-        let title: String = if isCI {
+        let title: String = if isCI || isConflicts {
             "Push"
         } else if pushed {
             "Retry Pending Replies"
@@ -974,10 +1068,11 @@ struct RespondRunView: View {
             Button(title) { confirmPublish(commits: commits, pending: pending, pushed: pushed, result: result) }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.return, modifiers: .command)
-                .disabled(runningTests || (pushed && pending == 0) || chat.isRunning || (isCI && commits == 0))
+                .disabled(runningTests || (pushed && pending == 0) || chat.isRunning || ((isCI || isConflicts) && commits == 0))
                 .help(chat.isRunning ? "Wait for Claude to finish"
                     : runningTests ? "Wait for the tests to finish"
                     : isCI ? (commits == 0 ? "Claude made no changes: nothing to push" : "Asks for confirmation, checks the CI again and pushes (⌘↩)")
+                    : isConflicts ? (commits == 0 ? "There’s no merge commit to push" : "Asks for confirmation, checks the PR again and pushes the merge (⌘↩)")
                     : "Asks for confirmation before pushing and posting (⌘↩)")
         }
     }
@@ -1017,12 +1112,35 @@ struct RespondRunView: View {
         if isCI {
             message += "\n\nPRBar first checks on GitHub that the PR is still at the commit whose checks failed and that they still fail. No comment is posted."
         }
+        if isConflicts {
+            confirmPushConflicts(message: message, result: result)
+            return
+        }
         ConfirmAlert.present(
             title: isCI ? "Push \(commits) commit\(commits == 1 ? "" : "s") to \(draft.headRef)?"
                         : pushQuestion(commits: commits, pending: pending, pushed: pushed),
             message: message,
             action: isCI ? "Push" : onlyReplies ? "Post" : "Push and Reply"
         ) { push(ignoringFailedTests: false) }
+    }
+
+    /// Resolve Conflicts (spec C.6): the push names what needs the user's eyes — the files left to resolve by hand and
+    /// the ones Claude changed outside the conflicts (C.9.16) — and warns that a stale approval may be dismissed.
+    private func confirmPushConflicts(message base: String, result: RespondResult) {
+        let baseRef = draft.conflicts?.baseRef ?? "the base"
+        var message = base.replacingOccurrences(of: " and post the replies", with: "")
+        message += "\n\nPRBar first checks on GitHub that the PR is still open, at the commit it merged into and with the same base. No comment is posted."
+        let byHand = draft.conflicts?.byHandFiles.map(\.path) ?? []
+        if !byHand.isEmpty {
+            message += "\n\nPRBar kept the PR’s version of \(byHand.joined(separator: ", ")): resolve them by hand."
+        }
+        if let outside = result.outsideConflicts, !outside.isEmpty {
+            message += "\n\nClaude changed files outside the conflicts: \(outside.joined(separator: ", ")). Review them in the diff."
+        }
+        message += "\n\n" + RespondCopy.staleApprovalWarning
+        ConfirmAlert.present(title: "Push the merge of \(baseRef) into \(draft.headRef)?", message: message, action: "Push") {
+            push(ignoringFailedTests: false)
+        }
     }
 
     private func push(ignoringFailedTests: Bool) {
@@ -1167,14 +1285,15 @@ struct RespondRunView: View {
         } else {
             Button("Discard") { model.confirmDismissRespond(prID: prID) }
                 .disabled(queue.phases[prID]?.isActive == true)
-                .help(isCI ? "Discard this CI fix and its worktree" : "Discard this analysis and its worktree")
+                .help(isCI ? "Discard this CI fix and its worktree"
+                      : isConflicts ? "Discard this resolution and its worktree" : "Discard this analysis and its worktree")
         }
     }
 
     /// Pregunta como la pastilla (`CancellablePill`) antes de parar a Claude.
     private func confirmStop() {
         ConfirmAlert.present(
-            title: isCI ? "Stop fixing the CI?" : "Stop this response?",
+            title: isCI ? "Stop fixing the CI?" : isConflicts ? "Stop resolving the conflicts?" : "Stop this response?",
             message: "Claude stops. Commits already made stay unpushed in PRBar’s worktree.",
             action: "Stop"
         ) { model.cancelRespond(prID: prID) }
@@ -1246,6 +1365,10 @@ enum RespondStatusLine {
             let count = draft.ci?.checkNames.count ?? 0
             return count == 1 ? "1 check failed" : "\(count) checks failed"
         }
+        if let context = draft.conflicts {
+            let count = context.files.count
+            return "\(count == 1 ? "1 file" : "\(count) files") in conflict with \(context.baseRef)"
+        }
         var reviewers: [String] = []
         for item in draft.items where !reviewers.contains(item.feedback.reviewer) { reviewers.append(item.feedback.reviewer) }
         return reviewers.isEmpty ? "No unresolved comments" : "Changes requested by \(reviewers.joined(separator: ", "))"
@@ -1267,7 +1390,8 @@ private struct RespondHeader: View {
                 .font(.system(size: 20, weight: .semibold))
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
-            Label(status, systemImage: draft.isCIFix ? "xmark.octagon.fill" : "bubble.left.and.exclamationmark.bubble.right")
+            Label(status, systemImage: draft.isCIFix ? "xmark.octagon.fill"
+                                       : draft.isConflicts ? "exclamationmark.triangle.fill" : "bubble.left.and.exclamationmark.bubble.right")
                 .font(.callout.weight(.semibold))
                 .foregroundStyle(draft.isCIFix ? Theme.redText : Theme.orangeText)
             HStack(spacing: 6) {
@@ -1529,7 +1653,8 @@ private struct RespondDoneView: View {
                 .font(.system(size: 52))
                 .foregroundStyle(Theme.green)
                 .padding(.bottom, 6)
-            Text(record.draft.isCIFix ? "CI Fix Pushed" : "Responded").font(.title.weight(.semibold))
+            Text(record.draft.isCIFix ? "CI Fix Pushed" : record.draft.isConflicts ? "Conflicts Resolved" : "Responded")
+                .font(.title.weight(.semibold))
             Text(summary).font(.callout).foregroundStyle(.secondary)
             RespondRepliesList(record: record)
                 .frame(maxWidth: 520)
@@ -1554,6 +1679,11 @@ private struct RespondDoneView: View {
     private var summary: String {
         if record.draft.isCIFix {
             return "Pushed ✓ · \(commits) commit\(commits == 1 ? "" : "s") · the CI runs again on GitHub"
+        }
+        if let context = record.draft.conflicts {
+            let byHand = context.byHandFiles.count
+            return "Pushed ✓ · merged \(context.baseRef)"
+                + (byHand == 0 ? "" : " · \(byHand) file\(byHand == 1 ? "" : "s") to resolve by hand")
         }
         let replies = record.posted.count
         let posted = replies == 1 ? "1 reply posted" : "\(replies) replies posted"
@@ -1647,15 +1777,20 @@ struct DiffTextView: NSViewRepresentable {
     static func colored(_ diff: String) -> NSAttributedString {
         let font = NSFont.monospacedSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
         let result = NSMutableAttributedString()
+        // Un combined diff (`diff --cc`, Resolve Conflicts) tiene una columna de +/- por padre.
+        var columns = 1
         for line in TextLines.split(diff, strippingCarriageReturns: true) {
+            if line.hasPrefix("diff --cc ") || line.hasPrefix("diff --combined ") { columns = 2 }
+            if line.hasPrefix("diff --git ") { columns = 1 }
+            let marks = line.prefix(columns)
             let color: NSColor
-            if line.hasPrefix("+++") || line.hasPrefix("---") || line.hasPrefix("diff --git") || line.hasPrefix("index ") {
+            if line.hasPrefix("+++") || line.hasPrefix("---") || line.hasPrefix("diff --") || line.hasPrefix("index ") {
                 color = .secondaryLabelColor
             } else if line.hasPrefix("@@") {
                 color = .systemPurple
-            } else if line.hasPrefix("+") {
+            } else if marks.contains("+") {
                 color = Theme.AppKitColors.greenText
-            } else if line.hasPrefix("-") {
+            } else if marks.contains("-") {
                 color = Theme.AppKitColors.redText
             } else {
                 color = .labelColor
@@ -1776,5 +1911,77 @@ private struct CIPassingBanner: View {
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: Theme.Radius.button).fill(Theme.tint(Theme.orange)))
+    }
+}
+
+/// Resolve Conflicts (spec C.3.5): each file in conflict, how Claude resolved it, and the ones left for the user.
+struct ConflictFilesSection: View {
+    let context: ConflictsContext
+    let summaries: [ConflictFileSummary]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Merging \(context.baseRef) · \(context.incomingCommits) commit\(context.incomingCommits == 1 ? "" : "s") from the base")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            ForEach(context.files) { file in
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Image(systemName: file.kind == .byHand ? "hand.raised.fill" : "checkmark.circle.fill")
+                        .foregroundStyle(file.kind == .byHand ? Theme.orangeText : Theme.greenText)
+                        .accessibilityLabel(file.kind == .byHand ? "Resolve by hand" : "Resolved by Claude")
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(file.path)
+                            .font(.callout.monospaced())
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .textSelection(.enabled)
+                            .help(file.path)
+                        Text(detail(file))
+                            .font(.caption)
+                            .foregroundStyle(file.kind == .byHand ? Theme.orangeText : .secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .accessibilityElement(children: .combine)
+            }
+        }
+    }
+
+    private func detail(_ file: ConflictFile) -> String {
+        if file.kind == .byHand { return "Kept the PR’s version — resolve by hand (\(file.reason ?? "not a text conflict"))" }
+        return summaries.first { $0.path == file.path }?.summary ?? "Resolved by Claude"
+    }
+}
+
+/// Decisión C.9.16: files Claude changed outside the conflicts. The combined diff may hide them (a file brought back to
+/// one side's version), so they go first, in orange, and the push confirmation names them too.
+struct OutsideConflictsBanner: View {
+    let paths: [String]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Changed outside the conflicts")
+                        .font(.callout.weight(.semibold))
+                    Text("Claude changed files that weren’t in conflict, or undid what the merge did in them. Review them in the diff before pushing.")
+                        .font(.callout)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } icon: {
+                Image(systemName: "exclamationmark.triangle.fill")
+            }
+            VStack(alignment: .leading, spacing: 1) {
+                ForEach(paths, id: \.self) { path in
+                    Text(path).font(.system(.subheadline, design: .monospaced)).textSelection(.enabled)
+                }
+            }
+            .padding(.leading, 24)
+        }
+        .foregroundStyle(Theme.orangeText)
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: Theme.Radius.card).fill(Theme.tint(Theme.orange)))
+        .accessibilityElement(children: .combine)
     }
 }

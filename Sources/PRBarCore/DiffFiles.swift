@@ -14,14 +14,21 @@ public enum DiffFiles {
         }
     }
 
-    /// El fragmento de `diff` de un archivo (desde su `diff --git` hasta el próximo); "" si no está.
+    /// El fragmento de `diff` de un archivo (desde su encabezado hasta el próximo); "" si no está. Entiende los
+    /// encabezados de un diff común (`diff --git a/x b/x`) y de un combined diff (`diff --cc x`, `diff --combined x`):
+    /// el de Resolve Conflicts trae los dos (decisión C.9.16).
     public static func section(of diff: String, file: String) -> String {
         var kept: [String] = []
         var inside = false
         // Las líneas quedan como están (con el `\r` de un CRLF); el encabezado se compara sin él.
         for line in TextLines.split(diff, strippingCarriageReturns: false) {
-            if line.hasPrefix("diff --git ") {
-                inside = (line.hasSuffix("\r") ? String(line.dropLast()) : line).hasSuffix(" b/\(file)")
+            let header = line.hasSuffix("\r") ? String(line.dropLast()) : String(line)
+            if header.hasPrefix("diff --git ") {
+                inside = header.hasSuffix(" b/\(file)")
+            } else if header.hasPrefix("diff --cc ") {
+                inside = header.dropFirst("diff --cc ".count) == file
+            } else if header.hasPrefix("diff --combined ") {
+                inside = header.dropFirst("diff --combined ".count) == file
             }
             if inside { kept.append(line) }
         }

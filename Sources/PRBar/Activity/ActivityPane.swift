@@ -97,10 +97,11 @@ struct ActivityPane: View {
         return model.usageLedger.recentTasks(limit: 8)
     }
 
-    /// Reviews · Fixes (Respond y Fix CI) · Chat (chats, merge, instrucciones y lo demás), del mes.
+    /// Reviews · Fixes (Respond, Fix CI y Resolve Conflicts) · Chat (chats, merge, instrucciones y lo demás), del mes.
     private var monthBreakdown: [(title: String, usage: ClaudeUsage?, color: Color)] {
         let byKind = thisMonth.byKind
-        let fixes: [String] = [ProcessActivity.Kind.respond.rawValue, ProcessActivity.Kind.ciFix.rawValue]
+        let fixes: [String] = [ProcessActivity.Kind.respond.rawValue, ProcessActivity.Kind.ciFix.rawValue,
+                                ProcessActivity.Kind.conflicts.rawValue]
         let reviews = byKind[ProcessActivity.Kind.review.rawValue]
         let fix = ClaudeUsage.sum(fixes.map { byKind[$0] })
         let chat = ClaudeUsage.sum(byKind.filter { $0.key != ProcessActivity.Kind.review.rawValue && !fixes.contains($0.key) }.map(\.value))

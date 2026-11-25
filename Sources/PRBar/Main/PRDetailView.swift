@@ -85,7 +85,9 @@ struct PRDetailView: View {
                 PRGoneView(prID: prID)
             }
         case .respond, .fixCI:
-            RespondPane(model: model, prID: prID, mode: tab == .fixCI ? .ciFix : .feedback) { state.choose($0, for: prID) }
+            RespondPane(model: model, prID: prID, mode: tab == .fixCI ? .ciFix : model.respondTabMode(prID)) {
+                state.choose($0, for: prID)
+            }
         }
     }
 }
@@ -202,7 +204,19 @@ private struct PRDetailCommands: ViewModifier {
                     model.openClaudeSessionFromUI(session)
                 }
             }
+            // Pull Request › Resolve Conflicts (spec C.2): a PR of mine whose branch conflicts with its base.
+            .windowCommand(.resolveConflicts, enabled: canResolveConflicts) {
+                guard let item = model.currentItem(prID), model.isConflictsCandidate(item),
+                      model.conflictsUnavailableReason(item) == nil else { return }
+                model.startConflicts(item)
+                model.navigate(to: .pr(prID: prID, tab: .respond))
+            }
             .watchingSessionBusy(sessionBusy)
+    }
+
+    private var canResolveConflicts: Bool {
+        guard let item = model.currentItem(prID), model.isConflictsCandidate(item) else { return false }
+        return model.conflictsUnavailableReason(item) == nil
     }
 
     /// La pestaña que se ve ahora (`tab` es la del último render).
@@ -227,8 +241,9 @@ private struct PRDetailCommands: ViewModifier {
             ConfirmAlert.present(title: "Cancel this review?", message: "Claude stops and what it did so far is lost.",
                                  action: "Cancel Review") { model.cancelReview(prID: prID) }
         case .respond, .fixCI:
-            let isCI = tab == .fixCI
-            ConfirmAlert.present(title: isCI ? "Stop fixing the CI?" : "Stop this response?",
+            let mode = model.respond.mode(of: prID)
+            ConfirmAlert.present(title: mode == .ciFix ? "Stop fixing the CI?"
+                                     : mode == .conflicts ? "Stop resolving the conflicts?" : "Stop this response?",
                                  message: "Claude stops. Commits already made stay unpushed in PRBar’s worktree.",
                                  action: "Stop") { model.cancelRespond(prID: prID) }
         case .merge:
