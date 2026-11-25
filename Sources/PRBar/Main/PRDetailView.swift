@@ -208,8 +208,7 @@ private struct PRDetailCommands: ViewModifier {
             .windowCommand(.resolveConflicts, enabled: canResolveConflicts) {
                 guard let item = model.currentItem(prID), model.isConflictsCandidate(item),
                       model.conflictsUnavailableReason(item) == nil else { return }
-                model.startConflicts(item)
-                model.navigate(to: .pr(prID: prID, tab: .respond))
+                model.startConflictsAndOpen(item)
             }
             .watchingSessionBusy(sessionBusy)
     }

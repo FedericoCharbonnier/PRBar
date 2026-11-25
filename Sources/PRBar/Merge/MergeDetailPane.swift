@@ -312,8 +312,7 @@ struct MergeDetailPane: View {
                 // Mi PR con conflictos: Claude los resuelve en la pestaña Respond (spec C.2).
                 if problem == MergePolicy.conflicts, let item = current, model.isConflictsCandidate(item) {
                     Button("Resolve Conflicts") {
-                        model.startConflicts(item)
-                        model.navigate(to: .pr(prID: prID, tab: .respond))
+                        model.startConflictsAndOpen(item)
                     }
                     .controlSize(.small)
                     .disabled(model.conflictsUnavailableReason(item) != nil)

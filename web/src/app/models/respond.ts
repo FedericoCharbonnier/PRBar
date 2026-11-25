@@ -12,7 +12,11 @@ import { needsConfirmation, perform, prHeader, showsFaceId, undoWithConfirmation
 // respond, respond:fixci y respond:diff (RespondModel.swift): Claude contesta el feedback o arregla CI de un PR mío;
 // después miro el diff y empujo (Face ID). Correr los tests también pide Face ID (ejecuta código en la Mac, H1).
 
-export type RespondMode = "feedback" | "ciFix";
+// Resolve Conflicts (`conflicts`) se ve en el teléfono pero se empieza y se pushea solo desde la Mac (decisión C.9.9).
+export type RespondMode = "feedback" | "ciFix" | "conflicts";
+
+/** El texto del primario de un Resolve Conflicts: deshabilitado, el push es desde la Mac. */
+export const CONFLICTS_PUSH_LABEL = "Push from your Mac";
 
 const RUNNING = ["queued", "preparing", "analyzing", "implementing", "pushing"];
 const DONE = ["readyToPush", "done"];
@@ -72,6 +76,7 @@ export function createRespondModel(ctx: AppContext, pr: string, fallback: Respon
       const tests = respond.value?.tests ? (respond.value.tests.passed ? "tests passing" : "tests failing") : "tests passing";
       return { kind: "passing", text: `${count(files, "file")} · ${tests}` };
     }
+    if (mode.value === "conflicts") return { kind: "changes", text: "Conflicts with the base" };
     if (mode.value === "ciFix") return { kind: "failed", text: `${count(respond.value?.ciChecks?.length ?? store.home.value?.ci.find((c) => c.pr === pr)?.failedChecks ?? 0, "check")} failed` };
     const reviewers = [...new Set(items.value.map((i) => i.reviewer))].sort().map((r) => store.displayName(r));
     return { kind: "changes", text: `Changes requested by ${reviewers.length ? reviewers.join(", ") : "a reviewer"}` };
@@ -92,7 +97,7 @@ export function createRespondModel(ctx: AppContext, pr: string, fallback: Respon
     });
     const start = parseDate(r?.startedAt) ?? startedAt.value;
     const fixing = mode.value === "feedback" ? count(items.value.filter((i) => i.implement).length, "comment")
-      : count(r?.ciChecks?.length ?? 0, "check");
+      : mode.value === "conflicts" ? "the conflicts" : count(r?.ciChecks?.length ?? 0, "check");
     return {
       title: isDone.value ? "Fixed · tests passing" : `Claude is fixing ${fixing}`,
       done: isDone.value,
@@ -102,6 +107,7 @@ export function createRespondModel(ctx: AppContext, pr: string, fallback: Respon
   };
 
   const primaryLabel = (): string => {
+    if (mode.value === "conflicts") return CONFLICTS_PUSH_LABEL;
     if (mode.value === "feedback" && !isRunning.value && !isDone.value) return "Implement";
     if (isReplyOnly.value) return "Reply";
     if (respond.value?.pushBlockedByTests || respond.value?.pushBlockedByCI) return "Push Anyway";
@@ -161,7 +167,8 @@ export function createRespondModel(ctx: AppContext, pr: string, fallback: Respon
   const base = (): RespondBaseProps => {
     const stale = store.isStale.value;
     const implementing = mode.value === "feedback" && !isRunning.value && !isDone.value;
-    const canPush = !isRunning.value && isDone.value && !stale && !busy.value;
+    const conflicts = mode.value === "conflicts";
+    const canPush = !conflicts && !isRunning.value && isDone.value && !stale && !busy.value;
     const canRunTests = phase.value === "readyToPush" && !!respond.value?.testCommand && !isRunning.value && !stale && !busy.value;
     return {
       pr: prHeader(ctx, pr, respond.value?.title),
@@ -171,12 +178,13 @@ export function createRespondModel(ctx: AppContext, pr: string, fallback: Respon
       disabled: stale || busy.value,
       faceIdPending: ctx.runner.faceIdPending.value,
       banner: banner(),
-      start: hasRun.value ? undefined : {
+      title: conflicts ? "Resolve Conflicts" : undefined,
+      start: hasRun.value || conflicts ? undefined : {
         label: mode.value === "feedback" ? "Respond with Claude" : "Fix CI with Claude",
         busy: busy.value, disabled: stale, onClick: () => void model.start(),
       },
       primaryLabel: primaryLabel(),
-      primaryFaceId: !implementing && showsFaceId(ctx, pushCommand()),
+      primaryFaceId: !implementing && !conflicts && showsFaceId(ctx, pushCommand()),
       testsFaceId: showsFaceId(ctx, { respondTest: { pr, wait: false } }),
       primaryDisabled: implementing ? stale || busy.value || items.value.length === 0 : !canPush,
       secondaryHidden: !isRunning.value && !isDone.value,
@@ -277,7 +285,8 @@ export function createRespondModel(ctx: AppContext, pr: string, fallback: Respon
       await run({ respondImplement: { pr, wait: false } });
     },
     async push() {
-      if (store.isStale.value || busy.value) return;
+      // Resolve Conflicts se pushea desde la Mac (decisión C.9.9): la Mac también lo rechaza.
+      if (store.isStale.value || busy.value || mode.value === "conflicts") return;
       const command = pushCommand();
       // Sin `await` antes de mandarlo si hay Face ID: el aviso tiene que salir dentro del toque.
       if (needsConfirmation(ctx, command)) {

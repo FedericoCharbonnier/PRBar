@@ -57,6 +57,7 @@ function RespondFrame({ base, title, primaryLabel, children }: {
 }) {
   const { pr, status, progress, running, disabled, faceIdPending } = base;
   const label = base.primaryLabel ?? primaryLabel;
+  title = base.title ?? title;
   const faceId = base.primaryFaceId !== false;
   return (
     <Screen class="screen--with-bar" label={title}>

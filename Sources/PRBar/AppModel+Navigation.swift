@@ -90,7 +90,8 @@ extension AppModel {
         case .startConflicts: startConflicts(item)
         case .openReview, .openRespond, .openCIFix, .openConflicts, .openMerge, .none: break
         }
-        if let tab = action.tab { navigate(to: .pr(prID: prID, tab: tab)) }
+        // Resolve Conflicts que no arrancó (p. ej. rechazado): no se cambia de pestaña.
+        if let tab = action.tab, action != .startConflicts || respond.phases[prID] != nil { navigate(to: .pr(prID: prID, tab: tab)) }
     }
 
     /// Clic en una notificación (spec M.4): cada una abre el PR en la pestaña de su acción.

@@ -43,10 +43,7 @@ extension AppModel {
             self?.startCIFix(item)
             self?.navigate(to: .pr(prID: prID, tab: .fixCI))
         }
-        let startConflicts = { [weak self] in
-            self?.startConflicts(item)
-            self?.navigate(to: .pr(prID: prID, tab: .respond))
-        }
+        let startConflicts: () -> Void = { [weak self] in self?.startConflictsAndOpen(item) }
         return PRRowActions(
             review: ReviewButtonActions(
                 start: startReview,

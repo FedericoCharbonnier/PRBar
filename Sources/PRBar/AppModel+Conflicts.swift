@@ -40,9 +40,19 @@ extension AppModel {
         }
     }
 
-    /// The mode the PR's Respond tab shows: a conflicts run when there is one (decisión C.9.8), else feedback.
+    /// The mode the PR's Respond tab shows (decisión C.9.8, `PRTabs.respondMode`): the running run's, or Resolve
+    /// Conflicts for a PR of mine with conflicts and no feedback (its "Start Resolve Conflicts" view), else feedback.
     func respondTabMode(_ prID: String) -> RespondMode {
-        respond.mode(of: prID) == .conflicts && respond.phases[prID] != nil ? .conflicts : .feedback
+        let running = respond.phases[prID] == nil ? nil : respond.mode(of: prID)
+        guard let context = tabContext(prID: prID) else { return running == .conflicts ? .conflicts : .feedback }
+        return PRTabs.respondMode(context, running: running)
+    }
+
+    /// "Resolve Conflicts" from a row, a menu or the Merge tab: starts it and opens the Respond tab only if a run
+    /// actually started (it may have been refused).
+    func startConflictsAndOpen(_ item: ClassifiedPR) {
+        startConflicts(item)
+        if respond.phases[item.id] != nil { navigate(to: .pr(prID: item.id, tab: .respond)) }
     }
 
     /// Spec C.6 / C.9.10: a finished Resolve Conflicts goes back to idle when the PR has conflicts again.

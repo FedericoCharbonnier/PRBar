@@ -36,6 +36,22 @@ enum MainNavigationTests {
             try expect(PRTabs.tabs(c).contains { $0.tab == .respond && $0.isEnabled })
             try expectEqual(PRTabs.initial(c), .respond)
         },
+        TestCase("pr tabs: mi PR con conflictos y sin corrida tiene Respond habilitada en modo Resolve Conflicts") {
+            let idle = PRTabContext(isMine: true, hasFeedback: false, ciFailing: false, respondTask: nil, hasConflicts: true)
+            try expect(PRTabs.tabs(idle).contains { $0.tab == .respond && $0.isEnabled })
+            try expectEqual(PRTabs.respondMode(idle, running: nil), .conflicts)
+            // Con una corrida en curso manda su modo; con feedback pedido, Respond es para el feedback.
+            try expectEqual(PRTabs.respondMode(idle, running: .feedback), .feedback)
+            try expectEqual(PRTabs.respondMode(idle, running: .conflicts), .conflicts)
+            let feedback = PRTabContext(isMine: true, hasFeedback: true, ciFailing: false, respondTask: nil, hasConflicts: true)
+            try expectEqual(PRTabs.respondMode(feedback, running: nil), .feedback)
+            try expectEqual(PRTabs.respondMode(context(mine: true), running: nil), .feedback)
+            try expectEqual(PRTabs.respondMode(context(mine: true), running: .conflicts), .conflicts)
+            // Sale del PR clasificado.
+            let item = mine(category: .other, conflicts: true)
+            try expect(PRTabContext(item: item, respondTask: nil).hasConflicts)
+            try expect(!PRTabContext(item: mine(category: .other, conflicts: false), respondTask: nil).hasConflicts)
+        },
         TestCase("navegación: PR ajeno tiene Review y Details y empieza en Review") {
             let c = context(mine: false)
             try expectEqual(PRTabs.tabs(c).map(\.tab), [.review, .details])
