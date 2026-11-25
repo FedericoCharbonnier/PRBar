@@ -13,6 +13,9 @@ public struct PRMergeState: Hashable, Codable, Sendable {
 
     public static let unknown = PRMergeState()
 
+    /// GitHub ve conflictos con la base (`CONFLICTING` o `DIRTY`): se puede mergear recién después de resolverlos.
+    public var hasConflicts: Bool { mergeable == .conflicting || status == .dirty }
+
     public init(
         nodeID: String? = nil, mergeable: MergeableState = .unknown, status: MergeStateStatus = .unknown,
         viewerCanUpdate: Bool? = nil, commitCount: Int? = nil

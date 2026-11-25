@@ -80,7 +80,11 @@ struct MergeStatusLabel: View {
     }
 
     var body: some View {
-        if let reason = availability.reason {
+        if availability.reason == MergePolicy.conflicts {
+            // Lo único que pide algo de mí: resolver los conflictos (spec F.1.1).
+            Label(MergePolicy.conflicts, systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(Theme.orangeText)
+        } else if let reason = availability.reason {
             Label(reason, systemImage: reason == MergePolicy.checking ? "clock" : "lock")
                 .foregroundStyle(.secondary)
         } else if let note = availability.note {

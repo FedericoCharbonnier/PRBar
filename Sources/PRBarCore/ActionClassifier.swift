@@ -100,10 +100,11 @@ public enum ActionClassifier {
         FeedbackSummary(changesRequested: reviews.contains { $0.state == .changesRequested }, count: reviews.count + comments.count)
     }
 
-    /// Mi PR está aprobado, no es draft y no tiene conflictos (spec F.1). El CI no cuenta: se ve en la fila.
-    /// Una mergeabilidad todavía desconocida (`UNKNOWN`) no lo saca: el botón dice "Checking…".
+    /// Mi PR está aprobado y no es draft (spec F.1). El CI no cuenta: se ve en la fila. Los conflictos tampoco
+    /// (spec F.1.1): el PR queda en Ready to Merge con el botón deshabilitado y "This branch has conflicts", así no se
+    /// pierde en Waiting for Review. Una mergeabilidad todavía desconocida (`UNKNOWN`) no lo saca: el botón dice "Checking…".
     public static func isReadyToMerge(_ pr: PullRequest, me: String) -> Bool {
-        guard !pr.isDraft, pr.merge.mergeable != .conflicting, pr.merge.status != .dirty else { return false }
+        guard !pr.isDraft else { return false }
         switch pr.reviewDecision {
         case .approved: return true
         case .none: return hasCurrentApproval(pr, me: me.lowercased())

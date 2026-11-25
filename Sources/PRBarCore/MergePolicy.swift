@@ -40,6 +40,7 @@ public struct MergeOptions: Equatable, Sendable {
 /// Reglas puras del botón Merge (spec F.3). No hace red ni disco.
 public enum MergePolicy {
     public static let checking = "Checking…"
+    public static let conflicts = "This branch has conflicts"
 
     /// Sin datos del repo (refresco viejo o respuesta sin los campos) se ofrecen los tres: si el repo no permite el
     /// elegido, GitHub lo rechaza y la fila lo muestra.
@@ -62,13 +63,13 @@ public enum MergePolicy {
             return .disabled(reason: "You don’t have permission to merge in \(pr.repo.fullName)")
         }
         guard pr.merge.nodeID != nil else { return .disabled(reason: checking) }
-        if pr.merge.mergeable == .conflicting { return .disabled(reason: "This branch has conflicts") }
+        if pr.merge.hasConflicts { return .disabled(reason: conflicts) }
         switch pr.merge.status {
         case .clean, .hasHooks: return .enabled(note: nil)
         case .unstable: return .enabled(note: "Some checks that aren’t required are failing")
         case .blocked: return .disabled(reason: "Blocked by branch protection or required checks")
         case .behind: return .disabled(reason: "Branch is behind \(pr.baseRef)")
-        case .dirty: return .disabled(reason: "This branch has conflicts")
+        case .dirty: return .disabled(reason: conflicts)
         case .draft, .unknown: return .disabled(reason: checking)
         }
     }

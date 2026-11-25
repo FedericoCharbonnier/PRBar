@@ -63,6 +63,21 @@ enum ReadyToMergeNotificationTests {
                 current: snap(mine(.readyToMerge, decision: .approved)), settings: NotificationSettings())
             try expectEqual(second.map(\.kind), [.readyToMerge])
         },
+        TestCase("ready notif: aprobado con conflictos avisa solo la aprobación; ready to merge al resolverlos") {
+            let dirty = PRMergeState(nodeID: "PR_7", mergeable: .conflicting, status: .dirty)
+            let approved = NotificationPlanner.plan(
+                previous: snap(mine(.other, decision: .reviewRequired)), current: snap(mine(.readyToMerge, decision: .approved, merge: dirty)),
+                settings: NotificationSettings())
+            try expectEqual(approved.map(\.kind), [.myPRApprovedOrCIFailed])
+            let resolved = NotificationPlanner.plan(
+                previous: snap(mine(.readyToMerge, decision: .approved, merge: dirty)),
+                current: snap(mine(.readyToMerge, decision: .approved)), settings: NotificationSettings())
+            try expectEqual(resolved.map(\.kind), [.readyToMerge])
+            let ready = snap(mine(.readyToMerge, decision: .approved))
+            let broke = NotificationPlanner.plan(previous: ready, current: snap(mine(.readyToMerge, decision: .approved, merge: dirty)),
+                                                 settings: NotificationSettings())
+            try expectEqual(broke, [])
+        },
         TestCase("ready notif: el snapshot anterior sin datos de merge (versión vieja) no avisa") {
             let planned = NotificationPlanner.plan(
                 previous: snap(mine(.other, decision: .approved, merge: .unknown)), current: snap(mine(.readyToMerge, decision: .approved)),

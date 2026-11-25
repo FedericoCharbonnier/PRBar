@@ -55,11 +55,18 @@ enum ReadyToMergeTests {
             try expectEqual(classify(pr), .myFeedback)
             try expectEqual(ActionClassifier.newFeedback(pr, me: "me").count, 1)
         },
-        TestCase("ready to merge: con conflictos → other") {
+        TestCase("ready to merge: aprobado con conflictos sigue en readyToMerge, con el merge deshabilitado") {
             let conflicting = PRMergeState(nodeID: "PR_1", mergeable: .conflicting, status: .unknown)
-            try expectEqual(classify(mine(decision: .approved, merge: conflicting)), .other)
+            try expectEqual(classify(mine(decision: .approved, merge: conflicting)), .readyToMerge)
             let dirty = PRMergeState(nodeID: "PR_1", mergeable: .unknown, status: .dirty)
-            try expectEqual(classify(mine(decision: .approved, merge: dirty)), .other)
+            try expectEqual(classify(mine(decision: .approved, merge: dirty)), .readyToMerge)
+            try expect(dirty.hasConflicts && conflicting.hasConflicts)
+            try expectEqual(MergePolicy.availability(mine(decision: .approved, merge: dirty), settings: nil).reason,
+                            MergePolicy.conflicts)
+        },
+        TestCase("ready to merge: con conflictos pero sin aprobar → other") {
+            let dirty = PRMergeState(nodeID: "PR_1", mergeable: .conflicting, status: .dirty)
+            try expectEqual(classify(mine(decision: .reviewRequired, merge: dirty)), .other)
         },
         TestCase("ready to merge: draft aprobado → other") {
             try expectEqual(classify(mine(isDraft: true, decision: .approved)), .other)

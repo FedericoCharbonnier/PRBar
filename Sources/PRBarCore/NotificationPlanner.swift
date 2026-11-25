@@ -126,11 +126,12 @@ public enum NotificationPlanner {
     /// Ready to Merge se avisa una vez, cuando GitHub ya calculó la mergeabilidad (con `UNKNOWN` el PR puede resultar
     /// con conflictos): "ya avisado" es haber estado en la categoría con la mergeabilidad conocida. Un snapshot anterior
     /// sin datos de merge (de antes de Ready to Merge) no sirve para comparar: los PRs aprobados no son novedad.
+    /// Con conflictos no está listo de verdad (spec F.1.1): avisa cuando se resuelven.
     static func isNewlyReadyToMerge(_ item: ClassifiedPR, old: ClassifiedPR?) -> Bool {
-        guard item.pr.merge.mergeable != .unknown else { return false }
+        guard item.pr.merge.mergeable != .unknown, !item.pr.merge.hasConflicts else { return false }
         guard let old else { return true }
         if old.pr.merge.nodeID == nil { return false }
-        return old.category != .readyToMerge || old.pr.merge.mergeable == .unknown
+        return old.category != .readyToMerge || old.pr.merge.mergeable == .unknown || old.pr.merge.hasConflicts
     }
 
     private static func kind(for category: PRCategory) -> NotificationKind? {
