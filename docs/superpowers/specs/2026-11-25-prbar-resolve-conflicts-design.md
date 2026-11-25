@@ -174,3 +174,21 @@ PRs de forks, rebase, PRs de otros, resolver conflictos de merge queue o de rama
     revisado un `diff --git` del merge automático a HEAD. En un host el registro viaja en el draft y la Mac recalcula
     lo mismo al importar y al pushear; si el blob del merge automático no está en la Mac (un archivo que mergeó git),
     ese archivo va solo con el encabezado.
+17. **Marcadores y "resolve by hand", ajustes** (corrigen 3 y 4): todos los `git grep` de marcadores (índice, head,
+    base, merge-base y árbol de trabajo) van con `-a` (un `yarn.lock -diff` o `binary` en `.gitattributes` no los
+    esconde), `--no-color` y `-c color.ui=never -c color.grep=never`, y los patrones aceptan 7 caracteres **o más**
+    (`^<{7,}( |$)`, `^>{7,}( |$)`, `^[|]{7,}( |$)`, `^={7,}[[:space:]]*$`) por `conflict-marker-size`. Quedan a mano,
+    además: los que git mergea como binarios por atributos (`git check-attr merge binary`: `binary`, `-merge` o
+    `merge=binary`; "binary (attributes)"), los de contenido sin marcadores en el árbol después del merge (o sin el
+    archivo; "no conflict markers") y los choques archivo/carpeta (una etapa en una ruta que no existe en ese lado, como
+    el `x~HEAD` de `ort`, o un `<ruta>~…` suelto; "directory/file conflict"). Antes del `add -A`, si sigue algún archivo
+    sin trackear (no ignorado) que ya estaba antes de Claude (lo deja el merge), la corrida falla nombrándolo; los que
+    crea Claude entran y se ven como cambios fuera de los conflictos (16). Claude tiene solo `Read, Grep, Glob, Edit,
+    Write` (sin `Skill` ni `Agent`), y el commit de merge y los que rehace el chat van sin firmar (`--no-gpg-sign` en
+    `commit` y en `commit-tree`).
+18. **Conflictos resueltos con un lado entero**: un archivo de contenido en conflicto que no está en
+    `diff-tree -c --name-only` quedó igual a uno de los padres y el combined diff no lo muestra. PRBar lo lista en
+    `RespondResult.oneSidedResolutions` (ruta y lado que quedó: `pr` o `base`), agrega al diff revisado un `diff --git`
+    del lado descartado a HEAD, y lo cuenta en el `--stat` (contra la base si quedó el del PR), los sensibles y las
+    dependencias. El pane Respond, History, la confirmación del push y la CLI (`show` y la pregunta del push; el JSON en
+    `RespondInfo.oneSidedResolutions`) lo nombran; en un host la Mac lo recalcula igual y el push compara la lista.
