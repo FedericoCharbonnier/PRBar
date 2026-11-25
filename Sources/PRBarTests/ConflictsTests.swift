@@ -90,6 +90,20 @@ enum ConflictsTests {
                 ConflictFile(path: "sub/.gitattributes", kind: .byHand, reason: "git settings file"),
                 ConflictFile(path: "vendor/lib", kind: .byHand, reason: "submodule"),
             ])
+            // Binarios por atributos, archivo/carpeta y sin marcadores: también a mano.
+            let more = ConflictClassifier.classify(entries, binary: [], attributeBinary: ["a.swift"], directoryFile: ["both.txt"],
+                                                   withoutMarkers: ["dir with space/ñ.txt"])
+            try expectEqual(more.filter { ["a.swift", "both.txt", "dir with space/ñ.txt"].contains($0.path) }.map(\.reason),
+                            ["binary (attributes)", "directory/file conflict", "no conflict markers"])
+            try expectEqual(ConflictClassifier.binaryByAttributes(fromCheckAttrZ:
+                "a\0merge\0unset\0a\0binary\0set\0b\0merge\0binary\0b\0binary\0unspecified\0c\0merge\0unspecified\0c\0binary\0unspecified\0"),
+                            ["a", "b"])
+            let staged = [entry("100644", 2, "x~HEAD"), entry("100644", 1, "y"), entry("100644", 2, "y"), entry("100644", 3, "y")]
+                .joined(separator: "\0") + "\0"
+            try expectEqual(ConflictClassifier.directoryFileConflicts(ConflictClassifier.entries(fromLsFilesUZ: staged),
+                                                                      inHead: ["y"], inBase: ["y"], untracked: []), ["x~HEAD"])
+            try expectEqual(ConflictClassifier.directoryFileConflicts(ConflictClassifier.entries(fromLsFilesUZ: staged),
+                                                                      inHead: ["y", "x~HEAD"], inBase: ["y"], untracked: ["y~main"]), ["y"])
             try expect(ConflictClassifier.isBinaryNumstat("-\t-\tx => y\n"))
             try expect(!ConflictClassifier.isBinaryNumstat("1\t2\tx => y\n"))
         },
@@ -107,8 +121,12 @@ enum ConflictsTests {
             try expectEqual(ConflictMarkers.leftover(after: ["x.md": 2], head: ["x.md": 1], base: ["x.md": 1], mergeBase: [:]), [])
             try expectEqual(ConflictMarkers.leftover(after: ["x.md": 3], head: ["x.md": 1], base: ["x.md": 1], mergeBase: [:]), ["x.md"])
             // Los patrones van a git grep -E, cada uno con -e.
-            try expectEqual(ConflictMarkers.grepArguments.prefix(5), ["grep", "-I", "-c", "--null", "-E"])
-            try expect(ConflictMarkers.grepArguments.contains("^=======[[:space:]]*$"))
+            // Sin color, binarios como texto (`-a`) y marcadores de 7 o más (`conflict-marker-size`).
+            try expectEqual(ConflictMarkers.grepArguments.prefix(10),
+                            ["-c", "color.ui=never", "-c", "color.grep=never", "grep", "--no-color", "-a", "-c", "--null", "-E"])
+            try expect(!ConflictMarkers.grepArguments.contains("-I"))
+            try expect(ConflictMarkers.grepArguments.contains("^={7,}[[:space:]]*$"))
+            try expect(ConflictMarkers.grepArguments.contains("^<{7,}( |$)"))
         },
         TestCase("conflict index: lo que Claude cambió en el índice; symlinks/gitlinks nuevos y archivos a mano tocados") {
             let blob = String(repeating: "1", count: 40), other = String(repeating: "2", count: 40)

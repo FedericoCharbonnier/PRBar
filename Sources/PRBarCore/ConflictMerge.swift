@@ -39,8 +39,43 @@ public enum ConflictClassifier {
     /// `git diff --numstat` de dos blobs dice `-\t-\t…` si alguno es binario.
     public static func isBinaryNumstat(_ output: String) -> Bool { output.hasPrefix("-\t-\t") }
 
-    /// Un `ConflictFile` por ruta, ordenados. `binary`: los candidatos que `isBinaryNumstat` marcó.
-    public static func classify(_ entries: [IndexStageEntry], binary: Set<String>) -> [ConflictFile] {
+    /// `git check-attr -z merge binary -- <rutas>` (`<ruta>\0<atributo>\0<valor>\0`…): las rutas que git mergea como
+    /// binarias por `.gitattributes` (`binary`, `-merge` o `merge=binary`). Chocan sin marcadores: git deja la
+    /// versión del PR en el árbol, y Claude no tendría nada que resolver (decisión C.9.17).
+    public static func binaryByAttributes(fromCheckAttrZ output: String) -> Set<String> {
+        let fields = output.split(separator: "\0", omittingEmptySubsequences: false).map(String.init)
+        var binary = Set<String>()
+        var index = 0
+        while index + 2 < fields.count {
+            let (path, attribute, value) = (fields[index], fields[index + 1], fields[index + 2])
+            if (attribute == "binary" && value == "set") || (attribute == "merge" && (value == "unset" || value == "binary")) {
+                binary.insert(path)
+            }
+            index += 3
+        }
+        return binary
+    }
+
+    /// Las rutas en conflicto que son el lado de un choque entre un archivo y una carpeta (decisión C.9.17): git
+    /// guarda el archivo con otro nombre (`<ruta>~<rama>`), en el índice (`ort`: la etapa está en una ruta que no
+    /// existe en ese lado) o suelto en el árbol (`untracked`, de `ls-files -o`: la ruta en conflicto es la original).
+    /// `inHead`/`inBase`: las rutas en conflicto que existen en el head del PR y en la base (`ls-tree`).
+    public static func directoryFileConflicts(_ entries: [IndexStageEntry], inHead: Set<String>, inBase: Set<String>,
+                                              untracked: [String]) -> Set<String> {
+        var found = Set<String>()
+        for (path, stages) in Dictionary(grouping: entries, by: \.path) {
+            let ours = stages.contains { $0.stage == 2 }, theirs = stages.contains { $0.stage == 3 }
+            if (ours && !inHead.contains(path)) || (theirs && !inBase.contains(path)) { found.insert(path) }
+            if untracked.contains(where: { $0.hasPrefix(path + "~") }) { found.insert(path) }
+        }
+        return found
+    }
+
+    /// Un `ConflictFile` por ruta, ordenados. `binary`: los candidatos que `isBinaryNumstat` marcó; `attributeBinary`:
+    /// los de `binaryByAttributes`; `directoryFile`: los de `directoryFileConflicts`; `withoutMarkers`: los candidatos
+    /// sin marcadores en el árbol después del merge (o sin el archivo): Claude no tendría qué resolver.
+    public static func classify(_ entries: [IndexStageEntry], binary: Set<String>, attributeBinary: Set<String> = [],
+                                directoryFile: Set<String> = [], withoutMarkers: Set<String> = []) -> [ConflictFile] {
         Dictionary(grouping: entries, by: \.path).map { path, group in
             let stages = Set(group.map(\.stage))
             let modes = Set(group.map(\.mode))
@@ -49,11 +84,14 @@ public enum ConflictClassifier {
                 if modes.contains("160000") { "submodule" }
                 else if modes.contains("120000") { "symlink" }
                 else if gitSettingsFiles.contains(name) { "git settings file" }
+                else if directoryFile.contains(path) { "directory/file conflict" }
                 else if !stages.contains(2) && !stages.contains(3) { "deleted on both sides" }
                 else if !stages.contains(3) { stages.contains(1) ? "deleted in the base" : "added only in the PR" }
                 else if !stages.contains(2) { stages.contains(1) ? "deleted in the PR" : "added only in the base" }
                 else if !modes.isSubset(of: regularModes) { "file mode" }
+                else if attributeBinary.contains(path) { "binary (attributes)" }
                 else if binary.contains(path) { "binary" }
+                else if withoutMarkers.contains(path) { "no conflict markers" }
                 else { nil }
             return ConflictFile(path: path, kind: reason == nil ? .content : .byHand, reason: reason)
         }.sorted { $0.path < $1.path }
@@ -63,13 +101,16 @@ public enum ConflictClassifier {
 /// Los marcadores de conflicto que quedaron (spec C.3.4, decisión C.9.4), contados con `git grep` en el índice y en
 /// tres commits: así corre igual en esta Mac y en un host.
 public enum ConflictMarkers {
-    /// Para `git grep -E`: las líneas que git escribe en un conflicto. `=======` tolera espacios al final (CRLF).
-    public static let patterns = ["^<<<<<<<( |$)", "^>>>>>>>( |$)", "^[|]{7}( |$)", "^=======[[:space:]]*$"]
+    /// Para `git grep -E`: las líneas que git escribe en un conflicto. Siete caracteres o más: el atributo
+    /// `conflict-marker-size` los agranda (decisión C.9.17). `=======` tolera espacios al final (CRLF).
+    public static let patterns = ["^<{7,}( |$)", "^>{7,}( |$)", "^[|]{7,}( |$)", "^={7,}[[:space:]]*$"]
 
-    /// Sin binarios (`-I`), una cuenta por archivo (`-c`) y la ruta terminada en NUL (`--null`). Después va
-    /// `--cached` o un commit.
+    /// Sin color (la config del usuario puede pedirlo siempre), todos los archivos como texto (`-a`: un `-diff` o
+    /// `binary` en `.gitattributes`, como `yarn.lock -diff`, no los esconde), una cuenta por archivo (`-c`) y la
+    /// ruta terminada en NUL (`--null`). Después va `--cached`, un commit o nada (el árbol de trabajo).
     public static var grepArguments: [String] {
-        ["grep", "-I", "-c", "--null", "-E"] + patterns.flatMap { ["-e", $0] }
+        ["-c", "color.ui=never", "-c", "color.grep=never", "grep", "--no-color", "-a", "-c", "--null", "-E"]
+            + patterns.flatMap { ["-e", $0] }
     }
 
     /// `ruta\0cuenta\n` por línea; contra un commit la ruta viene como `<rev>:<ruta>` y se le saca el prefijo.

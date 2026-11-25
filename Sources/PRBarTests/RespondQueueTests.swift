@@ -1085,6 +1085,124 @@ enum RespondPipelineTests {
             }
             try expect(error.localizedDescription.contains("old.txt"), error.localizedDescription)
         },
+        TestCase("resolve conflicts: los marcadores se buscan en archivos -diff (yarn.lock), con conflict-marker-size y sin color") { @MainActor in
+            // La base y el PR cambian yarn.lock (`-diff`: git grep -I lo saltearía) y notes.md (marcadores de 32).
+            let baseSetup: @Sendable (URL) throws -> Void = { dir in
+                try Data("yarn.lock -diff\n*.md conflict-marker-size=32\n".utf8).write(to: dir.appendingPathComponent(".gitattributes"))
+                try Data("v1\n".utf8).write(to: dir.appendingPathComponent("yarn.lock"))
+                try Data("v1\n".utf8).write(to: dir.appendingPathComponent("notes.md"))
+            }
+            let prSetup: @Sendable (URL) throws -> Void = { dir in
+                try Data("v2 PR\n".utf8).write(to: dir.appendingPathComponent("yarn.lock"))
+                try Data("v2 PR\n".utf8).write(to: dir.appendingPathComponent("notes.md"))
+            }
+            let baseChange: @Sendable (URL) throws -> Void = { dir in
+                try Data("v3 base\n".utf8).write(to: dir.appendingPathComponent("yarn.lock"))
+                try Data("v3 base\n".utf8).write(to: dir.appendingPathComponent("notes.md"))
+            }
+            func run(_ claude: ScriptedClaude) async throws -> (E2E, RespondDraft, Result<RespondResult, Error>) {
+                let (e, _) = try conflictingE2E(claude: claude, baseSetup: baseSetup, prSetup: prSetup, baseChange: baseChange)
+                // La config del usuario pide color siempre: no puede ensuciar las rutas ni las cuentas de git grep.
+                try TempGitRepo.run(e.repo.local, ["config", "color.ui", "always"])
+                try TempGitRepo.run(e.repo.local, ["config", "color.grep", "always"])
+                let request = RespondRequest(item: classified(7), localPath: e.repo.local.path, worktreeDir: e.worktreeDir.path, mode: .conflicts)
+                let draft = try await e.pipeline.analyze(request, draftID: UUID()) { _ in }
+                do {
+                    let result = try await e.pipeline.implement(draft: draft, selections: [draft.items[0].id: RespondSelection.defaults(for: draft.items[0])]) { _, _ in }
+                    return (e, draft, .success(result))
+                } catch {
+                    return (e, draft, .failure(error))
+                }
+            }
+            // 1) Claude solo resuelve README: quedan marcadores en yarn.lock y notes.md.
+            let lazy = ScriptedClaude { schema, _, cwd in
+                guard schema == RespondSchemas.conflicts else { return [] }
+                try Data("hola PR y base\n".utf8).write(to: cwd.appendingPathComponent("README.md"))
+                return [conflictsLine()]
+            }
+            let (e1, draft1, outcome1) = try await run(lazy)
+            defer { e1.repo.remove() }
+            try expectEqual(draft1.conflicts?.contentFiles, ["README.md", "notes.md", "yarn.lock"])
+            guard case .failure(let error) = outcome1 else { throw TestFailure(description: "commiteó con marcadores") }
+            try expect(error.localizedDescription.contains("conflict markers in notes.md, yarn.lock"), error.localizedDescription)
+            // 2) Claude resuelve todo: ni el título `=======` de doc.md ni el color cuentan como marcadores.
+            let thorough = ScriptedClaude { schema, _, cwd in
+                guard schema == RespondSchemas.conflicts else { return [] }
+                for name in ["README.md", "yarn.lock", "notes.md"] {
+                    try Data("hola PR y base\n".utf8).write(to: cwd.appendingPathComponent(name))
+                }
+                return [conflictsLine()]
+            }
+            let (e2, _, outcome2) = try await run(thorough)
+            defer { e2.repo.remove() }
+            if case .failure(let error) = outcome2 { throw TestFailure(description: "falló: \(error.localizedDescription)") }
+            // Resolve Conflicts le da a Claude solo leer y editar: sin Skill ni Agent.
+            let tools = thorough.calls[0].arguments[thorough.calls[0].arguments.firstIndex(of: "--tools")! + 1]
+            try expectEqual(tools, "Read,Grep,Glob,Edit,Write")
+        },
+        TestCase("resolve conflicts: binarios por atributos, directorio/archivo y archivos sueltos quedan a mano o frenan") { @MainActor in
+            // data.bin (`binary`), lock.dat (`-merge`) y other.dat (`merge=binary`) chocan sin marcadores; `x` es un
+            // archivo en el PR y una carpeta en la base.
+            let baseSetup: @Sendable (URL) throws -> Void = { dir in
+                try Data("data.bin binary\nlock.dat -merge\nother.dat merge=binary\n".utf8).write(to: dir.appendingPathComponent(".gitattributes"))
+                for name in ["data.bin", "lock.dat", "other.dat"] { try Data("v1\n".utf8).write(to: dir.appendingPathComponent(name)) }
+            }
+            let prSetup: @Sendable (URL) throws -> Void = { dir in
+                for name in ["data.bin", "lock.dat", "other.dat"] { try Data("v2 PR\n".utf8).write(to: dir.appendingPathComponent(name)) }
+                try Data("pr\n".utf8).write(to: dir.appendingPathComponent("x"))
+            }
+            let baseChange: @Sendable (URL) throws -> Void = { dir in
+                for name in ["data.bin", "lock.dat", "other.dat"] { try Data("v3 base\n".utf8).write(to: dir.appendingPathComponent(name)) }
+                try FileManager.default.createDirectory(at: dir.appendingPathComponent("x"), withIntermediateDirectories: true)
+                try Data("base\n".utf8).write(to: dir.appendingPathComponent("x/b.txt"))
+            }
+            let claude = ScriptedClaude { schema, _, cwd in
+                guard schema == RespondSchemas.conflicts else { return [] }
+                try Data("hola PR y base\n".utf8).write(to: cwd.appendingPathComponent("README.md"))
+                return [conflictsLine()]
+            }
+            let (e, _) = try conflictingE2E(claude: claude, baseSetup: baseSetup, prSetup: prSetup, baseChange: baseChange)
+            defer { e.repo.remove() }
+            let request = RespondRequest(item: classified(7), localPath: e.repo.local.path, worktreeDir: e.worktreeDir.path, mode: .conflicts)
+            let draft = try await e.pipeline.analyze(request, draftID: UUID()) { _ in }
+            try expectEqual(draft.conflicts?.contentFiles, ["README.md"])
+            let byHand = draft.conflicts?.byHandFiles ?? []
+            try expectEqual(byHand.filter { ["data.bin", "lock.dat", "other.dat"].contains($0.path) }.map(\.reason),
+                            ["binary (attributes)", "binary (attributes)", "binary (attributes)"])
+            try expect(byHand.contains { $0.path.hasPrefix("x~") && $0.reason == "directory/file conflict" }, "\(byHand)")
+            // Un archivo que git no trackea y que ya estaba antes de Claude (lo que deja un merge) no entra en el commit.
+            try Data("leftover\n".utf8).write(to: URL(fileURLWithPath: draft.worktree.path).appendingPathComponent("stray.txt"))
+            let error = try await expectThrows {
+                _ = try await e.pipeline.implement(draft: draft, selections: [draft.items[0].id: RespondSelection.defaults(for: draft.items[0])]) { _, _ in }
+            }
+            try expect(error.localizedDescription.contains("stray.txt"), error.localizedDescription)
+            try expectEqual(try e.git(draft.worktree.path, ["rev-parse", "HEAD"]), e.repo.prSHA)
+        },
+        TestCase("resolve conflicts: el merge y el chat no firman aunque el repo pida firmar (los dos igual)") { @MainActor in
+            let claude = ScriptedClaude { schema, _, cwd in
+                guard schema == RespondSchemas.conflicts else { return [] }
+                try Data("hola PR y base\n".utf8).write(to: cwd.appendingPathComponent("README.md"))
+                return [conflictsLine()]
+            }
+            let (e, _) = try conflictingE2E(claude: claude)
+            defer { e.repo.remove() }
+            // Firmar fallaría: `gpg.program` es `false`.
+            try TempGitRepo.run(e.repo.local, ["config", "commit.gpgSign", "true"])
+            try TempGitRepo.run(e.repo.local, ["config", "gpg.program", "false"])
+            let request = RespondRequest(item: classified(7), localPath: e.repo.local.path, worktreeDir: e.worktreeDir.path, mode: .conflicts)
+            let draft = try await e.pipeline.analyze(request, draftID: UUID()) { _ in }
+            let result = try await e.pipeline.implement(draft: draft, selections: [draft.items[0].id: RespondSelection.defaults(for: draft.items[0])]) { _, _ in }
+            try expectEqual(try e.git(draft.worktree.path, ["cat-file", "-p", "HEAD"]).contains("gpgsig"), false)
+            let implementer = FixImplementer(
+                claude: ClaudeRunner(runner: claude, claudePath: "/usr/local/bin/claude", pluginDirs: [], environment: [:],
+                                     logURL: e.history.logURL(for: draft.id), redacting: []),
+                runner: SystemProcessRunner(), gitPath: TempGitRepo.git, environment: gitEnvironment)
+            _ = try await implementer.chatTurn(draft: draft, current: result, sessionID: UUID(), turn: 1) {
+                try Data("hola PR, base y chat\n".utf8).write(to: URL(fileURLWithPath: draft.worktree.path).appendingPathComponent("README.md"))
+            }
+            try expectEqual(try e.git(draft.worktree.path, ["cat-file", "-p", "HEAD"]).contains("gpgsig"), false)
+            try expectEqual(try e.git(draft.worktree.path, ["log", "-1", "--format=%s"]), "Merge main into feature")
+        },
         TestCase("resolve conflicts: el chat rehace el merge (mismos padres), rechaza marcadores y Undo vuelve al anterior") { @MainActor in
             let claude = ScriptedClaude { schema, _, cwd in
                 guard schema == RespondSchemas.conflicts else { return [] }

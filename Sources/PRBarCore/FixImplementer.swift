@@ -39,6 +39,8 @@ import os
 ///   como argumento de `-m`.
 public struct FixImplementer: Sendable {
     public static let tools = ["Read", "Grep", "Glob", "Edit", "Write", "Skill", "Agent"]
+    /// Resolve Conflicts: solo leer y editar el worktree, sin skills ni subagentes (decisión C.9.17).
+    public static let conflictTools = ["Read", "Grep", "Glob", "Edit", "Write"]
     public static let fixTimeout: TimeInterval = 15 * 60
     public static let testTimeout: TimeInterval = 20 * 60
     /// Líneas del output del testCommand que se guardan en el resultado (el log tiene todo).
@@ -532,6 +534,9 @@ public struct FixImplementer: Sendable {
                                    guarded: GitPaths, capture: ClaudeSessionCapture) async throws -> ItemResult {
         try await checkConfigOrigins(worktree)
         let indexBefore = try await git(worktree, ["ls-files", "-s", "-z"])
+        // Lo que git no trackea y ya estaba antes de Claude (lo deja un merge, p. ej. `<ruta>~<rama>`): `add -A` lo
+        // metería en el commit (decisión C.9.17).
+        let untrackedBefore = Set(try await untracked(worktree))
         // Lo último antes de Claude: después, ningún git corre hasta revisar todo esto.
         let before = try await guarded.fingerprint(using: fs, listConfig: configLister)
         let nestedBefore = Set(try await fs.nestedGitEntries(worktree.path))
@@ -539,7 +544,7 @@ public struct FixImplementer: Sendable {
         let invocation = ClaudeInvocation(
             prompt: ConflictsPrompt.prompt(item: item, draft: draft, settings: settings,
                                            rules: RulesPrompt.effective(rules, repo: draft.repo, stage: .respond)),
-            schema: RespondSchemas.conflicts, tools: Self.tools, workingDirectory: worktree, timeout: Self.fixTimeout,
+            schema: RespondSchemas.conflicts, tools: Self.conflictTools, workingDirectory: worktree, timeout: Self.fixTimeout,
             logHeader: "=== conflicts ===", onSession: { capture.record($0) })
         let output: ConflictsOutput
         do {
@@ -563,6 +568,11 @@ public struct FixImplementer: Sendable {
         }
         let summary = Self.singleLine(output.summary, limit: Self.maxSummaryLength)
         guard output.status == .done else { throw PRBarError.respond("Claude couldn’t resolve the conflicts: \(summary)") }
+        let stray = try await untracked(worktree).filter(untrackedBefore.contains).sorted()
+        guard stray.isEmpty else {
+            throw PRBarError.respond("The merge left files git doesn’t track (\(CILogs.nameList(stray.map { UntrustedText.singleLine($0) }))). "
+                + "Stopped before committing: resolve the conflicts by hand.")
+        }
         try await stageAll(worktree)
         let indexAfter = try await git(worktree, ["ls-files", "-s", "-z"])
         let changed = ConflictIndex.changed(before: indexBefore, after: indexAfter)
@@ -584,6 +594,11 @@ public struct FixImplementer: Sendable {
         }
         return ItemResult(id: item.id, status: .committed, commit: nil, summary: summary,
                           conflictFiles: output.summaries(allowed: context.contentFiles))
+    }
+
+    /// `ls-files -o --exclude-standard -z`: los archivos que git no trackea ni ignora.
+    private func untracked(_ worktree: URL) async throws -> [String] {
+        try await git(worktree, ["ls-files", "-o", "--exclude-standard", "-z"]).split(separator: "\0").map(String.init)
     }
 
     /// Decisión C.9.4: las rutas del índice con más marcadores de los esperables (`ConflictMarkers.leftover`).
@@ -618,7 +633,8 @@ public struct FixImplementer: Sendable {
             throw PRBarError.respond("Some files are still in conflict (\(CILogs.nameList(unmerged))): not committing.")
         }
         let message = Self.singleLine(context.commitMessage(headRef: draft.headRef), limit: 200)
-        try await git(worktree, ["commit", "--no-verify", "-m", message], timeout: Self.fixTimeout)
+        // Decisión C.9.12: sin firmar, igual que el merge que rehace el chat (`commit-tree --no-gpg-sign`).
+        try await git(worktree, ["commit", "--no-verify", "--no-gpg-sign", "-m", message], timeout: Self.fixTimeout)
         let sha = try await head(worktree)
         try await checkMergeParents(worktree, sha: sha, draft: draft, context: context)
         return sha
@@ -921,7 +937,8 @@ public struct FixImplementer: Sendable {
             }
             let tree = try await git(worktree, ["write-tree"]).trimmingCharacters(in: .whitespacesAndNewlines)
             let message = Self.singleLine(context.commitMessage(headRef: draft.headRef), limit: 200)
-            sha = try await git(worktree, ["commit-tree", tree, "-p", start, "-p", context.baseOid, "-m", message], timeout: Self.fixTimeout)
+            sha = try await git(worktree, ["commit-tree", "--no-gpg-sign", tree, "-p", start, "-p", context.baseOid, "-m", message],
+                                timeout: Self.fixTimeout)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard Self.isFullSHA(sha) else { throw PRBarError.respond("git commit-tree returned \(sha.prefix(80)): stopping.") }
             try await git(worktree, ["update-ref", "--no-deref", "HEAD", sha, headBefore])

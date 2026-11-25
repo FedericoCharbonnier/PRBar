@@ -34,12 +34,31 @@ struct ConflictMerger: Sendable {
             throw PRBarError.commandFailed(command: "git merge", status: merged.status,
                                            stderr: merged.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
         }
+        let candidates = ConflictClassifier.contentCandidates(unmerged)
         var binary = Set<String>()
-        for candidate in ConflictClassifier.contentCandidates(unmerged) {
+        for candidate in candidates {
             let numstat = try await output(["diff", "--numstat", "--no-ext-diff", "--no-textconv", candidate.ours, candidate.theirs])
             if ConflictClassifier.isBinaryNumstat(numstat) { binary.insert(candidate.path) }
         }
-        let files = ConflictClassifier.classify(unmerged, binary: binary)
+        // Decisión C.9.17: lo que no tiene marcadores para resolver queda a mano.
+        let candidatePaths = candidates.map(\.path)
+        var attributeBinary = Set<String>()
+        var withMarkers = Set<String>()
+        for chunk in Self.chunks(candidatePaths) {
+            attributeBinary.formUnion(ConflictClassifier.binaryByAttributes(fromCheckAttrZ: try await output(
+                ["check-attr", "-z", "merge", "binary", "--"] + chunk)))
+            withMarkers.formUnion(ConflictMarkers.counts(fromGrep: try await grep(["--"] + chunk), revision: nil).keys)
+        }
+        let unmergedPaths = Array(Set(unmerged.map(\.path))).sorted()
+        var inHead = Set<String>(), inBase = Set<String>()
+        for chunk in Self.chunks(unmergedPaths) {
+            inHead.formUnion(try await treePaths(startHeadOid, chunk))
+            inBase.formUnion(try await treePaths(baseOid, chunk))
+        }
+        let untracked = try await output(["ls-files", "-o", "--exclude-standard", "-z"]).split(separator: "\0").map(String.init)
+        let directoryFile = ConflictClassifier.directoryFileConflicts(unmerged, inHead: inHead, inBase: inBase, untracked: untracked)
+        let files = ConflictClassifier.classify(unmerged, binary: binary, attributeBinary: attributeBinary, directoryFile: directoryFile,
+                                                withoutMarkers: Set(candidatePaths).subtracting(withMarkers))
         let content = files.filter { $0.kind == .content }
         if !files.isEmpty && content.isEmpty {
             let names = CILogs.nameList(files.map { UntrustedText.singleLine($0.path) })
@@ -77,6 +96,29 @@ struct ConflictMerger: Sendable {
                 try await output(["rm", "-q", "--cached", "--", file.path])
                 try await output(["clean", "-q", "-f", "--", file.path])
             }
+        }
+    }
+
+    /// De a 100 rutas por comando.
+    static func chunks(_ paths: [String]) -> [[String]] {
+        stride(from: 0, to: paths.count, by: 100).map { Array(paths[$0..<min($0 + 100, paths.count)]) }
+    }
+
+    /// Las rutas de `paths` que están en `revision` (`ls-tree`, rutas literales).
+    private func treePaths(_ revision: String, _ paths: [String]) async throws -> Set<String> {
+        Set(try await output(["--literal-pathspecs", "ls-tree", "-z", "--name-only", "--full-tree", revision, "--"] + paths)
+            .split(separator: "\0").map(String.init))
+    }
+
+    /// `git grep` de los marcadores en el árbol de trabajo (`ConflictMarkers.grepArguments`); 1 = ninguno.
+    private func grep(_ target: [String]) async throws -> String {
+        let result = try await run(["--literal-pathspecs"] + ConflictMarkers.grepArguments + target)
+        switch result.status {
+        case 0: return result.stdout
+        case 1: return ""
+        default:
+            throw PRBarError.commandFailed(command: "git grep", status: result.status,
+                                           stderr: result.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
         }
     }
 
