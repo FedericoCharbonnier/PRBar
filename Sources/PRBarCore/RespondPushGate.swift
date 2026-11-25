@@ -27,17 +27,34 @@ extension RespondPushGate {
         return false
     }
 
-    /// `prbar ci push` sobre una corrida de Responder (o `prbar respond push` sobre un Fix CI): no se pushea, tampoco
-    /// con `--yes` (spec K.6.14). `expected == nil` (la web, una CLI vieja) no se chequea.
+    /// `prbar ci push` sobre una corrida de Responder (o al revés) no pushea, tampoco con `--yes` (K.6.14). Un Resolve
+    /// Conflicts solo se pushea pidiéndolo por su modo (decisión C.9.9): `nil` (la web, una CLI vieja) tampoco. Fuera
+    /// de eso, `expected == nil` no se chequea.
     public static func modeCheck(expected: RespondMode?, actual: RespondMode, prID: String) -> CommandFailure? {
+        if actual == .conflicts && expected != .conflicts {
+            return CommandFailure(.invalidState,
+                                  "\(prID) is a Resolve Conflicts run: push it with `prbar conflicts push \(prID)` or from PRBar on your Mac.")
+        }
         guard let expected, expected != actual else { return nil }
         switch actual {
+        case .feedback where expected == .conflicts, .ciFix where expected == .conflicts:
+            return CommandFailure(.invalidState,
+                                  "\(prID) isn’t a Resolve Conflicts run: use `\(pushCommand(actual)) \(prID)`.")
         case .feedback:
             return CommandFailure(.invalidState, "\(prID) isn’t a Fix CI: use `prbar respond push \(prID)`.")
         case .ciFix:
             return CommandFailure(.invalidState, "\(prID) is a Fix CI: use `prbar ci push \(prID)`.")
         case .conflicts:
-            return CommandFailure(.invalidState, "\(prID) is a Resolve Conflicts: use `prbar conflicts push \(prID)`.")
+            return nil
+        }
+    }
+
+    /// El comando de la CLI que pushea una corrida de este modo.
+    public static func pushCommand(_ mode: RespondMode) -> String {
+        switch mode {
+        case .ciFix: "prbar ci push"
+        case .conflicts: "prbar conflicts push"
+        case .feedback: "prbar respond push"
         }
     }
 
@@ -60,13 +77,13 @@ extension RespondPushGate {
         if record.pushed && RespondCounts.pendingReplies(record) == 0 {
             return CommandFailure(.invalidState, "Everything was already pushed and posted.")
         }
+        let command = pushCommand(record.draft.mode)
         if anyway && !gate.isTestsFailed && !blockedByCI {
-            return CommandFailure(.invalidState, record.draft.isCIFix
-                ? "Nothing is blocked: use `prbar ci push \(id)`."
-                : "Nothing is blocked by failed tests: use `prbar respond push \(id)`.")
+            return CommandFailure(.invalidState, record.draft.implementsAlone
+                ? "Nothing is blocked: use `\(command) \(id)`."
+                : "Nothing is blocked by failed tests: use `\(command) \(id)`.")
         }
         if !anyway, case .testsFailed(let run) = gate {
-            let command = record.draft.isCIFix ? "prbar ci push" : "prbar respond push"
             return CommandFailure(.invalidState, "“\(run.command)” failed, so PRBar didn’t push. Push anyway with `\(command) \(id) --anyway`.")
         }
         if chatting {

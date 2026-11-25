@@ -117,12 +117,24 @@ public struct RemoteFixImport: Sendable {
                                         + ["origin", draft.startHeadOid], config: credentials)
                 }
             }
+            // Resolve Conflicts (decisión C.9.11): la base se trae aparte, desde GitHub, y queda fuera del bundle (que no
+            // viaje todo lo que trajo la base). `bundle verify` exige que sus prerequisitos ya estén en el clone.
+            if let base = draft.conflicts?.baseOid {
+                guard FixImplementer.isFullSHA(base) else { throw RemoteRunnerError.importMismatch("the merged base isn’t a commit id.") }
+                if (try? await local(repository, ["cat-file", "-e", "\(base)^{commit}"])) == nil {
+                    try await withCredentials(token, temporary: temporary) { credentials in
+                        try await local(repository, ["fetch", "--no-write-fetch-head", "--no-tags"] + (temporary ? ["--depth=1"] : [])
+                                            + ["origin", base], config: credentials)
+                    }
+                }
+            }
             guard remoteHead != draft.startHeadOid else {
                 try await local(repository, ["update-ref", Self.ref(draft), remoteHead])
                 return try await summary(draft: draft, repository: repository, temporary: temporary, head: remoteHead, items: items, integrity: integrity)
             }
             let remoteBundle = try spaces.root.child(["tmp", "\(draft.id.uuidString.lowercased()).bundle"])
-            try await spaces.git(worktree, ["bundle", "create", remoteBundle, "HEAD", "^\(draft.startHeadOid)"])
+            let exclusions = ["^\(draft.startHeadOid)"] + (draft.conflicts.map { ["^\($0.baseOid)"] } ?? [])
+            try await spaces.git(worktree, ["bundle", "create", remoteBundle, "HEAD"] + exclusions)
             let bundle = try LocalScratch.newFile()
             defer { try? FileManager.default.removeItem(at: bundle) }
             do {
@@ -206,9 +218,14 @@ public struct RemoteFixImport: Sendable {
         guard (try? await local(repository, ["merge-base", "--is-ancestor", draft.startHeadOid, head])) != nil else {
             throw RemoteRunnerError.importMismatch("\(head.prefix(12)) doesn’t descend from \(draft.startHeadOid.prefix(12)).")
         }
+        if let conflicts = draft.conflicts {
+            guard (try? await local(repository, ["merge-base", "--is-ancestor", conflicts.baseOid, head])) != nil else {
+                throw RemoteRunnerError.importMismatch("\(head.prefix(12)) doesn’t contain \(conflicts.baseRef).")
+            }
+        }
         let tree = try await local(repository, ["rev-parse", "--verify", "\(head)^{tree}"]).trimmingCharacters(in: .whitespacesAndNewlines)
         var result = try await FixImplementer.summarize(repository: URL(fileURLWithPath: repository), start: draft.startHeadOid, head: head,
-                                                        items: items, integrity: integrity) { _, arguments in
+                                                        items: items, integrity: integrity, conflicts: draft.conflicts) { _, arguments in
             try await self.local(repository, arguments)
         }
         result.remoteObjects = RemoteObjects(repoPath: repository, temporary: temporary, ref: Self.ref(draft), treeOid: tree)
@@ -235,12 +252,27 @@ public struct RemoteFixImport: Sendable {
         guard atRef == reviewed else { throw mismatch("the local copy moved to \(atRef.prefix(12)).") }
         let tree = try await local(repository, ["rev-parse", "--verify", "\(reviewed)^{tree}"]).trimmingCharacters(in: .whitespacesAndNewlines)
         guard tree == objects.treeOid else { throw mismatch("the tree isn’t the one that was imported.") }
-        let fullDiff = try await local(repository, ["diff", GitHardening.ignoreSubmodules, "--text", "--no-textconv", "--no-ext-diff",
+        // El mismo diff que se revisó: el combined del merge en Resolve Conflicts (C.9.11), `start..reviewed` si no.
+        let fullDiff: String
+        let specialPaths: [String]
+        let raw = try await local(repository, ["diff", "--raw", "-z", "--no-renames", "--no-abbrev", "\(draft.startHeadOid)..\(reviewed)"])
+        if let conflicts = draft.conflicts {
+            let url = URL(fileURLWithPath: repository)
+            let git: (URL, [String]) async throws -> String = { _, arguments in try await self.local(repository, arguments) }
+            fullDiff = try await FixImplementer.resolutionDiff(repository: url, head: reviewed, git: git)
+            let resolution = Set(try await FixImplementer.resolutionPaths(repository: url, head: reviewed, git: git))
+            specialPaths = WorktreeIntegrity.specialStagedPaths(fromRawZ: raw).filter(resolution.contains)
+            guard (try? await local(repository, ["merge-base", "--is-ancestor", conflicts.baseOid, reviewed])) != nil else {
+                throw mismatch("\(reviewed.prefix(12)) doesn’t contain \(conflicts.baseRef).")
+            }
+        } else {
+            fullDiff = try await local(repository, ["diff", GitHardening.ignoreSubmodules, "--text", "--no-textconv", "--no-ext-diff",
                                                     "--no-color", "\(draft.startHeadOid)..\(reviewed)"])
+            specialPaths = WorktreeIntegrity.specialStagedPaths(fromRawZ: raw)
+        }
         let (diff, truncated) = FixImplementer.capDiff(fullDiff)
         guard diff == result.diff, truncated == (result.diffTruncated ?? false) else { throw mismatch("the diff isn’t the one you reviewed.") }
-        let raw = try await local(repository, ["diff", "--raw", "-z", "--no-renames", "--no-abbrev", "\(draft.startHeadOid)..\(reviewed)"])
-        guard WorktreeIntegrity.specialStagedPaths(fromRawZ: raw).isEmpty else { throw mismatch("it adds a symlink or a nested repo.") }
+        guard specialPaths.isEmpty else { throw mismatch("it adds a symlink or a nested repo.") }
         guard (try? await local(repository, ["merge-base", "--is-ancestor", draft.startHeadOid, reviewed])) != nil else {
             throw mismatch("\(reviewed.prefix(12)) doesn’t descend from \(draft.startHeadOid.prefix(12)).")
         }

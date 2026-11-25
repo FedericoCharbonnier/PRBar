@@ -631,7 +631,7 @@ extension AppModel: RespondActions {
         guard wait else { return respondInfo(id) }
         try await waitForRespond(id, events: events)
         if case .testsFailed(let run) = respondPushGate(prID: id), respond.records[id]?.pushed != true {
-            throw CommandFailure(.failed, "“\(run.command)” failed, so PRBar didn’t push. Push anyway with `prbar \(record.draft.isCIFix ? "ci" : "respond") push \(id) --anyway`.")
+            throw CommandFailure(.failed, "“\(run.command)” failed, so PRBar didn’t push. Push anyway with `\(RespondPushGate.pushCommand(record.draft.mode)) \(id) --anyway`.")
         }
         if let blocked = respond.pushBlockedByCI[id], respond.records[id]?.pushed != true {
             throw CommandFailure(.failed, "\(blocked) Push anyway with `prbar ci push \(id) --anyway`.")

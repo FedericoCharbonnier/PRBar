@@ -97,6 +97,15 @@ public struct RespondPublisher: Sendable {
         guard ancestor.status == 0 else {
             throw PRBarError.respond("\(reviewed.prefix(12)) doesn't descend from \(draft.startHeadOid), the base of the analysis. Not pushing.")
         }
+        if let conflicts = draft.conflicts {
+            // Resolve Conflicts (C.3.6): lo pusheado tiene que contener la base que PRBar mergeó.
+            let containsBase = try await run(["-C", path] + GitHardening.arguments
+                                             + ["merge-base", "--is-ancestor", conflicts.baseOid, reviewed], timeout: ProcessTimeouts.standard)
+            guard containsBase.status == 0 else {
+                throw PRBarError.respond("\(reviewed.prefix(12)) doesn’t contain \(conflicts.baseRef) (\(conflicts.baseOid.prefix(12))), "
+                    + "the base PRBar merged. Not pushing.")
+            }
+        }
 
         let lsRemote = ["-C", path] + GitHardening.arguments + Self.lsRemoteArguments(headRef: headRef)
         let pushed: ProcessResult

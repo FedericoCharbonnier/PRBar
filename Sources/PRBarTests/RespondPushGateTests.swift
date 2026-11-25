@@ -43,6 +43,20 @@ enum RespondPushGateTests {
             try expectEqual(pushCheck(gate: .testsFailed(failed), anyway: true), nil)
             try expect(pushCheck(anyway: true)?.contains("Nothing is blocked") == true)
             try expect(pushCheck(chatting: true)?.contains("--stop") == true)
+            var conflicts = record(result: result())
+            conflicts.draft.mode = .conflicts
+            try expect(pushCheck(conflicts, gate: .testsFailed(failed))?.contains("`prbar conflicts push o/r#8 --anyway`") == true)
+            try expect(pushCheck(conflicts, anyway: true)?.contains("Nothing is blocked: use `prbar conflicts push o/r#8`") == true)
+        },
+        TestCase("push gate: un Resolve Conflicts solo se pushea pidiéndolo por su modo (nil = la web o una CLI vieja)") {
+            try expect(RespondPushGate.modeCheck(expected: nil, actual: .conflicts, prID: "o/r#7")?.message.contains("prbar conflicts push") == true)
+            try expect(RespondPushGate.modeCheck(expected: .ciFix, actual: .conflicts, prID: "o/r#7") != nil)
+            try expectEqual(RespondPushGate.modeCheck(expected: .conflicts, actual: .conflicts, prID: "o/r#7"), nil)
+            try expect(RespondPushGate.modeCheck(expected: .conflicts, actual: .feedback, prID: "o/r#7")?.message.contains("isn’t a Resolve Conflicts") == true)
+            try expect(RespondPushGate.modeCheck(expected: .conflicts, actual: .ciFix, prID: "o/r#7")?.message.contains("prbar ci push") == true)
+            try expectEqual(RespondPushGate.modeCheck(expected: nil, actual: .ciFix, prID: "o/r#7"), nil)
+            try expectEqual(RespondPushGate.modeCheck(expected: nil, actual: .feedback, prID: "o/r#7"), nil)
+            try expect(RespondPushGate.modeCheck(expected: .ciFix, actual: .feedback, prID: "o/r#7")?.message.contains("isn’t a Fix CI") == true)
         },
         TestCase("respond push gate: sin la opción, sin comando, sin commits o ya pusheado no hay tests") {
             try expectEqual(RespondPushGate.evaluate(result: result(), testCommand: "make test", runTestsBeforePush: false, pushed: false), .ready)

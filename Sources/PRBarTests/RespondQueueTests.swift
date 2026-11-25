@@ -1090,6 +1090,47 @@ enum RespondPipelineTests {
             _ = try await implementer.undoChatTurn(draft: draft, snapshot: try expectNotNil(outcome.snapshot))
             try expectEqual(try e.git(draft.worktree.path, ["rev-parse", "HEAD"]), merge)
         },
+        TestCase("resolve conflicts: pushea el merge con el PR re-verificado; con otro head o cerrado no pushea") { @MainActor in
+            let claude = ScriptedClaude { schema, _, cwd in
+                guard schema == RespondSchemas.conflicts else { return [] }
+                try Data("hola PR y base\n".utf8).write(to: cwd.appendingPathComponent("README.md"))
+                return [conflictsLine()]
+            }
+            let (e, base) = try conflictingE2E(claude: claude)
+            defer { e.repo.remove() }
+            let events = QueueEventLog()
+            let queue = RespondQueue(pipeline: e.pipeline, history: e.history) { prID, phase in events.record(.finished("\(prID)|\(phase.name)")) }
+            queue.analyze(classified(7), localPath: e.repo.local.path, worktreeDir: e.worktreeDir.path, mode: .conflicts)
+            try await events.wait(for: reached(7, "readyToPush"))
+            guard case .readyToPush(_, let result)? = queue.phases[prID(7)] else { throw TestFailure(description: "sin readyToPush") }
+            // Otro head en GitHub: no pushea.
+            e.api.details = PRDetails(title: "t", body: "", headOid: String(repeating: "9", count: 40), state: .open, baseRef: "main")
+            queue.publish(prID: prID(7))
+            try await events.wait(for: reached(7, "failed"))
+            if case .failed(let message, _)? = queue.phases[prID(7)] { try expect(message.contains("new commits"), message) }
+            try expectEqual(try e.git(e.repo.origin.path, ["rev-parse", "refs/heads/feature"]), e.repo.prSHA)
+            // Otra base: tampoco.
+            e.api.details = PRDetails(title: "t", body: "", headOid: e.repo.prSHA, state: .open, baseRef: "develop")
+            events.reset()
+            queue.publish(prID: prID(7))
+            try await events.wait(for: reached(7, "failed"))
+            if case .failed(let message, _)? = queue.phases[prID(7)] { try expect(message.contains("base is now develop"), message) }
+            // Cerrado: tampoco.
+            e.api.details = PRDetails(title: "t", body: "", headOid: e.repo.prSHA, state: .closed, baseRef: "main")
+            events.reset()
+            queue.publish(prID: prID(7))
+            try await events.wait(for: reached(7, "failed"))
+            if case .failed(let message, _)? = queue.phases[prID(7)] { try expect(message.contains("isn’t open"), message) }
+            try expectEqual(try e.git(e.repo.origin.path, ["rev-parse", "refs/heads/feature"]), e.repo.prSHA)
+            // Con el head de siempre: pushea el merge, que contiene la base.
+            e.api.details = PRDetails(title: "t", body: "", headOid: e.repo.prSHA, state: .open, baseRef: "main")
+            queue.publish(prID: prID(7))
+            try await events.wait(for: reached(7, "done"))
+            let pushed = try e.git(e.repo.origin.path, ["rev-parse", "refs/heads/feature"])
+            try expectEqual(pushed, result.headOid)
+            try expectEqual(try e.git(e.repo.origin.path, ["rev-list", "--parents", "-n", "1", pushed]), "\(pushed) \(e.repo.prSHA) \(base)")
+            try expect(e.api.posts.isEmpty)
+        },
         TestCase("fix ci: lee los checks en la Mac, prepara el worktree, implementa solo, no responde y pushea con el CI re-verificado") { @MainActor in
             let claude = ScriptedClaude { schema, prompt, cwd in
                 guard schema == RespondSchemas.fix, prompt.contains("MARK-CI") else { return [] }

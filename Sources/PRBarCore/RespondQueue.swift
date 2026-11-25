@@ -577,7 +577,7 @@ public final class RespondQueue: ObservableObject {
         let previous = phases[prID]
         start(prID, kind: .publish, phase: .queued, onStart: .pushing, work: { [weak self] _ in
             if push && !record.pushed, let result = record.result {
-                if draft.isCIFix { try await pipeline.checkCIBeforePush(draft: draft, ignoringPassingChecks: ignoringCI) }
+                if draft.implementsAlone { try await pipeline.checkCIBeforePush(draft: draft, ignoringPassingChecks: ignoringCI) }
                 try await pipeline.push(draft: draft, result: result)
                 await self?.markPushed(prID, draftID)
             }

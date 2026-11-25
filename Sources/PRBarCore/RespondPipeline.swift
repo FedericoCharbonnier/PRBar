@@ -166,9 +166,10 @@ public protocol RespondPipelineRunning: Sendable {
     /// counting as in use, and the Mac-side copy of a runner's fixes (temporary clone, `refs/prbar/remote-…`) goes.
     /// Never throws.
     func release(draft: RespondDraft) async
-    /// Fix CI (spec K.4), justo antes del push: el head del PR en GitHub sigue siendo el que falló y (salvo
-    /// `ignoringPassingChecks`, "Push Anyway") el CI no pasó: si todos los checks que fallaron pasan ahora, lanza
-    /// `CIPassingNow`. Un Respond normal no verifica nada.
+    /// Fix CI (K.4) y Resolve Conflicts (C.3.6), justo antes del push. Fix CI: el head del PR en GitHub sigue siendo
+    /// el que falló y (salvo `ignoringPassingChecks`, "Push Anyway") el CI no pasó: si todos los checks que fallaron
+    /// pasan ahora, lanza `CIPassingNow`. Resolve Conflicts: el PR sigue abierto, con el mismo head y la misma base.
+    /// Un Respond normal no verifica nada.
     func checkCIBeforePush(draft: RespondDraft, ignoringPassingChecks: Bool) async throws
     /// Ver `RespondPublisher.postReplies`. Un error al pedir el token vuelve como error, sin publicar nada.
     func postReplies(draft: RespondDraft, selections: [String: RespondSelection], result: RespondResult?,
@@ -348,6 +349,7 @@ public struct RespondPipeline: RespondPipelineRunning {
     }
 
     public func checkCIBeforePush(draft: RespondDraft, ignoringPassingChecks: Bool) async throws {
+        if draft.isConflicts { return try await checkConflictsBeforePush(draft) }
         guard draft.isCIFix, let context = draft.ci else { return }
         guard let ciAPI else { throw PRBarError.respond("PRBar can’t read this PR’s checks.") }
         let token = try await tokens.token(for: draft.account)
@@ -367,6 +369,23 @@ public struct RespondPipeline: RespondPipelineRunning {
     }
 
     // MARK: - Resolve Conflicts (spec C)
+
+    /// Spec C.3.6 (decisión C.9.2): el PR sigue abierto, con el mismo head que se mergeó y la misma base.
+    private func checkConflictsBeforePush(_ draft: RespondDraft) async throws {
+        guard let context = draft.conflicts else {
+            throw PRBarError.respond("This Resolve Conflicts run has no merge to push. Start Resolve Conflicts again.")
+        }
+        let token = try await tokens.token(for: draft.account)
+        let details = try await api.pullRequestDetails(repo: draft.repo, number: draft.number, token: token)
+        if let state = details.state, state != .open { throw PRBarError.respond("The PR isn’t open anymore. Not pushing.") }
+        guard let head = details.headOid, head == draft.startHeadOid else {
+            throw PRBarError.respond("The PR has new commits since PRBar merged \(context.baseRef)"
+                + "\(details.headOid.map { " (now at \($0.prefix(7)))" } ?? ""). Not pushing: run Resolve Conflicts again.")
+        }
+        if let base = details.baseRef, base != context.baseRef {
+            throw PRBarError.respond("The PR’s base is now \(base), not \(context.baseRef). Not pushing: run Resolve Conflicts again.")
+        }
+    }
 
     /// Token → head (feedback, fork) y base (detalles) en la Mac → worktree en el head (acá o en el host) → base a su ref
     /// propia → `merge --no-commit` → draft con un solo ítem. Sin Claude: la implementación arranca después, sola.
