@@ -622,7 +622,8 @@ extension AppModel: RespondActions {
         try throwIfMayNotRunRepoCode()
         let record = try respondRecord(id)
         // `prbar ci push` nunca pushea una corrida de Responder (ni al revés), tampoco con --yes (spec K.6.14).
-        if let problem = RespondPushGate.modeCheck(expected: mode, actual: respond.mode(of: id), prID: id) { throw problem }
+        if let problem = RespondPushGate.modeCheck(expected: mode, actual: respond.mode(of: id), prID: id,
+                                                   fromPhone: CommandOrigin.current.isPhone) { throw problem }
         let gate = respondPushGate(prID: id)
         if let problem = RespondPushGate.commandCheck(
             record, phase: respond.phases[id], runningTests: respond.runningTests.contains(id),

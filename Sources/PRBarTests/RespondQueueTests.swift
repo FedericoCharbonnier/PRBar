@@ -1388,6 +1388,28 @@ enum RespondPipelineTests {
             try expectEqual(try e.git(e.repo.origin.path, ["rev-list", "--parents", "-n", "1", pushed]), "\(pushed) \(e.repo.prSHA) \(base)")
             try expect(e.api.posts.isEmpty)
         },
+        TestCase("resolve conflicts: un push que llegó a GitHub sin quedar anotado se reintenta y termina (head = el merge)") { @MainActor in
+            let claude = ScriptedClaude { schema, _, cwd in
+                guard schema == RespondSchemas.conflicts else { return [] }
+                try Data("hola PR y base\n".utf8).write(to: cwd.appendingPathComponent("README.md"))
+                return [conflictsLine()]
+            }
+            let (e, _) = try conflictingE2E(claude: claude)
+            defer { e.repo.remove() }
+            let events = QueueEventLog()
+            let queue = RespondQueue(pipeline: e.pipeline, history: e.history) { prID, phase in events.record(.finished("\(prID)|\(phase.name)")) }
+            queue.analyze(classified(7), localPath: e.repo.local.path, worktreeDir: e.worktreeDir.path, mode: .conflicts)
+            try await events.wait(for: reached(7, "readyToPush"))
+            guard case .readyToPush(let draft, let result)? = queue.phases[prID(7)], let merge = result.headOid else {
+                throw TestFailure(description: "sin readyToPush")
+            }
+            // El push anterior llegó (la app se cerró antes de anotarlo): GitHub ya tiene el merge como head.
+            try TempGitRepo.run(URL(fileURLWithPath: draft.worktree.path), ["push", "-q", "origin", "\(merge):refs/heads/feature"])
+            e.api.details = PRDetails(title: "t", body: "", headOid: merge, state: .open, baseRef: "main")
+            queue.publish(prID: prID(7))
+            try await events.wait(for: reached(7, "done"))
+            try expectEqual(try e.git(e.repo.origin.path, ["rev-parse", "refs/heads/feature"]), merge)
+        },
         TestCase("fix ci: lee los checks en la Mac, prepara el worktree, implementa solo, no responde y pushea con el CI re-verificado") { @MainActor in
             let claude = ScriptedClaude { schema, prompt, cwd in
                 guard schema == RespondSchemas.fix, prompt.contains("MARK-CI") else { return [] }
@@ -1455,6 +1477,15 @@ enum RespondPipelineTests {
             try await events.wait(for: reached(7, "failed"))
             if case .failed(let message, _)? = queue.phases[prID(7)] { try expect(message.contains("new commits"), message) }
             try expectEqual(try e.git(e.repo.origin.path, ["rev-parse", "refs/heads/feature"]), e.repo.prSHA)
+            // El push anterior llegó sin quedar anotado: GitHub ya tiene lo revisado y el reintento termina.
+            guard let reviewed = queue.records[prID(7)]?.result?.headOid, let worktree = queue.records[prID(7)]?.draft.worktree.path else {
+                throw TestFailure(description: "sin resultado")
+            }
+            try TempGitRepo.run(URL(fileURLWithPath: worktree), ["push", "-q", "origin", "\(reviewed):refs/heads/feature"])
+            e.api.details = PRDetails(title: "t", body: "", headOid: reviewed, state: .open)
+            events.reset()
+            queue.publish(prID: prID(7))
+            try await events.wait(for: reached(7, "done"))
         },
         TestCase("fix ci: sin checks fallidos o con el PR movido mientras leía el CI, falla sin worktree ni Claude") {
             let claude = ScriptedClaude { _, _, _ in [] }

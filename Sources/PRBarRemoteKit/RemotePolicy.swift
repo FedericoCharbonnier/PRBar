@@ -71,6 +71,12 @@ public enum RemotePolicy {
     }
 
     public static func decide(_ command: AppCommand) -> Decision {
+        // Resolve Conflicts (decisión C.9.9): su push es solo desde la Mac. La Mac también lo niega con el modo de la
+        // corrida (`RespondPushGate.modeCheck`), aunque el pedido no diga el modo.
+        switch command {
+        case .respondPush(_, _, _, .conflicts?), .respondPushAnyway(_, _, _, .conflicts?): return .denied
+        default: break
+        }
         switch classify(command.name) {
         case .allowed: return .allowed
         case .gated: return .gated

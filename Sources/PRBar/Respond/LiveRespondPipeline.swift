@@ -51,8 +51,9 @@ struct LiveRespondPipeline: RespondPipelineRunning {
     }
 
     /// Siempre en esta Mac: es GitHub (spec K.4).
-    func checkCIBeforePush(draft: RespondDraft, ignoringPassingChecks: Bool) async throws {
-        try await pipeline(await context(draft.account, draft.repo), needsClaude: false).checkCIBeforePush(draft: draft, ignoringPassingChecks: ignoringPassingChecks)
+    func checkCIBeforePush(draft: RespondDraft, result: RespondResult?, ignoringPassingChecks: Bool) async throws {
+        try await pipeline(await context(draft.account, draft.repo), needsClaude: false)
+            .checkCIBeforePush(draft: draft, result: result, ignoringPassingChecks: ignoringPassingChecks)
     }
 
     func cleanup(draft: RespondDraft) async {

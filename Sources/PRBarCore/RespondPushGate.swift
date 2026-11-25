@@ -29,8 +29,11 @@ extension RespondPushGate {
 
     /// `prbar ci push` sobre una corrida de Responder (o al revés) no pushea, tampoco con `--yes` (K.6.14). Un Resolve
     /// Conflicts solo se pushea pidiéndolo por su modo (decisión C.9.9): `nil` (la web, una CLI vieja) tampoco. Fuera
-    /// de eso, `expected == nil` no se chequea.
-    public static func modeCheck(expected: RespondMode?, actual: RespondMode, prID: String) -> CommandFailure? {
+    /// de eso, `expected == nil` no se chequea. Desde el teléfono (`fromPhone`) un Resolve Conflicts nunca se pushea.
+    public static func modeCheck(expected: RespondMode?, actual: RespondMode, prID: String, fromPhone: Bool = false) -> CommandFailure? {
+        if actual == .conflicts && fromPhone {
+            return CommandFailure(.unauthorized, "\(prID) is a Resolve Conflicts run: push it from PRBar on your Mac.")
+        }
         if actual == .conflicts && expected != .conflicts {
             return CommandFailure(.invalidState,
                                   "\(prID) is a Resolve Conflicts run: push it with `prbar conflicts push \(prID)` or from PRBar on your Mac.")

@@ -29,6 +29,18 @@ enum RemotePolicyTests {
             }
             try expectEqual(RemotePolicy.decide(.respondTest(pr: "a/b#1", wait: true)), .gated)
         },
+        TestCase("remote policy: un Resolve Conflicts no se pushea desde el teléfono (decisión C.9.9)") {
+            try expectEqual(RemotePolicy.decide(.respondPush(pr: "a/b#1", confirmed: true, wait: false, mode: .conflicts)), .denied)
+            try expectEqual(RemotePolicy.decide(.respondPushAnyway(pr: "a/b#1", confirmed: true, wait: false, mode: .conflicts)), .denied)
+            try expectEqual(RemotePolicy.decide(.respondPush(pr: "a/b#1", confirmed: true, wait: false, mode: .ciFix)), .gated)
+            try expectEqual(RemotePolicy.decide(.respondPush(pr: "a/b#1", confirmed: true, wait: false)), .gated)
+            // La Mac lo vuelve a mirar con el modo de la corrida: tampoco con otro modo pedido (o sin modo).
+            for expected in [nil, RespondMode.feedback, .ciFix, .conflicts] {
+                let failure = RespondPushGate.modeCheck(expected: expected, actual: .conflicts, prID: "a/b#1", fromPhone: true)
+                try expectEqual(failure?.message, "a/b#1 is a Resolve Conflicts run: push it from PRBar on your Mac.")
+            }
+            try expectEqual(RespondPushGate.modeCheck(expected: .ciFix, actual: .ciFix, prID: "a/b#1", fromPhone: true), nil)
+        },
         TestCase("remote policy: todo lo que publica en GitHub como el usuario pide Face ID") {
             for event in [ReviewEvent.approve, .comment, .requestChanges] {
                 let publish = AppCommand.reviewPublish(pr: "a/b#1", event: event, only: nil, withComments: true,

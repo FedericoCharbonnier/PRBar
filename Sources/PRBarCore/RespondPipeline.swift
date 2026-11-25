@@ -146,7 +146,7 @@ public struct CIPassingNow: Error, Equatable, LocalizedError {
 }
 
 extension RespondPipelineRunning {
-    public func checkCIBeforePush(draft: RespondDraft, ignoringPassingChecks: Bool) async throws {}
+    public func checkCIBeforePush(draft: RespondDraft, result: RespondResult?, ignoringPassingChecks: Bool) async throws {}
 }
 
 public protocol RespondPipelineRunning: Sendable {
@@ -169,8 +169,9 @@ public protocol RespondPipelineRunning: Sendable {
     /// Fix CI (K.4) y Resolve Conflicts (C.3.6), justo antes del push. Fix CI: el head del PR en GitHub sigue siendo
     /// el que falló y (salvo `ignoringPassingChecks`, "Push Anyway") el CI no pasó: si todos los checks que fallaron
     /// pasan ahora, lanza `CIPassingNow`. Resolve Conflicts: el PR sigue abierto, con el mismo head y la misma base.
-    /// Un Respond normal no verifica nada.
-    func checkCIBeforePush(draft: RespondDraft, ignoringPassingChecks: Bool) async throws
+    /// Un Respond normal no verifica nada. Si el head en GitHub ya es `result.headOid`, un push anterior llegó sin
+    /// quedar anotado: no se verifica más y el push lo reconoce (`RespondPublisher`, `ls-remote`).
+    func checkCIBeforePush(draft: RespondDraft, result: RespondResult?, ignoringPassingChecks: Bool) async throws
     /// Ver `RespondPublisher.postReplies`. Un error al pedir el token vuelve como error, sin publicar nada.
     func postReplies(draft: RespondDraft, selections: [String: RespondSelection], result: RespondResult?,
                      alreadyPosted: [String: PostedReply],
@@ -348,8 +349,8 @@ public struct RespondPipeline: RespondPipelineRunning {
             mode: .ciFix, ci: context)
     }
 
-    public func checkCIBeforePush(draft: RespondDraft, ignoringPassingChecks: Bool) async throws {
-        if draft.isConflicts { return try await checkConflictsBeforePush(draft) }
+    public func checkCIBeforePush(draft: RespondDraft, result: RespondResult?, ignoringPassingChecks: Bool) async throws {
+        if draft.isConflicts { return try await checkConflictsBeforePush(draft, reviewed: result?.headOid) }
         guard draft.isCIFix, let context = draft.ci else { return }
         guard let ciAPI else { throw PRBarError.respond("PRBar can’t read this PR’s checks.") }
         let token = try await tokens.token(for: draft.account)
@@ -357,6 +358,8 @@ public struct RespondPipeline: RespondPipelineRunning {
         if let state = details.state, state != .open {
             throw PRBarError.respond("The PR isn’t open anymore. Not pushing.")
         }
+        // Ya pusheado (lo revisado está en GitHub): los checks que fallaron eran de otro head.
+        if let head = details.headOid, head == result?.headOid { return }
         guard let head = details.headOid, head == draft.startHeadOid else {
             throw PRBarError.respond("The PR has new commits since Fix CI read its checks"
                 + "\(details.headOid.map { " (now at \($0.prefix(7)))" } ?? ""). Not pushing: run Fix CI again.")
@@ -370,15 +373,16 @@ public struct RespondPipeline: RespondPipelineRunning {
 
     // MARK: - Resolve Conflicts (spec C)
 
-    /// Spec C.3.6 (decisión C.9.2): el PR sigue abierto, con el mismo head que se mergeó y la misma base.
-    private func checkConflictsBeforePush(_ draft: RespondDraft) async throws {
+    /// Spec C.3.6 (decisión C.9.2): el PR sigue abierto, con el mismo head que se mergeó (o ya con el merge revisado,
+    /// `reviewed`: un push anterior que llegó sin quedar anotado) y la misma base.
+    private func checkConflictsBeforePush(_ draft: RespondDraft, reviewed: String?) async throws {
         guard let context = draft.conflicts else {
             throw PRBarError.respond("This Resolve Conflicts run has no merge to push. Start Resolve Conflicts again.")
         }
         let token = try await tokens.token(for: draft.account)
         let details = try await api.pullRequestDetails(repo: draft.repo, number: draft.number, token: token)
         if let state = details.state, state != .open { throw PRBarError.respond("The PR isn’t open anymore. Not pushing.") }
-        guard let head = details.headOid, head == draft.startHeadOid else {
+        guard let head = details.headOid, head == draft.startHeadOid || head == reviewed else {
             throw PRBarError.respond("The PR has new commits since PRBar merged \(context.baseRef)"
                 + "\(details.headOid.map { " (now at \($0.prefix(7)))" } ?? ""). Not pushing: run Resolve Conflicts again.")
         }
