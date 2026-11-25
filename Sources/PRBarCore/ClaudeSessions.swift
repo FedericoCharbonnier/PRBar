@@ -33,7 +33,7 @@ public final class ClaudeSessionCapture: Sendable {
 /// One `claude -p` run of a PR job that can be resumed in a terminal (spec T.1/T.2): a review stage, a Respond fix or
 /// the Fix CI. The chat isn't one.
 public struct ClaudeSessionRef: Codable, Equatable, Hashable, Sendable, Identifiable {
-    public enum Kind: String, Codable, Sendable { case review, fix, ciFix }
+    public enum Kind: String, Codable, Sendable { case review, fix, ciFix, conflicts }
 
     /// Claude Code's session id (a UUID).
     public var id: String
@@ -64,14 +64,16 @@ public struct ClaudeSessionRef: Codable, Equatable, Hashable, Sendable, Identifi
     }
 
     /// The sessions of a Respond or Fix CI implementation, in the order the fixes ran: `Fix N: <title>` (N counts the
-    /// fixes that ran, from 1) or `CI fix`. Items without a session (Claude never started) are skipped.
+    /// fixes that ran, from 1), `CI fix` or `Conflicts`. Items without a session (Claude never started) are skipped.
     public static func fixes(draft: RespondDraft, items: [ItemResult]) -> [ClaudeSessionRef] {
         items.enumerated().compactMap { index, result in
             guard let stamp = result.session else { return nil }
             let item = draft.items.first { $0.id == result.id }
-            let isCI = item?.feedback.kind == .ciChecks
-            let label = isCI ? "CI fix" : "Fix \(index + 1): " + truncated(item.map(title(of:)) ?? result.id)
-            return ClaudeSessionRef(id: stamp.id, label: label, kind: isCI ? .ciFix : .fix, directory: draft.worktree.path,
+            let kind = item?.feedback.kind
+            let label = kind == .ciChecks ? "CI fix" : kind == .mergeConflicts ? "Conflicts"
+                : "Fix \(index + 1): " + truncated(item.map(title(of:)) ?? result.id)
+            let sessionKind: ClaudeSessionRef.Kind = kind == .ciChecks ? .ciFix : kind == .mergeConflicts ? .conflicts : .fix
+            return ClaudeSessionRef(id: stamp.id, label: label, kind: sessionKind, directory: draft.worktree.path,
                                     runner: draft.runner, startedAt: stamp.startedAt)
         }
     }
@@ -102,7 +104,7 @@ public enum SessionOffer {
         public var id: String { title }
     }
 
-    static let kindOrder: [ClaudeSessionRef.Kind] = [.review, .fix, .ciFix]
+    static let kindOrder: [ClaudeSessionRef.Kind] = [.review, .fix, .ciFix, .conflicts]
 
     /// The sessions of the PR's kept, current folders that ran in those folders: Review first, then Fixes, then
     /// CI fix, each in the order they ran.
@@ -127,7 +129,7 @@ public enum SessionOffer {
     }
 
     public static func groups(_ sessions: [ClaudeSessionRef]) -> [Group] {
-        let titles: [ClaudeSessionRef.Kind: String] = [.review: "Review", .fix: "Fixes", .ciFix: "CI fix"]
+        let titles: [ClaudeSessionRef.Kind: String] = [.review: "Review", .fix: "Fixes", .ciFix: "CI fix", .conflicts: "Conflicts"]
         return kindOrder.compactMap { kind in
             let matching = sessions.filter { $0.kind == kind }
             return matching.isEmpty ? nil : Group(title: titles[kind] ?? kind.rawValue, sessions: matching)
@@ -164,6 +166,7 @@ public enum SessionOffer {
         case .review: session.kind == .review
         case .respond: session.kind == .fix
         case .ciFix: session.kind == .ciFix
+        case .conflicts: session.kind == .conflicts
         }
     }
 
@@ -189,6 +192,7 @@ public enum SessionOffer {
             case .review: "review"
             case .fix: "fix"
             case .ciFix: "ci-fix"
+            case .conflicts: "conflicts"
             }
             return ClaudeSessionInfo(number: index + 1, label: session.label, kind: kind, machine: session.runner ?? "this Mac",
                                      directory: session.directory, startedAt: session.startedAt, sessionID: session.id,

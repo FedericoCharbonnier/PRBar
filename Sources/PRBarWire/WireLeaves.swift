@@ -345,6 +345,8 @@ public enum PromptStage: String, CaseIterable, Codable, Identifiable, Sendable {
     case review, filter, analysis, implementation, reviewChat, respondChat, mergeChat, instructionsChat
     /// Fix CI (spec K.3): diagnoses the failing checks and fixes the code in one run.
     case ciFix
+    /// Resolve Conflicts (spec C.4).
+    case conflicts
 
     public var id: String { rawValue }
 
@@ -359,6 +361,7 @@ public enum PromptStage: String, CaseIterable, Codable, Identifiable, Sendable {
         case .mergeChat: "Merge chat"
         case .instructionsChat: "Instructions chat"
         case .ciFix: "CI fix"
+        case .conflicts: "Conflicts"
         }
     }
 
@@ -366,7 +369,7 @@ public enum PromptStage: String, CaseIterable, Codable, Identifiable, Sendable {
     public var ruleStage: RuleStage? {
         switch self {
         case .review, .filter, .reviewChat: .review
-        case .analysis, .implementation, .respondChat, .mergeChat, .ciFix: .respond
+        case .analysis, .implementation, .respondChat, .mergeChat, .ciFix, .conflicts: .respond
         case .instructionsChat: nil
         }
     }
@@ -393,6 +396,8 @@ public enum PromptStage: String, CaseIterable, Codable, Identifiable, Sendable {
     static let fixPlan = PromptVariable(name: "fix_plan", summary: "The plan you approved")
     static let repos = PromptVariable(name: "repos", summary: "Your configured repos")
     static let checks = PromptVariable(name: "checks", summary: "The names of the failing checks")
+    static let base = PromptVariable(name: "base", summary: "The base branch merged into the PR")
+    static let files = PromptVariable(name: "files", summary: "The files with conflicts")
 
     public var variables: [PromptVariable] {
         switch self {
@@ -413,6 +418,8 @@ public enum PromptStage: String, CaseIterable, Codable, Identifiable, Sendable {
             [Self.repos]
         case .ciFix:
             [Self.pr, Self.repo, Self.title, Self.checks, Self.rules]
+        case .conflicts:
+            [Self.pr, Self.repo, Self.title, Self.base, Self.files, Self.rules]
         }
     }
 
@@ -423,7 +430,7 @@ public enum PromptStage: String, CaseIterable, Codable, Identifiable, Sendable {
         case .filter: ["findings_json"]
         case .analysis: ["feedback_path"]
         case .implementation: ["fix_plan"]
-        case .reviewChat, .respondChat, .mergeChat, .instructionsChat, .ciFix: []
+        case .reviewChat, .respondChat, .mergeChat, .instructionsChat, .ciFix, .conflicts: []
         }
     }
 
@@ -489,6 +496,12 @@ public enum PromptStage: String, CaseIterable, Codable, Identifiable, Sendable {
             Read the failure output below, find the root cause in the code and fix it with a minimal change in the repo's style.
             Fix the code, not the CI: don't disable, skip or weaken tests, checks or linters to make them pass, and don't edit the CI configuration unless the failure is clearly caused by it.
             If the failure isn't caused by this branch's code (a flaky test, the CI infrastructure, an outage, missing secrets), change nothing and answer `skipped` explaining why.
+            """
+        case .conflicts:
+            """
+            You are the author of PR #{pr} of {repo} ("{title}"). PRBar merged its base branch {base} into it and git stopped with conflicts in: {files}. Your branch's code is in the current directory, in the middle of that merge.
+            Resolve every conflict: edit each file so it keeps the intent of both sides (the PR's change and the base's change) and remove every conflict marker. Don't change anything outside the conflicts except the minimum the code needs to still compile.
+            If you can't tell how to combine both sides of a conflict, change nothing and answer `failed` saying which one.
             """
         }
     }
@@ -1007,6 +1020,8 @@ public struct ProcessActivity: Codable, Hashable, Sendable {
         case review, respond, chat, instructions, update, slack, merge
         /// Fix CI (spec K): an analysis-and-fix run of the Respond queue in CI mode.
         case ciFix
+        /// Resolve Conflicts (spec C).
+        case conflicts
     }
 
     public var kind: Kind
@@ -1034,6 +1049,9 @@ public struct ProcessActivity: Codable, Hashable, Sendable {
         .init(kind: .chat, prID: prID, title: "Chat \(shortPR(prID))", chatSessionID: sessionID)
     }
     public static func ciFix(_ prID: String) -> ProcessActivity { .init(kind: .ciFix, prID: prID, title: "Fix CI \(shortPR(prID))") }
+    public static func conflicts(_ prID: String) -> ProcessActivity {
+        .init(kind: .conflicts, prID: prID, title: "Resolve Conflicts \(shortPR(prID))")
+    }
     public static func merge(_ prID: String) -> ProcessActivity { .init(kind: .merge, prID: prID, title: "Merge \(shortPR(prID))") }
     public static let instructions = ProcessActivity(kind: .instructions, title: "Instructions chat")
     public static let update = ProcessActivity(kind: .update, title: "Update build")

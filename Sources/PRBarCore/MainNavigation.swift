@@ -111,6 +111,8 @@ public enum PRTabs {
         switch c.respondTask {
         case .feedback?: return .respond
         case .ciFix?: return .fixCI
+        // Provisorio (Task 10 le da su pestaña): como un Fix CI.
+        case .conflicts?: return .fixCI
         case nil: return .merge
         }
     }

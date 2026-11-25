@@ -36,6 +36,8 @@ extension RespondPushGate {
             return CommandFailure(.invalidState, "\(prID) isn’t a Fix CI: use `prbar respond push \(prID)`.")
         case .ciFix:
             return CommandFailure(.invalidState, "\(prID) is a Fix CI: use `prbar ci push \(prID)`.")
+        case .conflicts:
+            return CommandFailure(.invalidState, "\(prID) is a Resolve Conflicts: use `prbar conflicts push \(prID)`.")
         }
     }
 

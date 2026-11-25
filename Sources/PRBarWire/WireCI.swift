@@ -6,6 +6,8 @@ import Foundation
 public enum RespondMode: String, Codable, CaseIterable, Sendable {
     case feedback
     case ciFix
+    /// Resolve Conflicts (spec C): mergea la base y Claude resuelve los conflictos.
+    case conflicts
 }
 
 /// Un check que falló, como lo guarda el Fix CI (spec K.6.2). El log ya saneado va en el ítem, no acá.

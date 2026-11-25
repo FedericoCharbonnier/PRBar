@@ -60,7 +60,7 @@ public enum RemoteStateTopics {
         func kinds(_ job: String) -> Set<ProcessActivity.Kind> {
             switch job {
             case "review": [.review]
-            case "respond": [.respond, .ciFix]
+            case "respond": [.respond, .ciFix, .conflicts]
             case "merge": [.merge]
             default: []
             }

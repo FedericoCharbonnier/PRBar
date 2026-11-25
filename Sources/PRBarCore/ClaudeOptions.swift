@@ -185,17 +185,20 @@ public struct ChatPromptSettings: Hashable, Codable, Sendable {
     public var instructions: String?
     /// Fix CI's stage (spec K.3): a prompt-only stage, kept with the chats'.
     public var ciFix: String?
+    /// Resolve Conflicts' stage (spec C.4).
+    public var conflicts: String?
 
     public init(review: String? = nil, respond: String? = nil, merge: String? = nil, instructions: String? = nil,
-                ciFix: String? = nil) {
+                ciFix: String? = nil, conflicts: String? = nil) {
         self.review = review
         self.respond = respond
         self.merge = merge
         self.instructions = instructions
         self.ciFix = ciFix
+        self.conflicts = conflicts
     }
 
-    private enum CodingKeys: String, CodingKey { case review, respond, merge, instructions, ciFix }
+    private enum CodingKeys: String, CodingKey { case review, respond, merge, instructions, ciFix, conflicts }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -204,5 +207,6 @@ public struct ChatPromptSettings: Hashable, Codable, Sendable {
         merge = (try? c.decodeIfPresent(String.self, forKey: .merge)) ?? nil
         instructions = (try? c.decodeIfPresent(String.self, forKey: .instructions)) ?? nil
         ciFix = (try? c.decodeIfPresent(String.self, forKey: .ciFix)) ?? nil
+        conflicts = (try? c.decodeIfPresent(String.self, forKey: .conflicts)) ?? nil
     }
 }

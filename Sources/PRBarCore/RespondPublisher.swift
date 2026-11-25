@@ -193,8 +193,8 @@ public struct RespondPublisher: Sendable {
         async -> (posted: [String: PostedReply], error: Error?) {
         var posted = alreadyPosted
         for item in draft.items {
-            // Un Fix CI no responde nada (spec K.6.5), aunque la selección lo diga.
-            guard item.feedback.kind != .ciChecks,
+            // Un Fix CI y un Resolve Conflicts no responden nada (spec K.6.5, C.1), aunque la selección lo diga.
+            guard item.feedback.kind != .ciChecks, item.feedback.kind != .mergeConflicts,
                   let selection = selections[item.id], selection.reply, posted[item.id] == nil else { continue }
             let fix = result?.items.first { $0.id == item.id && $0.status == .committed }
             let values = FixTemplates.values(draft: draft, item: item, count: 1, summary: fix?.summary)
@@ -214,7 +214,7 @@ public struct RespondPublisher: Sendable {
                 case .reviewBody, .conversation:
                     url = try await api.addIssueComment(repo: draft.repo, number: draft.number,
                                                         body: Self.reviewBodyReply(item.feedback, text: text), token: token)
-                case .ciChecks:
+                case .ciChecks, .mergeConflicts:
                     continue
                 }
                 let reply = PostedReply(id: item.id, url: url)

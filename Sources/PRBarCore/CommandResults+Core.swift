@@ -125,7 +125,12 @@ extension HistoryEntryInfo {
         } else {
             "ready"
         }
-        self.init(id: record.id, kind: record.draft.isCIFix ? .ciFix : .respond, pr: record.draft.prID,
+        let kind: HistoryKind = switch record.draft.mode {
+        case .ciFix: .ciFix
+        case .conflicts: .conflicts
+        case .feedback: .respond
+        }
+        self.init(id: record.id, kind: kind, pr: record.draft.prID,
                   repo: record.draft.repo.fullName, number: record.draft.number, title: record.draft.title, status: status,
                   startedAt: record.startedAt, finishedAt: record.finishedAt, usage: record.totalUsage)
     }

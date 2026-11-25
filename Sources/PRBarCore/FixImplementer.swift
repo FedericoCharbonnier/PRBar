@@ -716,7 +716,8 @@ public struct FixImplementer: Sendable {
         }
         try await git(worktree, ["update-ref", "--no-deref", "HEAD", sha, last])
         return results.map {
-            $0.status == .committed ? ItemResult(id: $0.id, status: .committed, commit: sha, summary: $0.summary, session: $0.session) : $0
+            $0.status == .committed ? ItemResult(id: $0.id, status: .committed, commit: sha, summary: $0.summary, session: $0.session,
+                                                     conflictFiles: $0.conflictFiles) : $0
         }
     }
 

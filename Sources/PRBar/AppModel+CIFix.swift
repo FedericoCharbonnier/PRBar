@@ -35,6 +35,7 @@ extension AppModel {
         switch respond.openRunConflict(prID: prID, starting: mode) {
         case .feedback?: "\(prID) has a Respond run open: finish or dismiss it before fixing the CI."
         case .ciFix?: "\(prID) has a Fix CI run open: finish or dismiss it before responding."
+        case .conflicts?: "\(prID) has a Resolve Conflicts run open: finish or dismiss it first."
         case nil: nil
         }
     }

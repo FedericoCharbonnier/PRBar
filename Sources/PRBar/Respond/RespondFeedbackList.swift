@@ -97,6 +97,7 @@ private struct RespondFeedbackRow: View {
         case .reviewBody: return "Review"
         case .conversation: return "Comment"
         case .ciChecks: return "Checks"
+        case .mergeConflicts: return "Conflicts"
         }
     }
 
