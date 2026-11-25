@@ -587,7 +587,8 @@ extension SnapshotFixtures {
     }
 
     /// `base` aprobado y con datos de merge.
-    private func readyToMerge(_ base: ClassifiedPR, status: MergeStateStatus, commits: Int) -> ClassifiedPR {
+    private func readyToMerge(_ base: ClassifiedPR, status: MergeStateStatus, commits: Int,
+                              mergeable: MergeableState = .mergeable) -> ClassifiedPR {
         let pr = base.pr
         let approved = PullRequest(
             repo: pr.repo, number: pr.number, title: pr.title, url: pr.url, isDraft: pr.isDraft, author: pr.author,
@@ -595,7 +596,7 @@ extension SnapshotFixtures {
             additions: pr.additions, deletions: pr.deletions, createdAt: pr.createdAt, updatedAt: pr.updatedAt,
             lastCommitAt: pr.lastCommitAt, ciState: pr.ciState, reviewDecision: .approved, reviews: pr.reviews,
             comments: pr.comments, requestedReviewers: pr.requestedReviewers,
-            merge: PRMergeState(nodeID: "PR_\(pr.number)", mergeable: .mergeable, status: status, viewerCanUpdate: true,
+            merge: PRMergeState(nodeID: "PR_\(pr.number)", mergeable: mergeable, status: status, viewerCanUpdate: true,
                                 commitCount: commits)
         )
         return ClassifiedPR(pr: approved, category: .readyToMerge, account: base.account)
@@ -841,5 +842,118 @@ extension SnapshotFixtures {
         return RespondRecord(draft: draft, selections: selections, result: ciFixResult, pushed: true,
                              startedAt: date(minutes: -70), finishedAt: date(minutes: -59),
                              usage: Self.usage(minutes: 3.6, input: 26_000, output: 4_100, cacheRead: 190_000, cost: 0.31))
+    }
+}
+
+// MARK: - Resolve Conflicts (spec C)
+
+extension SnapshotFixtures {
+    /// Ready to Merge but its branch conflicts with `main`: the row offers Resolve Conflicts instead of Merge.
+    var ledgerInvoices: ClassifiedPR {
+        readyToMerge(
+            item(Self.api, 327, "Move invoices to the new ledger", author: Self.personal, base: "main",
+                 head: "feat/ledger-invoices", ci: .success, adds: 312, dels: 140, updated: -50, category: .readyToMerge,
+                 account: Self.personal, lastCommit: -60 * 4,
+                 reviews: [PRReview(author: "ana-p", isBot: false, state: .approved, submittedAt: date(minutes: -55))]),
+            status: .dirty, commits: 5, mergeable: .conflicting
+        )
+    }
+
+    /// web-app#475 with conflicts with its base (its Resolve Conflicts waits to be pushed in the snapshots).
+    var csvExportConflicting: ClassifiedPR {
+        let pr = csvExport.pr
+        let conflicting = PullRequest(
+            repo: pr.repo, number: pr.number, title: pr.title, url: pr.url, isDraft: pr.isDraft, author: pr.author,
+            authorAvatarURL: pr.authorAvatarURL, baseRef: pr.baseRef, headRef: pr.headRef, headOid: pr.headOid,
+            additions: pr.additions, deletions: pr.deletions, createdAt: pr.createdAt, updatedAt: pr.updatedAt,
+            lastCommitAt: pr.lastCommitAt, ciState: pr.ciState, reviewDecision: pr.reviewDecision, reviews: pr.reviews,
+            comments: pr.comments, requestedReviewers: pr.requestedReviewers,
+            merge: PRMergeState(nodeID: "PR_\(pr.number)", mergeable: .conflicting, status: .dirty, viewerCanUpdate: true,
+                                commitCount: 4)
+        )
+        return ClassifiedPR(pr: conflicting, category: csvExport.category, account: csvExport.account)
+    }
+
+    /// The main snapshot with two PRs of mine that conflict with their base.
+    var conflictsSnapshot: Snapshot {
+        Snapshot(items: [rateLimiting, loginRedirect, reactQuery, csvExportConflicting, idempotencyKeys, ledgerInvoices,
+                         reportsDarkMode] + others,
+                 fetchedAt: now.addingTimeInterval(-50), repoMergeSettings: Self.mergeSettings)
+    }
+
+    /// The Resolve Conflicts of web-app#475: the base changed formatDate.ts too, and the logo is binary.
+    var conflictsDraft: RespondDraft {
+        let pr = csvExport.pr
+        let head = "4be81c09d2a7f3e6b5c4d3e2f1a0b9c8d7e6f5a4"
+        let context = ConflictsContext(
+            baseRef: pr.baseRef, baseOid: "9f8e7d6c5b4a39281706f5e4d3c2b1a098765432",
+            mergeBase: "0a1b2c3d4e5f60718293a4b5c6d7e8f901234567",
+            files: [ConflictFile(path: "src/reports/formatDate.ts", kind: .content),
+                    ConflictFile(path: "src/reports/export.ts", kind: .content),
+                    ConflictFile(path: "public/logo.png", kind: .byHand, reason: "binary")],
+            incomingCommits: 6)
+        let item = ConflictsItem.make(startHeadOid: head, context: context, description: "Adds a CSV export.",
+                                      incomingLog: "9f8e7d6 Use Intl for dates\n1a2b3c4 New logo", prDiff: "",
+                                      diffTruncated: false, prURL: pr.url, at: date(minutes: -7))
+        return RespondDraft(
+            prID: csvExport.id, repo: Self.webApp, number: 475, title: pr.title, url: pr.url, headRef: pr.headRef,
+            account: Self.personal,
+            worktree: ResolvedWorktree(path: "/Users/sam/Code/worktrees/web-app-475-respond-6a7b8c9d", origin: .dedicated,
+                                       localPath: "/Users/sam/Code/web-app", ref: "refs/prbar/respond-475-6a7b8c9d"),
+            startHeadOid: head, items: [item], mode: .conflicts, conflicts: context)
+    }
+
+    /// The merge Claude resolved: the combined diff of the two files, plus one file changed outside the conflicts.
+    var conflictsResult: RespondResult {
+        let item = conflictsDraft.items[0]
+        let merge = "c1d2e3f4a5b6978877665544332211ffeeddccbb"
+        return RespondResult(
+            items: [ItemResult(id: item.id, status: .committed, commit: merge,
+                               summary: "Kept the PR’s timezone option and develop’s switch to Intl.DateTimeFormat.",
+                               conflictFiles: [
+                                   ConflictFileSummary(path: "src/reports/formatDate.ts",
+                                                       summary: "Uses Intl.DateTimeFormat from develop with the PR’s timeZone option."),
+                                   ConflictFileSummary(path: "src/reports/export.ts",
+                                                       summary: "Keeps develop’s new column and passes { timeZone }."),
+                               ])],
+            diffStat: """
+             src/reports/export.ts       | 2 +-
+             src/reports/formatDate.ts   | 6 ++++--
+             src/reports/csvRow.ts       | 2 +-
+             3 files changed, 7 insertions(+), 4 deletions(-)
+            """,
+            tests: nil, sensitiveChanges: [], headOid: merge, gitIntegrity: "snapshot",
+            diff: """
+            diff --cc src/reports/formatDate.ts
+            index 1a2b3c4,5d6e7f8..9a0b1c2
+            --- a/src/reports/formatDate.ts
+            +++ b/src/reports/formatDate.ts
+            @@@ -1,4 -1,4 +1,5 @@@
+            - export function formatDate(date: Date, options: { timeZone?: string } = {}): string {
+             -export function formatDate(date: Date): string {
+            ++export function formatDate(date: Date, options: { timeZone?: string } = {}): string {
+            ++  return new Intl.DateTimeFormat("en-CA", { timeZone: options.timeZone ?? "UTC" }).format(date);
+              }
+            diff --cc src/reports/export.ts
+            index 2b3c4d5,6e7f8a9..0b1c2d3
+            --- a/src/reports/export.ts
+            +++ b/src/reports/export.ts
+            @@@ -55,3 -55,4 +55,4 @@@
+                for (const row of rows) {
+            -     res.write(csvRow(row, formatDate(row.createdAt, { timeZone: req.user.timeZone })));
+             -    res.write(csvRow(row, formatDate(row.createdAt), row.region));
+            ++    res.write(csvRow(row, formatDate(row.createdAt, { timeZone: req.user.timeZone }), row.region));
+                }
+            diff --git a/src/reports/csvRow.ts b/src/reports/csvRow.ts
+            --- a/src/reports/csvRow.ts
+            +++ b/src/reports/csvRow.ts
+            @@ -3 +3 @@
+            -export const SEPARATOR = ";";
+            +export const SEPARATOR = ",";
+            """,
+            diffTruncated: false,
+            commits: [CommitInfo(sha: merge, message: "Merge develop into feat/csv-export")],
+            dependencyChanges: [],
+            outsideConflicts: ["src/reports/csvRow.ts"])
     }
 }

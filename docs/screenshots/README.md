@@ -25,6 +25,7 @@ Every screen comes in `-light` and `-dark`, at 2x:
 | `popover-update` | The To Review tab with PRBar 1.3.0 offered: the update notice with its Update button in the footer |
 | `popover-mine` | The My PRs tab: With Feedback (Changes requested, failing CI with **Fix CI** next to Respond), Ready to Merge (one ready, one blocked) and Waiting for Review (collapsed) |
 | `popover-mine-ci-fix` | The My PRs tab while a Fix CI waits to be pushed: the row's violet "CI fix ready to push" pill |
+| `popover-mine-conflicts` | The My PRs tab with two PRs whose branch conflicts with its base: web-app#475's Resolve Conflicts waits to be pushed (the violet "Resolution ready to push" pill and the orange "This branch has conflicts" line under its feedback), and api#327 in Ready to Merge offering **Resolve Conflicts** instead of the disabled Merge |
 | `popover-empty` | The To Review tab with nothing to review ("Nothing to review 🎉"), Other collapsed |
 | `popover-empty-mine` | The My PRs tab with nothing to do ("No PRs of yours need anything"), Waiting for Review collapsed |
 | `main-list` | The main window on To Review: sidebar (Pull Requests, Claude tasks, History, Activity; update, iPhone and Settings at the bottom), the PR list grouped by section (only sections with PRs, each with a disclosure chevron and the popover's captions, e.g. Other "drafts and nothing to do"), and the selected PR with where its review ran on its own line |
@@ -38,6 +39,7 @@ Every screen comes in `-light` and `-dark`, at 2x:
 | `main-respond-choose` | The Respond tab: choosing what to do with each comment (fix, reply, fix + reply) |
 | `main-respond-focus` | Respond in focus mode with the chat beside it |
 | `main-fix-ci-ready` | The Fix CI tab ready to push: failing checks, Claude's summary, the commit and the diff |
+| `main-conflicts-ready` | A Resolve Conflicts in the Respond tab, ready to push: the orange "Changed outside the conflicts" warning, each file in conflict with how Claude resolved it (and the binary logo kept as the PR's version, to resolve by hand), the merge commit and the combined diff |
 | `main-history` | History: reviews, responses and a Fix CI grouped by day, with the All · Reviews · Responses · Merges segmented filter and each record's Claude cost |
 | `main-history-ci-fix` | History with the Fix CI record selected: time, tokens, estimated cost, the commit and the diff stat |
 | `main-activity` | Activity: CPU, RAM, Disk and Claude tiles, what's running now (with Stop), Claude usage and disk by category |
