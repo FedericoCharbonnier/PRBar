@@ -49,6 +49,7 @@ enum CLIParsingTests {
                 try expect(rejects(["usage", "--month", "march"]))
                 try expectEqual(try parsed(["history", "--kind", "ci-fix"]), .history(repo: nil, kind: .ciFix, limit: nil, search: nil))
                 try expectEqual(try parsed(["claude", "prompt", "show", "ci-fix"]), .claudePromptShow(stage: .ciFix))
+                try expectEqual(try parsed(["claude", "prompt", "show", "conflicts"]), .claudePromptShow(stage: .conflicts))
             },
             TestCase("cli parse: status") {
                 try expectEqual(try parsed(["status"]), .status)
