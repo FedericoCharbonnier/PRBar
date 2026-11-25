@@ -58,6 +58,8 @@ public enum RemotePolicy {
              .slackSelfTest, .slackChannels, .updateCheck, .updateInstall, .updateCancel, .updateSkip,
              .setUpdateInterval, .rulesList, .rulesAdd, .rulesEdit, .rulesRemove, .rulesSetEnabled, .rulesChatSend,
              .rulesChatShow, .rulesChatUndo, .rulesChatStop, .rulesSuggestions, .rulesSuggestionAct, .chatProposal,
+             // Resolve Conflicts (decisión C.9.9): solo desde la Mac.
+             .conflictsList, .conflictsResolve,
              .claudeReviewSet, .claudeRespondSet, .claudeStageSet, .claudePromptShow, .claudePromptSet,
              .claudePromptReset, .openPopover, .cleanupPreview, .cleanup, .setDiskWarning, .runnersList, .runnerAdd,
              .runnerSet, .runnerRemove, .runnerTest, .runnerDefault,

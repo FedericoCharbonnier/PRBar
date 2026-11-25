@@ -235,6 +235,7 @@ export type PolicyDecision = "allowed" | "gated";
 
 // Mac-only (denied in RemotePolicy.swift, so never phone commands): sessionList, sessionOpen, setTerminal,
 // setTerminalCommand and setKeepSessionFolders open or choose a terminal, or keep folders, on the Mac (spec T.4, T.6).
+// conflictsList and conflictsResolve start or list Resolve Conflicts runs, which are pushed only from the Mac (spec C.9.9).
 /** Los comandos que pueden pedir Face ID, en el orden de `AppCommand.Name.allCases` (`RemotePolicy.gatedNames`). */
 export const GATED_NAMES: readonly PhoneCommandName[] = [
   "reviewPublish", "respondTest", "respondPush", "respondPushAnyway", "respondReplyOnly", "merge",

@@ -87,8 +87,7 @@ extension AppModel {
         case .startReview: startReview(item)
         case .startRespond: rowActions(item).respond.retry()   // misma regla que el pill (Retry con fixes → abre)
         case .startCIFix: startCIFix(item)
-        // Provisorio hasta la Task 12 (`startConflicts`): por ahora solo abre la pestaña Respond.
-        case .startConflicts: break
+        case .startConflicts: startConflicts(item)
         case .openReview, .openRespond, .openCIFix, .openConflicts, .openMerge, .none: break
         }
         if let tab = action.tab { navigate(to: .pr(prID: prID, tab: tab)) }

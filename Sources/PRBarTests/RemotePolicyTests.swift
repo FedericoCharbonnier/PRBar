@@ -47,6 +47,10 @@ enum RemotePolicyTests {
             try expectEqual(RemotePolicy.decide(.respondPushAnyway(pr: "a/b#1", confirmed: true, wait: false)), .gated)
             try expectEqual(RemotePolicy.decide(.ciFix(pr: "a/b#1", wait: false)), .allowed)
             try expectEqual(RemotePolicy.decide(.ciList), .allowed)
+            // Resolve Conflicts (decisión C.9.9): solo desde la Mac.
+            try expectEqual(RemotePolicy.classify(.conflictsList), .denied)
+            try expectEqual(RemotePolicy.classify(.conflictsResolve), .denied)
+            try expectEqual(RemotePolicy.decide(.conflictsResolve(pr: "a/b#1", wait: false)), .denied)
             try expectEqual(RemotePolicy.decide(.usage(month: nil)), .allowed)
             try expect(RemotePolicy.gatedNames.contains(.merge) && RemotePolicy.gatedNames.contains(.reviewPublish))
         },

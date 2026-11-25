@@ -449,7 +449,7 @@ extension AppModel: RespondActions {
         if case .failed(let message, _)? = respond.phases[prID] { throw CommandFailure(.failed, message) }
     }
 
-    private func waitForRespond(_ prID: String, events: CommandEventSink) async throws {
+    func waitForRespond(_ prID: String, events: CommandEventSink) async throws {
         try await waitUntil({ respond.phases[prID]?.isActive != true && !respond.runningTests.contains(prID) },
                             describe: { respondProgress(prID) }, events: events)
         try throwIfRespondFailed(prID)
@@ -476,7 +476,7 @@ extension AppModel: RespondActions {
     }
 
     /// Las colas ignoran en silencio lo que no pueden arrancar: si nada empezó, se avisa.
-    private func throwIfNothingStarted(_ prID: String, _ what: String) throws {
+    func throwIfNothingStarted(_ prID: String, _ what: String) throws {
         guard respond.phases[prID]?.isActive == true || respond.runningTests.contains(prID) else {
             throw CommandFailure(.invalidState, "Couldn’t start \(what) for \(prID): something else is running on it. Try again in a moment.")
         }

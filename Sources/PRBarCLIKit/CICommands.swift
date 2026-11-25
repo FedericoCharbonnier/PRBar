@@ -139,7 +139,7 @@ struct CIPush: RemoteCommand {
     func confirmation(_ connection: AppConnection, _ output: Output) throws -> String? {
         let info: RespondInfo = try connection.run(.respondShow(pr: pr)).decode()
         guard info.mode == .ciFix else {
-            throw CommandFailure(.invalidState, "\(info.pr) isn’t a Fix CI: use `prbar respond push \(info.pr)`.")
+            throw CommandFailure(.invalidState, "\(info.pr) isn’t a Fix CI: use `prbar \(info.mode == .conflicts ? "conflicts" : "respond") push \(info.pr)`.")
         }
         if anyway && !info.pushBlockedByTests && info.pushBlockedByCI == nil {
             throw CommandFailure(.invalidState, "Nothing is blocked: use `prbar ci push \(info.pr)`.")

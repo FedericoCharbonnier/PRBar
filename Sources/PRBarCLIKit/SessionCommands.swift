@@ -36,7 +36,7 @@ struct SessionOpen: RemoteCommand {
         commandName: "open", abstract: "Open one in your terminal (without options, the most recent).",
         discussion: "Exit 6 if the PR has none or PRBar is working in its folder.")
     @Argument(help: prHelp) var pr: String
-    @Option(help: "review, respond or ci-fix: that job’s most recent session.") var job: SessionJob?
+    @Option(help: "review, respond, ci-fix or conflicts: that job’s most recent session.") var job: SessionJob?
     @Option(help: "The session’s number in prbar session list.") var run: Int?
     @OptionGroup var global: GlobalOptions
 

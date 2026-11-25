@@ -220,5 +220,32 @@ enum ConflictsTests {
             let result = try JSONDecoder().decode(RespondResult.self, from: Data(#"{"items":[],"diffStat":"","sensitiveChanges":[]}"#.utf8))
             try expectEqual(result.outsideConflicts, nil)
         },
+        TestCase("conflicts wire: RespondInfo lleva la base, los resúmenes y outsideConflicts, sin el merge automático") {
+            let pr = makePR(number: 7, author: "me")
+            let context = ConflictsContext(baseRef: "main", baseOid: String(repeating: "b", count: 40),
+                                           mergeBase: String(repeating: "c", count: 40),
+                                           files: [ConflictFile(path: "README.md", kind: .content),
+                                                   ConflictFile(path: "logo.png", kind: .byHand, reason: "binary")],
+                                           incomingCommits: 3,
+                                           automaticMerge: [AutoMergeEntry(path: "src/a.swift", mode: "100644", oid: String(repeating: "d", count: 40))])
+            let draft = RespondDraft(prID: pr.id, repo: pr.repo, number: 7, title: pr.title, url: pr.url, headRef: pr.headRef,
+                                     account: "me", worktree: ResolvedWorktree(path: "/wt/7", origin: .dedicated),
+                                     startHeadOid: String(repeating: "a", count: 40), items: [], mode: .conflicts, conflicts: context)
+            let summaries = [ConflictFileSummary(path: "README.md", summary: "Kept both lines.")]
+            let result = RespondResult(items: [ItemResult(id: "conflicts:x", status: .committed, commit: "e", summary: "ok",
+                                                          conflictFiles: summaries)],
+                                       diffStat: "", tests: nil, outsideConflicts: ["src/a.swift"])
+            let info = RespondInfo(prID: pr.id, phase: .readyToPush(draft, result), record: RespondRecord(draft: draft, result: result, startedAt: t0),
+                                   selections: [:], runningTests: false, testCommand: nil)
+            try expectEqual(info.mode, .conflicts)
+            try expectEqual(info.conflicts?.baseRef, "main")
+            try expectEqual(info.conflicts?.byHandFiles.map(\.path), ["logo.png"])
+            try expectEqual(info.conflicts?.automaticMerge, nil)
+            try expectEqual(info.conflictSummaries, summaries)
+            try expectEqual(info.outsideConflicts, ["src/a.swift"])
+            let json = String(decoding: try JSONCoding.encoder.encode(info), as: UTF8.self)
+            try expect(!json.contains("automaticMerge"), json)
+            try expect(json.contains("outsideConflicts"), json)
+        },
     ]
 }

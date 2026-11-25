@@ -17,7 +17,9 @@ public enum CommandProtocol {
     /// 7: acceso desde el iPhone (`remote*`, `minimumRemoteVersion`).
     /// 8: el teléfono es una web app: prueba de presencia con WebAuthn (v2), registro de Web Push y sin
     ///    `remoteSetAppLink`.
-    public static let version = 8
+    /// 9: Resolve Conflicts (`conflictsList`, `conflictsResolve`, `HistoryKind.conflicts`, `RespondMode.conflicts`,
+    ///    `RespondInfo.conflicts`).
+    public static let version = 9
     /// El `commandProtocol` más viejo que la Mac acepta de un iPhone (spec P.6): los casos de `AppCommand` solo se
     /// agregan, así que una app de iPhone un poco más vieja sigue andando; un cambio que rompe sube este número.
     public static let minimumRemoteVersion = 8

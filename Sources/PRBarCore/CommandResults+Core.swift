@@ -323,6 +323,8 @@ extension RespondInfo {
             diffStat = result.diffStat
             sensitiveChanges = result.sensitiveChanges
             tests = result.tests.map { TestInfo(command: $0.command, passed: $0.passed, outputTail: $0.outputTail) }
+            conflictSummaries = result.items.first?.conflictFiles
+            outsideConflicts = result.outsideConflicts
         }
         pushed = record.pushed
         pendingReplies = RespondCounts.pendingReplies(record)
@@ -330,6 +332,12 @@ extension RespondInfo {
         mode = draft.mode
         ciChecks = draft.ci?.checks
         totalChecks = draft.ci?.totalChecks
+        // Sin el registro del merge automático: puede ser grande y solo lo usa la Mac (decisión C.9.16).
+        conflicts = draft.conflicts.map { context in
+            var context = context
+            context.automaticMerge = nil
+            return context
+        }
         usage = record.totalUsage
         startedAt = record.startedAt
         testSummary = tests.flatMap { TestSummary.extract(from: $0.outputTail) }

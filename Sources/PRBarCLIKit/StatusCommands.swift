@@ -137,7 +137,7 @@ struct HistoryGroup: ParsableCommand {
 struct HistoryList: RemoteCommand {
     static let configuration = CommandConfiguration(commandName: "list", abstract: "List the history (also: prbar history).")
     @Option(help: "Only this repo (owner/repo).") var repo: String?
-    @Option(help: "review, respond, ci-fix or merge.") var kind: HistoryKind?
+    @Option(help: "review, respond, ci-fix, conflicts or merge.") var kind: HistoryKind?
     @Option(help: "Title, repo or number (like History’s search).") var search: String?
     @Option(help: "At most this many records (default 50).") var limit: Int?
     @OptionGroup var global: GlobalOptions

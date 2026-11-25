@@ -333,7 +333,7 @@ public struct RespondInfo: Codable, Equatable, Sendable {
     public var logPath: String?
     /// Los tests de antes del push fallaron: no se pusheó ("Push Anyway" = `prbar respond push --anyway`).
     public var pushBlockedByTests: Bool
-    /// `feedback` o `ciFix` (spec K); nil = `feedback`.
+    /// `feedback`, `ciFix` (spec K) o `conflicts` (spec C); nil = `feedback`.
     public var mode: RespondMode?
     /// Fix CI: los checks que fallaron.
     public var ciChecks: [CICheckFailure]?
@@ -352,6 +352,12 @@ public struct RespondInfo: Codable, Equatable, Sendable {
     /// El worktree de PRBar tiene commits o cambios sin pushear (fixes listos, un push que falló, una implementación
     /// cancelada o fallida): descartar los borra. nil = no (o una app vieja).
     public var unpushedWork: Bool?
+    /// Resolve Conflicts: la base y los archivos. Sin `automaticMerge` (puede ser grande y es interno de la Mac).
+    public var conflicts: ConflictsContext?
+    /// Resolve Conflicts: cómo resolvió Claude cada archivo.
+    public var conflictSummaries: [ConflictFileSummary]?
+    /// Resolve Conflicts (decisión C.9.16): las rutas que la resolución cambió fuera de los conflictos.
+    public var outsideConflicts: [String]?
 
     public init(pr: String, phase: String, detail: String? = nil, runningTests: Bool, title: String? = nil,
                 account: String? = nil, headRef: String? = nil, worktree: String? = nil, language: String? = nil,
@@ -1013,6 +1019,35 @@ public struct CIListEntry: Codable, Equatable, Sendable {
         self.respondInProgress = respondInProgress
         self.unavailableReason = unavailableReason
         self.failedChecks = failedChecks
+    }
+}
+
+// MARK: - Resolve Conflicts (spec C)
+
+/// Un PR mío con conflictos con su base (`prbar conflicts list`).
+public struct ConflictsListEntry: Codable, Equatable, Sendable {
+    public var pr: String
+    public var title: String
+    public var url: URL
+    public var account: String
+    public var baseRef: String
+    /// La fase del Resolve Conflicts (`RespondPhase.cliName`), o nil si no hay ninguno.
+    public var phase: String?
+    /// Otra corrida (Respond o Fix CI) ocupa el PR.
+    public var otherRun: RespondMode?
+    /// Por qué no se puede arrancar ahora.
+    public var unavailableReason: String?
+
+    public init(pr: String, title: String, url: URL, account: String, baseRef: String, phase: String?, otherRun: RespondMode?,
+                unavailableReason: String?) {
+        self.pr = pr
+        self.title = title
+        self.url = url
+        self.account = account
+        self.baseRef = baseRef
+        self.phase = phase
+        self.otherRun = otherRun
+        self.unavailableReason = unavailableReason
     }
 }
 

@@ -52,6 +52,11 @@ public enum AppCommand: Codable, Equatable, Sendable {
     case ciList
     /// "Fix CI" en la fila: lee los checks, prepara el worktree e implementa.
     case ciFix(pr: String, wait: Bool)
+    // Resolve Conflicts (spec C.5). Show, diff, test, push, cancel and dismiss are the Respond commands.
+    /// Mis PRs con conflictos y su Resolve Conflicts.
+    case conflictsList
+    /// "Resolve Conflicts": mergea la base en el worktree y Claude resuelve.
+    case conflictsResolve(pr: String, wait: Bool)
     // Uso de Claude (spec O)
     /// `YYYY-MM`; nil = este mes.
     case usage(month: String?)
@@ -229,7 +234,7 @@ public enum AppCommand: Codable, Equatable, Sendable {
         case openPopover
         case resources, cleanupPreview, cleanup, setDiskWarning
         case runnersList, runnerAdd, runnerSet, runnerRemove, runnerTest, runnerDefault
-        case ciList, ciFix, usage
+        case ciList, ciFix, usage, conflictsList, conflictsResolve
         case remoteStatus, remoteEnable, remoteDisable, remotePairStart, remotePairWait, remotePairConfirm, remoteDevices
         case remoteRevoke, remoteSetKeepAwake, remoteReset, remoteSetPresenceRequirement, remoteSetMailbox
         case setAlwaysShowInDock
@@ -273,6 +278,8 @@ public enum AppCommand: Codable, Equatable, Sendable {
         case .respondDismiss: .respondDismiss
         case .ciList: .ciList
         case .ciFix: .ciFix
+        case .conflictsList: .conflictsList
+        case .conflictsResolve: .conflictsResolve
         case .usage: .usage
         case .merge: .merge
         case .mergePreview: .mergePreview

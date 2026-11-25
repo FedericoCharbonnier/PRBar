@@ -353,6 +353,13 @@ public final class FixtureActions: PRBarActions {
         return UsageInfo(month: UsageMonth(month: "2026-11", usage: review, byKind: ["review": review]), tasks: [])
     }
 
+    // MARK: ConflictsActions (the phone never reaches these: RemotePolicy denies them, decisión C.9.9)
+    public func conflictsList() throws -> [ConflictsListEntry] { [] }
+    public func conflictsResolve(pr: String, wait: Bool, events: CommandEventSink) async throws -> RespondInfo {
+        record("conflictsResolve \(pr)")
+        throw CommandFailure(.invalidState, "Resolve Conflicts is only available on the Mac.")
+    }
+
     // MARK: RemoteActions (the phone never reaches these: RemotePolicy denies them)
     public func remoteStatus() -> RemoteStatusInfo {
         RemoteStatusInfo(enabled: true, relayHost: nil, state: "connected", devices: 0, devicesOnline: 0, keepAwake: false,

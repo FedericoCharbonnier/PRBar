@@ -51,6 +51,20 @@ enum CLIParsingTests {
                 try expectEqual(try parsed(["claude", "prompt", "show", "ci-fix"]), .claudePromptShow(stage: .ciFix))
                 try expectEqual(try parsed(["claude", "prompt", "show", "conflicts"]), .claudePromptShow(stage: .conflicts))
             },
+            TestCase("cli: prbar conflicts list|resolve|show|diff|test|push|cancel|dismiss") {
+                try expectEqual(try parsed(["conflicts"]), .conflictsList)
+                try expectEqual(try parsed(["conflicts", "list"]), .conflictsList)
+                try expectEqual(try parsed(["conflicts", "resolve", "web#2", "--wait"]), .conflictsResolve(pr: "web#2", wait: true))
+                try expectEqual(try parsed(["conflicts", "show", "web#2"]), .respondShow(pr: "web#2"))
+                try expectEqual(try parsed(["conflicts", "diff", "web#2"]), .respondDiff(pr: "web#2"))
+                try expectEqual(try parsed(["conflicts", "test", "web#2"]), .respondTest(pr: "web#2", wait: false))
+                try expectEqual(try parsed(["conflicts", "push", "web#2", "--yes"]),
+                                .respondPush(pr: "web#2", confirmed: true, wait: false, mode: .conflicts))
+                try expectEqual(try parsed(["conflicts", "push", "web#2", "--anyway", "--yes"]),
+                                .respondPushAnyway(pr: "web#2", confirmed: true, wait: false, mode: .conflicts))
+                try expectEqual(try parsed(["conflicts", "cancel", "web#2"]), .respondCancel(pr: "web#2"))
+                try expectEqual(try parsed(["history", "--kind", "conflicts"]), .history(repo: nil, kind: .conflicts, limit: nil, search: nil))
+            },
             TestCase("cli parse: status") {
                 try expectEqual(try parsed(["status"]), .status)
                 try expectEqual(try parsed(["status", "--json"]), .status)
