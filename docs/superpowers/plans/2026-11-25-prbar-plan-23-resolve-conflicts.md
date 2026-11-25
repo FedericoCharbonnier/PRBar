@@ -28,7 +28,7 @@ propio (`PRBarTests`), git de verdad en repos temporales.
 
 ## Convenciones
 
-- Trabajar solo en `/Users/federico/Documents/PRBar-wt-conflicts` (rama `feat/resolve-conflicts`). Nunca `git stash`
+- Trabajar solo en `the worktree `PRBar-wt-conflicts`` (rama `feat/resolve-conflicts`). Nunca `git stash`
   pelado. Commits chicos en inglés, **sin** `Co-Authored-By` ni ninguna atribución a Claude/Anthropic. No pushear.
 - Builds (sin warnings nuevos): `swift build --product PRBar`, `swift build --product PRBarCLI`,
   `swift build --product PRBarTests`.
@@ -112,8 +112,8 @@ propio (`PRBarTests`), git de verdad en repos temporales.
 - [ ] **Step 2: Commit** (si hubo cambios)
 
 ```bash
-git -C /Users/federico/Documents/PRBar-wt-conflicts add docs/superpowers/specs/2026-11-25-prbar-resolve-conflicts-design.md
-git -C /Users/federico/Documents/PRBar-wt-conflicts commit -m "Spec C.9: Resolve Conflicts implementation decisions"
+git add docs/superpowers/specs/2026-11-25-prbar-resolve-conflicts-design.md
+git commit -m "Spec C.9: Resolve Conflicts implementation decisions"
 ```
 
 ---
@@ -390,8 +390,8 @@ Expected: todos pasan (nada viejo cambió).
 - [ ] **Step 7: Commit**
 
 ```bash
-git -C /Users/federico/Documents/PRBar-wt-conflicts add -A Sources
-git -C /Users/federico/Documents/PRBar-wt-conflicts commit -m "Model Resolve Conflicts as a third Respond mode"
+git add -A Sources
+git commit -m "Model Resolve Conflicts as a third Respond mode"
 ```
 
 ---
@@ -614,8 +614,8 @@ Expected: los 3 casos nuevos pasan (`conflict classifier`, `conflict markers`, `
 - [ ] **Step 5: Commit**
 
 ```bash
-git -C /Users/federico/Documents/PRBar-wt-conflicts add Sources/PRBarCore/ConflictMerge.swift Sources/PRBarTests/ConflictsTests.swift
-git -C /Users/federico/Documents/PRBar-wt-conflicts commit -m "Classify merge conflicts and count leftover markers"
+git add Sources/PRBarCore/ConflictMerge.swift Sources/PRBarTests/ConflictsTests.swift
+git commit -m "Classify merge conflicts and count leftover markers"
 ```
 
 ---
@@ -819,8 +819,8 @@ Expected: todo pasa.
 - [ ] **Step 6: Commit**
 
 ```bash
-git -C /Users/federico/Documents/PRBar-wt-conflicts add -A Sources
-git -C /Users/federico/Documents/PRBar-wt-conflicts commit -m "Add the Conflicts stage prompt with fenced, neutralized context"
+git add -A Sources
+git commit -m "Add the Conflicts stage prompt with fenced, neutralized context"
 ```
 
 ---
@@ -960,8 +960,8 @@ Expected: todo pasa.
 - [ ] **Step 8: Commit**
 
 ```bash
-git -C /Users/federico/Documents/PRBar-wt-conflicts add -A Sources
-git -C /Users/federico/Documents/PRBar-wt-conflicts commit -m "Fetch the PR's base into a per-run ref for Resolve Conflicts"
+git add -A Sources
+git commit -m "Fetch the PR's base into a per-run ref for Resolve Conflicts"
 ```
 
 ---
@@ -1249,8 +1249,8 @@ Expected: pasan.
 - [ ] **Step 7: Commit**
 
 ```bash
-git -C /Users/federico/Documents/PRBar-wt-conflicts add -A Sources
-git -C /Users/federico/Documents/PRBar-wt-conflicts commit -m "Prepare Resolve Conflicts: merge the base without committing and classify conflicts"
+git add -A Sources
+git commit -m "Prepare Resolve Conflicts: merge the base without committing and classify conflicts"
 ```
 
 ---
@@ -1597,8 +1597,8 @@ Expected: pasan (el camino de los fixes no cambió).
 - [ ] **Step 7: Commit**
 
 ```bash
-git -C /Users/federico/Documents/PRBar-wt-conflicts add -A Sources
-git -C /Users/federico/Documents/PRBar-wt-conflicts commit -m "Resolve conflicts with Claude under the fix guard and commit a two-parent merge"
+git add -A Sources
+git commit -m "Resolve conflicts with Claude under the fix guard and commit a two-parent merge"
 ```
 
 ---
@@ -1700,8 +1700,8 @@ Expected: pasan.
 - [ ] **Step 5: Commit**
 
 ```bash
-git -C /Users/federico/Documents/PRBar-wt-conflicts add -A Sources
-git -C /Users/federico/Documents/PRBar-wt-conflicts commit -m "Chat on a conflicts run rebuilds the merge commit and rejects conflict markers"
+git add -A Sources
+git commit -m "Chat on a conflicts run rebuilds the merge commit and rejects conflict markers"
 ```
 
 ---
@@ -1922,8 +1922,8 @@ Expected: todo pasa.
 - [ ] **Step 8: Commit**
 
 ```bash
-git -C /Users/federico/Documents/PRBar-wt-conflicts add -A Sources
-git -C /Users/federico/Documents/PRBar-wt-conflicts commit -m "Re-check the PR before pushing a resolution; import merges from runners"
+git add -A Sources
+git commit -m "Re-check the PR before pushing a resolution; import merges from runners"
 ```
 
 ---
@@ -2119,8 +2119,8 @@ Expected: todo pasa.
 - [ ] **Step 9: Commit**
 
 ```bash
-git -C /Users/federico/Documents/PRBar-wt-conflicts add -A Sources
-git -C /Users/federico/Documents/PRBar-wt-conflicts commit -m "Primary action, tabs, notifications and stale-run handling for Resolve Conflicts"
+git add -A Sources
+git commit -m "Primary action, tabs, notifications and stale-run handling for Resolve Conflicts"
 ```
 
 ---
@@ -2459,8 +2459,8 @@ Expected: sin errores ni warnings nuevos.
 - [ ] **Step 8: Commit**
 
 ```bash
-git -C /Users/federico/Documents/PRBar-wt-conflicts add -A Sources web/src/protocol/commands.ts
-git -C /Users/federico/Documents/PRBar-wt-conflicts commit -m "Add prbar conflicts and protocol 9"
+git add -A Sources web/src/protocol/commands.ts
+git commit -m "Add prbar conflicts and protocol 9"
 ```
 
 ---
@@ -2887,8 +2887,8 @@ Expected: compila sin errores ni warnings nuevos.
 - [ ] **Step 10: Commit**
 
 ```bash
-git -C /Users/federico/Documents/PRBar-wt-conflicts add -A Sources
-git -C /Users/federico/Documents/PRBar-wt-conflicts commit -m "Resolve Conflicts in the rows, the PR window, menus and History"
+git add -A Sources
+git commit -m "Resolve Conflicts in the rows, the PR window, menus and History"
 ```
 
 ---
@@ -2933,8 +2933,8 @@ Expected: pasan la de la UI y la de la CLI.
 - [ ] **Step 4: Commit**
 
 ```bash
-git -C /Users/federico/Documents/PRBar-wt-conflicts add Sources/PRBarTests/UIActionInventory.swift
-git -C /Users/federico/Documents/PRBar-wt-conflicts commit -m "Inventory the Resolve Conflicts controls"
+git add Sources/PRBarTests/UIActionInventory.swift
+git commit -m "Inventory the Resolve Conflicts controls"
 ```
 
 ---
@@ -3029,7 +3029,7 @@ git -C /Users/federico/Documents/PRBar-wt-conflicts commit -m "Inventory the Res
 
 Run: `Scripts/snapshots.sh docs/screenshots both`
 Expected: termina sin errores. Mirar `docs/screenshots/*conflicts*` (claro y oscuro) y la de My PRs; revertir los PNG
-que solo cambiaron bytes (`git -C /Users/federico/Documents/PRBar-wt-conflicts checkout -- <png>` de los que no se ven
+que solo cambiaron bytes (`git checkout -- <png>` de los que no se ven
 distintos). Agregar las dos capturas nuevas a `docs/screenshots/README.md` como las de Fix CI.
 
 - [ ] **Step 3: `docs/cli.md`.** Después de las filas de `prbar ci`:
@@ -3117,8 +3117,8 @@ la suite una vez más.
 - [ ] **Step 6: Commit**
 
 ```bash
-git -C /Users/federico/Documents/PRBar-wt-conflicts add -A Sources docs
-git -C /Users/federico/Documents/PRBar-wt-conflicts commit -m "Resolve Conflicts: snapshots, docs and QA checklist"
+git add -A Sources docs
+git commit -m "Resolve Conflicts: snapshots, docs and QA checklist"
 ```
 
 ---
