@@ -183,6 +183,7 @@ public protocol RespondPipelineRunning: Sendable {
 public struct RespondPipeline: RespondPipelineRunning {
     public static let noItemsMessage = "There are no unresolved comments"
     public static let forkMessage = "The PR comes from a fork: PRBar can't push to it"
+    public static let alreadyContainsBaseMessage = "The PR already contains its base branch: there’s nothing to merge. GitHub may not have updated yet; refresh in a minute."
     public static let needsLocalPathMessage = "This repo needs a local folder to respond."
     public static let noFailingChecksMessage = "No failing checks on the PR’s latest commit: CI may have passed or still be running. Refresh and try again."
 
@@ -249,6 +250,7 @@ public struct RespondPipeline: RespondPipelineRunning {
 
     public func analyze(_ request: RespondRequest, draftID: UUID,
                         onPhase: @escaping @MainActor @Sendable (RespondPhase) -> Void) async throws -> RespondDraft {
+        if request.mode == .conflicts { return try await analyzeConflicts(request, draftID: draftID) }
         if request.mode == .ciFix { return try await analyzeCI(request, draftID: draftID) }
         let item = request.item
         let pr = item.pr
@@ -361,6 +363,68 @@ public struct RespondPipeline: RespondPipelineRunning {
         let runs = try await ciAPI.checkRuns(repo: draft.repo, headOid: head, token: token)
         guard CILogs.stillFailing(context.checkNames, now: runs) else {
             throw CIPassingNow(checks: context.checkNames, headOid: head)
+        }
+    }
+
+    // MARK: - Resolve Conflicts (spec C)
+
+    /// Token → head (feedback, fork) y base (detalles) en la Mac → worktree en el head (acá o en el host) → base a su ref
+    /// propia → `merge --no-commit` → draft con un solo ítem. Sin Claude: la implementación arranca después, sola.
+    private func analyzeConflicts(_ request: RespondRequest, draftID: UUID) async throws -> RespondDraft {
+        let item = request.item
+        let pr = item.pr
+        let token = try await tokens.token(for: item.account)
+        let feedback = try await api.reviewFeedback(repo: pr.repo, number: pr.number, token: token)
+        if feedback.isCrossRepository { throw PRBarError.respond(Self.forkMessage) }
+        let details = try await api.pullRequestDetails(repo: pr.repo, number: pr.number, token: token)
+        if let state = details.state, state != .open { throw PRBarError.respond("The PR isn’t open anymore.") }
+        let baseRef = details.baseRef ?? pr.baseRef
+        try Task.checkCancellation()
+        let (worktree, startHeadOid) = try await prepareWorktree(request, headRef: feedback.headRefName)
+        do {
+            try Task.checkCancellation()
+            guard startHeadOid == feedback.headRefOid else {
+                throw PRBarError.respond("The PR got new commits while PRBar was preparing it (now at \(startHeadOid.prefix(7))). "
+                    + "Try Resolve Conflicts again.")
+            }
+            let baseOid: String
+            if let remote = placement {
+                baseOid = try await remote.workspaces.fetchRespondBase(worktree, repo: pr.repo, baseRef: baseRef)
+            } else {
+                baseOid = try await resolver.fetchBase(worktree, baseRef: baseRef)
+            }
+            let merger = await conflictMerger(worktree, localPath: request.localPath)
+            let outcome = try await merger.merge(baseRef: baseRef, baseOid: baseOid, startHeadOid: startHeadOid)
+            let conflictsItem = ConflictsItem.make(startHeadOid: startHeadOid, context: outcome.context, description: details.body,
+                                                   incomingLog: outcome.incomingLog, prDiff: outcome.prDiff,
+                                                   diffTruncated: outcome.prDiffTruncated, prURL: pr.url)
+            return RespondDraft(
+                id: draftID, prID: item.id, repo: pr.repo, number: pr.number, title: pr.title, url: pr.url,
+                headRef: feedback.headRefName, account: item.account, worktree: worktree, startHeadOid: startHeadOid,
+                items: [conflictsItem], runner: placement?.name, localPath: placement == nil ? nil : request.localPath,
+                mode: .conflicts, conflicts: outcome.context)
+        } catch {
+            // Sin draft no hay nada que revisar: el worktree (a mitad del merge) y sus refs se borran fuera de esta tarea.
+            await Task.detached { [self] in await removeWorktree(worktree) }.value
+            throw error
+        }
+    }
+
+    /// git endurecido en el worktree del trabajo (acá o en el host), sin lanzar por el código de salida. `merge` pide
+    /// la identidad de commit aunque no commitee: en el host va la de la Mac, como en los commits (decisión J.7.5).
+    private func conflictMerger(_ worktree: ResolvedWorktree, localPath: String?) async -> ConflictMerger {
+        let runner = placement?.runner ?? processRunner
+        let git = placement?.gitPath ?? gitPath
+        var environment = (placement?.gitEnvironment ?? gitEnvironment).merging(GitHardening.environment) { _, hardened in hardened }
+        if placement != nil {
+            let identity = await Self.commitIdentity(runner: processRunner, gitPath: gitPath, localPath: localPath,
+                                                     environment: gitEnvironment)
+            environment.merge(identity) { _, new in new }
+        }
+        let path = worktree.path
+        return ConflictMerger { [environment] arguments in
+            try await runner.run(git, ["-C", path] + GitHardening.arguments + arguments, environment: environment,
+                                 currentDirectory: nil, timeout: WorktreeManager.slowTimeout)
         }
     }
 
