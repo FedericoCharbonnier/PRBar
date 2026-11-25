@@ -51,6 +51,12 @@ enum ConflictsRender {
             output.line()
             output.line(output.paint("Changed outside the conflicts: \(outside.joined(separator: ", ")). Review them before pushing.", .yellow, .bold))
         }
+        if let oneSided = info.oneSidedResolutions, !oneSided.isEmpty {
+            // Decisión C.9.18: resueltos con un lado entero (el combined diff tampoco los muestra).
+            let base = info.conflicts?.baseRef ?? "the base"
+            output.line()
+            output.line(output.paint("Resolved by keeping one side whole: \(oneSided.map { $0.description(baseRef: base) }.joined(separator: ", ")). Review them before pushing.", .yellow, .bold))
+        }
         if let stat = info.diffStat, !stat.isEmpty { output.line(); output.line(stat) }
         if !info.sensitiveChanges.isEmpty {
             output.line(output.paint("The resolution touches files that can run code: \(info.sensitiveChanges.joined(separator: ", ")). Review them before running tests or pushing.", .red, .bold))
@@ -73,6 +79,9 @@ enum ConflictsRender {
         if !byHand.isEmpty { question += " PRBar kept the PR’s version of \(byHand.joined(separator: ", ")): resolve them by hand." }
         if let outside = info.outsideConflicts, !outside.isEmpty {
             question += " The resolution also changes files outside the conflicts: \(outside.joined(separator: ", "))."
+        }
+        if let oneSided = info.oneSidedResolutions, !oneSided.isEmpty {
+            question += " Resolved by keeping one side whole: \(oneSided.map { $0.description(baseRef: base) }.joined(separator: ", "))."
         }
         return question + " " + RespondCopy.staleApprovalWarning
     }

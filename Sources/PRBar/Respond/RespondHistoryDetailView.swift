@@ -29,6 +29,10 @@ struct RespondHistoryDetailView: View {
                     if let outside = record.result?.outsideConflicts, !outside.isEmpty {
                         OutsideConflictsBanner(paths: outside)
                     }
+                    if let oneSided = record.result?.oneSidedResolutions, !oneSided.isEmpty {
+                        OutsideConflictsBanner(paths: oneSided.map { $0.description(baseRef: context.baseRef) },
+                                               title: OneSidedCopy.title, message: OneSidedCopy.message)
+                    }
                     ConflictFilesSection(context: context, summaries: record.result?.items.first?.conflictFiles ?? [])
                 } else if !draft.items.isEmpty {
                     itemsSection

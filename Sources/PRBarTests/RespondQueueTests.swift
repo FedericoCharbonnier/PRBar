@@ -1310,6 +1310,43 @@ enum RespondPipelineTests {
             try expect(result2.sensitiveChanges.contains(".github/workflows/ci.yml"), "\(result2.sensitiveChanges)")
             try expect(result2.diffStat.contains("added.txt"), result2.diffStat)
         },
+        TestCase("resolve conflicts: un conflicto resuelto con un lado entero se ve (oneSidedResolutions), con su diff, stat, sensibles y dependencias") { @MainActor in
+            // README (conflicto de conflictingE2E) queda como en el PR; package.json, como en la base.
+            let baseSetup: @Sendable (URL) throws -> Void = { try Data(#"{"dependencies":{"a":"1"}}"#.utf8).write(to: $0.appendingPathComponent("package.json")) }
+            let prSetup: @Sendable (URL) throws -> Void = { try Data(#"{"dependencies":{"a":"2"}}"#.utf8).write(to: $0.appendingPathComponent("package.json")) }
+            let baseChange: @Sendable (URL) throws -> Void = { try Data(#"{"dependencies":{"a":"3"}}"#.utf8).write(to: $0.appendingPathComponent("package.json")) }
+            let claude = ScriptedClaude { schema, _, cwd in
+                guard schema == RespondSchemas.conflicts else { return [] }
+                try Data("hola PR\n".utf8).write(to: cwd.appendingPathComponent("README.md"))
+                try Data(#"{"dependencies":{"a":"3"}}"#.utf8).write(to: cwd.appendingPathComponent("package.json"))
+                return [conflictsLine(files: [["path": "README.md", "summary": "Kept the PR's."], ["path": "package.json", "summary": "Took main's."]])]
+            }
+            let (e, _) = try conflictingE2E(claude: claude, baseSetup: baseSetup, prSetup: prSetup, baseChange: baseChange)
+            defer { e.repo.remove() }
+            let request = RespondRequest(item: classified(7), localPath: e.repo.local.path, worktreeDir: e.worktreeDir.path, mode: .conflicts)
+            let draft = try await e.pipeline.analyze(request, draftID: UUID()) { _ in }
+            try expectEqual(draft.conflicts?.contentFiles, ["README.md", "package.json"])
+            let result = try await e.pipeline.implement(draft: draft, selections: [draft.items[0].id: RespondSelection.defaults(for: draft.items[0])]) { _, _ in }
+            // El combined diff no los muestra: quedaron iguales a un padre.
+            let combined = try e.git(draft.worktree.path, ["diff-tree", "--cc", "--no-commit-id", "-p", "HEAD"])
+            try expectEqual(combined, "")
+            try expectEqual(result.oneSidedResolutions, [OneSidedResolution(path: "README.md", kept: .pr),
+                                                         OneSidedResolution(path: "package.json", kept: .base)])
+            try expectEqual(result.outsideConflicts, [])
+            let diff = result.diff ?? ""
+            // README: lo que se descartó de la base; package.json: lo que se descartó del PR.
+            try expect(diff.contains("diff --git a/README.md b/README.md\n"), diff)
+            try expect(diff.contains("-hola base\n+hola PR"), diff)
+            try expect(diff.contains("diff --git a/package.json b/package.json\n"), diff)
+            try expect(diff.contains(#"-{"dependencies":{"a":"2"}}"#) && diff.contains(#"+{"dependencies":{"a":"3"}}"#), diff)
+            try expect(result.diffStat.contains("README.md") && result.diffStat.contains("package.json"), result.diffStat)
+            try expect(result.sensitiveChanges.contains("package.json"), "\(result.sensitiveChanges)")
+            try expectEqual(result.dependencyChanges, ["package.json"])
+            try expectEqual(OneSidedResolution(path: "README.md", kept: .pr).description(baseRef: "main"),
+                            "README.md (kept the PR’s version, dropped main’s changes)")
+            try expectEqual(OneSidedResolution(path: "package.json", kept: .base).description(baseRef: "main"),
+                            "package.json (kept main’s version, dropped the PR’s changes)")
+        },
         TestCase("resolve conflicts: pushea el merge con el PR re-verificado; con otro head o cerrado no pushea") { @MainActor in
             let claude = ScriptedClaude { schema, _, cwd in
                 guard schema == RespondSchemas.conflicts else { return [] }

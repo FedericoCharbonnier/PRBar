@@ -325,6 +325,7 @@ extension RespondInfo {
             tests = result.tests.map { TestInfo(command: $0.command, passed: $0.passed, outputTail: $0.outputTail) }
             conflictSummaries = result.items.first?.conflictFiles
             outsideConflicts = result.outsideConflicts
+            oneSidedResolutions = result.oneSidedResolutions
         }
         pushed = record.pushed
         pendingReplies = RespondCounts.pendingReplies(record)

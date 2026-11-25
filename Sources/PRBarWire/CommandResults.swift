@@ -358,6 +358,8 @@ public struct RespondInfo: Codable, Equatable, Sendable {
     public var conflictSummaries: [ConflictFileSummary]?
     /// Resolve Conflicts (decisión C.9.16): las rutas que la resolución cambió fuera de los conflictos.
     public var outsideConflicts: [String]?
+    /// Resolve Conflicts (decisión C.9.18): los archivos en conflicto que quedaron iguales a uno de los lados.
+    public var oneSidedResolutions: [OneSidedResolution]?
 
     public init(pr: String, phase: String, detail: String? = nil, runningTests: Bool, title: String? = nil,
                 account: String? = nil, headRef: String? = nil, worktree: String? = nil, language: String? = nil,

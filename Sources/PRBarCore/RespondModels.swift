@@ -303,11 +303,14 @@ public struct RespondResult: Codable, Equatable, Sendable {
     /// merge automático (cambiadas, agregadas o borradas por Claude o el chat). Nil fuera de ese modo y en registros
     /// anteriores.
     public var outsideConflicts: [String]?
+    /// Resolve Conflicts (decisión C.9.18): los archivos en conflicto que quedaron iguales a uno de los lados. Nil
+    /// fuera de ese modo y en registros anteriores.
+    public var oneSidedResolutions: [OneSidedResolution]?
 
     public init(items: [ItemResult], diffStat: String, tests: TestRun?, sensitiveChanges: [String] = [],
                 headOid: String? = nil, gitIntegrity: String? = nil, diff: String? = nil, diffTruncated: Bool? = nil,
                 commits: [CommitInfo]? = nil, dependencyChanges: [String]? = nil, remoteObjects: RemoteObjects? = nil,
-                outsideConflicts: [String]? = nil) {
+                outsideConflicts: [String]? = nil, oneSidedResolutions: [OneSidedResolution]? = nil) {
         self.items = items
         self.diffStat = diffStat
         self.tests = tests
@@ -320,6 +323,7 @@ public struct RespondResult: Codable, Equatable, Sendable {
         self.dependencyChanges = dependencyChanges
         self.remoteObjects = remoteObjects
         self.outsideConflicts = outsideConflicts
+        self.oneSidedResolutions = oneSidedResolutions
     }
 }
 

@@ -143,6 +143,32 @@ enum RemoteFixImportTests {
             let pushed = try TempGitRepo.run(repo.origin, ["rev-parse", "refs/heads/feature"]).trimmingCharacters(in: .whitespacesAndNewlines)
             try expectEqual(pushed, result.headOid)
         },
+        TestCase("remote fixes: un conflicto resuelto con la versión del PR se ve (oneSidedResolutions) y el push lo re-verifica") {
+            var base = ""
+            let (repo, ssh, spaces, worktree, start, importer) = try await remoteFix { repo in
+                // El PR agregó feature.txt ("nuevo"); la base agrega otro: choque add/add.
+                base = try repo.advanceBase { try Data("base\n".utf8).write(to: $0.appendingPathComponent("feature.txt")) }
+            }
+            defer { repo.remove(); ssh.remove() }
+            _ = try await spaces.fetchRespondBase(worktree, repo: RepoRef(owner: "o", name: "r"), baseRef: "main")
+            let wt = URL(fileURLWithPath: worktree.path)
+            try TempGitRepo.run(wt, ["reset", "-q", "--hard", start])
+            _ = try? TempGitRepo.run(wt, ["merge", "--no-ff", "--no-commit", "-q", base])
+            try Data("nuevo\n".utf8).write(to: wt.appendingPathComponent("feature.txt"))
+            try TempGitRepo.run(wt, ["add", "feature.txt"])
+            try TempGitRepo.run(wt, ["commit", "-q", "-m", "Merge main into feature"])
+            var d = draft(worktree, start: start)
+            d.mode = .conflicts
+            d.conflicts = ConflictsContext(baseRef: "main", baseOid: base, mergeBase: start,
+                                           files: [ConflictFile(path: "feature.txt", kind: .content)], incomingCommits: 1, automaticMerge: [])
+            let result = try await importer.importFixes(draft: d, localPath: repo.local.path, items: [], integrity: "x")
+            try expectEqual(result.oneSidedResolutions, [OneSidedResolution(path: "feature.txt", kept: .pr)])
+            let diff = result.diff ?? ""
+            try expect(diff.contains("diff --git a/feature.txt b/feature.txt\n") && diff.contains("-base\n+nuevo"), diff)
+            try await importer.push(draft: d, result: result, token: nil)
+            let pushed = try TempGitRepo.run(repo.origin, ["rev-parse", "refs/heads/feature"]).trimmingCharacters(in: .whitespacesAndNewlines)
+            try expectEqual(pushed, result.headOid)
+        },
         TestCase("remote fixes: un Resolve Conflicts que no contiene la base no se importa ni se pushea") {
             var base = ""
             let (repo, ssh, spaces, worktree, start, importer) = try await remoteFix { repo in

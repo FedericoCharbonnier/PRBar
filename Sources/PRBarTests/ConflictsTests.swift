@@ -237,6 +237,7 @@ enum ConflictsTests {
             try expectEqual(context.automaticMerge, nil)
             let result = try JSONDecoder().decode(RespondResult.self, from: Data(#"{"items":[],"diffStat":"","sensitiveChanges":[]}"#.utf8))
             try expectEqual(result.outsideConflicts, nil)
+            try expectEqual(result.oneSidedResolutions, nil)
         },
         TestCase("conflicts wire: RespondInfo lleva la base, los resúmenes y outsideConflicts, sin el merge automático") {
             let pr = makePR(number: 7, author: "me")
@@ -252,7 +253,8 @@ enum ConflictsTests {
             let summaries = [ConflictFileSummary(path: "README.md", summary: "Kept both lines.")]
             let result = RespondResult(items: [ItemResult(id: "conflicts:x", status: .committed, commit: "e", summary: "ok",
                                                           conflictFiles: summaries)],
-                                       diffStat: "", tests: nil, outsideConflicts: ["src/a.swift"])
+                                       diffStat: "", tests: nil, outsideConflicts: ["src/a.swift"],
+                                       oneSidedResolutions: [OneSidedResolution(path: "README.md", kept: .base)])
             let info = RespondInfo(prID: pr.id, phase: .readyToPush(draft, result), record: RespondRecord(draft: draft, result: result, startedAt: t0),
                                    selections: [:], runningTests: false, testCommand: nil)
             try expectEqual(info.mode, .conflicts)
@@ -261,9 +263,13 @@ enum ConflictsTests {
             try expectEqual(info.conflicts?.automaticMerge, nil)
             try expectEqual(info.conflictSummaries, summaries)
             try expectEqual(info.outsideConflicts, ["src/a.swift"])
+            try expectEqual(info.oneSidedResolutions, [OneSidedResolution(path: "README.md", kept: .base)])
             let json = String(decoding: try JSONCoding.encoder.encode(info), as: UTF8.self)
             try expect(!json.contains("automaticMerge"), json)
             try expect(json.contains("outsideConflicts"), json)
+            let decoded = try JSONCoding.decoder.decode(RespondInfo.self, from: Data(json.utf8))
+            try expectEqual(decoded.oneSidedResolutions, [OneSidedResolution(path: "README.md", kept: .base)])
+            try expect(json.contains(#""kept" : "base""#), json)
         },
     ]
 }

@@ -85,3 +85,31 @@ public struct ConflictFileSummary: Codable, Equatable, Sendable {
         self.summary = summary
     }
 }
+
+/// Decisión C.9.18: un archivo de contenido en conflicto que quedó igual a uno de los lados (Claude o el chat se
+/// quedaron con esa versión entera). El combined diff no lo muestra: PRBar lo avisa y muestra un diff contra el lado
+/// que se descartó.
+public struct OneSidedResolution: Codable, Equatable, Sendable {
+    public enum Side: String, Codable, Sendable {
+        /// Quedó la versión del PR: se descartaron los cambios de la base.
+        case pr
+        /// Quedó la versión de la base: se descartaron los cambios del PR.
+        case base
+    }
+
+    public var path: String
+    public var kept: Side
+
+    public init(path: String, kept: Side) {
+        self.path = path
+        self.kept = kept
+    }
+
+    /// "README.md (kept the PR’s version, dropped main’s changes)".
+    public func description(baseRef: String) -> String {
+        switch kept {
+        case .pr: "\(path) (kept the PR’s version, dropped \(baseRef)’s changes)"
+        case .base: "\(path) (kept \(baseRef)’s version, dropped the PR’s changes)"
+        }
+    }
+}

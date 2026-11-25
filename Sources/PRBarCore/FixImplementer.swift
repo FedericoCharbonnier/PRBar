@@ -173,18 +173,28 @@ public struct FixImplementer: Sendable {
         let review = try await mergeReview(repository: repository, start: start, head: head, context: context, git: git)
         let (diff, truncated) = capDiff(review.diff)
         let paths = review.paths
-        let diffStat = paths.isEmpty ? "" : try await git(repository, ["diff", GitHardening.ignoreSubmodules, "--no-ext-diff", "--no-color",
-                                                                        "--stat", start, head, "--"] + paths.map { ":(literal)" + $0 })
+        // Decisión C.9.18: un archivo que quedó como en el PR no difiere del head; su `--stat` es contra la base.
+        let keptPR = Set(review.oneSided.filter { $0.resolution.kept == .pr }.map(\.resolution.path))
+        func stat(_ from: String, _ files: [String]) async throws -> String {
+            guard !files.isEmpty else { return "" }
+            return try await git(repository, ["diff", GitHardening.ignoreSubmodules, "--no-ext-diff", "--no-color", "--stat", from, head, "--"]
+                                 + files.map { ":(literal)" + $0 }).trimmingCharacters(in: .newlines)
+        }
+        let diffStat = [try await stat(start, paths.filter { !keptPR.contains($0) }), try await stat(context.baseOid, keptPR.sorted())]
+            .filter { !$0.isEmpty }.joined(separator: "\n")
         let log = try await git(repository, ["log", "--first-parent", "--reverse", "--format=%H%x00%B%x1e", "\(start)..\(head)"])
         func blob(_ object: String?) async -> Data? {
             guard let object else { return nil }
             return (try? await git(repository, ["cat-file", "blob", object])).map { Data($0.utf8) }
         }
-        let outside = Dictionary(review.outside.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
+        // Fuera de los conflictos y en los resueltos con un lado entero, el "antes" no es el head del PR.
+        let outside = Dictionary((review.outside + review.oneSided.map(\.change)).map { ($0.path, $0) },
+                                 uniquingKeysWith: { first, _ in first })
         var dependencies: [String] = []
         for path in paths where DependencyManifests.isManifest(path) {
             if DependencyManifests.isPackageJSON(path) {
-                // Fuera de los conflictos se compara con lo que dejó el merge automático; si no, con el head del PR.
+                // Fuera de los conflictos se compara con lo que dejó el merge automático; en un archivo resuelto con un
+                // lado entero, con el lado descartado; si no, con el head del PR.
                 let before: Data?, after: Data?
                 if let change = outside[path] {
                     before = await blob(change.expected?.oid)
@@ -200,7 +210,8 @@ public struct FixImplementer: Sendable {
         return RespondResult(items: items, diffStat: diffStat.trimmingCharacters(in: .newlines), tests: nil,
                              sensitiveChanges: paths.filter(isSensitive).sorted(), headOid: head, gitIntegrity: integrity,
                              diff: diff, diffTruncated: truncated, commits: commits(fromLog: log),
-                             dependencyChanges: dependencies.sorted(), outsideConflicts: review.outside.map(\.path))
+                             dependencyChanges: dependencies.sorted(), outsideConflicts: review.outside.map(\.path),
+                             oneSidedResolutions: review.oneSided.map(\.resolution))
     }
 
     /// Lo que se revisa de un merge (y lo que el push vuelve a calcular y comparar, también en la Mac para un host).
@@ -212,9 +223,18 @@ public struct FixImplementer: Sendable {
         let resolution: [String]
         /// Las rutas fuera de los conflictos que no quedaron como las dejó el merge automático.
         let outside: [OutsideConflicts.Change]
+        /// Decisión C.9.18: los archivos de contenido en conflicto que quedaron iguales a un lado.
+        let oneSided: [OneSidedChange]
 
-        /// Los archivos de la resolución y los de afuera, ordenados (para el `--stat`, los sensibles y las dependencias).
-        var paths: [String] { Array(Set(resolution).union(outside.map(\.path))).sorted() }
+        /// Los archivos de la resolución, los de afuera y los resueltos con un lado entero, ordenados (para el
+        /// `--stat`, los sensibles y las dependencias).
+        var paths: [String] { Array(Set(resolution).union(outside.map(\.path)).union(oneSided.map(\.resolution.path))).sorted() }
+    }
+
+    /// Un archivo en conflicto resuelto con un lado entero: qué lado quedó y el cambio del lado descartado a HEAD.
+    struct OneSidedChange: Sendable {
+        let resolution: OneSidedResolution
+        let change: OutsideConflicts.Change
     }
 
     static func mergeReview(repository: URL, start: String, head: String, context: ConflictsContext,
@@ -224,11 +244,43 @@ public struct FixImplementer: Sendable {
         let outside = try await outsideChanges(repository: repository, start: start, head: head, context: context, git: git)
         // Un archivo que difiere de los dos padres ya está en el combined diff: solo se agregan los que esconde.
         let shown = Set(resolution)
-        for change in outside where !shown.contains(change.path) {
+        let oneSided = try await oneSidedResolutions(repository: repository, start: start, head: head, context: context,
+                                                     resolution: shown, git: git)
+        for change in outside.filter({ !shown.contains($0.path) }) + oneSided.map(\.change) {
             if !diff.isEmpty && !diff.hasSuffix("\n") { diff += "\n" }
             diff += try await outsideDiff(change, repository: repository, git: git)
         }
-        return MergeReview(diff: diff, resolution: resolution, outside: outside)
+        return MergeReview(diff: diff, resolution: resolution, outside: outside, oneSided: oneSided)
+    }
+
+    /// Decisión C.9.18: los archivos de contenido en conflicto que no están en la resolución (`diff-tree -c`) quedaron
+    /// iguales a un padre: el del PR (se descartó lo de la base) o la base (se descartó lo del PR). El cambio va del
+    /// lado descartado a HEAD.
+    static func oneSidedResolutions(repository: URL, start: String, head: String, context: ConflictsContext, resolution: Set<String>,
+                                    git: (URL, [String]) async throws -> String) async throws -> [OneSidedChange] {
+        let candidates = context.contentFiles.filter { !resolution.contains($0) }.sorted()
+        guard !candidates.isEmpty else { return [] }
+        func tree(_ revision: String) async throws -> [String: AutoMergeEntry] {
+            var output = ""
+            for chunk in stride(from: 0, to: candidates.count, by: 100) {
+                output += try await git(repository, ["--literal-pathspecs", "ls-tree", "-z", "--full-tree", revision, "--"]
+                                        + candidates[chunk..<min(chunk + 100, candidates.count)])
+            }
+            return Dictionary(OutsideConflicts.treeEntries(output).map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
+        }
+        let inHead = try await tree(head), inStart = try await tree(start), inBase = try await tree(context.baseOid)
+        return candidates.compactMap { path in
+            let actual = inHead[path]
+            if actual == inStart[path] {
+                return OneSidedChange(resolution: OneSidedResolution(path: path, kept: .pr),
+                                      change: OutsideConflicts.Change(path: path, expected: inBase[path], actual: actual))
+            }
+            if actual == inBase[path] {
+                return OneSidedChange(resolution: OneSidedResolution(path: path, kept: .base),
+                                      change: OutsideConflicts.Change(path: path, expected: inStart[path], actual: actual))
+            }
+            return nil
+        }
     }
 
     /// Decisión C.9.16: lo que difiere del merge automático (`context.automaticMerge`) fuera de los archivos de

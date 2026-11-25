@@ -889,6 +889,11 @@ struct RespondRunView: View {
                         if let outside = result.outsideConflicts, !outside.isEmpty {
                             OutsideConflictsBanner(paths: outside)
                         }
+                        // Decisión C.9.18: un conflicto resuelto con un lado entero tampoco sale en el combined diff.
+                        if let oneSided = result.oneSidedResolutions, !oneSided.isEmpty {
+                            OutsideConflictsBanner(paths: oneSided.map { $0.description(baseRef: context.baseRef) },
+                                                   title: OneSidedCopy.title, message: OneSidedCopy.message)
+                        }
                         ConflictFilesSection(context: context, summaries: result.items.first?.conflictFiles ?? [])
                     }
                     if !result.sensitiveChanges.isEmpty {
@@ -1136,6 +1141,9 @@ struct RespondRunView: View {
         }
         if let outside = result.outsideConflicts, !outside.isEmpty {
             message += "\n\nClaude changed files outside the conflicts: \(outside.joined(separator: ", ")). Review them in the diff."
+        }
+        if let oneSided = result.oneSidedResolutions, !oneSided.isEmpty {
+            message += "\n\nResolved by keeping one side whole: \(oneSided.map { $0.description(baseRef: baseRef) }.joined(separator: ", ")). Review them in the diff."
         }
         message += "\n\n" + RespondCopy.staleApprovalWarning
         ConfirmAlert.present(title: "Push the merge of \(baseRef) into \(draft.headRef)?", message: message, action: "Push") {
@@ -1955,16 +1963,24 @@ struct ConflictFilesSection: View {
 
 /// Decisión C.9.16: files Claude changed outside the conflicts. The combined diff may hide them (a file brought back to
 /// one side's version), so they go first, in orange, and the push confirmation names them too.
+/// Decisión C.9.18: los conflictos resueltos con un lado entero.
+enum OneSidedCopy {
+    static let title = "Resolved by keeping one side"
+    static let message = "These files ended up exactly as one side had them: the other side’s changes were dropped. The diff shows what was dropped."
+}
+
 struct OutsideConflictsBanner: View {
     let paths: [String]
+    var title = "Changed outside the conflicts"
+    var message = "Claude changed files that weren’t in conflict, or undid what the merge did in them. Review them in the diff before pushing."
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Label {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Changed outside the conflicts")
+                    Text(title)
                         .font(.callout.weight(.semibold))
-                    Text("Claude changed files that weren’t in conflict, or undid what the merge did in them. Review them in the diff before pushing.")
+                    Text(message)
                         .font(.callout)
                         .fixedSize(horizontal: false, vertical: true)
                 }

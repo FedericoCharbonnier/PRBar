@@ -263,6 +263,9 @@ public struct RemoteFixImport: Sendable {
                 try await self.local(repository, arguments)
             }
             fullDiff = review.diff
+            guard review.oneSided.map(\.resolution) == (result.oneSidedResolutions ?? []) else {
+                throw mismatch("the files resolved with one side aren’t the ones you reviewed.")
+            }
             let reviewedPaths = Set(review.paths)
             specialPaths = WorktreeIntegrity.specialStagedPaths(fromRawZ: raw).filter(reviewedPaths.contains)
             guard (try? await local(repository, ["merge-base", "--is-ancestor", conflicts.baseOid, reviewed])) != nil else {
