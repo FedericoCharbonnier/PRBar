@@ -178,5 +178,47 @@ enum ConflictsTests {
             let prompt = ConflictsPrompt.prompt(item: item, draft: conflictsDraft(items: [item]), settings: settings, rules: [])
             try expect(prompt.contains("Merge main into #7: fix README.md."))
         },
+        TestCase("conflicts: el registro del merge automático sale de diff-index, sin los que quedaron en conflicto") {
+            let a = String(repeating: "a", count: 40), b = String(repeating: "b", count: 40), z = String(repeating: "0", count: 40)
+            let raw = ":100644 000000 \(a) \(z) D\0del\0:100644 100644 \(a) \(b) M\0keep\0"
+                + ":000000 100755 \(z) \(b) A\0new\0:100644 000000 \(a) \(z) U\0r\0"
+            try expectEqual(OutsideConflicts.record(fromDiffIndex: raw), [
+                AutoMergeEntry(path: "del", mode: nil, oid: nil),
+                AutoMergeEntry(path: "keep", mode: "100644", oid: b),
+                AutoMergeEntry(path: "new", mode: "100755", oid: b),
+            ])
+        },
+        TestCase("conflicts: un cambio fuera de los conflictos es lo que difiere del merge automático (cambiado, agregado, borrado, revertido)") {
+            let a = String(repeating: "a", count: 40), b = String(repeating: "b", count: 40), c = String(repeating: "c", count: 40)
+            let z = String(repeating: "0", count: 40)
+            // El merge automático trajo `keep` (a→b), `new` (b) y borró `del`.
+            let record = [AutoMergeEntry(path: "keep", mode: "100644", oid: b), AutoMergeEntry(path: "new", mode: "100644", oid: b),
+                          AutoMergeEntry(path: "del", mode: nil, oid: nil)]
+            // Lo que quedó (start..HEAD): el conflicto README resuelto, `keep` tal cual, `new` tal cual, `del` borrado.
+            let clean = ":100644 100644 \(a) \(c) M\0README\0:100644 100644 \(a) \(b) M\0keep\0"
+                + ":000000 100644 \(z) \(b) A\0new\0:100644 000000 \(a) \(z) D\0del\0"
+            try expectEqual(OutsideConflicts.unlisted(record: record, startToHead: clean, conflicted: ["README"]), [])
+            try expectEqual(OutsideConflicts.changes(record: record, startToHead: clean, headTree: "", conflicted: ["README"]), [])
+            // `keep` vuelve a la versión del PR (no aparece en start..HEAD), `new` cambia, `other` es nuevo y `del` vuelve.
+            let touched = ":100644 100644 \(a) \(c) M\0README\0:000000 100644 \(z) \(c) A\0new\0"
+                + ":000000 100644 \(z) \(a) A\0other\0"
+            // `keep` y `del` no están en start..HEAD: HEAD tiene ahí lo del PR (se lee con ls-tree).
+            try expectEqual(OutsideConflicts.unlisted(record: record, startToHead: touched, conflicted: ["README"]), ["del", "keep"])
+            let headTree = "100644 blob \(a)\tdel\0100644 blob \(a)\tkeep\0"
+            let changes = OutsideConflicts.changes(record: record, startToHead: touched, headTree: headTree, conflicted: ["README"])
+            try expectEqual(changes.map(\.path), ["del", "keep", "new", "other"])
+            try expectEqual(changes.first { $0.path == "keep" }, OutsideConflicts.Change(path: "keep", expected: AutoMergeEntry(path: "keep", mode: "100644", oid: b),
+                                                                                     actual: AutoMergeEntry(path: "keep", mode: "100644", oid: a)))
+            try expectEqual(changes.first { $0.path == "other" }?.expected, nil)
+            try expectEqual(changes.first { $0.path == "del" }?.actual?.oid, a)
+            // Sin registro (un draft viejo) no se sabe nada.
+            try expectEqual(OutsideConflicts.changes(record: nil, startToHead: touched, headTree: "", conflicted: ["README"]), [])
+        },
+        TestCase("conflicts: el contexto y el resultado viejos (sin registro ni outsideConflicts) se siguen leyendo") {
+            let context = try JSONDecoder().decode(ConflictsContext.self, from: Data(#"{"baseRef":"main","baseOid":"b","mergeBase":"m","files":[],"incomingCommits":1}"#.utf8))
+            try expectEqual(context.automaticMerge, nil)
+            let result = try JSONDecoder().decode(RespondResult.self, from: Data(#"{"items":[],"diffStat":"","sensitiveChanges":[]}"#.utf8))
+            try expectEqual(result.outsideConflicts, nil)
+        },
     ]
 }

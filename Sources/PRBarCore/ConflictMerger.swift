@@ -49,6 +49,9 @@ struct ConflictMerger: Sendable {
             throw PRBarError.respond("Too many files with conflicts (\(content.count)) for one run: resolve them by hand.")
         }
         try await keepPRVersion(files.filter { $0.kind == .byHand }, entries: unmerged)
+        // Decisión C.9.16: lo que dejó el merge automático fuera de los conflictos, antes de que Claude toque nada.
+        let automatic = OutsideConflicts.record(fromDiffIndex: try await output(
+            ["diff-index", "--cached", "--raw", "-z", "--no-renames", "--no-abbrev", "--ignore-submodules=none", startHeadOid]))
         let count = Int(try await output(["rev-list", "--count", "\(mergeBase)..\(baseOid)"])
             .trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
         let log = try await output(["log", "--no-decorate", "--no-color", "--format=%h %s", "-n", "\(ConflictsItem.maxIncomingCommits)",
@@ -57,7 +60,7 @@ struct ConflictMerger: Sendable {
                                      mergeBase, startHeadOid])
         let (capped, truncated) = Self.cap(diff)
         return Outcome(context: ConflictsContext(baseRef: baseRef, baseOid: baseOid, mergeBase: mergeBase, files: files,
-                                                 incomingCommits: count),
+                                                 incomingCommits: count, automaticMerge: automatic),
                        incomingLog: log, prDiff: capped, prDiffTruncated: truncated)
     }
 

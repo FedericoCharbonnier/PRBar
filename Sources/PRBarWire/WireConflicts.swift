@@ -37,13 +37,19 @@ public struct ConflictsContext: Codable, Equatable, Sendable {
     public var files: [ConflictFile]
     /// Cuántos commits de la base entran (`mergeBase..baseOid`).
     public var incomingCommits: Int
+    /// Decisión C.9.16: lo que dejó el merge automático (antes de Claude) en cada ruta que no es un archivo de
+    /// contenido en conflicto y que difiere del head del PR (el resto quedó como en el head). Contra esto se buscan
+    /// los cambios fuera de los conflictos. Nil en drafts anteriores (no se puede verificar).
+    public var automaticMerge: [AutoMergeEntry]?
 
-    public init(baseRef: String, baseOid: String, mergeBase: String, files: [ConflictFile], incomingCommits: Int) {
+    public init(baseRef: String, baseOid: String, mergeBase: String, files: [ConflictFile], incomingCommits: Int,
+                automaticMerge: [AutoMergeEntry]? = nil) {
         self.baseRef = baseRef
         self.baseOid = baseOid
         self.mergeBase = mergeBase
         self.files = files
         self.incomingCommits = incomingCommits
+        self.automaticMerge = automaticMerge
     }
 
     public var contentFiles: [String] { files.filter { $0.kind == .content }.map(\.path) }
@@ -51,6 +57,22 @@ public struct ConflictsContext: Codable, Equatable, Sendable {
 
     /// El mensaje del commit de merge (decisión C.9.12): fijo, nunca de Claude.
     public func commitMessage(headRef: String) -> String { "Merge \(baseRef) into \(headRef)" }
+}
+
+/// Una entrada del índice (etapa 0) que dejó el merge automático: modo y blob; `nil` los dos = la ruta no está
+/// (el merge la borró).
+public struct AutoMergeEntry: Codable, Equatable, Sendable {
+    public var path: String
+    public var mode: String?
+    public var oid: String?
+
+    public init(path: String, mode: String?, oid: String?) {
+        self.path = path
+        self.mode = mode
+        self.oid = oid
+    }
+
+    public var exists: Bool { mode != nil && oid != nil }
 }
 
 /// Cómo resolvió Claude un archivo (spec C.3.3), ya saneado.

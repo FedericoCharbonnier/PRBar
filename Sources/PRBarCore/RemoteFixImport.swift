@@ -257,11 +257,14 @@ public struct RemoteFixImport: Sendable {
         let specialPaths: [String]
         let raw = try await local(repository, ["diff", "--raw", "-z", "--no-renames", "--no-abbrev", "\(draft.startHeadOid)..\(reviewed)"])
         if let conflicts = draft.conflicts {
-            let url = URL(fileURLWithPath: repository)
-            let git: (URL, [String]) async throws -> String = { _, arguments in try await self.local(repository, arguments) }
-            fullDiff = try await FixImplementer.resolutionDiff(repository: url, head: reviewed, git: git)
-            let resolution = Set(try await FixImplementer.resolutionPaths(repository: url, head: reviewed, git: git))
-            specialPaths = WorktreeIntegrity.specialStagedPaths(fromRawZ: raw).filter(resolution.contains)
+            // El combined diff más los cambios fuera de los conflictos (decisión C.9.16), calculados acá otra vez.
+            let review = try await FixImplementer.mergeReview(repository: URL(fileURLWithPath: repository), start: draft.startHeadOid,
+                                                              head: reviewed, context: conflicts) { _, arguments in
+                try await self.local(repository, arguments)
+            }
+            fullDiff = review.diff
+            let reviewedPaths = Set(review.paths)
+            specialPaths = WorktreeIntegrity.specialStagedPaths(fromRawZ: raw).filter(reviewedPaths.contains)
             guard (try? await local(repository, ["merge-base", "--is-ancestor", conflicts.baseOid, reviewed])) != nil else {
                 throw mismatch("\(reviewed.prefix(12)) doesn’t contain \(conflicts.baseRef).")
             }

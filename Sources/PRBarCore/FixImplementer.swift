@@ -130,8 +130,9 @@ public struct FixImplementer: Sendable {
     static func summarize(repository: URL, start: String, head: String, items: [ItemResult], integrity: String?,
                           conflicts: ConflictsContext? = nil,
                           git: (URL, [String]) async throws -> String) async throws -> RespondResult {
-        if conflicts != nil {
-            return try await summarizeMerge(repository: repository, start: start, head: head, items: items, integrity: integrity, git: git)
+        if let conflicts {
+            return try await summarizeMerge(repository: repository, start: start, head: head, items: items, integrity: integrity,
+                                            context: conflicts, git: git)
         }
         let range = "\(start)..\(head)"
         let diffStat = try await git(repository, ["diff", GitHardening.ignoreSubmodules, "--no-ext-diff", "--no-color", "--stat", range])
@@ -161,22 +162,35 @@ public struct FixImplementer: Sendable {
                              dependencyChanges: dependencies.sorted())
     }
 
-    /// Resolve Conflicts (decisión C.9.5): HEAD es un merge de `start` y la base. Se revisa la resolución: el combined
-    /// diff (`diff-tree --cc`, solo lo que difiere de los dos padres), el único commit (`--first-parent`) y los sensibles,
-    /// las dependencias y el `--stat` de los archivos que difieren de los dos padres; nunca todo lo que trajo la base.
+    /// Resolve Conflicts (decisiones C.9.5 y C.9.16): HEAD es un merge de `start` y la base. Se revisa la resolución:
+    /// el combined diff (`diff-tree --cc`, solo lo que difiere de los dos padres) más los cambios fuera de los
+    /// conflictos que ese diff esconde, el único commit (`--first-parent`) y los sensibles, las dependencias y el
+    /// `--stat` de esos archivos; nunca todo lo que trajo la base.
     static func summarizeMerge(repository: URL, start: String, head: String, items: [ItemResult], integrity: String?,
-                               git: (URL, [String]) async throws -> String) async throws -> RespondResult {
-        let fullDiff = try await resolutionDiff(repository: repository, head: head, git: git)
-        let (diff, truncated) = capDiff(fullDiff)
-        let paths = try await resolutionPaths(repository: repository, head: head, git: git)
+                               context: ConflictsContext, git: (URL, [String]) async throws -> String) async throws -> RespondResult {
+        let review = try await mergeReview(repository: repository, start: start, head: head, context: context, git: git)
+        let (diff, truncated) = capDiff(review.diff)
+        let paths = review.paths
         let diffStat = paths.isEmpty ? "" : try await git(repository, ["diff", GitHardening.ignoreSubmodules, "--no-ext-diff", "--no-color",
                                                                         "--stat", start, head, "--"] + paths.map { ":(literal)" + $0 })
         let log = try await git(repository, ["log", "--first-parent", "--reverse", "--format=%H%x00%B%x1e", "\(start)..\(head)"])
+        func blob(_ object: String?) async -> Data? {
+            guard let object else { return nil }
+            return (try? await git(repository, ["cat-file", "blob", object])).map { Data($0.utf8) }
+        }
+        let outside = Dictionary(review.outside.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
         var dependencies: [String] = []
         for path in paths where DependencyManifests.isManifest(path) {
             if DependencyManifests.isPackageJSON(path) {
-                let before = (try? await git(repository, ["cat-file", "blob", "\(start):\(path)"])).map { Data($0.utf8) }
-                let after = (try? await git(repository, ["cat-file", "blob", "\(head):\(path)"])).map { Data($0.utf8) }
+                // Fuera de los conflictos se compara con lo que dejó el merge automático; si no, con el head del PR.
+                let before: Data?, after: Data?
+                if let change = outside[path] {
+                    before = await blob(change.expected?.oid)
+                    after = await blob(change.actual?.oid)
+                } else {
+                    before = await blob("\(start):\(path)")
+                    after = await blob("\(head):\(path)")
+                }
                 guard DependencyManifests.packageJSONDependenciesChanged(before: before, after: after) else { continue }
             }
             dependencies.append(path)
@@ -184,7 +198,126 @@ public struct FixImplementer: Sendable {
         return RespondResult(items: items, diffStat: diffStat.trimmingCharacters(in: .newlines), tests: nil,
                              sensitiveChanges: paths.filter(isSensitive).sorted(), headOid: head, gitIntegrity: integrity,
                              diff: diff, diffTruncated: truncated, commits: commits(fromLog: log),
-                             dependencyChanges: dependencies.sorted())
+                             dependencyChanges: dependencies.sorted(), outsideConflicts: review.outside.map(\.path))
+    }
+
+    /// Lo que se revisa de un merge (y lo que el push vuelve a calcular y comparar, también en la Mac para un host).
+    struct MergeReview: Sendable {
+        /// El combined diff y, después, un `diff --git` por cada cambio fuera de los conflictos que el combined no
+        /// muestra (sin recortar).
+        let diff: String
+        /// Los archivos que difieren de los dos padres.
+        let resolution: [String]
+        /// Las rutas fuera de los conflictos que no quedaron como las dejó el merge automático.
+        let outside: [OutsideConflicts.Change]
+
+        /// Los archivos de la resolución y los de afuera, ordenados (para el `--stat`, los sensibles y las dependencias).
+        var paths: [String] { Array(Set(resolution).union(outside.map(\.path))).sorted() }
+    }
+
+    static func mergeReview(repository: URL, start: String, head: String, context: ConflictsContext,
+                            git: (URL, [String]) async throws -> String) async throws -> MergeReview {
+        var diff = try await resolutionDiff(repository: repository, head: head, git: git)
+        let resolution = try await resolutionPaths(repository: repository, head: head, git: git)
+        let outside = try await outsideChanges(repository: repository, start: start, head: head, context: context, git: git)
+        // Un archivo que difiere de los dos padres ya está en el combined diff: solo se agregan los que esconde.
+        let shown = Set(resolution)
+        for change in outside where !shown.contains(change.path) {
+            if !diff.isEmpty && !diff.hasSuffix("\n") { diff += "\n" }
+            diff += try await outsideDiff(change, repository: repository, git: git)
+        }
+        return MergeReview(diff: diff, resolution: resolution, outside: outside)
+    }
+
+    /// Decisión C.9.16: lo que difiere del merge automático (`context.automaticMerge`) fuera de los archivos de
+    /// contenido en conflicto. Sin registro (un draft anterior) no hay nada que comparar.
+    static func outsideChanges(repository: URL, start: String, head: String, context: ConflictsContext,
+                               git: (URL, [String]) async throws -> String) async throws -> [OutsideConflicts.Change] {
+        guard let record = context.automaticMerge else { return [] }
+        let raw = try await git(repository, ["diff-tree", "-r", "-z", "--raw", "--no-renames", "--no-abbrev", "--ignore-submodules=none",
+                                             start, head])
+        let conflicted = Set(context.contentFiles)
+        let unlisted = OutsideConflicts.unlisted(record: record, startToHead: raw, conflicted: conflicted)
+        var headTree = ""
+        for chunk in stride(from: 0, to: unlisted.count, by: 100) {
+            headTree += try await git(repository, ["--literal-pathspecs", "ls-tree", "-z", "--full-tree", head, "--"]
+                                      + unlisted[chunk..<min(chunk + 100, unlisted.count)])
+        }
+        return OutsideConflicts.changes(record: record, startToHead: raw, headTree: headTree, conflicted: conflicted)
+    }
+
+    /// Un cambio fuera de los conflictos con el formato de `git diff`: de lo que dejó el merge automático a HEAD. Las
+    /// líneas salen de `git diff <blob> <blob>` (o del contenido entero si un lado no está). Si el blob del merge
+    /// automático no está en este repo (un archivo que mergeó git, en la Mac para un host) o es un submódulo, solo
+    /// va el encabezado.
+    static func outsideDiff(_ change: OutsideConflicts.Change, repository: URL,
+                            git: (URL, [String]) async throws -> String) async throws -> String {
+        let old = change.expected.flatMap { $0.exists ? $0 : nil }, new = change.actual.flatMap { $0.exists ? $0 : nil }
+        func short(_ entry: AutoMergeEntry?) -> String { String((entry?.oid ?? String(repeating: "0", count: 40)).prefix(7)) }
+        var lines = ["diff --git \(quotedDiffPath("a/", change.path)) \(quotedDiffPath("b/", change.path))"]
+        if let old, let new, old.mode != new.mode {
+            lines += ["old mode \(old.mode ?? "")", "new mode \(new.mode ?? "")"]
+        } else if let new, old == nil {
+            lines.append("new file mode \(new.mode ?? "")")
+        } else if let old, new == nil {
+            lines.append("deleted file mode \(old.mode ?? "")")
+        }
+        let sameMode = old != nil && new != nil && old?.mode == new?.mode
+        lines.append("index \(short(old))..\(short(new))" + (sameMode ? " \(old?.mode ?? "")" : ""))
+        let gitlink = old?.mode == "160000" || new?.mode == "160000"
+        guard !gitlink, old?.oid != new?.oid else { return lines.joined(separator: "\n") + "\n" }
+        func text(_ entry: AutoMergeEntry?) async -> String? {
+            guard let oid = entry?.oid else { return "" }
+            return try? await git(repository, ["cat-file", "blob", oid])
+        }
+        guard let before = await text(old), let after = await text(new) else { return lines.joined(separator: "\n") + "\n" }
+        var hunks: [String]
+        if let old, let new, let oldOid = old.oid, let newOid = new.oid {
+            let output = try await git(repository, ["diff", "--text", "--no-textconv", "--no-ext-diff", "--no-color", oldOid, newOid])
+            hunks = Array(TextLines.split(output, strippingCarriageReturns: false).drop { !$0.hasPrefix("@@") })
+            if hunks.last == "" { hunks.removeLast() }
+        } else {
+            hunks = wholeFileHunk(old == nil ? after : before, added: old == nil)
+        }
+        if !hunks.isEmpty {
+            lines.append("--- " + (old == nil ? "/dev/null" : quotedDiffPath("a/", change.path)))
+            lines.append("+++ " + (new == nil ? "/dev/null" : quotedDiffPath("b/", change.path)))
+            lines += hunks
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    /// El hunk de un archivo agregado (`+`) o borrado (`-`) entero, como lo escribe git.
+    static func wholeFileHunk(_ text: String, added: Bool) -> [String] {
+        guard !text.isEmpty else { return [] }
+        var content = text.components(separatedBy: "\n")
+        let endsWithNewline = content.last == ""
+        if endsWithNewline { content.removeLast() }
+        let count = content.count
+        let range = count == 1 ? "1" : "1,\(count)"
+        let sign = added ? "+" : "-"
+        var hunk = [added ? "@@ -0,0 +\(range) @@" : "@@ -\(range) +0,0 @@"] + content.map { sign + $0 }
+        if !endsWithNewline { hunk.append("\\ No newline at end of file") }
+        return hunk
+    }
+
+    /// `a/<ruta>` como lo escribe git: entre comillas y con escapes si tiene comillas, barras invertidas o caracteres
+    /// de control (así una ruta con un salto de línea no puede fingir líneas del diff).
+    static func quotedDiffPath(_ prefix: String, _ path: String) -> String {
+        let full = prefix + path
+        guard full.unicodeScalars.contains(where: { $0 == "\"" || $0 == "\\" || $0.value < 0x20 || $0.value == 0x7f }) else { return full }
+        var quoted = "\""
+        for scalar in full.unicodeScalars {
+            switch scalar {
+            case "\"": quoted += "\\\""
+            case "\\": quoted += "\\\\"
+            case "\n": quoted += "\\n"
+            case "\t": quoted += "\\t"
+            case _ where scalar.value < 0x20 || scalar.value == 0x7f: quoted += String(format: "\\%03o", scalar.value)
+            default: quoted.unicodeScalars.append(scalar)
+            }
+        }
+        return quoted + "\""
     }
 
     /// El combined diff del merge `head` (lo que revisa el usuario y lo que el push vuelve a comparar).

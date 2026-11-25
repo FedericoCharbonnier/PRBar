@@ -299,10 +299,15 @@ public struct RespondResult: Codable, Equatable, Sendable {
     public let dependencyChanges: [String]?
     /// Los commits de un fix remoto ya traídos a la Mac (spec J); nil = el worktree está en esta Mac.
     public var remoteObjects: RemoteObjects?
+    /// Resolve Conflicts (decisión C.9.16): las rutas que no estaban en conflicto y que no quedaron como las dejó el
+    /// merge automático (cambiadas, agregadas o borradas por Claude o el chat). Nil fuera de ese modo y en registros
+    /// anteriores.
+    public var outsideConflicts: [String]?
 
     public init(items: [ItemResult], diffStat: String, tests: TestRun?, sensitiveChanges: [String] = [],
                 headOid: String? = nil, gitIntegrity: String? = nil, diff: String? = nil, diffTruncated: Bool? = nil,
-                commits: [CommitInfo]? = nil, dependencyChanges: [String]? = nil, remoteObjects: RemoteObjects? = nil) {
+                commits: [CommitInfo]? = nil, dependencyChanges: [String]? = nil, remoteObjects: RemoteObjects? = nil,
+                outsideConflicts: [String]? = nil) {
         self.items = items
         self.diffStat = diffStat
         self.tests = tests
@@ -314,6 +319,7 @@ public struct RespondResult: Codable, Equatable, Sendable {
         self.commits = commits
         self.dependencyChanges = dependencyChanges
         self.remoteObjects = remoteObjects
+        self.outsideConflicts = outsideConflicts
     }
 }
 

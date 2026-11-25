@@ -125,3 +125,107 @@ public enum ConflictIndex {
         Array(Set(IndexStageEntry.parse(output).filter { $0.stage != 0 }.map(\.path))).sorted()
     }
 }
+
+/// Una línea de `git diff-index`/`diff-tree --raw -z --no-renames --no-abbrev`: `:<modo> <modo> <sha> <sha> <estado>\0<ruta>\0`.
+public struct RawDiffEntry: Equatable, Sendable {
+    public let oldMode: String
+    public let newMode: String
+    public let oldOid: String
+    public let newOid: String
+    public let status: String
+    public let path: String
+
+    public static func parse(_ output: String) -> [RawDiffEntry] {
+        let fields = output.split(separator: "\0", omittingEmptySubsequences: false).map(String.init)
+        var entries: [RawDiffEntry] = []
+        var index = 0
+        while index + 1 < fields.count {
+            let header = fields[index].split(separator: " ").map(String.init)
+            if header.count == 5, header[0].hasPrefix(":") {
+                entries.append(RawDiffEntry(oldMode: String(header[0].dropFirst()), newMode: header[1], oldOid: header[2],
+                                            newOid: header[3], status: header[4], path: fields[index + 1]))
+                index += 2
+            } else {
+                index += 1
+            }
+        }
+        return entries
+    }
+
+    /// El lado viejo o nuevo como entrada; nil si la ruta no está de ese lado (modo `000000`).
+    var old: AutoMergeEntry? { Self.entry(path, oldMode, oldOid) }
+    var new: AutoMergeEntry? { Self.entry(path, newMode, newOid) }
+
+    private static func entry(_ path: String, _ mode: String, _ oid: String) -> AutoMergeEntry? {
+        mode == "000000" ? nil : AutoMergeEntry(path: path, mode: mode, oid: oid)
+    }
+}
+
+/// Decisión C.9.16: el combined diff (`diff-tree --cc`) no muestra un archivo que quedó igual a uno de los padres, así
+/// que no ve, p. ej., a Claude devolviendo a la versión del PR un archivo que la base cambió sin conflicto. Antes de
+/// Claude, PRBar guarda lo que dejó el merge automático (`record`); después, todo lo que difiere de eso fuera de los
+/// archivos de contenido en conflicto es "un cambio fuera de los conflictos". Sin correr nada.
+public enum OutsideConflicts {
+    /// Una ruta fuera de los conflictos que no quedó como la dejó el merge automático. `nil` = la ruta no está.
+    public struct Change: Equatable, Sendable {
+        public let path: String
+        public let expected: AutoMergeEntry?
+        public let actual: AutoMergeEntry?
+
+        public init(path: String, expected: AutoMergeEntry?, actual: AutoMergeEntry?) {
+            self.path = path
+            self.expected = expected
+            self.actual = actual
+        }
+    }
+
+    /// El registro, de `diff-index --cached --raw -z --no-renames --no-abbrev <startHeadOid>` justo después del merge
+    /// (y de dejar la versión del PR en los "by hand"): lo que difiere del head, sin las rutas en conflicto (`U`).
+    public static func record(fromDiffIndex output: String) -> [AutoMergeEntry] {
+        RawDiffEntry.parse(output).filter { $0.status != "U" }.map { entry in
+            entry.new ?? AutoMergeEntry(path: entry.path, mode: nil, oid: nil)
+        }
+    }
+
+    /// Las rutas del registro que no aparecen en `startToHead` (`diff-tree --raw -z start HEAD`): ahí HEAD es igual
+    /// al head del PR, así que no es lo del merge automático. Hay que leerlas de HEAD (`ls-tree`) para `changes`.
+    public static func unlisted(record: [AutoMergeEntry]?, startToHead: String, conflicted: Set<String>) -> [String] {
+        guard let record else { return [] }
+        let listed = Set(RawDiffEntry.parse(startToHead).map(\.path))
+        return record.map(\.path).filter { !listed.contains($0) && !conflicted.contains($0) }.sorted()
+    }
+
+    /// Lo que difiere del merge automático. Lo esperado de cada ruta es lo del registro o, si no está, lo del head del
+    /// PR (el lado viejo de `startToHead`); lo que hay es el lado nuevo de `startToHead` o, para las rutas `unlisted`,
+    /// lo de `headTree` (`ls-tree -z HEAD -- <esas rutas>`). Sin registro (un draft anterior) devuelve `[]`.
+    public static func changes(record: [AutoMergeEntry]?, startToHead: String, headTree: String,
+                               conflicted: Set<String>) -> [Change] {
+        guard let record else { return [] }
+        let recorded = Dictionary(record.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
+        let raw = RawDiffEntry.parse(startToHead)
+        var changes: [Change] = []
+        for entry in raw where !conflicted.contains(entry.path) {
+            let expected: AutoMergeEntry?
+            if let automatic = recorded[entry.path] { expected = automatic.exists ? automatic : nil } else { expected = entry.old }
+            let actual = entry.new
+            if expected != actual { changes.append(Change(path: entry.path, expected: expected, actual: actual)) }
+        }
+        let inHead = Dictionary(treeEntries(headTree).map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
+        for path in unlisted(record: record, startToHead: startToHead, conflicted: conflicted) {
+            let expected = recorded[path].flatMap { $0.exists ? $0 : nil }
+            let actual = inHead[path]
+            if expected != actual { changes.append(Change(path: path, expected: expected, actual: actual)) }
+        }
+        return changes.sorted { $0.path < $1.path }
+    }
+
+    /// `ls-tree -z`: `<modo> <tipo> <sha>\t<ruta>\0`.
+    static func treeEntries(_ output: String) -> [AutoMergeEntry] {
+        output.split(separator: "\0").compactMap { record in
+            guard let tab = record.firstIndex(of: "\t") else { return nil }
+            let fields = record[..<tab].split(separator: " ")
+            guard fields.count == 3 else { return nil }
+            return AutoMergeEntry(path: String(record[record.index(after: tab)...]), mode: String(fields[0]), oid: String(fields[2]))
+        }
+    }
+}

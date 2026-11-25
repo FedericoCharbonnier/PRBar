@@ -1090,6 +1090,76 @@ enum RespondPipelineTests {
             _ = try await implementer.undoChatTurn(draft: draft, snapshot: try expectNotNil(outcome.snapshot))
             try expectEqual(try e.git(draft.worktree.path, ["rev-parse", "HEAD"]), merge)
         },
+        TestCase("resolve conflicts: lo que Claude cambia fuera de los conflictos (aunque vuelva a la versión del PR) se ve en el diff y en outsideConflicts") { @MainActor in
+            // La base cambia shared.txt y el workflow sin chocar; el PR no los toca.
+            let baseSetup: @Sendable (URL) throws -> Void = { dir in
+                try Data("v1\n".utf8).write(to: dir.appendingPathComponent("shared.txt"))
+                try FileManager.default.createDirectory(at: dir.appendingPathComponent(".github/workflows"), withIntermediateDirectories: true)
+                try Data("on: push\n".utf8).write(to: dir.appendingPathComponent(".github/workflows/ci.yml"))
+                try Data("bye\n".utf8).write(to: dir.appendingPathComponent("gone.txt"))
+            }
+            let baseChange: @Sendable (URL) throws -> Void = { dir in
+                try Data("v2 base\n".utf8).write(to: dir.appendingPathComponent("shared.txt"))
+                try Data("on: [push, pull_request]\n".utf8).write(to: dir.appendingPathComponent(".github/workflows/ci.yml"))
+                try FileManager.default.removeItem(at: dir.appendingPathComponent("gone.txt"))
+            }
+            func run(_ claude: ScriptedClaude) async throws -> (E2E, RespondDraft, RespondResult) {
+                let (e, _) = try conflictingE2E(claude: claude, baseSetup: baseSetup, baseChange: baseChange)
+                let request = RespondRequest(item: classified(7), localPath: e.repo.local.path, worktreeDir: e.worktreeDir.path, mode: .conflicts)
+                let draft = try await e.pipeline.analyze(request, draftID: UUID()) { _ in }
+                let result = try await e.pipeline.implement(draft: draft, selections: [draft.items[0].id: RespondSelection.defaults(for: draft.items[0])]) { _, _ in }
+                return (e, draft, result)
+            }
+            // 1) Claude solo resuelve README: nada fuera de los conflictos.
+            let clean = ScriptedClaude { schema, _, cwd in
+                guard schema == RespondSchemas.conflicts else { return [] }
+                try Data("hola PR y base\n".utf8).write(to: cwd.appendingPathComponent("README.md"))
+                return [conflictsLine()]
+            }
+            let (e1, draft1, result1) = try await run(clean)
+            defer { e1.repo.remove() }
+            try expectEqual(Set(draft1.conflicts?.automaticMerge?.map(\.path) ?? []), ["shared.txt", ".github/workflows/ci.yml", "gone.txt"])
+            try expectEqual(result1.outsideConflicts, [])
+            try expect(result1.diff?.contains("shared.txt") == false, result1.diff ?? "")
+            try expectEqual(result1.sensitiveChanges, [])
+            // Un turno del chat que devuelve shared.txt a la versión del PR: aparece.
+            let implementer = FixImplementer(
+                claude: ClaudeRunner(runner: clean, claudePath: "/usr/local/bin/claude", pluginDirs: [], environment: [:],
+                                     logURL: e1.history.logURL(for: draft1.id), redacting: []),
+                runner: SystemProcessRunner(), gitPath: TempGitRepo.git, environment: gitEnvironment)
+            let (_, outcome) = try await implementer.chatTurn(draft: draft1, current: result1, sessionID: UUID(), turn: 1) {
+                try Data("v1\n".utf8).write(to: URL(fileURLWithPath: draft1.worktree.path).appendingPathComponent("shared.txt"))
+            }
+            try expectEqual(outcome.result?.outsideConflicts, ["shared.txt"])
+            try expect(outcome.result?.diff?.contains("diff --git a/shared.txt b/shared.txt\n") == true, outcome.result?.diff ?? "")
+            // 2) Claude además revierte en silencio los cambios de la base en shared.txt y en el workflow, vuelve a
+            // crear gone.txt (que la base borró) y agrega added.txt.
+            let sneaky = ScriptedClaude { schema, _, cwd in
+                guard schema == RespondSchemas.conflicts else { return [] }
+                try Data("hola PR y base\n".utf8).write(to: cwd.appendingPathComponent("README.md"))
+                try Data("v1\n".utf8).write(to: cwd.appendingPathComponent("shared.txt"))
+                try Data("on: push\n".utf8).write(to: cwd.appendingPathComponent(".github/workflows/ci.yml"))
+                try Data("nuevo\n".utf8).write(to: cwd.appendingPathComponent("added.txt"))
+                try Data("bye\n".utf8).write(to: cwd.appendingPathComponent("gone.txt"))
+                return [conflictsLine()]
+            }
+            let (e2, draft2, result2) = try await run(sneaky)
+            defer { e2.repo.remove() }
+            // El combined diff solo no muestra los que quedaron iguales a un padre (added.txt sí: difiere de los dos).
+            let combined = try e2.git(draft2.worktree.path, ["diff-tree", "--cc", "--no-commit-id", "-p", "HEAD"])
+            try expect(!combined.contains("shared.txt") && !combined.contains("ci.yml") && !combined.contains("gone.txt"), combined)
+            try expectEqual(result2.outsideConflicts, [".github/workflows/ci.yml", "added.txt", "gone.txt", "shared.txt"])
+            let diff = result2.diff ?? ""
+            try expect(diff.contains("diff --git a/shared.txt b/shared.txt\n"), diff)
+            try expect(diff.contains("--- a/shared.txt\n+++ b/shared.txt\n"), diff)
+            try expect(diff.contains("-v2 base\n+v1"), diff)
+            try expect(diff.contains("-on: [push, pull_request]\n+on: push"), diff)
+            try expect(diff.contains("diff --cc added.txt") && !diff.contains("diff --git a/added.txt"), diff)
+            try expect(diff.contains("diff --git a/gone.txt b/gone.txt\nnew file mode 100644\nindex 0000000..b023018\n"), diff)
+            try expect(diff.contains("--- /dev/null\n+++ b/gone.txt\n@@ -0,0 +1 @@\n+bye\n"), diff)
+            try expect(result2.sensitiveChanges.contains(".github/workflows/ci.yml"), "\(result2.sensitiveChanges)")
+            try expect(result2.diffStat.contains("added.txt"), result2.diffStat)
+        },
         TestCase("resolve conflicts: pushea el merge con el PR re-verificado; con otro head o cerrado no pushea") { @MainActor in
             let claude = ScriptedClaude { schema, _, cwd in
                 guard schema == RespondSchemas.conflicts else { return [] }

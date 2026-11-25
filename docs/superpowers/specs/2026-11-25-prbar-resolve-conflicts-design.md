@@ -162,3 +162,15 @@ PRs de forks, rebase, PRs de otros, resolver conflictos de merge queue o de rama
     `-c rerere.enabled=false` (un rerere del usuario no resuelve nada a escondidas).
 15. Notificaciones: "Conflicts Resolved" (con cuántos quedan a mano), "Resolution Pushed" y "Couldn’t Resolve Conflicts";
     abren la pestaña Respond.
+16. **Cambios fuera de los conflictos**: el combined diff (`diff-tree --cc`) esconde un archivo cuyo resultado es igual a
+    la versión de uno de los padres (p. ej. Claude devuelve a la versión del PR un archivo que la base cambió sin
+    conflicto). Después del merge y antes de Claude, PRBar guarda lo que dejó el merge automático en cada ruta que no
+    es un archivo de contenido en conflicto (`ConflictsContext.automaticMerge`: modo y blob de etapa 0, de
+    `diff-index --cached --raw <startHeadOid>`, solo las rutas que difieren del head; las demás quedaron como en el
+    head). Después de Claude y de cada turno del chat, PRBar compara HEAD con ese registro en esas rutas (cambiadas,
+    agregadas o borradas): cada diferencia es "un cambio fuera de los conflictos". Se lista en
+    `RespondResult.outsideConflicts` (la UI y la confirmación del push la muestran, plan 23 Task 12), entra en el
+    `--stat`, los archivos sensibles y las dependencias, y si el combined diff no la muestra se agrega al final del diff
+    revisado un `diff --git` del merge automático a HEAD. En un host el registro viaja en el draft y la Mac recalcula
+    lo mismo al importar y al pushear; si el blob del merge automático no está en la Mac (un archivo que mergeó git),
+    ese archivo va solo con el encabezado.
