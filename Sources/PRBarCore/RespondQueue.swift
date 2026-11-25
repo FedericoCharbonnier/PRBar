@@ -392,10 +392,36 @@ public final class RespondQueue: ObservableObject {
         }.sorted()
     }
 
+    /// PRs con un Resolve Conflicts `done` que se vieron sin conflictos después (decisión C.9.10).
+    private var conflictsClearedSinceDone: Set<String> = []
+
+    /// Spec C.6: los Resolve Conflicts terminados que hay que descartar porque el PR tiene conflictos otra vez: después
+    /// de verse sin conflictos, o con un head que no es el que se pusheó. `conflicting`: los PRs con conflictos del último
+    /// refresco; `heads`: su head. Una corrida con un job o cancelándose no aparece.
+    public func conflictRunsToDrop(conflicting: Set<String>, heads: [String: String]) -> [String] {
+        var drop: [String] = []
+        for (prID, phase) in phases {
+            guard case .done(let record) = phase, record.draft.isConflicts, jobs[prID] == nil, cancelling[prID] == nil else {
+                conflictsClearedSinceDone.remove(prID)
+                continue
+            }
+            guard conflicting.contains(prID) else {
+                conflictsClearedSinceDone.insert(prID)
+                continue
+            }
+            let movedHead = heads[prID].map { $0 != record.result?.headOid } ?? false
+            if conflictsClearedSinceDone.contains(prID) || movedHead { drop.append(prID) }
+        }
+        // Los PRs que ya no tienen fase no guardan nada.
+        conflictsClearedSinceDone.formIntersection(phases.keys)
+        return drop.sorted()
+    }
+
     /// Vuelve a idle, olvida el registro (queda en el historial) y borra el worktree de PRBar. No toca un PR con
     /// un job.
     public func dismiss(prID: String) {
         pushBlockedByTests.remove(prID)
+        conflictsClearedSinceDone.remove(prID)
         guard jobs[prID] == nil, cancelling[prID] == nil else { return }
         pushBlockedByCI[prID] = nil
         modes[prID] = nil

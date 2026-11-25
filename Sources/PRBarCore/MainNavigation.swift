@@ -90,7 +90,7 @@ public enum PRTabs {
         }
         return [
             PRTabItem(tab: .merge, isEnabled: true),
-            PRTabItem(tab: .respond, isEnabled: c.hasFeedback || c.respondTask == .feedback),
+            PRTabItem(tab: .respond, isEnabled: c.hasFeedback || c.respondTask == .feedback || c.respondTask == .conflicts),
             PRTabItem(tab: .fixCI, isEnabled: c.ciFailing || c.respondTask == .ciFix),
         ]
     }
@@ -106,13 +106,14 @@ public enum PRTabs {
 
     public static func initial(_ c: PRTabContext) -> PRTab {
         guard c.isMine else { return .review }
+        // Resolve Conflicts se ve en Respond (decisión C.9.8), aunque el CI esté roto.
+        if c.respondTask == .conflicts { return .respond }
         if c.hasFeedback { return .respond }
         if c.ciFailing { return .fixCI }
         switch c.respondTask {
         case .feedback?: return .respond
         case .ciFix?: return .fixCI
-        // Provisorio (Task 10 le da su pestaña): como un Fix CI.
-        case .conflicts?: return .fixCI
+        case .conflicts?: return .respond
         case nil: return .merge
         }
     }

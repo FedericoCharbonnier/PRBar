@@ -23,14 +23,14 @@ private func respondItem(_ feedback: FeedbackItem, action: FeedbackAction = .fix
     RespondItem(feedback: feedback, assessment: "Tiene razón.", action: action, fixPlan: "plan", reply: "Gracias")
 }
 
-private func fakeDraft(_ number: Int, id: UUID) -> RespondDraft {
+private func fakeDraft(_ number: Int, id: UUID, mode: RespondMode = .feedback) -> RespondDraft {
     let pr = makePR(number: number, author: "fede")
     return RespondDraft(
         id: id, prID: pr.id, repo: pr.repo, number: number, title: pr.title, url: pr.url, headRef: pr.headRef,
         account: "fede", worktree: ResolvedWorktree(path: "/wt/\(number)", origin: .dedicated, localPath: "/repos/r",
                                                     ref: "refs/prbar/respond-\(number)-0a1b2c3d"), startHeadOid: startOid,
         items: [respondItem(threadItem("thread:A", databaseID: 101)), respondItem(threadItem("thread:B", databaseID: 102))],
-        language: PRLanguage(code: "es"))
+        language: PRLanguage(code: "es"), mode: mode)
 }
 
 private let bothSelected: [String: RespondSelection] = [
@@ -177,10 +177,12 @@ final class FakeRespondPipeline: RespondPipelineRunning, @unchecked Sendable {
         sink?(phase)
     }
 
-    func completeAnalysis(_ number: Int, _ result: Result<Void, Error> = .success(())) {
+    /// `mode`: el del draft que devuelve (por defecto feedback, que se queda en `ready`; con Fix CI o Resolve
+    /// Conflicts la cola arranca la implementación sola).
+    func completeAnalysis(_ number: Int, _ result: Result<Void, Error> = .success(()), mode: RespondMode = .feedback) {
         let key = prID(number)
         guard let entry = lock.withLock({ analyses.removeValue(forKey: key) }) else { return }
-        entry.continuation.resume(with: result.map { fakeDraft(number, id: entry.id) })
+        entry.continuation.resume(with: result.map { fakeDraft(number, id: entry.id, mode: mode) })
     }
 
     @MainActor func sendProgress(_ done: Int, _ total: Int, to prID: String) {
@@ -270,6 +272,20 @@ private final class Harness {
         try await events.wait(for: reached(number, "ready"))
     }
 
+    /// analyze(mode:) → implementación sola (Fix CI, Resolve Conflicts) → readyToPush → publish → done.
+    func finishPushedRun(_ number: Int, mode: RespondMode, headOid: String = String(repeating: "d", count: 40)) async throws {
+        queue.analyze(classified(number), localPath: "/repos/r", worktreeDir: nil, mode: mode)
+        try await events.wait(for: [.started("analyze:\(prID(number))")])
+        pipeline.completeAnalysis(number, mode: mode)
+        try await events.wait(for: [.started("implement:\(prID(number))")])
+        let result = RespondResult(items: [ItemResult(id: "thread:A", status: .committed, commit: headOid, summary: "ok")],
+                                   diffStat: " README.md | 1 +", tests: nil, headOid: headOid)
+        pipeline.completeImplementation(prID(number), .success(result))
+        try await events.wait(for: reached(number, "readyToPush"))
+        queue.publish(prID: prID(number))
+        try await events.wait(for: reached(number, "done"))
+    }
+
     /// ready → implementing → readyToPush.
     func toReadyToPush(_ number: Int, result: RespondResult = fixResult) async throws {
         try await toReady(number)
@@ -296,6 +312,22 @@ enum RespondQueueTests {
             try expectEqual(h.queue.finishedRunsWithNewFeedback(latestFeedback: [:]), [])
             try expectEqual(h.queue.finishedRunsWithNewFeedback(latestFeedback: [prID(1): finished.addingTimeInterval(-60)]), [])
             try expectEqual(h.queue.finishedRunsWithNewFeedback(latestFeedback: [prID(1): finished.addingTimeInterval(60)]), [prID(1)])
+        },
+        TestCase("respond queue: un Resolve Conflicts terminado se descarta al volver a tener conflictos") { @MainActor in
+            let h = try Harness()
+            try await h.finishPushedRun(1, mode: .conflicts)
+            let pushed = try expectNotNil(h.queue.records[prID(1)]?.result?.headOid)
+            try expectEqual(h.queue.conflictRunsToDrop(conflicting: [prID(1)], heads: [prID(1): pushed]), [])   // dato viejo de GitHub
+            try expectEqual(h.queue.conflictRunsToDrop(conflicting: [], heads: [prID(1): pushed]), [])          // se vio sin conflictos
+            try expectEqual(h.queue.conflictRunsToDrop(conflicting: [prID(1)], heads: [prID(1): pushed]), [prID(1)])
+            // Otro head con conflictos también.
+            try await h.finishPushedRun(2, mode: .conflicts)
+            try expectEqual(h.queue.conflictRunsToDrop(conflicting: [prID(2)], heads: [prID(2): String(repeating: "e", count: 40)]), [prID(2)])
+            // Un Fix CI terminado no aparece; descartar olvida que se vio sin conflictos.
+            try await h.finishPushedRun(3, mode: .ciFix)
+            try expectEqual(h.queue.conflictRunsToDrop(conflicting: [prID(3)], heads: [prID(3): "x"]), [])
+            h.queue.dismiss(prID: prID(1))
+            try expectEqual(h.queue.conflictRunsToDrop(conflicting: [prID(1)], heads: [:]), [])
         },
         TestCase("respond queue: transiciones felices y registro guardado en cada una") { @MainActor in
             let h = try Harness()

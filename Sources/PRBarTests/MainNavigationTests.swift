@@ -5,12 +5,37 @@ private func context(mine: Bool, feedback: Bool = false, ci: Bool = false, task:
     PRTabContext(isMine: mine, hasFeedback: feedback, ciFailing: ci, respondTask: task)
 }
 
+/// Un PR propio con esa categoría, CI y conflictos con su base (o sin ellos).
+private func mine(category: PRCategory, conflicts: Bool, ci: CIState = .success) -> ClassifiedPR {
+    let merge = conflicts ? PRMergeState(nodeID: "PR_1", mergeable: .conflicting, status: .dirty)
+        : PRMergeState(nodeID: "PR_1", mergeable: .mergeable, status: .clean)
+    return ClassifiedPR(pr: makePR(number: 1, author: "me", ci: ci, merge: merge), category: category, account: "me")
+}
+
 private func sectionOf(_ prID: String) -> MainSection? {
     prID.hasPrefix("me/") ? .myPRs : (prID.hasPrefix("o/") ? .toReview : nil)
 }
 
 enum MainNavigationTests {
     static let cases: [TestCase] = [
+        TestCase("primary action: Resolve Conflicts en mis PRs con conflictos; prima sobre Fix CI; With Feedback sigue con Respond") {
+            let ready = mine(category: .readyToMerge, conflicts: true)
+            try expectEqual(PRPrimaryAction.of(ready, review: nil, respond: nil, respondMode: nil), .startConflicts)
+            let failing = mine(category: .other, conflicts: true, ci: .failure)
+            try expectEqual(PRPrimaryAction.of(failing, review: nil, respond: nil, respondMode: nil), .startConflicts)
+            let feedback = mine(category: .myFeedback, conflicts: true)
+            try expectEqual(PRPrimaryAction.of(feedback, review: nil, respond: nil, respondMode: nil), .startRespond)
+            try expectEqual(PRPrimaryAction.of(feedback, review: nil, respond: .preparing, respondMode: .conflicts), .openConflicts)
+            try expectEqual(PRPrimaryAction.of(mine(category: .readyToMerge, conflicts: false), review: nil, respond: nil, respondMode: nil), .openMerge)
+            try expectEqual(PRPrimaryAction.startConflicts.tab, .respond)
+            try expectEqual(PRPrimaryAction.openConflicts.title, "Open Resolve Conflicts")
+            try expect(PRPrimaryAction.startConflicts.startsJob)
+        },
+        TestCase("pr tabs: una corrida de conflictos se ve en Respond (habilitada e inicial)") {
+            let c = PRTabContext(isMine: true, hasFeedback: false, ciFailing: true, respondTask: .conflicts)
+            try expect(PRTabs.tabs(c).contains { $0.tab == .respond && $0.isEnabled })
+            try expectEqual(PRTabs.initial(c), .respond)
+        },
         TestCase("navegación: PR ajeno tiene Review y Details y empieza en Review") {
             let c = context(mine: false)
             try expectEqual(PRTabs.tabs(c).map(\.tab), [.review, .details])

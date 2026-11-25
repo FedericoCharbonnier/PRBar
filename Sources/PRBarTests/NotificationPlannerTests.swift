@@ -160,6 +160,23 @@ enum NotificationPlannerTests {
             let failed = NotificationPlanner.respondFinished(prID: "o/r#7", repo: repo, number: 7, event: .failed, settings: settings)
             try expectEqual(failed?.title, "Couldn't Respond")
         },
+        TestCase("notificaciones: Resolve Conflicts listo (con archivos a mano), pusheado y fallido abren Respond") {
+            let settings = NotificationSettings()
+            let ready = NotificationPlanner.respondFinished(prID: "o/r#7", repo: RepoRef(owner: "o", name: "r"), number: 7,
+                                                            event: .conflictsReady(byHand: 2), settings: settings)
+            try expectEqual(ready?.title, "Conflicts Resolved")
+            try expect(ready?.body.contains("2 files to resolve by hand") == true)
+            try expectEqual(ready?.tab, .respond)
+            try expectEqual(NotificationPlanner.respondFinished(prID: "o/r#7", repo: RepoRef(owner: "o", name: "r"), number: 7,
+                                                                event: .conflictsReady(byHand: 0), settings: settings)?.body,
+                            "r#7: review the merge and push it")
+            try expectEqual(NotificationPlanner.respondFinished(prID: "o/r#7", repo: RepoRef(owner: "o", name: "r"), number: 7,
+                                                                event: .conflictsPushed, settings: settings)?.title, "Resolution Pushed")
+            let failed = NotificationPlanner.respondFinished(prID: "o/r#7", repo: RepoRef(owner: "o", name: "r"), number: 7,
+                                                             event: .conflictsFailed, settings: settings)
+            try expectEqual(failed?.title, "Couldn’t Resolve Conflicts")
+            try expectEqual(failed?.tab, .respond)
+        },
         TestCase("notif: Responder usa el interruptor de reviews terminadas") {
             var settings = NotificationSettings()
             settings.reviewFinished = false
