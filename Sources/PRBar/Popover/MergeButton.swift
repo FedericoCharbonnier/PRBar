@@ -82,8 +82,7 @@ struct MergeStatusLabel: View {
     var body: some View {
         if availability.reason == MergePolicy.conflicts {
             // Lo único que pide algo de mí: resolver los conflictos (spec F.1.1).
-            Label(MergePolicy.conflicts, systemImage: "exclamationmark.triangle.fill")
-                .foregroundStyle(Theme.orangeText)
+            ConflictsStatusLabel()
         } else if let reason = availability.reason {
             Label(reason, systemImage: reason == MergePolicy.checking ? "clock" : "lock")
                 .foregroundStyle(.secondary)
@@ -94,5 +93,13 @@ struct MergeStatusLabel: View {
             Label(Self.text(for: availability), systemImage: "checkmark.seal")
                 .foregroundStyle(Theme.greenText)
         }
+    }
+}
+
+/// "This branch has conflicts" in orange (spec F.1.1, C.2): the only thing that asks something of me.
+struct ConflictsStatusLabel: View {
+    var body: some View {
+        Label(MergePolicy.conflicts, systemImage: "exclamationmark.triangle.fill")
+            .foregroundStyle(Theme.orangeText)
     }
 }

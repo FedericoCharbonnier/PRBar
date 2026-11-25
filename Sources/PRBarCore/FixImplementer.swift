@@ -39,6 +39,8 @@ import os
 ///   como argumento de `-m`.
 public struct FixImplementer: Sendable {
     public static let tools = ["Read", "Grep", "Glob", "Edit", "Write", "Skill", "Agent"]
+    /// Resolve Conflicts: solo leer y editar el worktree, sin skills ni subagentes (decisión C.9.17).
+    public static let conflictTools = ["Read", "Grep", "Glob", "Edit", "Write"]
     public static let fixTimeout: TimeInterval = 15 * 60
     public static let testTimeout: TimeInterval = 20 * 60
     /// Líneas del output del testCommand que se guardan en el resultado (el log tiene todo).
@@ -85,6 +87,7 @@ public struct FixImplementer: Sendable {
     /// (`tests` queda nil; ver `runTests`).
     public func implement(draft: RespondDraft, selections: [String: RespondSelection],
                           onProgress: @escaping @MainActor @Sendable (_ done: Int, _ total: Int) -> Void) async throws -> RespondResult {
+        if draft.isConflicts { return try await resolveConflicts(draft: draft, onProgress: onProgress) }
         let worktree = URL(fileURLWithPath: draft.worktree.path, isDirectory: true)
         try await checkNestedGitsIgnored(worktree)
         let start = try await verifyStart(draft.startHeadOid, worktree: worktree)
@@ -114,10 +117,11 @@ public struct FixImplementer: Sendable {
 
     /// The result of the fixes (`start..HEAD`): diff stat, sensitive files, the full diff (capped), the commits with
     /// their messages, HEAD and `integrity` (git's digest, the push's baseline). Never runs tests (`tests` is nil).
-    private func summarize(_ worktree: URL, start: String, items: [ItemResult], integrity: String?) async throws -> RespondResult {
+    private func summarize(_ worktree: URL, start: String, items: [ItemResult], integrity: String?,
+                           conflicts: ConflictsContext? = nil) async throws -> RespondResult {
         try await checkNestedGitsIgnored(worktree)
         return try await Self.summarize(repository: worktree, start: start, head: try await head(worktree), items: items,
-                                        integrity: integrity) { repository, arguments in
+                                        integrity: integrity, conflicts: conflicts) { repository, arguments in
             try await self.git(repository, arguments)
         }
     }
@@ -126,7 +130,12 @@ public struct FixImplementer: Sendable {
     /// trajeron los fixes de un host): `--stat`, diff completo (cortado), commits, sensibles y dependencias.
     /// `items`/`integrity` se copian. `git` corre git endurecido en `repository`.
     static func summarize(repository: URL, start: String, head: String, items: [ItemResult], integrity: String?,
+                          conflicts: ConflictsContext? = nil,
                           git: (URL, [String]) async throws -> String) async throws -> RespondResult {
+        if let conflicts {
+            return try await summarizeMerge(repository: repository, start: start, head: head, items: items, integrity: integrity,
+                                            context: conflicts, git: git)
+        }
         let range = "\(start)..\(head)"
         let diffStat = try await git(repository, ["diff", GitHardening.ignoreSubmodules, "--no-ext-diff", "--no-color", "--stat", range])
         let changed = try await git(repository, ["diff", GitHardening.ignoreSubmodules, "--no-ext-diff", "--no-renames", "--name-only", "-z", range])
@@ -153,6 +162,228 @@ public struct FixImplementer: Sendable {
                              gitIntegrity: integrity, diff: diff, diffTruncated: truncated,
                              commits: commits(fromLog: log),
                              dependencyChanges: dependencies.sorted())
+    }
+
+    /// Resolve Conflicts (decisiones C.9.5 y C.9.16): HEAD es un merge de `start` y la base. Se revisa la resolución:
+    /// el combined diff (`diff-tree --cc`, solo lo que difiere de los dos padres) más los cambios fuera de los
+    /// conflictos que ese diff esconde, el único commit (`--first-parent`) y los sensibles, las dependencias y el
+    /// `--stat` de esos archivos; nunca todo lo que trajo la base.
+    static func summarizeMerge(repository: URL, start: String, head: String, items: [ItemResult], integrity: String?,
+                               context: ConflictsContext, git: (URL, [String]) async throws -> String) async throws -> RespondResult {
+        let review = try await mergeReview(repository: repository, start: start, head: head, context: context, git: git)
+        let (diff, truncated) = capDiff(review.diff)
+        let paths = review.paths
+        // Decisión C.9.18: un archivo que quedó como en el PR no difiere del head; su `--stat` es contra la base.
+        let keptPR = Set(review.oneSided.filter { $0.resolution.kept == .pr }.map(\.resolution.path))
+        func stat(_ from: String, _ files: [String]) async throws -> String {
+            guard !files.isEmpty else { return "" }
+            return try await git(repository, ["diff", GitHardening.ignoreSubmodules, "--no-ext-diff", "--no-color", "--stat", from, head, "--"]
+                                 + files.map { ":(literal)" + $0 }).trimmingCharacters(in: .newlines)
+        }
+        let diffStat = [try await stat(start, paths.filter { !keptPR.contains($0) }), try await stat(context.baseOid, keptPR.sorted())]
+            .filter { !$0.isEmpty }.joined(separator: "\n")
+        let log = try await git(repository, ["log", "--first-parent", "--reverse", "--format=%H%x00%B%x1e", "\(start)..\(head)"])
+        func blob(_ object: String?) async -> Data? {
+            guard let object else { return nil }
+            return (try? await git(repository, ["cat-file", "blob", object])).map { Data($0.utf8) }
+        }
+        // Fuera de los conflictos y en los resueltos con un lado entero, el "antes" no es el head del PR.
+        let outside = Dictionary((review.outside + review.oneSided.map(\.change)).map { ($0.path, $0) },
+                                 uniquingKeysWith: { first, _ in first })
+        var dependencies: [String] = []
+        for path in paths where DependencyManifests.isManifest(path) {
+            if DependencyManifests.isPackageJSON(path) {
+                // Fuera de los conflictos se compara con lo que dejó el merge automático; en un archivo resuelto con un
+                // lado entero, con el lado descartado; si no, con el head del PR.
+                let before: Data?, after: Data?
+                if let change = outside[path] {
+                    before = await blob(change.expected?.oid)
+                    after = await blob(change.actual?.oid)
+                } else {
+                    before = await blob("\(start):\(path)")
+                    after = await blob("\(head):\(path)")
+                }
+                guard DependencyManifests.packageJSONDependenciesChanged(before: before, after: after) else { continue }
+            }
+            dependencies.append(path)
+        }
+        return RespondResult(items: items, diffStat: diffStat.trimmingCharacters(in: .newlines), tests: nil,
+                             sensitiveChanges: paths.filter(isSensitive).sorted(), headOid: head, gitIntegrity: integrity,
+                             diff: diff, diffTruncated: truncated, commits: commits(fromLog: log),
+                             dependencyChanges: dependencies.sorted(), outsideConflicts: review.outside.map(\.path),
+                             oneSidedResolutions: review.oneSided.map(\.resolution))
+    }
+
+    /// Lo que se revisa de un merge (y lo que el push vuelve a calcular y comparar, también en la Mac para un host).
+    struct MergeReview: Sendable {
+        /// El combined diff y, después, un `diff --git` por cada cambio fuera de los conflictos que el combined no
+        /// muestra (sin recortar).
+        let diff: String
+        /// Los archivos que difieren de los dos padres.
+        let resolution: [String]
+        /// Las rutas fuera de los conflictos que no quedaron como las dejó el merge automático.
+        let outside: [OutsideConflicts.Change]
+        /// Decisión C.9.18: los archivos de contenido en conflicto que quedaron iguales a un lado.
+        let oneSided: [OneSidedChange]
+
+        /// Los archivos de la resolución, los de afuera y los resueltos con un lado entero, ordenados (para el
+        /// `--stat`, los sensibles y las dependencias).
+        var paths: [String] { Array(Set(resolution).union(outside.map(\.path)).union(oneSided.map(\.resolution.path))).sorted() }
+    }
+
+    /// Un archivo en conflicto resuelto con un lado entero: qué lado quedó y el cambio del lado descartado a HEAD.
+    struct OneSidedChange: Sendable {
+        let resolution: OneSidedResolution
+        let change: OutsideConflicts.Change
+    }
+
+    static func mergeReview(repository: URL, start: String, head: String, context: ConflictsContext,
+                            git: (URL, [String]) async throws -> String) async throws -> MergeReview {
+        var diff = try await resolutionDiff(repository: repository, head: head, git: git)
+        let resolution = try await resolutionPaths(repository: repository, head: head, git: git)
+        let outside = try await outsideChanges(repository: repository, start: start, head: head, context: context, git: git)
+        // Un archivo que difiere de los dos padres ya está en el combined diff: solo se agregan los que esconde.
+        let shown = Set(resolution)
+        let oneSided = try await oneSidedResolutions(repository: repository, start: start, head: head, context: context,
+                                                     resolution: shown, git: git)
+        for change in outside.filter({ !shown.contains($0.path) }) + oneSided.map(\.change) {
+            if !diff.isEmpty && !diff.hasSuffix("\n") { diff += "\n" }
+            diff += try await outsideDiff(change, repository: repository, git: git)
+        }
+        return MergeReview(diff: diff, resolution: resolution, outside: outside, oneSided: oneSided)
+    }
+
+    /// Decisión C.9.18: los archivos de contenido en conflicto que no están en la resolución (`diff-tree -c`) quedaron
+    /// iguales a un padre: el del PR (se descartó lo de la base) o la base (se descartó lo del PR). El cambio va del
+    /// lado descartado a HEAD.
+    static func oneSidedResolutions(repository: URL, start: String, head: String, context: ConflictsContext, resolution: Set<String>,
+                                    git: (URL, [String]) async throws -> String) async throws -> [OneSidedChange] {
+        let candidates = context.contentFiles.filter { !resolution.contains($0) }.sorted()
+        guard !candidates.isEmpty else { return [] }
+        func tree(_ revision: String) async throws -> [String: AutoMergeEntry] {
+            var output = ""
+            for chunk in stride(from: 0, to: candidates.count, by: 100) {
+                output += try await git(repository, ["--literal-pathspecs", "ls-tree", "-z", "--full-tree", revision, "--"]
+                                        + candidates[chunk..<min(chunk + 100, candidates.count)])
+            }
+            return Dictionary(OutsideConflicts.treeEntries(output).map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
+        }
+        let inHead = try await tree(head), inStart = try await tree(start), inBase = try await tree(context.baseOid)
+        return candidates.compactMap { path in
+            let actual = inHead[path]
+            if actual == inStart[path] {
+                return OneSidedChange(resolution: OneSidedResolution(path: path, kept: .pr),
+                                      change: OutsideConflicts.Change(path: path, expected: inBase[path], actual: actual))
+            }
+            if actual == inBase[path] {
+                return OneSidedChange(resolution: OneSidedResolution(path: path, kept: .base),
+                                      change: OutsideConflicts.Change(path: path, expected: inStart[path], actual: actual))
+            }
+            return nil
+        }
+    }
+
+    /// Decisión C.9.16: lo que difiere del merge automático (`context.automaticMerge`) fuera de los archivos de
+    /// contenido en conflicto. Sin registro (un draft anterior) no hay nada que comparar.
+    static func outsideChanges(repository: URL, start: String, head: String, context: ConflictsContext,
+                               git: (URL, [String]) async throws -> String) async throws -> [OutsideConflicts.Change] {
+        guard let record = context.automaticMerge else { return [] }
+        let raw = try await git(repository, ["diff-tree", "-r", "-z", "--raw", "--no-renames", "--no-abbrev", "--ignore-submodules=none",
+                                             start, head])
+        let conflicted = Set(context.contentFiles)
+        let unlisted = OutsideConflicts.unlisted(record: record, startToHead: raw, conflicted: conflicted)
+        var headTree = ""
+        for chunk in stride(from: 0, to: unlisted.count, by: 100) {
+            headTree += try await git(repository, ["--literal-pathspecs", "ls-tree", "-z", "--full-tree", head, "--"]
+                                      + unlisted[chunk..<min(chunk + 100, unlisted.count)])
+        }
+        return OutsideConflicts.changes(record: record, startToHead: raw, headTree: headTree, conflicted: conflicted)
+    }
+
+    /// Un cambio fuera de los conflictos con el formato de `git diff`: de lo que dejó el merge automático a HEAD. Las
+    /// líneas salen de `git diff <blob> <blob>` (o del contenido entero si un lado no está). Si el blob del merge
+    /// automático no está en este repo (un archivo que mergeó git, en la Mac para un host) o es un submódulo, solo
+    /// va el encabezado.
+    static func outsideDiff(_ change: OutsideConflicts.Change, repository: URL,
+                            git: (URL, [String]) async throws -> String) async throws -> String {
+        let old = change.expected.flatMap { $0.exists ? $0 : nil }, new = change.actual.flatMap { $0.exists ? $0 : nil }
+        func short(_ entry: AutoMergeEntry?) -> String { String((entry?.oid ?? String(repeating: "0", count: 40)).prefix(7)) }
+        var lines = ["diff --git \(quotedDiffPath("a/", change.path)) \(quotedDiffPath("b/", change.path))"]
+        if let old, let new, old.mode != new.mode {
+            lines += ["old mode \(old.mode ?? "")", "new mode \(new.mode ?? "")"]
+        } else if let new, old == nil {
+            lines.append("new file mode \(new.mode ?? "")")
+        } else if let old, new == nil {
+            lines.append("deleted file mode \(old.mode ?? "")")
+        }
+        let sameMode = old != nil && new != nil && old?.mode == new?.mode
+        lines.append("index \(short(old))..\(short(new))" + (sameMode ? " \(old?.mode ?? "")" : ""))
+        let gitlink = old?.mode == "160000" || new?.mode == "160000"
+        guard !gitlink, old?.oid != new?.oid else { return lines.joined(separator: "\n") + "\n" }
+        func text(_ entry: AutoMergeEntry?) async -> String? {
+            guard let oid = entry?.oid else { return "" }
+            return try? await git(repository, ["cat-file", "blob", oid])
+        }
+        guard let before = await text(old), let after = await text(new) else { return lines.joined(separator: "\n") + "\n" }
+        var hunks: [String]
+        if let old, let new, let oldOid = old.oid, let newOid = new.oid {
+            let output = try await git(repository, ["diff", "--text", "--no-textconv", "--no-ext-diff", "--no-color", oldOid, newOid])
+            hunks = Array(TextLines.split(output, strippingCarriageReturns: false).drop { !$0.hasPrefix("@@") })
+            if hunks.last == "" { hunks.removeLast() }
+        } else {
+            hunks = wholeFileHunk(old == nil ? after : before, added: old == nil)
+        }
+        if !hunks.isEmpty {
+            lines.append("--- " + (old == nil ? "/dev/null" : quotedDiffPath("a/", change.path)))
+            lines.append("+++ " + (new == nil ? "/dev/null" : quotedDiffPath("b/", change.path)))
+            lines += hunks
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    /// El hunk de un archivo agregado (`+`) o borrado (`-`) entero, como lo escribe git.
+    static func wholeFileHunk(_ text: String, added: Bool) -> [String] {
+        guard !text.isEmpty else { return [] }
+        var content = text.components(separatedBy: "\n")
+        let endsWithNewline = content.last == ""
+        if endsWithNewline { content.removeLast() }
+        let count = content.count
+        let range = count == 1 ? "1" : "1,\(count)"
+        let sign = added ? "+" : "-"
+        var hunk = [added ? "@@ -0,0 +\(range) @@" : "@@ -\(range) +0,0 @@"] + content.map { sign + $0 }
+        if !endsWithNewline { hunk.append("\\ No newline at end of file") }
+        return hunk
+    }
+
+    /// `a/<ruta>` como lo escribe git: entre comillas y con escapes si tiene comillas, barras invertidas o caracteres
+    /// de control (así una ruta con un salto de línea no puede fingir líneas del diff).
+    static func quotedDiffPath(_ prefix: String, _ path: String) -> String {
+        let full = prefix + path
+        guard full.unicodeScalars.contains(where: { $0 == "\"" || $0 == "\\" || $0.value < 0x20 || $0.value == 0x7f }) else { return full }
+        var quoted = "\""
+        for scalar in full.unicodeScalars {
+            switch scalar {
+            case "\"": quoted += "\\\""
+            case "\\": quoted += "\\\\"
+            case "\n": quoted += "\\n"
+            case "\t": quoted += "\\t"
+            case _ where scalar.value < 0x20 || scalar.value == 0x7f: quoted += String(format: "\\%03o", scalar.value)
+            default: quoted.unicodeScalars.append(scalar)
+            }
+        }
+        return quoted + "\""
+    }
+
+    /// El combined diff del merge `head` (lo que revisa el usuario y lo que el push vuelve a comparar).
+    static func resolutionDiff(repository: URL, head: String, git: (URL, [String]) async throws -> String) async throws -> String {
+        try await git(repository, ["diff-tree", "--cc", "--no-commit-id", "-p", GitHardening.ignoreSubmodules, "--text",
+                                   "--no-textconv", "--no-ext-diff", "--no-color", head])
+    }
+
+    /// Los archivos del merge que difieren de los dos padres (`diff-tree -c --name-only`), ordenados.
+    static func resolutionPaths(repository: URL, head: String, git: (URL, [String]) async throws -> String) async throws -> [String] {
+        try await git(repository, ["diff-tree", "-c", "--no-commit-id", "--name-only", "-z", GitHardening.ignoreSubmodules, head])
+            .split(separator: "\0").map(String.init).sorted()
     }
 
     /// Líneas del diff que se guardan en el resultado y muestra la UI; el resto se ve en el worktree.
@@ -307,6 +538,165 @@ public struct FixImplementer: Sendable {
         // Estaba en el snapshot: si ya no está, el árbol no es el que se inspeccionó.
         guard unlink(path) == 0 else {
             throw PRBarError.respond("Couldn't delete \(relative), which Claude created: \(String(cString: strerror(errno))).")
+        }
+    }
+
+    // MARK: - Resolve Conflicts (spec C)
+
+    /// Spec C.3: el worktree quedó a mitad del merge (`ConflictMerger`). Sin archivos de contenido solo se commitea; si
+    /// no, Claude resuelve en una sola corrida con el guardián de un fix y PRBar verifica antes del commit: sin
+    /// symlinks/gitlinks nuevos, los "resolve by hand" intactos, nada en conflicto y sin marcadores nuevos (C.9.4).
+    /// Cualquier falla lanza: no hay commit parcial (C.9.7).
+    public func resolveConflicts(draft: RespondDraft,
+                                 onProgress: @escaping @MainActor @Sendable (Int, Int) -> Void) async throws -> RespondResult {
+        guard let context = draft.conflicts, let item = draft.items.first else {
+            throw PRBarError.respond("This run has no conflicts to resolve. Start Resolve Conflicts again.")
+        }
+        let worktree = URL(fileURLWithPath: draft.worktree.path, isDirectory: true)
+        try await checkNestedGitsIgnored(worktree)
+        let start = try await verifyStart(draft.startHeadOid, worktree: worktree)
+        let mergeHead = try? await git(worktree, ["rev-parse", "--verify", "--quiet", "MERGE_HEAD^{commit}"])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard try await head(worktree) == start, mergeHead == context.baseOid else {
+            throw PRBarError.respond("The worktree isn’t in the middle of merging \(context.baseRef) anymore. Start Resolve Conflicts again.")
+        }
+        let guarded = try await gitPaths(worktree)
+        await onProgress(0, 1)
+        var resolved: ItemResult
+        if context.contentFiles.isEmpty {
+            let summary = context.byHandFiles.isEmpty
+                ? "No conflicts left: PRBar merged \(context.baseRef) without Claude."
+                : "Only files to resolve by hand: PRBar kept the PR’s version of them."
+            resolved = ItemResult(id: item.id, status: .committed, commit: nil, summary: summary)
+        } else {
+            let capture = ClaudeSessionCapture()
+            resolved = try await resolveWithClaude(item, draft: draft, context: context, worktree: worktree, guarded: guarded,
+                                                   capture: capture)
+            resolved.session = capture.stamp
+        }
+        let sha = try await commitMerge(worktree, draft: draft, context: context)
+        let result = ItemResult(id: item.id, status: .committed, commit: sha, summary: resolved.summary, session: resolved.session,
+                                conflictFiles: resolved.conflictFiles)
+        await onProgress(1, 1)
+        return try await summarize(worktree, start: start, items: [result],
+                                   integrity: try await guarded.securityDigest(using: fs, listConfig: configLister), conflicts: context)
+    }
+
+    private func resolveWithClaude(_ item: RespondItem, draft: RespondDraft, context: ConflictsContext, worktree: URL,
+                                   guarded: GitPaths, capture: ClaudeSessionCapture) async throws -> ItemResult {
+        try await checkConfigOrigins(worktree)
+        let indexBefore = try await git(worktree, ["ls-files", "-s", "-z"])
+        // Lo que git no trackea y ya estaba antes de Claude (lo deja un merge, p. ej. `<ruta>~<rama>`): `add -A` lo
+        // metería en el commit (decisión C.9.17).
+        let untrackedBefore = Set(try await untracked(worktree))
+        // Lo último antes de Claude: después, ningún git corre hasta revisar todo esto.
+        let before = try await guarded.fingerprint(using: fs, listConfig: configLister)
+        let nestedBefore = Set(try await fs.nestedGitEntries(worktree.path))
+        let snapshot = try await fs.snapshot(worktree.path)
+        let invocation = ClaudeInvocation(
+            prompt: ConflictsPrompt.prompt(item: item, draft: draft, settings: settings,
+                                           rules: RulesPrompt.effective(rules, repo: draft.repo, stage: .respond)),
+            schema: RespondSchemas.conflicts, tools: Self.conflictTools, workingDirectory: worktree, timeout: Self.fixTimeout,
+            logHeader: "=== conflicts ===", onSession: { capture.record($0) })
+        let output: ConflictsOutput
+        do {
+            output = try await claude.run(invocation, as: ConflictsOutput.self, onAgent: { _ in })
+        } catch let error as ClaudeRunnerError {
+            throw error
+        } catch let error as RemoteRunnerError where error.jobHost != nil {
+            throw error
+        } catch {
+            // El guardián igual mira lo que quedó (fuera de esta tarea, por si se canceló) antes de cualquier otro git.
+            let implementer = self
+            _ = try await Task.detached {
+                try await implementer.inspect(worktree, guarded: guarded, before: before, nestedBefore: nestedBefore, snapshot: snapshot)
+            }.value
+            throw error
+        }
+        let review = try await inspect(worktree, guarded: guarded, before: before, nestedBefore: nestedBefore, snapshot: snapshot)
+        guard review.invisibleAdded.isEmpty else {
+            throw PRBarError.respond("Claude created files ignored by git (\(review.invisibleAdded.prefix(3).joined(separator: ", "))): "
+                + "stopped before committing. Resolve Conflicts again.")
+        }
+        let summary = Self.singleLine(output.summary, limit: Self.maxSummaryLength)
+        guard output.status == .done else { throw PRBarError.respond("Claude couldn’t resolve the conflicts: \(summary)") }
+        let stray = try await untracked(worktree).filter(untrackedBefore.contains).sorted()
+        guard stray.isEmpty else {
+            throw PRBarError.respond("The merge left files git doesn’t track (\(CILogs.nameList(stray.map { UntrustedText.singleLine($0) }))). "
+                + "Stopped before committing: resolve the conflicts by hand.")
+        }
+        try await stageAll(worktree)
+        let indexAfter = try await git(worktree, ["ls-files", "-s", "-z"])
+        let changed = ConflictIndex.changed(before: indexBefore, after: indexAfter)
+        let special = ConflictIndex.special(changed)
+        guard special.isEmpty else {
+            claude.appendLog("--- symlink or gitlink in the index: \(special.joined(separator: ", ")) ---\n")
+            throw PRBarError.respond("Claude left a symlink or a nested repo (\(special.prefix(3).joined(separator: ", "))). "
+                + "Stopped before committing. Check the worktree \(worktree.path).")
+        }
+        let touched = ConflictIndex.touched(context.byHandFiles.map(\.path), before: indexBefore, after: indexAfter)
+        guard touched.isEmpty else {
+            throw PRBarError.respond("Claude changed files it had to leave for you to resolve by hand (\(CILogs.nameList(touched))). "
+                + "Stopped before committing: Resolve Conflicts again.")
+        }
+        let leftover = try await leftoverMarkers(worktree, start: draft.startHeadOid, context: context)
+        guard leftover.isEmpty else {
+            throw PRBarError.respond("Claude left conflict markers in \(CILogs.nameList(leftover)). Stopped before committing: "
+                + "Resolve Conflicts again.")
+        }
+        return ItemResult(id: item.id, status: .committed, commit: nil, summary: summary,
+                          conflictFiles: output.summaries(allowed: context.contentFiles))
+    }
+
+    /// `ls-files -o --exclude-standard -z`: los archivos que git no trackea ni ignora.
+    private func untracked(_ worktree: URL) async throws -> [String] {
+        try await git(worktree, ["ls-files", "-o", "--exclude-standard", "-z"]).split(separator: "\0").map(String.init)
+    }
+
+    /// Decisión C.9.4: las rutas del índice con más marcadores de los esperables (`ConflictMarkers.leftover`).
+    func leftoverMarkers(_ worktree: URL, start: String, context: ConflictsContext) async throws -> [String] {
+        let after = ConflictMarkers.counts(fromGrep: try await grepMarkers(worktree, ["--cached"]), revision: nil)
+        guard !after.isEmpty else { return [] }
+        func at(_ revision: String) async throws -> [String: Int] {
+            ConflictMarkers.counts(fromGrep: try await grepMarkers(worktree, [revision]), revision: revision)
+        }
+        return ConflictMarkers.leftover(after: after, head: try await at(start), base: try await at(context.baseOid),
+                                        mergeBase: try await at(context.mergeBase))
+    }
+
+    /// `git grep` de los marcadores; 1 = ninguna coincidencia.
+    private func grepMarkers(_ worktree: URL, _ target: [String]) async throws -> String {
+        let args = ["-C", worktree.path] + GitHardening.arguments + ConflictMarkers.grepArguments + target
+        let result = try await runner.run(gitPath, args, environment: environment, currentDirectory: nil, timeout: ProcessTimeouts.standard)
+        switch result.status {
+        case 0: return result.stdout
+        case 1: return ""
+        default:
+            throw PRBarError.commandFailed(command: "git grep", status: result.status,
+                                           stderr: result.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+    }
+
+    /// `commit --no-verify` del merge en curso, con el mensaje fijo; el commit tiene que tener exactamente los padres
+    /// `startHeadOid` y `baseOid`.
+    private func commitMerge(_ worktree: URL, draft: RespondDraft, context: ConflictsContext) async throws -> String {
+        let unmerged = ConflictIndex.unmerged(try await git(worktree, ["ls-files", "-u", "-z"]))
+        guard unmerged.isEmpty else {
+            throw PRBarError.respond("Some files are still in conflict (\(CILogs.nameList(unmerged))): not committing.")
+        }
+        let message = Self.singleLine(context.commitMessage(headRef: draft.headRef), limit: 200)
+        // Decisión C.9.12: sin firmar, igual que el merge que rehace el chat (`commit-tree --no-gpg-sign`).
+        try await git(worktree, ["commit", "--no-verify", "--no-gpg-sign", "-m", message], timeout: Self.fixTimeout)
+        let sha = try await head(worktree)
+        try await checkMergeParents(worktree, sha: sha, draft: draft, context: context)
+        return sha
+    }
+
+    private func checkMergeParents(_ worktree: URL, sha: String, draft: RespondDraft, context: ConflictsContext) async throws {
+        let parents = try await git(worktree, ["rev-list", "--parents", "-n", "1", sha])
+            .split(whereSeparator: \.isWhitespace).dropFirst().map(String.init)
+        guard parents == [draft.startHeadOid, context.baseOid] else {
+            throw PRBarError.respond("The merge commit \(sha.prefix(12)) doesn’t have the PR’s head and \(context.baseRef) as parents: stopping.")
         }
     }
 
@@ -501,7 +891,8 @@ public struct FixImplementer: Sendable {
 
     /// The ref of a chat turn's snapshot (spec B.6). It's under `refs/prbar/`, so the startup cleanup deletes it too:
     /// it only keeps the snapshot visible in git. Undo doesn't need it: the snapshot is taken on a clean tree, so its
-    /// tree is `headBefore`'s, which stays reachable from the turn's commit.
+    /// tree is `headBefore`'s, which stays reachable from the turn's commit. En Resolve Conflicts el turno rehace el
+    /// merge (no desciende de `headBefore`): ahí la ref (su commit tiene a `headBefore` de padre) lo mantiene alcanzable.
     public static func chatRef(sessionID: UUID, turn: Int) -> String {
         "refs/prbar/chat-\(sessionID.uuidString.lowercased())-\(turn)"
     }
@@ -513,6 +904,8 @@ public struct FixImplementer: Sendable {
     /// `inspect` runs before any git: if git's config or hooks changed it throws without running git; if Claude
     /// failed, the turn's changes are reverted; new ignored files are reverted and it throws. The returned result is
     /// recomputed from `start..HEAD` with the previous items and no tests (the code changed).
+    /// Resolve Conflicts (decisión C.9.5): no apila un commit; rehace el merge (mismos padres, mismo mensaje) con el
+    /// árbol del turno, y un turno que deja marcadores de conflicto nuevos se descarta entero.
     public func chatTurn<T: Sendable>(draft: RespondDraft, current: RespondResult, sessionID: UUID, turn: Int,
                                       body: @Sendable () async throws -> T) async throws -> (T, ChatFilesOutcome) {
         let worktree = URL(fileURLWithPath: draft.worktree.path, isDirectory: true)
@@ -584,13 +977,34 @@ public struct FixImplementer: Sendable {
                 "Claude left a symlink or a nested repo (\(special.prefix(3).joined(separator: ", "))). "
                 + "Stopped before committing. Check the worktree \(worktree.path).")
         }
-        try await git(worktree, ["commit", "--no-verify", "-m", Self.chatCommitMessage], timeout: Self.fixTimeout)
-        let sha = try await head(worktree)
+        let sha: String
+        if let context = draft.conflicts {
+            // Decisión C.9.5: sin marcadores nuevos y un solo commit de merge, rehecho con el árbol del turno.
+            let leftover = try await leftoverMarkers(worktree, start: start, context: context)
+            guard leftover.isEmpty else {
+                try await git(worktree, ["read-tree", "-u", "--reset", "HEAD"])
+                try await restore(worktree)
+                _ = try? await git(worktree, ["update-ref", "-d", ref])
+                throw PRBarError.respond("Claude left conflict markers in \(CILogs.nameList(leftover)): the chat’s changes were discarded.")
+            }
+            let tree = try await git(worktree, ["write-tree"]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let message = Self.singleLine(context.commitMessage(headRef: draft.headRef), limit: 200)
+            sha = try await git(worktree, ["commit-tree", "--no-gpg-sign", tree, "-p", start, "-p", context.baseOid, "-m", message],
+                                timeout: Self.fixTimeout)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard Self.isFullSHA(sha) else { throw PRBarError.respond("git commit-tree returned \(sha.prefix(80)): stopping.") }
+            try await git(worktree, ["update-ref", "--no-deref", "HEAD", sha, headBefore])
+            try await checkMergeParents(worktree, sha: sha, draft: draft, context: context)
+        } else {
+            try await git(worktree, ["commit", "--no-verify", "-m", Self.chatCommitMessage], timeout: Self.fixTimeout)
+            sha = try await head(worktree)
+        }
         guard sha != headBefore, try await isAncestor(worktree, start, sha) else {
             throw PRBarError.respond("Commit \(sha) doesn't descend from \(start): stopping.")
         }
         // The baseline is carried forward, never recomputed (`inspect` already checked nothing changed in the turn).
-        let result = try await summarize(worktree, start: start, items: current.items, integrity: current.gitIntegrity)
+        let result = try await summarize(worktree, start: start, items: current.items, integrity: current.gitIntegrity,
+                                         conflicts: draft.conflicts)
         return (value, ChatFilesOutcome(
             changedFiles: changed,
             snapshot: ChatFileSnapshot(ref: ref, tree: tree, headBefore: headBefore, headAfter: sha, resultBefore: current),
@@ -716,7 +1130,8 @@ public struct FixImplementer: Sendable {
         }
         try await git(worktree, ["update-ref", "--no-deref", "HEAD", sha, last])
         return results.map {
-            $0.status == .committed ? ItemResult(id: $0.id, status: .committed, commit: sha, summary: $0.summary, session: $0.session) : $0
+            $0.status == .committed ? ItemResult(id: $0.id, status: .committed, commit: sha, summary: $0.summary, session: $0.session,
+                                                     conflictFiles: $0.conflictFiles) : $0
         }
     }
 

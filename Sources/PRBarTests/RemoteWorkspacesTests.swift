@@ -15,9 +15,9 @@ func remoteWorkspaces(_ host: SSHHost, _ info: RunnerHostInfo, _ root: RemoteRoo
 enum RemoteWorkspacesTests {
     static let cases: [TestCase] = [
         TestCase("remote workspaces: mirror propio, worktree del PR con refs propias, symlinks neutralizados, contexto subido; limpieza") {
-            let repo = try TempGitRepo.make { origin in
+            let repo = try TempGitRepo.make(prSetup: { origin in
                 try FileManager.default.createSymbolicLink(atPath: origin.appendingPathComponent("evil").path, withDestinationPath: "/etc/passwd")
-            }
+            })
             defer { repo.remove() }
             let (ssh, host, info, root) = try await verifiedFake()
             defer { ssh.remove() }

@@ -414,6 +414,7 @@ private struct HistoryRow: View {
     private var kindChip: some View {
         let (title, color): (String, Color) = switch record {
         case .review: ("Review", Theme.violet)
+        case .respond(let respond) where respond.draft.isConflicts: ("Conflicts", Theme.orangeText)
         case .respond(let respond) where respond.draft.isCIFix: ("Fix CI", Theme.red)
         case .respond: ("Respond", Theme.orange)
         case .merge: ("Merge", Theme.accent)

@@ -25,7 +25,18 @@ struct RespondHistoryDetailView: View {
                 if let result = record.result, !result.sensitiveChanges.isEmpty {
                     SensitiveChangesBanner(paths: result.sensitiveChanges)
                 }
-                if !draft.items.isEmpty { itemsSection }
+                if let context = draft.conflicts {
+                    if let outside = record.result?.outsideConflicts, !outside.isEmpty {
+                        OutsideConflictsBanner(paths: outside)
+                    }
+                    if let oneSided = record.result?.oneSidedResolutions, !oneSided.isEmpty {
+                        OutsideConflictsBanner(paths: oneSided.map { $0.description(baseRef: context.baseRef) },
+                                               title: OneSidedCopy.title, message: OneSidedCopy.message)
+                    }
+                    ConflictFilesSection(context: context, summaries: record.result?.items.first?.conflictFiles ?? [])
+                } else if !draft.items.isEmpty {
+                    itemsSection
+                }
                 if let result = record.result { commitsSection(result) }
                 if let tests = record.result?.tests { testsSection(tests) }
                 if !record.posted.isEmpty {
@@ -57,8 +68,8 @@ struct RespondHistoryDetailView: View {
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 6) {
-                Image(systemName: draft.isCIFix ? "wrench.and.screwdriver" : "arrowshape.turn.up.left")
-                    .accessibilityLabel(draft.isCIFix ? "Fix CI" : "Feedback response")
+                Image(systemName: draft.isCIFix ? "wrench.and.screwdriver" : draft.isConflicts ? "arrow.triangle.merge" : "arrowshape.turn.up.left")
+                    .accessibilityLabel(draft.isCIFix ? "Fix CI" : draft.isConflicts ? "Resolved conflicts" : "Feedback response")
                 AvatarView(login: draft.account, url: nil, size: 16)
                 Text(draft.account).foregroundStyle(.primary)
                 Text("·").foregroundStyle(.tertiary)
@@ -139,7 +150,7 @@ struct RespondHistoryDetailView: View {
         section("Commits (\(RespondCounts.commits(result)))") {
             ForEach(Array(result.items.enumerated()), id: \.element.id) { index, itemResult in
                 if index > 0 { Divider() }
-                CommitRow(result: itemResult, item: draft.items.first { $0.id == itemResult.id },
+                CommitRow(result: itemResult, item: draft.isConflicts ? nil : draft.items.first { $0.id == itemResult.id },
                           commitURL: record.pushed ? commitURL(itemResult.commit) : nil)
             }
             if !result.diffStat.isEmpty {
@@ -188,7 +199,7 @@ struct RespondHistoryDetailView: View {
         HistoryDetailBar(logURL: logURL) {
             if let terminal { terminal }
             if canOpen {
-                Button(record.draft.isCIFix ? "Show Fix CI" : "Show Response", action: open)
+                Button(record.draft.isCIFix ? "Show Fix CI" : record.draft.isConflicts ? "Show Resolution" : "Show Response", action: open)
                     .buttonStyle(.borderedProminent)
             }
         }

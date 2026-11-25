@@ -6,6 +6,9 @@ public enum RespondCopy {
     /// PRBar nunca toca el clone del usuario: los fixes viven en su propio worktree hasta el push.
     public static let ownWorktreeNote = "PRBar always uses its own worktree; after the push, run “git pull” in your clone."
 
+    /// Spec C.3.6: lo dice la confirmación del push de un Resolve Conflicts.
+    public static let staleApprovalWarning = "If the repo dismisses stale approvals, pushing removes the current approval."
+
     /// Debajo del diff cuando se cortó.
     public static let diffTruncatedNote = "The diff is very long: showing the first \(FixImplementer.maxDiffLines) lines (diff truncated; review the rest in the worktree)."
 

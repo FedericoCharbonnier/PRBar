@@ -339,7 +339,9 @@ export interface RespondBaseProps {
   /** Arriba del progreso: por qué no se pusheó (los checks pasan ahora, fallaron los tests) o por qué falló. */
   banner?: BannerVM | undefined;
   onBannerAction?: (() => void) | undefined;
-  /** Texto del primario si no es el de la pantalla ("Implement", "Reply", "Push Anyway"). */
+  /** El título si no es el de la pantalla ("Resolve Conflicts" en la pantalla de Respond). */
+  title?: string | undefined;
+  /** Texto del primario si no es el de la pantalla ("Implement", "Reply", "Push Anyway", "Push from your Mac"). */
   primaryLabel?: string | undefined;
   /** El primario pide Face ID (ícono `faceid`); por defecto sí. */
   primaryFaceId?: boolean | undefined;

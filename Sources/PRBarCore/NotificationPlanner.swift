@@ -226,6 +226,10 @@ extension NotificationPlanner {
         case ciFixFailed
         /// Fix CI's push stopped because the checks that failed pass now (spec K.6.6): back to the diff.
         case ciFixNotPushed
+        /// Resolve Conflicts (spec C.6): la resolución está lista para revisar (`byHand`: archivos que quedan a mano).
+        case conflictsReady(byHand: Int)
+        case conflictsPushed
+        case conflictsFailed
     }
 
     public static func respondFinished(
@@ -237,6 +241,7 @@ extension NotificationPlanner {
         let tab: PRTab
         switch event {
         case .analysisReady, .fixesReady, .published, .failed: tab = .respond
+        case .conflictsReady, .conflictsPushed, .conflictsFailed: tab = .respond
         case .ciFixReady, .ciFixPushed, .ciFixFailed, .ciFixNotPushed: tab = .fixCI
         }
         switch event {
@@ -265,6 +270,16 @@ extension NotificationPlanner {
         case .ciFixNotPushed:
             (title, key) = ("CI Fix Not Pushed", "ci-not-pushed")
             body = "\(ref): the failing checks pass now. Push Anyway if you still want the fix."
+        case .conflictsReady(let byHand):
+            (title, key) = ("Conflicts Resolved", "conflicts")
+            body = byHand == 0 ? "\(ref): review the merge and push it"
+                : "\(ref): review the merge; \(byHand) file\(byHand == 1 ? "" : "s") to resolve by hand"
+        case .conflictsPushed:
+            (title, key) = ("Resolution Pushed", "conflicts-pushed")
+            body = "\(ref): the base is merged into the branch"
+        case .conflictsFailed:
+            (title, key) = ("Couldn’t Resolve Conflicts", "conflicts-failed")
+            body = "\(ref): open PRBar to see the error."
         }
         return PlannedNotification(kind: .reviewFinished, title: title, body: body, url: nil, respondPRID: prID, event: "respond-\(key)",
                                    tab: tab)

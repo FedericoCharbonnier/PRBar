@@ -44,7 +44,7 @@ extension ClaudeSettings {
         case .filter: review.filter.stage
         case .analysis: respond.analysis
         case .implementation: respond.implementation
-        case .reviewChat, .respondChat, .mergeChat, .instructionsChat, .ciFix: nil
+        case .reviewChat, .respondChat, .mergeChat, .instructionsChat, .ciFix, .conflicts: nil
         }
     }
 
@@ -55,7 +55,7 @@ extension ClaudeSettings {
         case .filter: effectiveFilterSkill
         case .analysis: effectiveRespondSkill
         case .implementation: effectiveImplementationSkill
-        case .reviewChat, .respondChat, .mergeChat, .instructionsChat, .ciFix: nil
+        case .reviewChat, .respondChat, .mergeChat, .instructionsChat, .ciFix, .conflicts: nil
         }
     }
 
@@ -67,6 +67,7 @@ extension ClaudeSettings {
         case .mergeChat: chatPrompts.merge
         case .instructionsChat: chatPrompts.instructions
         case .ciFix: chatPrompts.ciFix
+        case .conflicts: chatPrompts.conflicts
         case .review, .filter, .analysis, .implementation: self.stage(stage)?.prompt
         }
     }
@@ -112,6 +113,7 @@ extension ClaudeSettings {
         case .mergeChat: chatPrompts.merge = text
         case .instructionsChat: chatPrompts.instructions = text
         case .ciFix: chatPrompts.ciFix = text
+        case .conflicts: chatPrompts.conflicts = text
         }
     }
 
@@ -135,6 +137,7 @@ extension ClaudeSettings {
         case .mergeChat: chatPrompts.merge = nil
         case .instructionsChat: chatPrompts.instructions = nil
         case .ciFix: chatPrompts.ciFix = nil
+        case .conflicts: chatPrompts.conflicts = nil
         }
     }
 
@@ -144,7 +147,7 @@ extension ClaudeSettings {
         case .filter: review.filter.mode = mode
         case .analysis: respond.analysis.mode = mode
         case .implementation: respond.implementation.mode = mode
-        case .reviewChat, .respondChat, .mergeChat, .instructionsChat, .ciFix: break
+        case .reviewChat, .respondChat, .mergeChat, .instructionsChat, .ciFix, .conflicts: break
         }
     }
 
@@ -155,7 +158,7 @@ extension ClaudeSettings {
         case .filter: review.filter.skill = skill ?? Self.defaultFilterSkill
         case .analysis: respond.analysis.skill = skill ?? Self.defaultRespondSkill
         case .implementation: respond.implementation.skill = skill
-        case .reviewChat, .respondChat, .mergeChat, .instructionsChat, .ciFix: break
+        case .reviewChat, .respondChat, .mergeChat, .instructionsChat, .ciFix, .conflicts: break
         }
     }
 

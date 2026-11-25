@@ -146,7 +146,7 @@ public struct CIPassingNow: Error, Equatable, LocalizedError {
 }
 
 extension RespondPipelineRunning {
-    public func checkCIBeforePush(draft: RespondDraft, ignoringPassingChecks: Bool) async throws {}
+    public func checkCIBeforePush(draft: RespondDraft, result: RespondResult?, ignoringPassingChecks: Bool) async throws {}
 }
 
 public protocol RespondPipelineRunning: Sendable {
@@ -166,10 +166,12 @@ public protocol RespondPipelineRunning: Sendable {
     /// counting as in use, and the Mac-side copy of a runner's fixes (temporary clone, `refs/prbar/remote-…`) goes.
     /// Never throws.
     func release(draft: RespondDraft) async
-    /// Fix CI (spec K.4), justo antes del push: el head del PR en GitHub sigue siendo el que falló y (salvo
-    /// `ignoringPassingChecks`, "Push Anyway") el CI no pasó: si todos los checks que fallaron pasan ahora, lanza
-    /// `CIPassingNow`. Un Respond normal no verifica nada.
-    func checkCIBeforePush(draft: RespondDraft, ignoringPassingChecks: Bool) async throws
+    /// Fix CI (K.4) y Resolve Conflicts (C.3.6), justo antes del push. Fix CI: el head del PR en GitHub sigue siendo
+    /// el que falló y (salvo `ignoringPassingChecks`, "Push Anyway") el CI no pasó: si todos los checks que fallaron
+    /// pasan ahora, lanza `CIPassingNow`. Resolve Conflicts: el PR sigue abierto, con el mismo head y la misma base.
+    /// Un Respond normal no verifica nada. Si el head en GitHub ya es `result.headOid`, un push anterior llegó sin
+    /// quedar anotado: no se verifica más y el push lo reconoce (`RespondPublisher`, `ls-remote`).
+    func checkCIBeforePush(draft: RespondDraft, result: RespondResult?, ignoringPassingChecks: Bool) async throws
     /// Ver `RespondPublisher.postReplies`. Un error al pedir el token vuelve como error, sin publicar nada.
     func postReplies(draft: RespondDraft, selections: [String: RespondSelection], result: RespondResult?,
                      alreadyPosted: [String: PostedReply],
@@ -183,6 +185,7 @@ public protocol RespondPipelineRunning: Sendable {
 public struct RespondPipeline: RespondPipelineRunning {
     public static let noItemsMessage = "There are no unresolved comments"
     public static let forkMessage = "The PR comes from a fork: PRBar can't push to it"
+    public static let alreadyContainsBaseMessage = "The PR already contains its base branch: there’s nothing to merge. GitHub may not have updated yet; refresh in a minute."
     public static let needsLocalPathMessage = "This repo needs a local folder to respond."
     public static let noFailingChecksMessage = "No failing checks on the PR’s latest commit: CI may have passed or still be running. Refresh and try again."
 
@@ -249,6 +252,7 @@ public struct RespondPipeline: RespondPipelineRunning {
 
     public func analyze(_ request: RespondRequest, draftID: UUID,
                         onPhase: @escaping @MainActor @Sendable (RespondPhase) -> Void) async throws -> RespondDraft {
+        if request.mode == .conflicts { return try await analyzeConflicts(request, draftID: draftID) }
         if request.mode == .ciFix { return try await analyzeCI(request, draftID: draftID) }
         let item = request.item
         let pr = item.pr
@@ -345,7 +349,8 @@ public struct RespondPipeline: RespondPipelineRunning {
             mode: .ciFix, ci: context)
     }
 
-    public func checkCIBeforePush(draft: RespondDraft, ignoringPassingChecks: Bool) async throws {
+    public func checkCIBeforePush(draft: RespondDraft, result: RespondResult?, ignoringPassingChecks: Bool) async throws {
+        if draft.isConflicts { return try await checkConflictsBeforePush(draft, reviewed: result?.headOid) }
         guard draft.isCIFix, let context = draft.ci else { return }
         guard let ciAPI else { throw PRBarError.respond("PRBar can’t read this PR’s checks.") }
         let token = try await tokens.token(for: draft.account)
@@ -353,6 +358,8 @@ public struct RespondPipeline: RespondPipelineRunning {
         if let state = details.state, state != .open {
             throw PRBarError.respond("The PR isn’t open anymore. Not pushing.")
         }
+        // Ya pusheado (lo revisado está en GitHub): los checks que fallaron eran de otro head.
+        if let head = details.headOid, head == result?.headOid { return }
         guard let head = details.headOid, head == draft.startHeadOid else {
             throw PRBarError.respond("The PR has new commits since Fix CI read its checks"
                 + "\(details.headOid.map { " (now at \($0.prefix(7)))" } ?? ""). Not pushing: run Fix CI again.")
@@ -361,6 +368,86 @@ public struct RespondPipeline: RespondPipelineRunning {
         let runs = try await ciAPI.checkRuns(repo: draft.repo, headOid: head, token: token)
         guard CILogs.stillFailing(context.checkNames, now: runs) else {
             throw CIPassingNow(checks: context.checkNames, headOid: head)
+        }
+    }
+
+    // MARK: - Resolve Conflicts (spec C)
+
+    /// Spec C.3.6 (decisión C.9.2): el PR sigue abierto, con el mismo head que se mergeó (o ya con el merge revisado,
+    /// `reviewed`: un push anterior que llegó sin quedar anotado) y la misma base.
+    private func checkConflictsBeforePush(_ draft: RespondDraft, reviewed: String?) async throws {
+        guard let context = draft.conflicts else {
+            throw PRBarError.respond("This Resolve Conflicts run has no merge to push. Start Resolve Conflicts again.")
+        }
+        let token = try await tokens.token(for: draft.account)
+        let details = try await api.pullRequestDetails(repo: draft.repo, number: draft.number, token: token)
+        if let state = details.state, state != .open { throw PRBarError.respond("The PR isn’t open anymore. Not pushing.") }
+        guard let head = details.headOid, head == draft.startHeadOid || head == reviewed else {
+            throw PRBarError.respond("The PR has new commits since PRBar merged \(context.baseRef)"
+                + "\(details.headOid.map { " (now at \($0.prefix(7)))" } ?? ""). Not pushing: run Resolve Conflicts again.")
+        }
+        if let base = details.baseRef, base != context.baseRef {
+            throw PRBarError.respond("The PR’s base is now \(base), not \(context.baseRef). Not pushing: run Resolve Conflicts again.")
+        }
+    }
+
+    /// Token → head (feedback, fork) y base (detalles) en la Mac → worktree en el head (acá o en el host) → base a su ref
+    /// propia → `merge --no-commit` → draft con un solo ítem. Sin Claude: la implementación arranca después, sola.
+    private func analyzeConflicts(_ request: RespondRequest, draftID: UUID) async throws -> RespondDraft {
+        let item = request.item
+        let pr = item.pr
+        let token = try await tokens.token(for: item.account)
+        let feedback = try await api.reviewFeedback(repo: pr.repo, number: pr.number, token: token)
+        if feedback.isCrossRepository { throw PRBarError.respond(Self.forkMessage) }
+        let details = try await api.pullRequestDetails(repo: pr.repo, number: pr.number, token: token)
+        if let state = details.state, state != .open { throw PRBarError.respond("The PR isn’t open anymore.") }
+        let baseRef = details.baseRef ?? pr.baseRef
+        try Task.checkCancellation()
+        let (worktree, startHeadOid) = try await prepareWorktree(request, headRef: feedback.headRefName)
+        do {
+            try Task.checkCancellation()
+            guard startHeadOid == feedback.headRefOid else {
+                throw PRBarError.respond("The PR got new commits while PRBar was preparing it (now at \(startHeadOid.prefix(7))). "
+                    + "Try Resolve Conflicts again.")
+            }
+            let baseOid: String
+            if let remote = placement {
+                baseOid = try await remote.workspaces.fetchRespondBase(worktree, repo: pr.repo, baseRef: baseRef)
+            } else {
+                baseOid = try await resolver.fetchBase(worktree, baseRef: baseRef)
+            }
+            let merger = await conflictMerger(worktree, localPath: request.localPath)
+            let outcome = try await merger.merge(baseRef: baseRef, baseOid: baseOid, startHeadOid: startHeadOid)
+            let conflictsItem = ConflictsItem.make(startHeadOid: startHeadOid, context: outcome.context, description: details.body,
+                                                   incomingLog: outcome.incomingLog, prDiff: outcome.prDiff,
+                                                   diffTruncated: outcome.prDiffTruncated, prURL: pr.url)
+            return RespondDraft(
+                id: draftID, prID: item.id, repo: pr.repo, number: pr.number, title: pr.title, url: pr.url,
+                headRef: feedback.headRefName, account: item.account, worktree: worktree, startHeadOid: startHeadOid,
+                items: [conflictsItem], runner: placement?.name, localPath: placement == nil ? nil : request.localPath,
+                mode: .conflicts, conflicts: outcome.context)
+        } catch {
+            // Sin draft no hay nada que revisar: el worktree (a mitad del merge) y sus refs se borran fuera de esta tarea.
+            await Task.detached { [self] in await removeWorktree(worktree) }.value
+            throw error
+        }
+    }
+
+    /// git endurecido en el worktree del trabajo (acá o en el host), sin lanzar por el código de salida. `merge` pide
+    /// la identidad de commit aunque no commitee: en el host va la de la Mac, como en los commits (decisión J.7.5).
+    private func conflictMerger(_ worktree: ResolvedWorktree, localPath: String?) async -> ConflictMerger {
+        let runner = placement?.runner ?? processRunner
+        let git = placement?.gitPath ?? gitPath
+        var environment = (placement?.gitEnvironment ?? gitEnvironment).merging(GitHardening.environment) { _, hardened in hardened }
+        if placement != nil {
+            let identity = await Self.commitIdentity(runner: processRunner, gitPath: gitPath, localPath: localPath,
+                                                     environment: gitEnvironment)
+            environment.merge(identity) { _, new in new }
+        }
+        let path = worktree.path
+        return ConflictMerger { [environment] arguments in
+            try await runner.run(git, ["-C", path] + GitHardening.arguments + arguments, environment: environment,
+                                 currentDirectory: nil, timeout: WorktreeManager.slowTimeout)
         }
     }
 
@@ -453,8 +540,8 @@ public struct RespondPipeline: RespondPipelineRunning {
         try checkRunner(draft)
         try ensureStopped(draft)
         let token = try await tokens.token(for: draft.account)
-        // Fix CI's prompt names no skill (spec K.3): no plugins to load.
-        let skills = draft.isCIFix ? [] : settings.respondSkills
+        // Fix CI y Conflicts no nombran skills (spec K.3, C.9): no hay plugins que cargar.
+        let skills = draft.implementsAlone ? [] : settings.respondSkills
         let pluginDirs: [String]
         if let remote = placement {
             pluginDirs = try await remote.plugins(skills: skills)

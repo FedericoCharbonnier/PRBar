@@ -123,6 +123,8 @@ let dispatchSamples: [(command: AppCommand, call: String)] = [
     (.runnerDefault(target: "local"), "runnerDefault"),
     (.ciList, "ciList"),
     (.ciFix(pr: "api#12", wait: false), "ciFix"),
+    (.conflictsList, "conflictsList"),
+    (.conflictsResolve(pr: "api#12", wait: false), "conflictsResolve"),
     (.usage(month: "2026-10"), "usage"),
     (.remoteStatus, "remoteStatus"),
     (.remoteEnable(relay: "relay.example.com", enrollToken: "t0k3n"), "remoteEnable"),
@@ -184,6 +186,10 @@ enum CommandDispatcherTests {
         try expectEqual(notShown, .success(try JSONValue(encoding: PopoverInfo(tab: .mine, shown: false))))
         let result = await run(.reviewCancel(pr: "x"), fake)
         try expectEqual(result, .success(.ok))
+        let resolved = await run(.conflictsResolve(pr: "o/r#1", wait: false), fake)
+        try expectEqual(fake.calls.last, "conflictsResolve o/r#1 wait=false")
+        guard case .success(let value) = resolved else { throw TestFailure(description: "conflictsResolve falló") }
+        try expectEqual((try value.decode() as RespondInfo).mode, .conflicts)
         _ = await run(.sessionOpen(pr: "api#7", job: .ciFix, run: 2), fake)
         try expectEqual(fake.calls.last, "sessionOpen api#7 ci-fix 2")
     }

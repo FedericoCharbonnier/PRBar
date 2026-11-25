@@ -15,11 +15,12 @@ export type PopoverTab = "to-review" | "mine";
 export type PopoverSection =
   | "toReview" | "updatedSinceMyReview" | "otherToReview" | "myFeedback" | "readyToMerge" | "waitingForReview";
 export type PRCategory = "toReview" | "updatedSinceMyReview" | "myFeedback" | "readyToMerge" | "other";
-export type HistoryKind = "review" | "respond" | "merge" | "ci-fix";
+export type HistoryKind = "review" | "respond" | "merge" | "ci-fix" | "conflicts";
 export type ReviewEvent = "COMMENT" | "REQUEST_CHANGES" | "APPROVE";
 export type MergeMethod = "squash" | "merge" | "rebase";
 export type Severity = "high" | "medium" | "low";
-export type RespondMode = "feedback" | "ciFix";
+/** `conflicts` (Resolve Conflicts) solo se lee: el teléfono no lo empieza ni lo pushea (decisión C.9.9). */
+export type RespondMode = "feedback" | "ciFix" | "conflicts";
 export type NotificationSettingName =
   | "new-to-review" | "reviewed-updated" | "my-feedback" | "review-finished" | "approved-or-ci" | "ready-to-merge";
 /** Fecha ISO 8601 (`2026-11-20T12:38:00Z`). */
@@ -149,7 +150,7 @@ const METHODS = ["squash", "merge", "rebase"];
 const ENUMS: Partial<Record<string, readonly string[]>> = {
   "listPRs.list": ["to-review", "updated", "mine", "ready-to-merge", "other"],
   "listPRs.tab": ["to-review", "mine"],
-  "history.kind": ["review", "respond", "merge", "ci-fix"],
+  "history.kind": ["review", "respond", "merge", "ci-fix", "conflicts"],
   "reviewPublish.event": ["COMMENT", "REQUEST_CHANGES", "APPROVE"],
   "merge.method": METHODS,
   "respondPush.mode": ["feedback", "ciFix"],
@@ -235,6 +236,7 @@ export type PolicyDecision = "allowed" | "gated";
 
 // Mac-only (denied in RemotePolicy.swift, so never phone commands): sessionList, sessionOpen, setTerminal,
 // setTerminalCommand and setKeepSessionFolders open or choose a terminal, or keep folders, on the Mac (spec T.4, T.6).
+// conflictsList and conflictsResolve start or list Resolve Conflicts runs, which are pushed only from the Mac (spec C.9.9).
 /** Los comandos que pueden pedir Face ID, en el orden de `AppCommand.Name.allCases` (`RemotePolicy.gatedNames`). */
 export const GATED_NAMES: readonly PhoneCommandName[] = [
   "reviewPublish", "respondTest", "respondPush", "respondPushAnyway", "respondReplyOnly", "merge",

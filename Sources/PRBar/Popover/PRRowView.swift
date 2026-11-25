@@ -112,6 +112,13 @@ struct PRRowView: View {
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
+                // Fuera de Ready to Merge también avisa que la rama choca con la base (spec C.2).
+                if showsConflictsLine {
+                    ConflictsStatusLabel()
+                        .font(.subheadline)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
             }
             Spacer(minLength: 4)
             VStack(alignment: .trailing, spacing: 4) {
@@ -130,6 +137,10 @@ struct PRRowView: View {
 
     /// The PR's Respond slot holds a Fix CI (spec K).
     private var hasCIFix: Bool { respond.modes[item.id] == .ciFix && respond.phases[item.id] != nil }
+    /// The PR's Respond slot holds a Resolve Conflicts (spec C).
+    private var hasConflictsRun: Bool { respond.modes[item.id] == .conflicts && respond.phases[item.id] != nil }
+    /// The orange "This branch has conflicts" line outside Ready to Merge (where `MergeStatusLabel` already says it).
+    private var showsConflictsLine: Bool { item.category != .readyToMerge && model.isConflictsCandidate(item) }
 
     private var trailingAccessory: some View {
         PRRowAccessory(item: item, model: model, reviews: reviews, respond: respond, merges: merges)
@@ -158,7 +169,22 @@ struct PRRowView: View {
                 EmptyView()
             }
         }
-        if model.isCIFixCandidate(item) || hasCIFix {
+        if model.isConflictsCandidate(item) || hasConflictsRun {
+            Divider()
+            if hasConflictsRun {
+                if respond.phases[item.id]?.isActive == true {
+                    Button("Cancel Resolve Conflicts") {
+                        confirmCancel("conflicts resolution", "Cancel Resolve Conflicts", actions.conflicts.cancel)
+                    }
+                    .disabled(respond.phases[item.id] == .pushing)
+                }
+                Button("View Resolve Conflicts", action: actions.conflicts.open).disabled(respond.records[item.id] == nil)
+            } else {
+                Button("Resolve Conflicts with Claude", action: actions.conflicts.start)
+                    .disabled(model.conflictsUnavailableReason(item) != nil)
+            }
+        }
+        if !hasConflictsRun && (model.isCIFixCandidate(item) || hasCIFix) {
             Divider()
             if hasCIFix {
                 if respond.phases[item.id]?.isActive == true {
@@ -171,7 +197,7 @@ struct PRRowView: View {
                     .disabled(model.ciFixUnavailableReason(item) != nil)
             }
         }
-        if item.category == .myFeedback && !hasCIFix {
+        if item.category == .myFeedback && !hasCIFix && !hasConflictsRun {
             Divider()
             let actions = self.actions.respond
             let phase = respond.phases[item.id]
@@ -215,6 +241,7 @@ struct PRRowView: View {
         if item.category == .readyToMerge {
             parts.append(MergeStatusLabel.text(for: model.mergeOptions(item).availability))
         }
+        if showsConflictsLine { parts.append(MergePolicy.conflicts) }
         if let shownPlacement { parts.append(shownPlacement) }
         return parts.joined(separator: ", ")
     }

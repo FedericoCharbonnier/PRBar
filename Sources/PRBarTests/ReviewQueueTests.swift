@@ -36,6 +36,9 @@ final class QueueEventLog {
     }
 
     func count(_ event: QueueEvent) -> Int { seen.filter { $0 == event }.count }
+
+    /// Olvida lo visto (para esperar un evento que ya pasó una vez).
+    func reset() { seen = [] }
 }
 
 /// Pipeline falso: cada job queda suspendido hasta que el test lo completa a mano.

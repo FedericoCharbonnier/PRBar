@@ -14,6 +14,7 @@ struct RespondGroup: ParsableCommand {
 enum RespondRender {
     static func info(_ info: RespondInfo, _ output: Output, full: Bool = false) {
         if info.mode == .ciFix { return CIRender.info(info, output, full: full) }
+        if info.mode == .conflicts { return ConflictsRender.info(info, output, full: full) }
         var header = "\(info.pr) · \(info.runningTests ? "running tests" : info.phase)"
         if let detail = info.detail, info.phase != "failed" { header += " (\(detail))" }
         output.line(output.paint(header, .bold))
@@ -218,6 +219,10 @@ struct RespondPush: RemoteCommand {
 
     func confirmation(_ connection: AppConnection, _ output: Output) throws -> String? {
         let info: RespondInfo = try connection.run(.respondShow(pr: pr)).decode()
+        // La app no pushea otra clase de corrida con `mode: .feedback`: mejor decirlo antes de preguntar.
+        if info.mode == .ciFix || info.mode == .conflicts {
+            throw CommandFailure(.invalidState, "\(info.pr) isn’t a Respond run: use `prbar \(info.mode == .ciFix ? "ci" : "conflicts") push \(info.pr)`.")
+        }
         if anyway && !info.pushBlockedByTests {
             throw CommandFailure(.invalidState, "Nothing is blocked by failed tests: use `prbar respond push \(info.pr)`.")
         }

@@ -106,12 +106,19 @@ struct SnapshotRespondPipeline: RespondPipelineRunning {
     /// Fix CI (spec K): what `analyze` in CI mode and its fix return.
     var ciDraft: RespondDraft? = nil
     var ciResult: RespondResult? = nil
+    /// Resolve Conflicts (spec C): what `analyze` in conflicts mode and its resolution return.
+    var conflictsDraft: RespondDraft? = nil
+    var conflictsResult: RespondResult? = nil
     /// Main window's focus mode: `implement` reports fix 1 of 3 and waits until it's cancelled.
     var holdsImplementation = false
 
     func analyze(_ request: RespondRequest, draftID: UUID,
                  onPhase: @escaping @MainActor @Sendable (RespondPhase) -> Void) async throws -> RespondDraft {
-        var draft = request.mode == .ciFix ? (ciDraft ?? self.draft) : self.draft
+        var draft = switch request.mode {
+        case .ciFix: ciDraft ?? self.draft
+        case .conflicts: conflictsDraft ?? self.draft
+        case .feedback: self.draft
+        }
         draft.id = draftID
         return draft
     }
@@ -122,7 +129,7 @@ struct SnapshotRespondPipeline: RespondPipelineRunning {
             await onProgress(1, 3)
             try await Task.sleep(for: .seconds(3600))
         }
-        return draft.isCIFix ? (ciResult ?? result) : result
+        return draft.isCIFix ? (ciResult ?? result) : draft.isConflicts ? (conflictsResult ?? result) : result
     }
 
     func runTests(draft: RespondDraft, testCommand: String) async -> TestRun { tests }

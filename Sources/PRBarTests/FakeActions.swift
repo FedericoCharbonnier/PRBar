@@ -4,7 +4,7 @@ import PRBarCore
 /// `AppModel` de mentira: anota qué método se llamó (con los argumentos que importan) y devuelve algo mínimo.
 @MainActor
 final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActions, ConfigActions, SlackActions,
-    ChatCommandActions, UpdateCommandActions, InstructionCommandActions, ResourceActions, RunnerActions, CIFixUsageActions {
+    ChatCommandActions, UpdateCommandActions, InstructionCommandActions, ResourceActions, RunnerActions, CIFixUsageActions, ConflictsActions {
     var calls: [String] = [] {
         didSet {
             // Cada llamada con su `CommandOrigin` (vaciar `calls` vacía también los orígenes).
@@ -352,6 +352,21 @@ final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActi
         info.mode = .ciFix
         return info
     }
+
+    // MARK: ConflictsActions
+    func conflictsList() throws -> [ConflictsListEntry] {
+        try record("conflictsList")
+        return [ConflictsListEntry(pr: "acme/api#12", title: "Add rate limiting", url: URL(string: "https://github.com/acme/api/pull/12")!,
+                                   account: "fede", baseRef: "main", phase: nil, otherRun: nil, unavailableReason: nil)]
+    }
+    func conflictsResolve(pr: String, wait: Bool, events: CommandEventSink) async throws -> RespondInfo {
+        try record("conflictsResolve \(pr) wait=\(wait)")
+        if wait { waitEvents.forEach(events) }
+        var info = respondInfo(pr)
+        info.mode = .conflicts
+        return info
+    }
+
     func usage(month: String?) throws -> UsageInfo {
         try record("usage \(month ?? "-")")
         let usage = ClaudeUsage.run(duration: 192, tokens: ClaudeTokenUsage(inputTokens: 90_000, outputTokens: 2_100), cost: 0.42)

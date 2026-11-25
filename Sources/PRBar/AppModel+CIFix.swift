@@ -32,11 +32,10 @@ extension AppModel {
     /// Spec K.2.1: a Respond and a Fix CI share the PR's slot; neither replaces an open run (any phase but done) of the
     /// other kind, so the user's decisions or unpushed fix are never lost without a word.
     func respondSlotConflictReason(_ prID: String, starting mode: RespondMode) -> String? {
-        switch respond.openRunConflict(prID: prID, starting: mode) {
-        case .feedback?: "\(prID) has a Respond run open: finish or dismiss it before fixing the CI."
-        case .ciFix?: "\(prID) has a Fix CI run open: finish or dismiss it before responding."
-        case nil: nil
-        }
+        guard let open = respond.openRunConflict(prID: prID, starting: mode) else { return nil }
+        let run = switch open { case .feedback: "a Respond run"; case .ciFix: "a Fix CI run"; case .conflicts: "a Resolve Conflicts run" }
+        let action = switch mode { case .feedback: "responding"; case .ciFix: "fixing the CI"; case .conflicts: "resolving the conflicts" }
+        return "\(prID) has \(run) open: finish or dismiss it before \(action)."
     }
 
     /// "Fix CI": reads the failing checks and their logs on this Mac, prepares the worktree (here or on the repo's host)

@@ -47,6 +47,41 @@ enum DiffFilesTests {
             try expectEqual(DiffFiles.section(of: diff, file: "package.json").split(separator: "\n").count, 5)
             try expectEqual(DiffFiles.section(of: diff, file: "nope.txt"), "")
         },
+        TestCase("diff: el fragmento de un archivo en un combined diff (Resolve Conflicts), con los `diff --git` de afuera") {
+            let combined = """
+            diff --cc src/reports/formatDate.ts
+            index 1a2b3c4,5d6e7f8..9a0b1c2
+            --- a/src/reports/formatDate.ts
+            +++ b/src/reports/formatDate.ts
+            @@@ -1,1 -1,1 +1,1 @@@
+            - old
+             -other
+            ++new
+            diff --cc src/reports/export.ts
+            index 2b3c4d5,6e7f8a9..0b1c2d3
+            @@@ -3,1 -3,1 +3,1 @@@
+            ++merged
+            diff --git a/README.md b/README.md
+            --- a/README.md
+            +++ b/README.md
+            @@ -1 +1 @@
+            -main's
+            +the PR's
+            """
+            let first = DiffFiles.section(of: combined, file: "src/reports/formatDate.ts")
+            try expect(first.hasPrefix("diff --cc src/reports/formatDate.ts"), first)
+            try expect(first.contains("++new") && !first.contains("export.ts") && !first.contains("README"), first)
+            let second = DiffFiles.section(of: combined, file: "src/reports/export.ts")
+            try expect(second.hasPrefix("diff --cc src/reports/export.ts") && second.contains("++merged"), second)
+            try expect(!second.contains("README") && !second.contains("++new"), second)
+            let outside = DiffFiles.section(of: combined, file: "README.md")
+            try expect(outside.hasPrefix("diff --git a/README.md") && outside.contains("+the PR's"), outside)
+            try expect(!outside.contains("diff --cc"), outside)
+            // Un archivo cuyo nombre termina igual que otro no se confunde.
+            try expectEqual(DiffFiles.section(of: combined, file: "export.ts"), "")
+            let crlf = DiffFiles.section(of: combined.replacingOccurrences(of: "\n", with: "\r\n"), file: "src/reports/export.ts")
+            try expect(crlf.contains("++merged") && !crlf.contains("README"), crlf)
+        },
         TestCase("diff: CRLF (un solo Character para Swift) no junta las líneas: fragmentos, líneas comentables, archivos y colas") {
             let crlf = diff.replacingOccurrences(of: "\n", with: "\r\n")
             let only = DiffFiles.section(of: crlf, file: "src/reports/export.ts")

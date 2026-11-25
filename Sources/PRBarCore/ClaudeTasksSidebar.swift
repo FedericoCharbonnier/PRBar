@@ -74,14 +74,20 @@ public enum ClaudeTasksSidebar {
 
     static func respondRow(_ input: ClaudeTaskInput, now: Date) -> ClaudeTaskRow? {
         let ci = input.respondMode == .ciFix
-        let name = ci ? "Fix CI" : "Respond"
+        let name = switch input.respondMode {
+        case .ciFix: "Fix CI"
+        case .conflicts: "Resolve Conflicts"
+        case .feedback: "Respond"
+        }
+        // Fix CI y Resolve Conflicts implementan solos (K.6.3, C.3).
+        let implementsAlone = ci || input.respondMode == .conflicts
         let since = input.respondStartedAt
         let subtitle: String, running: Bool
         switch input.respond {
         case .queued?: (subtitle, running) = ("\(name) · queued", true)
         case .preparing?, .analyzing?: (subtitle, running) = (timed("Analyzing", since: since, now: now), true)
-        // Fix CI no tiene nada que elegir: su `ready` dura un instante antes de implementar (spec K.6.3).
-        case .ready?: (subtitle, running) = ci ? (timed("Analyzing", since: since, now: now), true)
+        // Fix CI y Resolve Conflicts no tienen nada que elegir: su `ready` dura un instante antes de implementar.
+        case .ready?: (subtitle, running) = implementsAlone ? (timed("Analyzing", since: since, now: now), true)
                                                : ("Respond · ready to choose", false)
         case .implementing?: (subtitle, running) = (timed("Implementing", since: since, now: now), true)
         case .readyToPush?:

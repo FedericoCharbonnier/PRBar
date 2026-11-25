@@ -39,6 +39,12 @@ enum ClaudeTasksSidebarTests {
             try expectEqual(row(.pushing)?.subtitle, "Pushing…")
             try expect(row(.failed("x", logURL: nil)) == nil)
             try expect(row(nil) == nil)
+            // Resolve Conflicts: se ve en Respond y su `ready` (instantáneo) sigue analizando.
+            let conflicts = row(.readyToPush(draftStub, resultStub), mode: .conflicts)
+            try expectEqual(conflicts?.subtitle, "Resolve Conflicts · ready to push")
+            try expectEqual(conflicts?.tab, .respond)
+            try expectEqual(row(.ready(draftStub), mode: .conflicts)?.subtitle, "Analyzing · 0:05")
+            try expectEqual(row(.queued, mode: .conflicts)?.subtitle, "Resolve Conflicts · queued")
         },
         TestCase("grupo Claude: título del grupo, franja del popover, iPhone e indicadores de pestaña") {
             let rows = ClaudeTasksSidebar.rows([

@@ -21,9 +21,11 @@ public struct FeedbackComment: Codable, Equatable, Sendable {
 public struct FeedbackItem: Codable, Equatable, Sendable, Identifiable {
     /// `ciChecks`: los checks fallidos de un Fix CI (spec K.6.2); sus "comentarios" son los checks.
     /// `conversation`: un comentario general del PR (la pestaña Conversation de GitHub), no de una línea.
-    public enum Kind: String, Codable, Sendable { case thread, reviewBody, ciChecks, conversation }
+    /// `mergeConflicts`: el único ítem de un Resolve Conflicts (spec C); sus "comentarios" son la descripción, los
+    /// commits que entran y el diff del PR.
+    public enum Kind: String, Codable, Sendable { case thread, reviewBody, ciChecks, conversation, mergeConflicts }
 
-    /// "thread:<nodeID>" | "review:<databaseID>" | "ci:<headOid>" | "comment:<databaseID>"
+    /// "thread:<nodeID>" | "review:<databaseID>" | "ci:<headOid>" | "comment:<databaseID>" | "conflicts:<startHeadOid>"
     public let id: String
     public let kind: Kind
     public let path: String?
@@ -111,12 +113,14 @@ public struct RespondDraft: Codable, Equatable, Sendable, Identifiable {
     public var mode: RespondMode
     /// Los checks que fallaron (solo un Fix CI).
     public var ci: CIFixContext?
+    /// Los conflictos (solo un Resolve Conflicts).
+    public var conflicts: ConflictsContext?
 
     public init(
         id: UUID = UUID(), prID: String, repo: RepoRef, number: Int, title: String, url: URL, headRef: String,
         account: String, worktree: ResolvedWorktree, startHeadOid: String, items: [RespondItem],
         language: PRLanguage = .english, runner: String? = nil, localPath: String? = nil,
-        mode: RespondMode = .feedback, ci: CIFixContext? = nil
+        mode: RespondMode = .feedback, ci: CIFixContext? = nil, conflicts: ConflictsContext? = nil
     ) {
         self.id = id
         self.prID = prID
@@ -134,13 +138,17 @@ public struct RespondDraft: Codable, Equatable, Sendable, Identifiable {
         self.localPath = localPath
         self.mode = mode
         self.ci = ci
+        self.conflicts = conflicts
     }
 
     public var isCIFix: Bool { mode == .ciFix }
+    public var isConflicts: Bool { mode == .conflicts }
+    /// Fix CI y Resolve Conflicts no tienen nada que elegir: la implementación arranca sola (K.6.3, C.3).
+    public var implementsAlone: Bool { mode != .feedback }
 
     private enum CodingKeys: String, CodingKey {
         case id, prID, repo, number, title, url, headRef, account, worktree, startHeadOid, items, language
-        case runner, localPath, mode, ci
+        case runner, localPath, mode, ci, conflicts
     }
 
     public init(from decoder: Decoder) throws {
@@ -156,7 +164,8 @@ public struct RespondDraft: Codable, Equatable, Sendable, Identifiable {
             runner: try c.decodeIfPresent(String.self, forKey: .runner),
             localPath: try c.decodeIfPresent(String.self, forKey: .localPath),
             mode: (try? c.decodeIfPresent(RespondMode.self, forKey: .mode)) ?? .feedback,
-            ci: (try? c.decodeIfPresent(CIFixContext.self, forKey: .ci)) ?? nil)
+            ci: (try? c.decodeIfPresent(CIFixContext.self, forKey: .ci)) ?? nil,
+            conflicts: (try? c.decodeIfPresent(ConflictsContext.self, forKey: .conflicts)) ?? nil)
     }
 }
 
@@ -177,8 +186,8 @@ public struct RespondSelection: Codable, Equatable, Sendable {
     /// reply → reply, fixAndReply → los dos, skip → nada. El plan y la respuesta de Claude se conservan
     /// para que el usuario pueda activar la casilla que Claude no marcó.
     public static func defaults(for item: RespondItem) -> RespondSelection {
-        // Un Fix CI nunca responde nada (spec K.6.5).
-        if item.feedback.kind == .ciChecks {
+        // Un Fix CI y un Resolve Conflicts nunca responden nada (spec K.6.5, C.1).
+        if item.feedback.kind == .ciChecks || item.feedback.kind == .mergeConflicts {
             return RespondSelection(implement: item.action != .skip && item.action != .reply, fixPlan: item.fixPlan,
                                     reply: false, replyText: "")
         }
@@ -235,13 +244,18 @@ public struct ItemResult: Codable, Equatable, Sendable {
     public let summary: String
     /// The Claude Code session of this fix (spec T.2); nil if Claude never started or in older records.
     public var session: ClaudeSessionStamp?
+    /// Resolve Conflicts: cómo resolvió Claude cada archivo (spec C.3.3). El chat y el import de un host copian los
+    /// ítems, así que viaja solo.
+    public var conflictFiles: [ConflictFileSummary]?
 
-    public init(id: String, status: Status, commit: String?, summary: String, session: ClaudeSessionStamp? = nil) {
+    public init(id: String, status: Status, commit: String?, summary: String, session: ClaudeSessionStamp? = nil,
+                conflictFiles: [ConflictFileSummary]? = nil) {
         self.id = id
         self.status = status
         self.commit = commit
         self.summary = summary
         self.session = session
+        self.conflictFiles = conflictFiles
     }
 }
 
@@ -285,10 +299,18 @@ public struct RespondResult: Codable, Equatable, Sendable {
     public let dependencyChanges: [String]?
     /// Los commits de un fix remoto ya traídos a la Mac (spec J); nil = el worktree está en esta Mac.
     public var remoteObjects: RemoteObjects?
+    /// Resolve Conflicts (decisión C.9.16): las rutas que no estaban en conflicto y que no quedaron como las dejó el
+    /// merge automático (cambiadas, agregadas o borradas por Claude o el chat). Nil fuera de ese modo y en registros
+    /// anteriores.
+    public var outsideConflicts: [String]?
+    /// Resolve Conflicts (decisión C.9.18): los archivos en conflicto que quedaron iguales a uno de los lados. Nil
+    /// fuera de ese modo y en registros anteriores.
+    public var oneSidedResolutions: [OneSidedResolution]?
 
     public init(items: [ItemResult], diffStat: String, tests: TestRun?, sensitiveChanges: [String] = [],
                 headOid: String? = nil, gitIntegrity: String? = nil, diff: String? = nil, diffTruncated: Bool? = nil,
-                commits: [CommitInfo]? = nil, dependencyChanges: [String]? = nil, remoteObjects: RemoteObjects? = nil) {
+                commits: [CommitInfo]? = nil, dependencyChanges: [String]? = nil, remoteObjects: RemoteObjects? = nil,
+                outsideConflicts: [String]? = nil, oneSidedResolutions: [OneSidedResolution]? = nil) {
         self.items = items
         self.diffStat = diffStat
         self.tests = tests
@@ -300,6 +322,8 @@ public struct RespondResult: Codable, Equatable, Sendable {
         self.commits = commits
         self.dependencyChanges = dependencyChanges
         self.remoteObjects = remoteObjects
+        self.outsideConflicts = outsideConflicts
+        self.oneSidedResolutions = oneSidedResolutions
     }
 }
 
@@ -353,5 +377,15 @@ public enum RespondSchemas {
        "status":{"type":"string","enum":["done","skipped","failed"]},
        "summary":{"type":"string"},
        "commitMessage":{"type":"string"}}}
+    """
+
+    /// Resolve Conflicts (spec C.3.3): sin mensaje de commit (lo pone PRBar) y un resumen por archivo.
+    public static let conflicts = """
+    {"type":"object","additionalProperties":false,"required":["status","summary","files"],
+     "properties":{
+       "status":{"type":"string","enum":["done","skipped","failed"]},
+       "summary":{"type":"string"},
+       "files":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["path","summary"],
+         "properties":{"path":{"type":"string"},"summary":{"type":"string"}}}}}}
     """
 }

@@ -87,9 +87,11 @@ extension AppModel {
         case .startReview: startReview(item)
         case .startRespond: rowActions(item).respond.retry()   // misma regla que el pill (Retry con fixes → abre)
         case .startCIFix: startCIFix(item)
-        case .openReview, .openRespond, .openCIFix, .openMerge, .none: break
+        case .startConflicts: startConflicts(item)
+        case .openReview, .openRespond, .openCIFix, .openConflicts, .openMerge, .none: break
         }
-        if let tab = action.tab { navigate(to: .pr(prID: prID, tab: tab)) }
+        // Resolve Conflicts que no arrancó (p. ej. rechazado): no se cambia de pestaña.
+        if let tab = action.tab, action != .startConflicts || respond.phases[prID] != nil { navigate(to: .pr(prID: prID, tab: tab)) }
     }
 
     /// Clic en una notificación (spec M.4): cada una abre el PR en la pestaña de su acción.

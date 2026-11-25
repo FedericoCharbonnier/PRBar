@@ -161,6 +161,7 @@ public enum ClaudeUsageStage {
         if lower.hasPrefix("stage 2") || lower.hasPrefix("filter") { return "filter" }
         if lower.hasPrefix("feedback analysis") { return "analysis" }
         if lower.hasPrefix("ci fix") { return "CI fix" }
+        if lower.hasPrefix("conflicts") { return "conflicts" }
         if lower.hasPrefix("fix") { return "fix" }
         if lower.hasPrefix("instructions chat") { return "instructions chat" }
         if lower.hasPrefix("chat") { return "chat" }

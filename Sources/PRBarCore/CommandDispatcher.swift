@@ -125,6 +125,10 @@ public enum CommandDispatcher {
             return try encode(actions.ciList())
         case .ciFix(let pr, let wait):
             return try encode(await actions.ciFix(pr: pr, wait: wait, events: events))
+        case .conflictsList:
+            return try encode(actions.conflictsList())
+        case .conflictsResolve(let pr, let wait):
+            return try encode(await actions.conflictsResolve(pr: pr, wait: wait, events: events))
         case .usage(let month):
             return try encode(actions.usage(month: month))
         // Ready to Merge

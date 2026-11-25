@@ -21,8 +21,10 @@ struct RespondButton: View {
     /// Hay un registro abierto (la ventana tiene algo que mostrar).
     let hasRecord: Bool
     let actions: RespondButtonActions
-    /// A Fix CI (spec K): its own labels.
-    var isCI = false
+    /// A Fix CI (spec K) or a Resolve Conflicts (spec C): their own labels.
+    var mode: RespondMode = .feedback
+    private var isCI: Bool { mode == .ciFix }
+    private var isConflicts: Bool { mode == .conflicts }
 
     var body: some View {
         content
@@ -44,8 +46,9 @@ struct RespondButton: View {
                 Image(systemName: "pause.fill").font(.system(size: 9))
             }
         case .preparing?:
-            cancellable(label: isCI ? "Reading CI…" : "Preparing…",
+            cancellable(label: isCI ? "Reading CI…" : isConflicts ? "Merging…" : "Preparing…",
                         tooltip: isCI ? "Reading the failing checks and preparing the worktree · click to cancel"
+                                      : isConflicts ? "Merging the base and preparing the worktree · click to cancel"
                                       : "Preparing the worktree · click to cancel") {
                 Image(systemName: "hourglass").font(.system(size: 10, weight: .semibold))
             }
@@ -54,13 +57,17 @@ struct RespondButton: View {
                 ProgressView().controlSize(.mini).frame(width: 10, height: 10)
             }
         case .implementing(let done, let total)?:
-            cancellable(label: isCI ? "Fixing CI…" : "Implementing \(min(done + 1, max(total, 1)))/\(max(total, 1))…",
-                        tooltip: isCI ? "Claude is fixing the CI · click to cancel" : "Claude is implementing the fixes · click to cancel") {
+            cancellable(label: isCI ? "Fixing CI…" : isConflicts ? "Resolving…" : "Implementing \(min(done + 1, max(total, 1)))/\(max(total, 1))…",
+                        tooltip: isCI ? "Claude is fixing the CI · click to cancel"
+                                      : isConflicts ? "Claude is resolving the conflicts · click to cancel"
+                                      : "Claude is implementing the fixes · click to cancel") {
                 ProgressView().controlSize(.mini).frame(width: 10, height: 10)
             }
         case .ready(let draft)?:
             if isCI {
                 openPill(label: "Fix CI", icon: "wrench.and.screwdriver.fill", tooltip: "Open to start the fix")
+            } else if isConflicts {
+                openPill(label: "Resolve Conflicts", icon: "arrow.triangle.merge", tooltip: "Open to start resolving the conflicts")
             } else {
                 openPill(label: "Plan ready · \(draft.items.count)", icon: "sparkles",
                          tooltip: "Claude analyzed \(draft.items.count) comment\(draft.items.count == 1 ? "" : "s"): open it to choose what to fix and what to reply to")
@@ -76,21 +83,24 @@ struct RespondButton: View {
                 .buttonStyle(.plain)
                 .help("Open the window to see the tests")
             } else {
-                openPill(label: isCI ? "CI fix ready to push" : "Ready to push", icon: "arrow.up.circle.fill",
-                         tooltip: isCI ? "Open to review Claude’s fix and push it" : "Open to review the diff and push")
+                openPill(label: isCI ? "CI fix ready to push" : isConflicts ? "Resolution ready to push" : "Ready to push",
+                         icon: "arrow.up.circle.fill",
+                         tooltip: isCI ? "Open to review Claude’s fix and push it"
+                                       : isConflicts ? "Open to review the merge and push it" : "Open to review the diff and push")
             }
         case .pushing?:
             Button(action: actions.open) {
                 PhasePill(fg: Theme.violet, bg: Theme.tint(Theme.violet)) {
                     ProgressView().controlSize(.mini).frame(width: 10, height: 10)
-                    Text(isCI ? "Pushing…" : "Posting…")
+                    Text(isCI || isConflicts ? "Pushing…" : "Posting…")
                 }
             }
             .buttonStyle(.plain)
-            .help(isCI ? "Checking the CI again and pushing" : "Pushing and posting the replies")
+            .help(isCI ? "Checking the CI again and pushing"
+                       : isConflicts ? "Checking the PR again and pushing" : "Pushing and posting the replies")
         case .done?:
-            openPill(label: isCI ? "CI fix pushed" : "Responded", icon: "checkmark.seal.fill",
-                     tooltip: isCI ? "See what was pushed" : "See what was pushed and what was replied", done: true)
+            openPill(label: isCI ? "CI fix pushed" : isConflicts ? "Conflicts resolved" : "Responded", icon: "checkmark.seal.fill",
+                     tooltip: isCI || isConflicts ? "See what was pushed" : "See what was pushed and what was replied", done: true)
         case .failed(let message, let logURL)?:
             Button {
                 showFailureMenu(message: message, logURL: logURL)
@@ -102,7 +112,7 @@ struct RespondButton: View {
             }
             .buttonStyle(.plain)
             .help(message)
-            .accessibilityLabel(isCI ? "Fix CI failed" : "Respond failed")
+            .accessibilityLabel(isCI ? "Fix CI failed" : isConflicts ? "Resolve Conflicts failed" : "Respond failed")
             .accessibilityHint("Opens a menu to show the log, retry, or dismiss")
         }
     }
@@ -130,7 +140,7 @@ struct RespondButton: View {
         label: String, tooltip: String, fg: Color = Theme.violet, bg: Color = Theme.tint(Theme.violet),
         @ViewBuilder icon: () -> Icon
     ) -> some View {
-        CancellablePill(label: label, tooltip: tooltip, fg: fg, bg: bg, job: isCI ? "CI fix" : "response",
+        CancellablePill(label: label, tooltip: tooltip, fg: fg, bg: bg, job: isCI ? "CI fix" : isConflicts ? "conflicts resolution" : "response",
                         accessibilityValue: accessibilityValue, cancel: actions.cancel, icon: icon)
     }
 
@@ -138,7 +148,7 @@ struct RespondButton: View {
     private var accessibilityValue: String {
         switch phase {
         case .queued?: "Queued"
-        case .preparing?: "Preparing the worktree"
+        case .preparing?: isConflicts ? "Merging the base" : "Preparing the worktree"
         case .analyzing(let agents)?: agents == 0 ? "Analyzing" : "Analyzing, \(agents) agent\(agents == 1 ? "" : "s")"
         case .implementing(let done, let total)?: "Implementing fix \(min(done + 1, max(total, 1))) of \(max(total, 1))"
         default: ""
@@ -168,5 +178,21 @@ struct FixCIButton: View {
             .disabled(unavailableReason != nil)
             .help(unavailableReason ?? "Claude reads the failing checks and fixes the code; you review it before pushing")
             .accessibilityHint(unavailableReason ?? "Claude reads the failing checks and fixes the code")
+    }
+}
+
+/// "Resolve Conflicts" on a row of mine whose branch conflicts with its base (spec C.2).
+struct ResolveConflictsButton: View {
+    let unavailableReason: String?
+    let start: () -> Void
+
+    var body: some View {
+        Button("Resolve Conflicts", action: start)
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .font(.subheadline.weight(.medium))
+            .disabled(unavailableReason != nil)
+            .help(unavailableReason ?? "PRBar merges the base and Claude resolves the conflicts; you review the merge before pushing")
+            .accessibilityHint(unavailableReason ?? "Claude resolves the conflicts with the base branch")
     }
 }

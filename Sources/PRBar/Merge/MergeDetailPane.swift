@@ -304,10 +304,21 @@ struct MergeDetailPane: View {
                 .font(.callout.weight(.semibold))
                 .foregroundStyle(Theme.greenText)
         } else if let problem = model.mergeWindowProblem(prID: prID) {
-            Label(problem, systemImage: window.isStale ? "exclamationmark.triangle" : "lock")
-                .font(.callout)
-                .foregroundStyle(window.isStale ? Theme.orangeText : .secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Label(problem, systemImage: window.isStale ? "exclamationmark.triangle" : "lock")
+                    .font(.callout)
+                    .foregroundStyle(window.isStale ? Theme.orangeText : .secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                // Mi PR con conflictos: Claude los resuelve en la pestaña Respond (spec C.2).
+                if problem == MergePolicy.conflicts, let item = current, model.isConflictsCandidate(item) {
+                    Button("Resolve Conflicts") {
+                        model.startConflictsAndOpen(item)
+                    }
+                    .controlSize(.small)
+                    .disabled(model.conflictsUnavailableReason(item) != nil)
+                    .help(model.conflictsUnavailableReason(item) ?? "PRBar merges the base and Claude resolves the conflicts")
+                }
+            }
         } else if let note = current.flatMap({ model.mergeOptions($0).availability.note }) {
             Label(note, systemImage: "exclamationmark.triangle")
                 .font(.callout)

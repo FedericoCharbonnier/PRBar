@@ -23,14 +23,14 @@ private func respondItem(_ feedback: FeedbackItem, action: FeedbackAction = .fix
     RespondItem(feedback: feedback, assessment: "Tiene razón.", action: action, fixPlan: "plan", reply: "Gracias")
 }
 
-private func fakeDraft(_ number: Int, id: UUID) -> RespondDraft {
+private func fakeDraft(_ number: Int, id: UUID, mode: RespondMode = .feedback) -> RespondDraft {
     let pr = makePR(number: number, author: "fede")
     return RespondDraft(
         id: id, prID: pr.id, repo: pr.repo, number: number, title: pr.title, url: pr.url, headRef: pr.headRef,
         account: "fede", worktree: ResolvedWorktree(path: "/wt/\(number)", origin: .dedicated, localPath: "/repos/r",
                                                     ref: "refs/prbar/respond-\(number)-0a1b2c3d"), startHeadOid: startOid,
         items: [respondItem(threadItem("thread:A", databaseID: 101)), respondItem(threadItem("thread:B", databaseID: 102))],
-        language: PRLanguage(code: "es"))
+        language: PRLanguage(code: "es"), mode: mode)
 }
 
 private let bothSelected: [String: RespondSelection] = [
@@ -177,10 +177,12 @@ final class FakeRespondPipeline: RespondPipelineRunning, @unchecked Sendable {
         sink?(phase)
     }
 
-    func completeAnalysis(_ number: Int, _ result: Result<Void, Error> = .success(())) {
+    /// `mode`: el del draft que devuelve (por defecto feedback, que se queda en `ready`; con Fix CI o Resolve
+    /// Conflicts la cola arranca la implementación sola).
+    func completeAnalysis(_ number: Int, _ result: Result<Void, Error> = .success(()), mode: RespondMode = .feedback) {
         let key = prID(number)
         guard let entry = lock.withLock({ analyses.removeValue(forKey: key) }) else { return }
-        entry.continuation.resume(with: result.map { fakeDraft(number, id: entry.id) })
+        entry.continuation.resume(with: result.map { fakeDraft(number, id: entry.id, mode: mode) })
     }
 
     @MainActor func sendProgress(_ done: Int, _ total: Int, to prID: String) {
@@ -270,6 +272,20 @@ private final class Harness {
         try await events.wait(for: reached(number, "ready"))
     }
 
+    /// analyze(mode:) → implementación sola (Fix CI, Resolve Conflicts) → readyToPush → publish → done.
+    func finishPushedRun(_ number: Int, mode: RespondMode, headOid: String = String(repeating: "d", count: 40)) async throws {
+        queue.analyze(classified(number), localPath: "/repos/r", worktreeDir: nil, mode: mode)
+        try await events.wait(for: [.started("analyze:\(prID(number))")])
+        pipeline.completeAnalysis(number, mode: mode)
+        try await events.wait(for: [.started("implement:\(prID(number))")])
+        let result = RespondResult(items: [ItemResult(id: "thread:A", status: .committed, commit: headOid, summary: "ok")],
+                                   diffStat: " README.md | 1 +", tests: nil, headOid: headOid)
+        pipeline.completeImplementation(prID(number), .success(result))
+        try await events.wait(for: reached(number, "readyToPush"))
+        queue.publish(prID: prID(number))
+        try await events.wait(for: reached(number, "done"))
+    }
+
     /// ready → implementing → readyToPush.
     func toReadyToPush(_ number: Int, result: RespondResult = fixResult) async throws {
         try await toReady(number)
@@ -296,6 +312,22 @@ enum RespondQueueTests {
             try expectEqual(h.queue.finishedRunsWithNewFeedback(latestFeedback: [:]), [])
             try expectEqual(h.queue.finishedRunsWithNewFeedback(latestFeedback: [prID(1): finished.addingTimeInterval(-60)]), [])
             try expectEqual(h.queue.finishedRunsWithNewFeedback(latestFeedback: [prID(1): finished.addingTimeInterval(60)]), [prID(1)])
+        },
+        TestCase("respond queue: un Resolve Conflicts terminado se descarta al volver a tener conflictos") { @MainActor in
+            let h = try Harness()
+            try await h.finishPushedRun(1, mode: .conflicts)
+            let pushed = try expectNotNil(h.queue.records[prID(1)]?.result?.headOid)
+            try expectEqual(h.queue.conflictRunsToDrop(conflicting: [prID(1)], heads: [prID(1): pushed]), [])   // dato viejo de GitHub
+            try expectEqual(h.queue.conflictRunsToDrop(conflicting: [], heads: [prID(1): pushed]), [])          // se vio sin conflictos
+            try expectEqual(h.queue.conflictRunsToDrop(conflicting: [prID(1)], heads: [prID(1): pushed]), [prID(1)])
+            // Otro head con conflictos también.
+            try await h.finishPushedRun(2, mode: .conflicts)
+            try expectEqual(h.queue.conflictRunsToDrop(conflicting: [prID(2)], heads: [prID(2): String(repeating: "e", count: 40)]), [prID(2)])
+            // Un Fix CI terminado no aparece; descartar olvida que se vio sin conflictos.
+            try await h.finishPushedRun(3, mode: .ciFix)
+            try expectEqual(h.queue.conflictRunsToDrop(conflicting: [prID(3)], heads: [prID(3): "x"]), [])
+            h.queue.dismiss(prID: prID(1))
+            try expectEqual(h.queue.conflictRunsToDrop(conflicting: [prID(1)], heads: [:]), [])
         },
         TestCase("respond queue: transiciones felices y registro guardado en cada una") { @MainActor in
             let h = try Harness()
@@ -827,8 +859,9 @@ private struct E2E {
     let worktreeRoot: URL
     let worktreeDir: URL
 
-    static func make(claude: ScriptedClaude) throws -> E2E {
-        let repo = try TempGitRepo.make()
+    static func make(claude: ScriptedClaude, baseSetup: (URL) throws -> Void = { _ in },
+                     prSetup: (URL) throws -> Void = { _ in }) throws -> E2E {
+        let repo = try TempGitRepo.make(baseSetup: baseSetup, prSetup: prSetup)
         let api = FakeFeedbackAPI(feedback: PRFeedback(
             headRefName: "feature", headRefOid: repo.prSHA, isCrossRepository: false, lastCommitAt: at(-10),
             threads: [threadItem("thread:A", databaseID: 101, body: "MARK-A: agregá chau"),
@@ -854,6 +887,32 @@ private struct E2E {
     }
 }
 
+/// PR #7 cambia `README.md` (y lo que haga `prSetup`); después `main` también lo cambia (y lo que haga `baseChange`):
+/// un conflicto de contenido en `README.md`. `doc.md` tiene un título subrayado con `=======` en los dos lados.
+private func conflictingE2E(claude: ScriptedClaude, baseSetup: @escaping (URL) throws -> Void = { _ in },
+                            prSetup: @escaping (URL) throws -> Void = { _ in },
+                            baseChange: @escaping (URL) throws -> Void = { _ in }) throws -> (E2E, String) {
+    let e = try E2E.make(claude: claude, baseSetup: { dir in
+        try Data("Title\n=======\n".utf8).write(to: dir.appendingPathComponent("doc.md"))
+        try baseSetup(dir)
+    }, prSetup: { dir in
+        try Data("hola PR\n".utf8).write(to: dir.appendingPathComponent("README.md"))
+        try prSetup(dir)
+    })
+    let base = try e.repo.advanceBase { dir in
+        try Data("hola base\n".utf8).write(to: dir.appendingPathComponent("README.md"))
+        try baseChange(dir)
+    }
+    e.api.feedback = PRFeedback(headRefName: "feature", headRefOid: e.repo.prSHA, isCrossRepository: false, lastCommitAt: at(-10),
+                                threads: [], reviews: [])
+    e.api.details = PRDetails(title: "t", body: "Adds a greeting", headOid: e.repo.prSHA, state: .open, baseRef: "main")
+    return (e, base)
+}
+
+private func conflictsLine(_ status: String = "done", files: [[String: String]] = [["path": "README.md", "summary": "Joined both lines."]]) -> String {
+    structured(["status": status, "summary": "Kept both greetings.", "files": files])
+}
+
 private func append(_ text: String, to name: String, in cwd: URL) throws {
     let url = cwd.appendingPathComponent(name)
     let current = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
@@ -862,6 +921,495 @@ private func append(_ text: String, to name: String, in cwd: URL) throws {
 
 enum RespondPipelineTests {
     static let cases: [TestCase] = [
+        TestCase("resolve conflicts: prepara el merge sin Claude; lista los archivos de contenido y deja MERGE_HEAD en la base") {
+            let claude = ScriptedClaude { _, _, _ in [] }
+            let (e, base) = try conflictingE2E(claude: claude)
+            defer { e.repo.remove() }
+            // El repo del usuario pide diff3 y rerere: el merge de PRBar los ignora.
+            try TempGitRepo.run(e.repo.local, ["config", "merge.conflictStyle", "diff3"])
+            try TempGitRepo.run(e.repo.local, ["config", "rerere.enabled", "true"])
+            let request = RespondRequest(item: classified(7), localPath: e.repo.local.path, worktreeDir: e.worktreeDir.path, mode: .conflicts)
+            let draft = try await e.pipeline.analyze(request, draftID: UUID()) { _ in }
+            try expectEqual(draft.mode, .conflicts)
+            try expectEqual(draft.conflicts?.baseRef, "main")
+            try expectEqual(draft.conflicts?.baseOid, base)
+            try expectEqual(draft.conflicts?.contentFiles, ["README.md"])
+            try expectEqual(draft.conflicts?.incomingCommits, 1)
+            try expectEqual(draft.items.map(\.feedback.kind), [.mergeConflicts])
+            try expect(draft.items[0].feedback.comments[1].body.contains("base change"))
+            try expect(draft.items[0].feedback.comments[2].body.contains("+hola PR"))
+            try expectEqual(try e.git(draft.worktree.path, ["rev-parse", "MERGE_HEAD"]), base)
+            try expectEqual(try e.git(draft.worktree.path, ["rev-parse", "HEAD"]), e.repo.prSHA)
+            // Estilo `merge` (sin `|||||||` de diff3) aunque el repo pida otro.
+            let readme = try String(contentsOf: URL(fileURLWithPath: draft.worktree.path).appendingPathComponent("README.md"), encoding: .utf8)
+            try expect(readme.contains("<<<<<<<") && !readme.contains("|||||||"), readme)
+            try expect(!FileManager.default.fileExists(atPath: e.repo.local.appendingPathComponent(".git/rr-cache").path), "rerere corrió")
+            try expectEqual(claude.calls.count, 0)
+        },
+        TestCase("resolve conflicts: los \"by hand\" quedan con la versión del PR (o sin el archivo) y fuera de conflicto") {
+            let claude = ScriptedClaude { _, _, _ in [] }
+            // kept.txt: el PR lo cambia y la base lo borra. gone.txt: el PR lo borra y la base lo cambia.
+            let (e, _) = try conflictingE2E(claude: claude, baseSetup: { dir in
+                try Data("v1\n".utf8).write(to: dir.appendingPathComponent("kept.txt"))
+                try Data("v1\n".utf8).write(to: dir.appendingPathComponent("gone.txt"))
+            }, prSetup: { dir in
+                try Data("v2 PR\n".utf8).write(to: dir.appendingPathComponent("kept.txt"))
+                try FileManager.default.removeItem(at: dir.appendingPathComponent("gone.txt"))
+            }, baseChange: { dir in
+                try FileManager.default.removeItem(at: dir.appendingPathComponent("kept.txt"))
+                try Data("v3 base\n".utf8).write(to: dir.appendingPathComponent("gone.txt"))
+            })
+            defer { e.repo.remove() }
+            let request = RespondRequest(item: classified(7), localPath: e.repo.local.path, worktreeDir: e.worktreeDir.path, mode: .conflicts)
+            let draft = try await e.pipeline.analyze(request, draftID: UUID()) { _ in }
+            try expectEqual(draft.conflicts?.contentFiles, ["README.md"])
+            try expectEqual(draft.conflicts?.byHandFiles.map(\.path), ["gone.txt", "kept.txt"])
+            try expectEqual(draft.conflicts?.byHandFiles.map(\.reason), ["deleted in the PR", "deleted in the base"])
+            let unmerged = try e.git(draft.worktree.path, ["diff", "--name-only", "--diff-filter=U"])
+            try expectEqual(unmerged, "README.md")
+            let wt = URL(fileURLWithPath: draft.worktree.path)
+            try expectEqual(try String(contentsOf: wt.appendingPathComponent("kept.txt"), encoding: .utf8), "v2 PR\n")
+            try expect(!FileManager.default.fileExists(atPath: wt.appendingPathComponent("gone.txt").path), "gone.txt sigue")
+            try expectEqual(try e.git(draft.worktree.path, ["ls-files", "--", "gone.txt"]), "")
+        },
+        TestCase("resolve conflicts: solo conflictos que no son de contenido → error, sin worktree ni refs") {
+            let claude = ScriptedClaude { _, _, _ in [] }
+            // El PR cambia old.txt y la base lo borra; README no choca (la base no lo toca en este caso).
+            let e = try E2E.make(claude: claude, baseSetup: { try Data("v1\n".utf8).write(to: $0.appendingPathComponent("old.txt")) },
+                                 prSetup: { try Data("v2\n".utf8).write(to: $0.appendingPathComponent("old.txt")) })
+            defer { e.repo.remove() }
+            try e.repo.advanceBase { try FileManager.default.removeItem(at: $0.appendingPathComponent("old.txt")) }
+            e.api.details = PRDetails(title: "t", body: "", headOid: e.repo.prSHA, state: .open, baseRef: "main")
+            let request = RespondRequest(item: classified(7), localPath: e.repo.local.path, worktreeDir: e.worktreeDir.path, mode: .conflicts)
+            let error = try await expectThrows { _ = try await e.pipeline.analyze(request, draftID: UUID()) { _ in } }
+            try expect("\(error.localizedDescription)".contains("old.txt"), error.localizedDescription)
+            try expect("\(error.localizedDescription)".contains("by hand"), error.localizedDescription)
+            let left = (try? FileManager.default.contentsOfDirectory(atPath: e.worktreeDir.path)) ?? []
+            try expect(left.isEmpty, "\(left)")
+            try expectEqual(try e.repo.prbarRefs(), [])
+        },
+        TestCase("resolve conflicts: el head ya contiene la base, el PR se movió o es de un fork → error sin Claude") {
+            let claude = ScriptedClaude { _, _, _ in [] }
+            let e = try E2E.make(claude: claude)
+            defer { e.repo.remove() }
+            e.api.details = PRDetails(title: "t", body: "", headOid: e.repo.prSHA, state: .open, baseRef: "main")
+            let request = RespondRequest(item: classified(7), localPath: e.repo.local.path, worktreeDir: e.worktreeDir.path, mode: .conflicts)
+            let merged = try await expectThrows { _ = try await e.pipeline.analyze(request, draftID: UUID()) { _ in } }
+            try expectEqual(merged as? PRBarError, .respond(RespondPipeline.alreadyContainsBaseMessage))
+            e.api.feedback = PRFeedback(headRefName: "feature", headRefOid: String(repeating: "d", count: 40), isCrossRepository: false,
+                                        lastCommitAt: at(0), threads: [], reviews: [])
+            let moved = try await expectThrows { _ = try await e.pipeline.analyze(request, draftID: UUID()) { _ in } }
+            try expect(moved.localizedDescription.contains("new commits"), moved.localizedDescription)
+            e.api.feedback = PRFeedback(headRefName: "feature", headRefOid: e.repo.prSHA, isCrossRepository: true, lastCommitAt: at(0),
+                                        threads: [], reviews: [])
+            let fork = try await expectThrows { _ = try await e.pipeline.analyze(request, draftID: UUID()) { _ in } }
+            try expectEqual(fork as? PRBarError, .respond(RespondPipeline.forkMessage))
+            try expectEqual(claude.calls.count, 0)
+            try expectEqual(try e.repo.prbarRefs(), [])
+        },
+        TestCase("resolve conflicts: Claude resuelve, merge de dos padres, diff = solo la resolución, un título ======= no cuenta") { @MainActor in
+            let claude = ScriptedClaude { schema, _, cwd in
+                guard schema == RespondSchemas.conflicts else { return [] }
+                try Data("hola PR y base\n".utf8).write(to: cwd.appendingPathComponent("README.md"))
+                return [conflictsLine()]
+            }
+            let (e, base) = try conflictingE2E(claude: claude)
+            defer { e.repo.remove() }
+            let events = QueueEventLog()
+            let queue = RespondQueue(pipeline: e.pipeline, history: e.history) { prID, phase in events.record(.finished("\(prID)|\(phase.name)")) }
+            queue.analyze(classified(7), localPath: e.repo.local.path, worktreeDir: e.worktreeDir.path, mode: .conflicts)
+            try expectEqual(queue.modes[prID(7)], .conflicts)
+            try await events.wait(for: reached(7, "readyToPush"))
+            guard case .readyToPush(let draft, let result)? = queue.phases[prID(7)] else { throw TestFailure(description: "sin readyToPush") }
+            let head = try e.git(draft.worktree.path, ["rev-parse", "HEAD"])
+            try expectEqual(try e.git(draft.worktree.path, ["rev-list", "--parents", "-n", "1", "HEAD"]), "\(head) \(e.repo.prSHA) \(base)")
+            try expectEqual(try e.git(draft.worktree.path, ["log", "-1", "--format=%s"]), "Merge main into feature")
+            try expectEqual(result.headOid, head)
+            try expectEqual(result.commits?.map(\.sha), [head])
+            try expect(result.diff?.contains("diff --cc README.md") == true, result.diff ?? "")
+            try expect(result.diff?.contains("hola PR y base") == true, result.diff ?? "")
+            try expect(result.diff?.contains("doc.md") == false, result.diff ?? "")
+            try expectEqual(result.items.first?.conflictFiles, [ConflictFileSummary(path: "README.md", summary: "Joined both lines.")])
+            try expectEqual(result.items.first?.status, .committed)
+            try expectEqual(try e.git(draft.worktree.path, ["status", "--porcelain"]), "")
+            let prompt = claude.calls[0].arguments[claude.calls[0].arguments.firstIndex(of: "-p")! + 1]
+            try expect(prompt.contains("<<<PR_DESCRIPTION_") && prompt.contains("Adds a greeting"))
+            try expect(prompt.contains("<<<BASE_COMMITS_") && prompt.contains("base change"))
+        },
+        TestCase("resolve conflicts: sin conflictos commitea el merge sin Claude y queda listo para pushear") { @MainActor in
+            let claude = ScriptedClaude { _, _, _ in [] }
+            let e = try E2E.make(claude: claude)
+            defer { e.repo.remove() }
+            let base = try e.repo.advanceBase { try Data("x\n".utf8).write(to: $0.appendingPathComponent("other.txt")) }
+            e.api.details = PRDetails(title: "t", body: "", headOid: e.repo.prSHA, state: .open, baseRef: "main")
+            let events = QueueEventLog()
+            let queue = RespondQueue(pipeline: e.pipeline, history: e.history) { prID, phase in events.record(.finished("\(prID)|\(phase.name)")) }
+            queue.analyze(classified(7), localPath: e.repo.local.path, worktreeDir: e.worktreeDir.path, mode: .conflicts)
+            try await events.wait(for: reached(7, "readyToPush"))
+            guard case .readyToPush(let draft, let result)? = queue.phases[prID(7)] else { throw TestFailure(description: "sin readyToPush") }
+            try expectEqual(claude.calls.count, 0)
+            try expectEqual(draft.conflicts?.files, [])
+            try expectEqual(try e.git(draft.worktree.path, ["rev-parse", "HEAD^2"]), base)
+            try expectEqual(result.diff, "")
+            try expectEqual(result.commits?.count, 1)
+        },
+        TestCase("resolve conflicts: un marcador que deja Claude o un archivo a mano que toca frenan antes del commit") { @MainActor in
+            // 1) Claude dice "done" pero no tocó README: quedan los marcadores.
+            let lazy = ScriptedClaude { schema, _, _ in schema == RespondSchemas.conflicts ? [conflictsLine()] : [] }
+            let (e1, _) = try conflictingE2E(claude: lazy)
+            defer { e1.repo.remove() }
+            let q1Events = QueueEventLog()
+            let q1 = RespondQueue(pipeline: e1.pipeline, history: e1.history) { prID, phase in q1Events.record(.finished("\(prID)|\(phase.name)")) }
+            q1.analyze(classified(7), localPath: e1.repo.local.path, worktreeDir: e1.worktreeDir.path, mode: .conflicts)
+            try await q1Events.wait(for: reached(7, "failed"))
+            if case .failed(let message, _)? = q1.phases[prID(7)] { try expect(message.contains("conflict markers in README.md"), message) }
+            try expect(q1.unpushedWork.contains(prID(7)))
+            // 2) Hay un archivo a mano (old.txt: el PR lo cambió, la base lo borró) y Claude lo edita.
+            let meddling = ScriptedClaude { schema, _, cwd in
+                guard schema == RespondSchemas.conflicts else { return [] }
+                try Data("hola PR y base\n".utf8).write(to: cwd.appendingPathComponent("README.md"))
+                try Data("changed by Claude\n".utf8).write(to: cwd.appendingPathComponent("old.txt"))
+                return [conflictsLine()]
+            }
+            let (e2, _) = try conflictingE2E(claude: meddling,
+                                             baseSetup: { try Data("v1\n".utf8).write(to: $0.appendingPathComponent("old.txt")) },
+                                             prSetup: { try Data("v2\n".utf8).write(to: $0.appendingPathComponent("old.txt")) },
+                                             baseChange: { try FileManager.default.removeItem(at: $0.appendingPathComponent("old.txt")) })
+            defer { e2.repo.remove() }
+            let request = RespondRequest(item: classified(7), localPath: e2.repo.local.path, worktreeDir: e2.worktreeDir.path, mode: .conflicts)
+            let draft = try await e2.pipeline.analyze(request, draftID: UUID()) { _ in }
+            try expectEqual(draft.conflicts?.byHandFiles.map(\.path), ["old.txt"])
+            try expectEqual(draft.conflicts?.byHandFiles.first?.reason, "deleted in the base")
+            let error = try await expectThrows {
+                _ = try await e2.pipeline.implement(draft: draft, selections: [draft.items[0].id: RespondSelection.defaults(for: draft.items[0])]) { _, _ in }
+            }
+            try expect(error.localizedDescription.contains("old.txt"), error.localizedDescription)
+        },
+        TestCase("resolve conflicts: los marcadores se buscan en archivos -diff (yarn.lock), con conflict-marker-size y sin color") { @MainActor in
+            // La base y el PR cambian yarn.lock (`-diff`: git grep -I lo saltearía) y notes.md (marcadores de 32).
+            let baseSetup: @Sendable (URL) throws -> Void = { dir in
+                try Data("yarn.lock -diff\n*.md conflict-marker-size=32\n".utf8).write(to: dir.appendingPathComponent(".gitattributes"))
+                try Data("v1\n".utf8).write(to: dir.appendingPathComponent("yarn.lock"))
+                try Data("v1\n".utf8).write(to: dir.appendingPathComponent("notes.md"))
+            }
+            let prSetup: @Sendable (URL) throws -> Void = { dir in
+                try Data("v2 PR\n".utf8).write(to: dir.appendingPathComponent("yarn.lock"))
+                try Data("v2 PR\n".utf8).write(to: dir.appendingPathComponent("notes.md"))
+            }
+            let baseChange: @Sendable (URL) throws -> Void = { dir in
+                try Data("v3 base\n".utf8).write(to: dir.appendingPathComponent("yarn.lock"))
+                try Data("v3 base\n".utf8).write(to: dir.appendingPathComponent("notes.md"))
+            }
+            func run(_ claude: ScriptedClaude) async throws -> (E2E, RespondDraft, Result<RespondResult, Error>) {
+                let (e, _) = try conflictingE2E(claude: claude, baseSetup: baseSetup, prSetup: prSetup, baseChange: baseChange)
+                // La config del usuario pide color siempre: no puede ensuciar las rutas ni las cuentas de git grep.
+                try TempGitRepo.run(e.repo.local, ["config", "color.ui", "always"])
+                try TempGitRepo.run(e.repo.local, ["config", "color.grep", "always"])
+                let request = RespondRequest(item: classified(7), localPath: e.repo.local.path, worktreeDir: e.worktreeDir.path, mode: .conflicts)
+                let draft = try await e.pipeline.analyze(request, draftID: UUID()) { _ in }
+                do {
+                    let result = try await e.pipeline.implement(draft: draft, selections: [draft.items[0].id: RespondSelection.defaults(for: draft.items[0])]) { _, _ in }
+                    return (e, draft, .success(result))
+                } catch {
+                    return (e, draft, .failure(error))
+                }
+            }
+            // 1) Claude solo resuelve README: quedan marcadores en yarn.lock y notes.md.
+            let lazy = ScriptedClaude { schema, _, cwd in
+                guard schema == RespondSchemas.conflicts else { return [] }
+                try Data("hola PR y base\n".utf8).write(to: cwd.appendingPathComponent("README.md"))
+                return [conflictsLine()]
+            }
+            let (e1, draft1, outcome1) = try await run(lazy)
+            defer { e1.repo.remove() }
+            try expectEqual(draft1.conflicts?.contentFiles, ["README.md", "notes.md", "yarn.lock"])
+            guard case .failure(let error) = outcome1 else { throw TestFailure(description: "commiteó con marcadores") }
+            try expect(error.localizedDescription.contains("conflict markers in notes.md, yarn.lock"), error.localizedDescription)
+            // 2) Claude resuelve todo: ni el título `=======` de doc.md ni el color cuentan como marcadores.
+            let thorough = ScriptedClaude { schema, _, cwd in
+                guard schema == RespondSchemas.conflicts else { return [] }
+                for name in ["README.md", "yarn.lock", "notes.md"] {
+                    try Data("hola PR y base\n".utf8).write(to: cwd.appendingPathComponent(name))
+                }
+                return [conflictsLine()]
+            }
+            let (e2, _, outcome2) = try await run(thorough)
+            defer { e2.repo.remove() }
+            if case .failure(let error) = outcome2 { throw TestFailure(description: "falló: \(error.localizedDescription)") }
+            // Resolve Conflicts le da a Claude solo leer y editar: sin Skill ni Agent.
+            let tools = thorough.calls[0].arguments[thorough.calls[0].arguments.firstIndex(of: "--tools")! + 1]
+            try expectEqual(tools, "Read,Grep,Glob,Edit,Write")
+        },
+        TestCase("resolve conflicts: binarios por atributos, directorio/archivo y archivos sueltos quedan a mano o frenan") { @MainActor in
+            // data.bin (`binary`), lock.dat (`-merge`) y other.dat (`merge=binary`) chocan sin marcadores; `x` es un
+            // archivo en el PR y una carpeta en la base.
+            let baseSetup: @Sendable (URL) throws -> Void = { dir in
+                try Data("data.bin binary\nlock.dat -merge\nother.dat merge=binary\n".utf8).write(to: dir.appendingPathComponent(".gitattributes"))
+                for name in ["data.bin", "lock.dat", "other.dat"] { try Data("v1\n".utf8).write(to: dir.appendingPathComponent(name)) }
+            }
+            let prSetup: @Sendable (URL) throws -> Void = { dir in
+                for name in ["data.bin", "lock.dat", "other.dat"] { try Data("v2 PR\n".utf8).write(to: dir.appendingPathComponent(name)) }
+                try Data("pr\n".utf8).write(to: dir.appendingPathComponent("x"))
+            }
+            let baseChange: @Sendable (URL) throws -> Void = { dir in
+                for name in ["data.bin", "lock.dat", "other.dat"] { try Data("v3 base\n".utf8).write(to: dir.appendingPathComponent(name)) }
+                try FileManager.default.createDirectory(at: dir.appendingPathComponent("x"), withIntermediateDirectories: true)
+                try Data("base\n".utf8).write(to: dir.appendingPathComponent("x/b.txt"))
+            }
+            let claude = ScriptedClaude { schema, _, cwd in
+                guard schema == RespondSchemas.conflicts else { return [] }
+                try Data("hola PR y base\n".utf8).write(to: cwd.appendingPathComponent("README.md"))
+                return [conflictsLine()]
+            }
+            let (e, _) = try conflictingE2E(claude: claude, baseSetup: baseSetup, prSetup: prSetup, baseChange: baseChange)
+            defer { e.repo.remove() }
+            let request = RespondRequest(item: classified(7), localPath: e.repo.local.path, worktreeDir: e.worktreeDir.path, mode: .conflicts)
+            let draft = try await e.pipeline.analyze(request, draftID: UUID()) { _ in }
+            try expectEqual(draft.conflicts?.contentFiles, ["README.md"])
+            let byHand = draft.conflicts?.byHandFiles ?? []
+            try expectEqual(byHand.filter { ["data.bin", "lock.dat", "other.dat"].contains($0.path) }.map(\.reason),
+                            ["binary (attributes)", "binary (attributes)", "binary (attributes)"])
+            try expect(byHand.contains { $0.path.hasPrefix("x~") && $0.reason == "directory/file conflict" }, "\(byHand)")
+            // Un archivo que git no trackea y que ya estaba antes de Claude (lo que deja un merge) no entra en el commit.
+            try Data("leftover\n".utf8).write(to: URL(fileURLWithPath: draft.worktree.path).appendingPathComponent("stray.txt"))
+            let error = try await expectThrows {
+                _ = try await e.pipeline.implement(draft: draft, selections: [draft.items[0].id: RespondSelection.defaults(for: draft.items[0])]) { _, _ in }
+            }
+            try expect(error.localizedDescription.contains("stray.txt"), error.localizedDescription)
+            try expectEqual(try e.git(draft.worktree.path, ["rev-parse", "HEAD"]), e.repo.prSHA)
+        },
+        TestCase("resolve conflicts: el merge y el chat no firman aunque el repo pida firmar (los dos igual)") { @MainActor in
+            let claude = ScriptedClaude { schema, _, cwd in
+                guard schema == RespondSchemas.conflicts else { return [] }
+                try Data("hola PR y base\n".utf8).write(to: cwd.appendingPathComponent("README.md"))
+                return [conflictsLine()]
+            }
+            let (e, _) = try conflictingE2E(claude: claude)
+            defer { e.repo.remove() }
+            // Firmar fallaría: `gpg.program` es `false`.
+            try TempGitRepo.run(e.repo.local, ["config", "commit.gpgSign", "true"])
+            try TempGitRepo.run(e.repo.local, ["config", "gpg.program", "false"])
+            let request = RespondRequest(item: classified(7), localPath: e.repo.local.path, worktreeDir: e.worktreeDir.path, mode: .conflicts)
+            let draft = try await e.pipeline.analyze(request, draftID: UUID()) { _ in }
+            let result = try await e.pipeline.implement(draft: draft, selections: [draft.items[0].id: RespondSelection.defaults(for: draft.items[0])]) { _, _ in }
+            try expectEqual(try e.git(draft.worktree.path, ["cat-file", "-p", "HEAD"]).contains("gpgsig"), false)
+            let implementer = FixImplementer(
+                claude: ClaudeRunner(runner: claude, claudePath: "/usr/local/bin/claude", pluginDirs: [], environment: [:],
+                                     logURL: e.history.logURL(for: draft.id), redacting: []),
+                runner: SystemProcessRunner(), gitPath: TempGitRepo.git, environment: gitEnvironment)
+            _ = try await implementer.chatTurn(draft: draft, current: result, sessionID: UUID(), turn: 1) {
+                try Data("hola PR, base y chat\n".utf8).write(to: URL(fileURLWithPath: draft.worktree.path).appendingPathComponent("README.md"))
+            }
+            try expectEqual(try e.git(draft.worktree.path, ["cat-file", "-p", "HEAD"]).contains("gpgsig"), false)
+            try expectEqual(try e.git(draft.worktree.path, ["log", "-1", "--format=%s"]), "Merge main into feature")
+        },
+        TestCase("resolve conflicts: el chat rehace el merge (mismos padres), rechaza marcadores y Undo vuelve al anterior") { @MainActor in
+            let claude = ScriptedClaude { schema, _, cwd in
+                guard schema == RespondSchemas.conflicts else { return [] }
+                try Data("hola PR y base\n".utf8).write(to: cwd.appendingPathComponent("README.md"))
+                return [conflictsLine()]
+            }
+            let (e, base) = try conflictingE2E(claude: claude)
+            defer { e.repo.remove() }
+            let request = RespondRequest(item: classified(7), localPath: e.repo.local.path, worktreeDir: e.worktreeDir.path, mode: .conflicts)
+            let draft = try await e.pipeline.analyze(request, draftID: UUID()) { _ in }
+            let result = try await e.pipeline.implement(draft: draft, selections: [draft.items[0].id: RespondSelection.defaults(for: draft.items[0])]) { _, _ in }
+            let merge = try e.git(draft.worktree.path, ["rev-parse", "HEAD"])
+            let implementer = FixImplementer(
+                claude: ClaudeRunner(runner: claude, claudePath: "/usr/local/bin/claude", pluginDirs: [], environment: [:],
+                                     logURL: e.history.logURL(for: draft.id), redacting: []),
+                runner: SystemProcessRunner(), gitPath: TempGitRepo.git, environment: gitEnvironment)
+            let readme = URL(fileURLWithPath: draft.worktree.path).appendingPathComponent("README.md")
+            let (_, outcome) = try await implementer.chatTurn(draft: draft, current: result, sessionID: UUID(), turn: 1) {
+                try Data("hola PR, base y chat\n".utf8).write(to: readme)
+            }
+            let rebuilt = try e.git(draft.worktree.path, ["rev-parse", "HEAD"])
+            try expect(rebuilt != merge)
+            try expectEqual(try e.git(draft.worktree.path, ["rev-list", "--parents", "-n", "1", "HEAD"]), "\(rebuilt) \(e.repo.prSHA) \(base)")
+            try expectEqual(try e.git(draft.worktree.path, ["log", "-1", "--format=%s"]), "Merge main into feature")
+            try expectEqual(outcome.result?.commits?.count, 1)
+            try expect(outcome.result?.diff?.contains("hola PR, base y chat") == true)
+            // Un turno que deja un marcador se rechaza y el árbol vuelve a como estaba.
+            _ = try await expectThrows {
+                _ = try await implementer.chatTurn(draft: draft, current: outcome.result!, sessionID: UUID(), turn: 2) {
+                    try Data("<<<<<<< HEAD\na\n=======\nb\n>>>>>>> main\n".utf8).write(to: readme)
+                }
+            }
+            try expectEqual(try e.git(draft.worktree.path, ["rev-parse", "HEAD"]), rebuilt)
+            try expectEqual(try e.git(draft.worktree.path, ["status", "--porcelain"]), "")
+            _ = try await implementer.undoChatTurn(draft: draft, snapshot: try expectNotNil(outcome.snapshot))
+            try expectEqual(try e.git(draft.worktree.path, ["rev-parse", "HEAD"]), merge)
+        },
+        TestCase("resolve conflicts: lo que Claude cambia fuera de los conflictos (aunque vuelva a la versión del PR) se ve en el diff y en outsideConflicts") { @MainActor in
+            // La base cambia shared.txt y el workflow sin chocar; el PR no los toca.
+            let baseSetup: @Sendable (URL) throws -> Void = { dir in
+                try Data("v1\n".utf8).write(to: dir.appendingPathComponent("shared.txt"))
+                try FileManager.default.createDirectory(at: dir.appendingPathComponent(".github/workflows"), withIntermediateDirectories: true)
+                try Data("on: push\n".utf8).write(to: dir.appendingPathComponent(".github/workflows/ci.yml"))
+                try Data("bye\n".utf8).write(to: dir.appendingPathComponent("gone.txt"))
+            }
+            let baseChange: @Sendable (URL) throws -> Void = { dir in
+                try Data("v2 base\n".utf8).write(to: dir.appendingPathComponent("shared.txt"))
+                try Data("on: [push, pull_request]\n".utf8).write(to: dir.appendingPathComponent(".github/workflows/ci.yml"))
+                try FileManager.default.removeItem(at: dir.appendingPathComponent("gone.txt"))
+            }
+            func run(_ claude: ScriptedClaude) async throws -> (E2E, RespondDraft, RespondResult) {
+                let (e, _) = try conflictingE2E(claude: claude, baseSetup: baseSetup, baseChange: baseChange)
+                let request = RespondRequest(item: classified(7), localPath: e.repo.local.path, worktreeDir: e.worktreeDir.path, mode: .conflicts)
+                let draft = try await e.pipeline.analyze(request, draftID: UUID()) { _ in }
+                let result = try await e.pipeline.implement(draft: draft, selections: [draft.items[0].id: RespondSelection.defaults(for: draft.items[0])]) { _, _ in }
+                return (e, draft, result)
+            }
+            // 1) Claude solo resuelve README: nada fuera de los conflictos.
+            let clean = ScriptedClaude { schema, _, cwd in
+                guard schema == RespondSchemas.conflicts else { return [] }
+                try Data("hola PR y base\n".utf8).write(to: cwd.appendingPathComponent("README.md"))
+                return [conflictsLine()]
+            }
+            let (e1, draft1, result1) = try await run(clean)
+            defer { e1.repo.remove() }
+            try expectEqual(Set(draft1.conflicts?.automaticMerge?.map(\.path) ?? []), ["shared.txt", ".github/workflows/ci.yml", "gone.txt"])
+            try expectEqual(result1.outsideConflicts, [])
+            try expect(result1.diff?.contains("shared.txt") == false, result1.diff ?? "")
+            try expectEqual(result1.sensitiveChanges, [])
+            // Un turno del chat que devuelve shared.txt a la versión del PR: aparece.
+            let implementer = FixImplementer(
+                claude: ClaudeRunner(runner: clean, claudePath: "/usr/local/bin/claude", pluginDirs: [], environment: [:],
+                                     logURL: e1.history.logURL(for: draft1.id), redacting: []),
+                runner: SystemProcessRunner(), gitPath: TempGitRepo.git, environment: gitEnvironment)
+            let (_, outcome) = try await implementer.chatTurn(draft: draft1, current: result1, sessionID: UUID(), turn: 1) {
+                try Data("v1\n".utf8).write(to: URL(fileURLWithPath: draft1.worktree.path).appendingPathComponent("shared.txt"))
+            }
+            try expectEqual(outcome.result?.outsideConflicts, ["shared.txt"])
+            try expect(outcome.result?.diff?.contains("diff --git a/shared.txt b/shared.txt\n") == true, outcome.result?.diff ?? "")
+            // 2) Claude además revierte en silencio los cambios de la base en shared.txt y en el workflow, vuelve a
+            // crear gone.txt (que la base borró) y agrega added.txt.
+            let sneaky = ScriptedClaude { schema, _, cwd in
+                guard schema == RespondSchemas.conflicts else { return [] }
+                try Data("hola PR y base\n".utf8).write(to: cwd.appendingPathComponent("README.md"))
+                try Data("v1\n".utf8).write(to: cwd.appendingPathComponent("shared.txt"))
+                try Data("on: push\n".utf8).write(to: cwd.appendingPathComponent(".github/workflows/ci.yml"))
+                try Data("nuevo\n".utf8).write(to: cwd.appendingPathComponent("added.txt"))
+                try Data("bye\n".utf8).write(to: cwd.appendingPathComponent("gone.txt"))
+                return [conflictsLine()]
+            }
+            let (e2, draft2, result2) = try await run(sneaky)
+            defer { e2.repo.remove() }
+            // El combined diff solo no muestra los que quedaron iguales a un padre (added.txt sí: difiere de los dos).
+            let combined = try e2.git(draft2.worktree.path, ["diff-tree", "--cc", "--no-commit-id", "-p", "HEAD"])
+            try expect(!combined.contains("shared.txt") && !combined.contains("ci.yml") && !combined.contains("gone.txt"), combined)
+            try expectEqual(result2.outsideConflicts, [".github/workflows/ci.yml", "added.txt", "gone.txt", "shared.txt"])
+            let diff = result2.diff ?? ""
+            try expect(diff.contains("diff --git a/shared.txt b/shared.txt\n"), diff)
+            try expect(diff.contains("--- a/shared.txt\n+++ b/shared.txt\n"), diff)
+            try expect(diff.contains("-v2 base\n+v1"), diff)
+            try expect(diff.contains("-on: [push, pull_request]\n+on: push"), diff)
+            try expect(diff.contains("diff --cc added.txt") && !diff.contains("diff --git a/added.txt"), diff)
+            try expect(diff.contains("diff --git a/gone.txt b/gone.txt\nnew file mode 100644\nindex 0000000..b023018\n"), diff)
+            try expect(diff.contains("--- /dev/null\n+++ b/gone.txt\n@@ -0,0 +1 @@\n+bye\n"), diff)
+            try expect(result2.sensitiveChanges.contains(".github/workflows/ci.yml"), "\(result2.sensitiveChanges)")
+            try expect(result2.diffStat.contains("added.txt"), result2.diffStat)
+        },
+        TestCase("resolve conflicts: un conflicto resuelto con un lado entero se ve (oneSidedResolutions), con su diff, stat, sensibles y dependencias") { @MainActor in
+            // README (conflicto de conflictingE2E) queda como en el PR; package.json, como en la base.
+            let baseSetup: @Sendable (URL) throws -> Void = { try Data(#"{"dependencies":{"a":"1"}}"#.utf8).write(to: $0.appendingPathComponent("package.json")) }
+            let prSetup: @Sendable (URL) throws -> Void = { try Data(#"{"dependencies":{"a":"2"}}"#.utf8).write(to: $0.appendingPathComponent("package.json")) }
+            let baseChange: @Sendable (URL) throws -> Void = { try Data(#"{"dependencies":{"a":"3"}}"#.utf8).write(to: $0.appendingPathComponent("package.json")) }
+            let claude = ScriptedClaude { schema, _, cwd in
+                guard schema == RespondSchemas.conflicts else { return [] }
+                try Data("hola PR\n".utf8).write(to: cwd.appendingPathComponent("README.md"))
+                try Data(#"{"dependencies":{"a":"3"}}"#.utf8).write(to: cwd.appendingPathComponent("package.json"))
+                return [conflictsLine(files: [["path": "README.md", "summary": "Kept the PR's."], ["path": "package.json", "summary": "Took main's."]])]
+            }
+            let (e, _) = try conflictingE2E(claude: claude, baseSetup: baseSetup, prSetup: prSetup, baseChange: baseChange)
+            defer { e.repo.remove() }
+            let request = RespondRequest(item: classified(7), localPath: e.repo.local.path, worktreeDir: e.worktreeDir.path, mode: .conflicts)
+            let draft = try await e.pipeline.analyze(request, draftID: UUID()) { _ in }
+            try expectEqual(draft.conflicts?.contentFiles, ["README.md", "package.json"])
+            let result = try await e.pipeline.implement(draft: draft, selections: [draft.items[0].id: RespondSelection.defaults(for: draft.items[0])]) { _, _ in }
+            // El combined diff no los muestra: quedaron iguales a un padre.
+            let combined = try e.git(draft.worktree.path, ["diff-tree", "--cc", "--no-commit-id", "-p", "HEAD"])
+            try expectEqual(combined, "")
+            try expectEqual(result.oneSidedResolutions, [OneSidedResolution(path: "README.md", kept: .pr),
+                                                         OneSidedResolution(path: "package.json", kept: .base)])
+            try expectEqual(result.outsideConflicts, [])
+            let diff = result.diff ?? ""
+            // README: lo que se descartó de la base; package.json: lo que se descartó del PR.
+            try expect(diff.contains("diff --git a/README.md b/README.md\n"), diff)
+            try expect(diff.contains("-hola base\n+hola PR"), diff)
+            try expect(diff.contains("diff --git a/package.json b/package.json\n"), diff)
+            try expect(diff.contains(#"-{"dependencies":{"a":"2"}}"#) && diff.contains(#"+{"dependencies":{"a":"3"}}"#), diff)
+            try expect(result.diffStat.contains("README.md") && result.diffStat.contains("package.json"), result.diffStat)
+            try expect(result.sensitiveChanges.contains("package.json"), "\(result.sensitiveChanges)")
+            try expectEqual(result.dependencyChanges, ["package.json"])
+            try expectEqual(OneSidedResolution(path: "README.md", kept: .pr).description(baseRef: "main"),
+                            "README.md (kept the PR’s version, dropped main’s changes)")
+            try expectEqual(OneSidedResolution(path: "package.json", kept: .base).description(baseRef: "main"),
+                            "package.json (kept main’s version, dropped the PR’s changes)")
+        },
+        TestCase("resolve conflicts: pushea el merge con el PR re-verificado; con otro head o cerrado no pushea") { @MainActor in
+            let claude = ScriptedClaude { schema, _, cwd in
+                guard schema == RespondSchemas.conflicts else { return [] }
+                try Data("hola PR y base\n".utf8).write(to: cwd.appendingPathComponent("README.md"))
+                return [conflictsLine()]
+            }
+            let (e, base) = try conflictingE2E(claude: claude)
+            defer { e.repo.remove() }
+            let events = QueueEventLog()
+            let queue = RespondQueue(pipeline: e.pipeline, history: e.history) { prID, phase in events.record(.finished("\(prID)|\(phase.name)")) }
+            queue.analyze(classified(7), localPath: e.repo.local.path, worktreeDir: e.worktreeDir.path, mode: .conflicts)
+            try await events.wait(for: reached(7, "readyToPush"))
+            guard case .readyToPush(_, let result)? = queue.phases[prID(7)] else { throw TestFailure(description: "sin readyToPush") }
+            // Otro head en GitHub: no pushea.
+            e.api.details = PRDetails(title: "t", body: "", headOid: String(repeating: "9", count: 40), state: .open, baseRef: "main")
+            queue.publish(prID: prID(7))
+            try await events.wait(for: reached(7, "failed"))
+            if case .failed(let message, _)? = queue.phases[prID(7)] { try expect(message.contains("new commits"), message) }
+            try expectEqual(try e.git(e.repo.origin.path, ["rev-parse", "refs/heads/feature"]), e.repo.prSHA)
+            // Otra base: tampoco.
+            e.api.details = PRDetails(title: "t", body: "", headOid: e.repo.prSHA, state: .open, baseRef: "develop")
+            events.reset()
+            queue.publish(prID: prID(7))
+            try await events.wait(for: reached(7, "failed"))
+            if case .failed(let message, _)? = queue.phases[prID(7)] { try expect(message.contains("base is now develop"), message) }
+            // Cerrado: tampoco.
+            e.api.details = PRDetails(title: "t", body: "", headOid: e.repo.prSHA, state: .closed, baseRef: "main")
+            events.reset()
+            queue.publish(prID: prID(7))
+            try await events.wait(for: reached(7, "failed"))
+            if case .failed(let message, _)? = queue.phases[prID(7)] { try expect(message.contains("isn’t open"), message) }
+            try expectEqual(try e.git(e.repo.origin.path, ["rev-parse", "refs/heads/feature"]), e.repo.prSHA)
+            // Con el head de siempre: pushea el merge, que contiene la base.
+            e.api.details = PRDetails(title: "t", body: "", headOid: e.repo.prSHA, state: .open, baseRef: "main")
+            queue.publish(prID: prID(7))
+            try await events.wait(for: reached(7, "done"))
+            let pushed = try e.git(e.repo.origin.path, ["rev-parse", "refs/heads/feature"])
+            try expectEqual(pushed, result.headOid)
+            try expectEqual(try e.git(e.repo.origin.path, ["rev-list", "--parents", "-n", "1", pushed]), "\(pushed) \(e.repo.prSHA) \(base)")
+            try expect(e.api.posts.isEmpty)
+        },
+        TestCase("resolve conflicts: un push que llegó a GitHub sin quedar anotado se reintenta y termina (head = el merge)") { @MainActor in
+            let claude = ScriptedClaude { schema, _, cwd in
+                guard schema == RespondSchemas.conflicts else { return [] }
+                try Data("hola PR y base\n".utf8).write(to: cwd.appendingPathComponent("README.md"))
+                return [conflictsLine()]
+            }
+            let (e, _) = try conflictingE2E(claude: claude)
+            defer { e.repo.remove() }
+            let events = QueueEventLog()
+            let queue = RespondQueue(pipeline: e.pipeline, history: e.history) { prID, phase in events.record(.finished("\(prID)|\(phase.name)")) }
+            queue.analyze(classified(7), localPath: e.repo.local.path, worktreeDir: e.worktreeDir.path, mode: .conflicts)
+            try await events.wait(for: reached(7, "readyToPush"))
+            guard case .readyToPush(let draft, let result)? = queue.phases[prID(7)], let merge = result.headOid else {
+                throw TestFailure(description: "sin readyToPush")
+            }
+            // El push anterior llegó (la app se cerró antes de anotarlo): GitHub ya tiene el merge como head.
+            try TempGitRepo.run(URL(fileURLWithPath: draft.worktree.path), ["push", "-q", "origin", "\(merge):refs/heads/feature"])
+            e.api.details = PRDetails(title: "t", body: "", headOid: merge, state: .open, baseRef: "main")
+            queue.publish(prID: prID(7))
+            try await events.wait(for: reached(7, "done"))
+            try expectEqual(try e.git(e.repo.origin.path, ["rev-parse", "refs/heads/feature"]), merge)
+        },
         TestCase("fix ci: lee los checks en la Mac, prepara el worktree, implementa solo, no responde y pushea con el CI re-verificado") { @MainActor in
             let claude = ScriptedClaude { schema, prompt, cwd in
                 guard schema == RespondSchemas.fix, prompt.contains("MARK-CI") else { return [] }
@@ -929,6 +1477,15 @@ enum RespondPipelineTests {
             try await events.wait(for: reached(7, "failed"))
             if case .failed(let message, _)? = queue.phases[prID(7)] { try expect(message.contains("new commits"), message) }
             try expectEqual(try e.git(e.repo.origin.path, ["rev-parse", "refs/heads/feature"]), e.repo.prSHA)
+            // El push anterior llegó sin quedar anotado: GitHub ya tiene lo revisado y el reintento termina.
+            guard let reviewed = queue.records[prID(7)]?.result?.headOid, let worktree = queue.records[prID(7)]?.draft.worktree.path else {
+                throw TestFailure(description: "sin resultado")
+            }
+            try TempGitRepo.run(URL(fileURLWithPath: worktree), ["push", "-q", "origin", "\(reviewed):refs/heads/feature"])
+            e.api.details = PRDetails(title: "t", body: "", headOid: reviewed, state: .open)
+            events.reset()
+            queue.publish(prID: prID(7))
+            try await events.wait(for: reached(7, "done"))
         },
         TestCase("fix ci: sin checks fallidos o con el PR movido mientras leía el CI, falla sin worktree ni Claude") {
             let claude = ScriptedClaude { _, _, _ in [] }

@@ -253,6 +253,23 @@ describe("respond y fix CI", () => {
     expect(diff.props.files[0]!.lines.map((l) => l.kind)).toEqual(["hunk", "del", "add"]);
   });
 
+  it("Resolve Conflicts: se ve con su nombre y el push es desde la Mac", async () => {
+    const app = makeApp();
+    const pr = "acme/web-app#488";
+    setRespond(app, pr, { phase: "readyToPush", mode: "conflicts", ciChecks: undefined });
+    const model = createRespondModel(app, pr, "feedback");
+    model.open();
+    const view = model.view("main");
+    expect(view.props.title).toBe("Resolve Conflicts");
+    expect(view.props.primaryLabel).toBe("Push from your Mac");
+    expect(view.props.primaryDisabled).toBe(true);
+    expect(view.props.primaryFaceId).toBe(false);
+    expect(view.props.start).toBeUndefined();
+    const sent = app.transport.sent.length;
+    await model.push();
+    expect(app.transport.sent.length).toBe(sent);
+  });
+
   it("fix CI frenado porque los checks pasan ahora: banner y Push Anyway (ciFix) con Face ID", async () => {
     const app = makeApp();
     const pr = "acme/web-app#488";

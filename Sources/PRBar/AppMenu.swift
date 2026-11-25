@@ -103,6 +103,7 @@ enum AppMenu {
         menu.addItem(.separator())
         menu.addItem(item("Merge…", #selector(WindowCommandCenter.merge(_:)), "m", modifiers: [.command, .shift],
                           target: commands))
+        menu.addItem(item("Resolve Conflicts", #selector(WindowCommandCenter.resolveConflicts(_:)), target: commands))
         menu.addItem(item("Stop Claude", #selector(WindowCommandCenter.stopClaude(_:)), ".", target: commands))
         menu.addItem(item("Open Claude Session in Terminal", #selector(WindowCommandCenter.openClaudeSession(_:)), "t",
                           modifiers: [.command, .option], target: commands))

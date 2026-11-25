@@ -116,8 +116,8 @@ extension AppModel: StatusActions {
     func historyList(repo: String?, kind: HistoryKind?, limit: Int?, search: String?) -> [HistoryEntryInfo] {
         var entries: [HistoryEntryInfo] = []
         if kind == nil || kind == .review { entries += history.all().map(HistoryEntryInfo.init(review:)) }
-        // Respond and Fix CI share `respondHistory`; `listing` keeps the requested kind only.
-        if kind == nil || kind == .respond || kind == .ciFix {
+        // Respond, Fix CI and Resolve Conflicts share `respondHistory`; `listing` keeps the requested kind only.
+        if kind == nil || kind == .respond || kind == .ciFix || kind == .conflicts {
             entries += respondHistory.all().map(HistoryEntryInfo.init(respond:))
         }
         if kind == nil || kind == .merge { entries += mergeHistory.all().map(HistoryEntryInfo.init(merge:)) }
@@ -435,6 +435,15 @@ extension AppModel: RespondActions {
             default: "Finishing…"
             }
         }
+        if respond.mode(of: prID) == .conflicts {
+            return switch respond.phases[prID] {
+            case .queued?: "Queued…"
+            case .preparing?: "Merging the base and preparing the worktree…"
+            case .implementing?: "Claude is resolving the conflicts…"
+            case .pushing?: "Checking the PR again and pushing…"
+            default: "Finishing…"
+            }
+        }
         return switch respond.phases[prID] {
         case .queued?: "Queued…"
         case .preparing?: "Preparing the worktree…"
@@ -449,7 +458,7 @@ extension AppModel: RespondActions {
         if case .failed(let message, _)? = respond.phases[prID] { throw CommandFailure(.failed, message) }
     }
 
-    private func waitForRespond(_ prID: String, events: CommandEventSink) async throws {
+    func waitForRespond(_ prID: String, events: CommandEventSink) async throws {
         try await waitUntil({ respond.phases[prID]?.isActive != true && !respond.runningTests.contains(prID) },
                             describe: { respondProgress(prID) }, events: events)
         try throwIfRespondFailed(prID)
@@ -476,7 +485,7 @@ extension AppModel: RespondActions {
     }
 
     /// Las colas ignoran en silencio lo que no pueden arrancar: si nada empezó, se avisa.
-    private func throwIfNothingStarted(_ prID: String, _ what: String) throws {
+    func throwIfNothingStarted(_ prID: String, _ what: String) throws {
         guard respond.phases[prID]?.isActive == true || respond.runningTests.contains(prID) else {
             throw CommandFailure(.invalidState, "Couldn’t start \(what) for \(prID): something else is running on it. Try again in a moment.")
         }
@@ -613,7 +622,8 @@ extension AppModel: RespondActions {
         try throwIfMayNotRunRepoCode()
         let record = try respondRecord(id)
         // `prbar ci push` nunca pushea una corrida de Responder (ni al revés), tampoco con --yes (spec K.6.14).
-        if let problem = RespondPushGate.modeCheck(expected: mode, actual: respond.mode(of: id), prID: id) { throw problem }
+        if let problem = RespondPushGate.modeCheck(expected: mode, actual: respond.mode(of: id), prID: id,
+                                                   fromPhone: CommandOrigin.current.isPhone) { throw problem }
         let gate = respondPushGate(prID: id)
         if let problem = RespondPushGate.commandCheck(
             record, phase: respond.phases[id], runningTests: respond.runningTests.contains(id),
@@ -631,7 +641,7 @@ extension AppModel: RespondActions {
         guard wait else { return respondInfo(id) }
         try await waitForRespond(id, events: events)
         if case .testsFailed(let run) = respondPushGate(prID: id), respond.records[id]?.pushed != true {
-            throw CommandFailure(.failed, "“\(run.command)” failed, so PRBar didn’t push. Push anyway with `prbar \(record.draft.isCIFix ? "ci" : "respond") push \(id) --anyway`.")
+            throw CommandFailure(.failed, "“\(run.command)” failed, so PRBar didn’t push. Push anyway with `\(RespondPushGate.pushCommand(record.draft.mode)) \(id) --anyway`.")
         }
         if let blocked = respond.pushBlockedByCI[id], respond.records[id]?.pushed != true {
             throw CommandFailure(.failed, "\(blocked) Push anyway with `prbar ci push \(id) --anyway`.")

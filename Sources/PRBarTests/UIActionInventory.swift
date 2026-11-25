@@ -55,17 +55,17 @@ enum UIActionInventory {
         .init("AppMenu.swift", "MenuItem", "Open on GitHub", 1, .cli(["open"])),
         .init("AppMenu.swift", "MenuItem", "Tab \\(index)", 1, .viewOnly("navigation in the main window")),   // ⌥⌘1–3
         .init("AppMenu.swift", "MenuItem", "Merge…", 1, .cli(["merge"])),
-        .init("AppMenu.swift", "MenuItem", "Stop Claude", 1, .cli(["review cancel", "respond cancel", "ci cancel"])),
+        .init("AppMenu.swift", "MenuItem", "Stop Claude", 1, .cli(["review cancel", "respond cancel", "ci cancel", "conflicts cancel"])),
         .init("AppMenu.swift", "MenuItem", "Open Claude Session in Terminal", 1, .cli(["session open"])),   // ⌥⌘T, the most recent
         .init("Main/PRDetailView.swift", "Component:TabCommand", "-", 3, .viewOnly("navigation in the main window")),   // ⌥⌘1–3
         .init("Main/PRDetailView.swift", "ConfirmAlert", "Cancel this review?", 1, .cli(["review cancel"])),   // ⌘.
-        .init("Main/PRDetailView.swift", "ConfirmAlert", "Stop fixing the CI?", 1, .cli(["respond cancel", "ci cancel"])),   // or "Stop this response?"
+        .init("Main/PRDetailView.swift", "ConfirmAlert", "Stop fixing the CI?", 1, .cli(["respond cancel", "ci cancel", "conflicts cancel"])),   // or "Stop resolving the conflicts?" / "Stop this response?"
         .init("AppMenu.swift", "ClosureMenuItem", "Keyboard Shortcuts", 1, .viewOnly("lists the shortcuts")),
         .init("AppMenu.swift", "ClosureMenuItem", "Show Log", 1, .cli(["app logs"])),
         .init("Components/WindowCommands.swift", "Component:WindowAccessor", "-", 1, .viewOnly("finds the window a View menu command acts on")),
         .init("Components/WindowCommands.swift", "Component:WindowCommandModifier", "-", 1, .viewOnly("registers a window’s View menu commands (Show Chat, Refresh)")),
         // PRBar Activity (plan 13, spec I)
-        .init("Activity/ActivityPane.swift", "Button", "Stop", 2, .cli(["review cancel", "respond cancel", "ci cancel", "chat", "rules chat", "update"])),   // por tarea; el de update deshabilitado
+        .init("Activity/ActivityPane.swift", "Button", "Stop", 2, .cli(["review cancel", "respond cancel", "ci cancel", "conflicts cancel", "chat", "rules chat", "update"])),   // por tarea; el de update deshabilitado
         .init("Activity/ActivityPane.swift", "Button", "Clean Up Finished…", 1, .cli(["cleanup"])),   // only the worktrees of finished runs
         .init("Activity/ActivityPane.swift", "Button", "Clean Up", 1, .cli(["cleanup"])),   // one worktree: `prbar cleanup` has no --path, it cleans every finished one
         .init("Activity/ActivityPane.swift", "Button", " · ", 1, .viewOnly("navigation in the main window")),   // a ready task's status opens its tab
@@ -86,8 +86,8 @@ enum UIActionInventory {
         .init("Main/MainWindow.swift", "Component:WindowAccessor", "-", 1, .viewOnly("sets the search field's width")),
         .init("Main/EmptyDetailView.swift", "Component:MessageView", "No PR Selected", 1, .viewOnly("no PR selected, no action")),
         .init("Main/PRListPane.swift", "ListSelection", "-", 1, .viewOnly("navigation in the main window")),
-        .init("Main/PRListRow.swift", "Button", "-", 1, .cli(["review start", "respond start", "ci fix", "open"])),   // VoiceOver's action = ↩
-        .init("Main/PRListPane.swift", "onKeyPress", "-", 1, .cli(["review start", "respond start", "ci fix", "open"])),   // ↩: the pill's action
+        .init("Main/PRListRow.swift", "Button", "-", 1, .cli(["review start", "respond start", "ci fix", "conflicts resolve", "open"])),   // VoiceOver's action = ↩
+        .init("Main/PRListPane.swift", "onKeyPress", "-", 1, .cli(["review start", "respond start", "ci fix", "conflicts resolve", "open"])),   // ↩: the pill's action
         .init("Main/PRListPane.swift", "primaryAction", "-", 1, .viewOnly("opens the PR in its own window")),   // double click
         .init("Main/PRListPane.swift", "Button", "Open on GitHub", 1, .cli(["open"])),
         .init("Main/PRListPane.swift", "Button", "Copy Link", 1, .cli(["open"])),
@@ -170,8 +170,18 @@ enum UIActionInventory {
         .init("Popover/PRRowView.swift", "Button", "Fix CI with Claude", 1, .cli(["ci fix"])),
         .init("Popover/PRRowView.swift", "Button", "Cancel Fix CI", 1, .cli(["ci cancel"])),
         .init("Popover/PRRowView.swift", "Button", "View Fix CI", 1, .cli(["open", "ci show"])),   // open --respond
-        .init("Popover/PRRowAccessory.swift", "Component:FixCIButton", "-", 2, .cli(["ci fix"])),
+        .init("Popover/PRRowAccessory.swift", "Component:FixCIButton", "-", 1, .cli(["ci fix"])),   // secondaryButton
         .init("Popover/PRRowView.swift", "Button", "View Response", 1, .cli(["open", "respond show"])),
+        // Resolve Conflicts (spec C): mis PRs con conflictos con su base
+        .init("Popover/PRRowView.swift", "Button", "Resolve Conflicts with Claude", 1, .cli(["conflicts resolve"])),
+        .init("Popover/PRRowView.swift", "Button", "Cancel Resolve Conflicts", 1, .cli(["conflicts cancel"])),
+        .init("Popover/PRRowView.swift", "Button", "View Resolve Conflicts", 1, .cli(["open", "conflicts show"])),   // open --respond
+        .init("Popover/PRRowAccessory.swift", "Component:ResolveConflictsButton", "-", 2, .cli(["conflicts resolve"])),   // secondaryButton, Ready to Merge
+        .init("Respond/RespondButton.swift", "Button", "Resolve Conflicts", 1, .cli(["conflicts resolve"])),   // ResolveConflictsButton
+        .init("Merge/MergeDetailPane.swift", "Button", "Resolve Conflicts", 1, .cli(["conflicts resolve"])),
+        .init("AppMenu.swift", "MenuItem", "Resolve Conflicts", 1, .cli(["conflicts resolve"])),   // Pull Request › Resolve Conflicts
+        .init("Respond/RespondPane.swift", "Button", "Resolve Conflicts", 1, .cli(["conflicts resolve"])),   // or "Resolve Conflicts Again"
+        .init("Respond/RespondPane.swift", "ConfirmAlert", #"Push the merge of \(baseRef) into \(draft.headRef)?"#, 1, .cli(["conflicts push"])),   // --yes
         // Ready to Merge (plan 10) y la ventana de Merge (plan 11)
         .init("Popover/MergeButton.swift", "Button", "Merge…", 1, .cli(["open", "merge"])),   // la ventana (open --merge)
         .init("Popover/MergeButton.swift", "Button", "-", 1, .cli(["merge"])),   // la pastilla de error
@@ -230,7 +240,7 @@ enum UIActionInventory {
         .init("Respond/RespondButton.swift", "Button", "-", 4, .cli(["open", "respond cancel", "history show"])),
         .init("Respond/RespondButton.swift", "ClosureMenuItem", "Open", 1, .cli(["open"])),
         .init("Respond/RespondButton.swift", "ClosureMenuItem", "Retry", 1, .cli(["respond start", "respond push"])),
-        .init("Respond/RespondButton.swift", "Component:CancellablePill", "CI fix", 1, .cli(["respond cancel", "ci cancel"])),   // asks first; "response" or "CI fix"
+        .init("Respond/RespondButton.swift", "Component:CancellablePill", "CI fix", 1, .cli(["respond cancel", "ci cancel", "conflicts cancel"])),   // asks first; "response", "CI fix" or "conflicts resolution"
         .init("Respond/RespondButton.swift", "Button", "Fix CI", 1, .cli(["ci fix"])),   // FixCIButton
         // Ventana de Review
         // Discarded y "Hidden by your settings" (vista; `review show` los lista), "Approve with N comments" y el botón Chat
@@ -244,15 +254,15 @@ enum UIActionInventory {
         .init("Review/ReviewStyle.swift", "Link", "-", 1, .viewOnly(generic)),
         // Ventana de Respond
         // carpeta, Push/Post, la acción de un mensaje ("Open New Analysis"…) y el botón Chat
-        .init("Respond/RespondPane.swift", "Button", "-", 5, .cli(["respond push", "ci push", "respond diff", "chat", "open"])),   // Push & Reply / Push, file chips (diff), Undo (chat /undo), Show Worktree in Finder, a message's action
-        .init("Respond/RespondPane.swift", "Button", "Push Anyway…", 2, .cli(["respond push", "ci push"])),   // --anyway (tests failed / CI passes now)
+        .init("Respond/RespondPane.swift", "Button", "-", 5, .cli(["respond push", "ci push", "conflicts push", "respond diff", "conflicts diff", "chat", "open"])),   // Push & Reply / Push, file chips (diff), Undo (chat /undo), Show Worktree in Finder, a message's action
+        .init("Respond/RespondPane.swift", "Button", "Push Anyway…", 2, .cli(["respond push", "ci push", "conflicts push"])),   // --anyway (tests failed / CI passes now)
         .init("Respond/RespondPane.swift", "Button", "Fix CI", 1, .cli(["ci fix"])),   // or "Fix CI Again"
         .init("Respond/RespondPane.swift", "Button", "Start Respond", 1, .cli(["respond start"])),   // with the comments list (spec R.2)
         .init("Respond/RespondPane.swift", "Button", #"Previous run: \(previous.draft.isCIFix ? "#, 1, .cli(["history show"])),
         .init("Respond/RespondFeedbackList.swift", "Button", "Retry", 1, .viewOnly("loads the comments list again")),
         .init("Respond/RespondFeedbackList.swift", "Button", "Show Less", 1, .viewOnly("expands a long comment")),   // or "Show More"
         .init("Respond/RespondFeedbackList.swift", "ExternalLink", "GitHub", 1, .cli(["open"])),   // the comment on GitHub
-        .init("Respond/RespondPane.swift", "Button", "Start Fix CI", 1, .cli(["ci fix", "respond start"])),   // or "Start Respond"
+        .init("Respond/RespondPane.swift", "Button", "Start Fix CI", 1, .cli(["ci fix", "conflicts resolve", "respond start"])),   // or "Start Resolve Conflicts" / "Start Respond"
         .init("Respond/RespondPane.swift", "ExternalLink", "Details", 1, .cli(["ci show"])),   // the check's details URL
         .init("Respond/RespondPane.swift", "Component:CIPassingBanner", "-", 1, .cli(["ci push"])),   // --anyway
         .init("Respond/RespondPane.swift", "Button", "Reset to Claude’s Suggestions", 1, .cli(["respond select"])),
@@ -260,11 +270,11 @@ enum UIActionInventory {
         .init("Respond/RespondPane.swift", "Button", "Analyze Again", 1, .cli(["respond start"])),
         .init("Respond/RespondPane.swift", "Button", "Retry Pending Replies", 1, .cli(["respond reply-only"])),
         .init("Respond/RespondPane.swift", "Button", "Cancel", 1, .cli(["respond cancel"])),   // the tests
-        .init("Respond/RespondPane.swift", "Button", "Stop", 2, .cli(["respond cancel", "ci cancel"])),
-        .init("Respond/RespondPane.swift", "Button", "Discard", 1, .cli(["respond dismiss", "ci dismiss"])),
+        .init("Respond/RespondPane.swift", "Button", "Stop", 2, .cli(["respond cancel", "ci cancel", "conflicts cancel"])),
+        .init("Respond/RespondPane.swift", "Button", "Discard", 1, .cli(["respond dismiss", "ci dismiss", "conflicts dismiss"])),
         .init("Respond/RespondPane.swift", "Button", "Run Tests", 1, .cli(["respond test"])),
         .init("Respond/RespondPane.swift", "Button", "Close", 2, .viewOnly("closes a PR window; hidden in the main window's tab")),
-        .init("Respond/RespondPane.swift", "Button", "Go to Respond", 1, .viewOnly("navigation in the main window")),   // or "Go to Fix CI"
+        .init("Respond/RespondPane.swift", "Button", "Go to Fix CI", 1, .viewOnly("navigation in the main window")),   // or "Go to Respond"
         .init("Respond/RespondPane.swift", "Button", "Open Log", 1, .viewOnly("opens Claude's log of the run")),
         .init("Respond/RespondPane.swift", "Button", "Show Log", 2, .viewOnly("opens Claude's log of the failed run")),
         .init("Respond/RespondPane.swift", "Picker", "Show", 1, .viewOnly("Diff · Tests · Log; `prbar respond|ci diff` and `test` print them")),
@@ -280,8 +290,8 @@ enum UIActionInventory {
         .init("Respond/RespondPane.swift", "Component:RespondRunView", "-", 1, .viewOnly("the run's view inside the pane; its controls are in this file")),
         .init("Respond/RespondPane.swift", "Component:TestsBlockedPushBanner", "-", 1, .cli(["respond push"])),   // --anyway
         .init("Respond/RespondPane.swift", "Component:TestsSection", "-", 1, .cli(["respond test", "respond cancel"])),
-        .init("Respond/RespondPane.swift", "ConfirmAlert", "-", 5, .cli(["respond push", "respond reply-only", "ci push", "chat"])),   // Push & Reply / Push, Push Anyway (tests, CI), Post, Undo (/undo)
-        .init("Respond/RespondPane.swift", "ConfirmAlert", "Stop fixing the CI?", 1, .cli(["respond cancel", "ci cancel"])),   // or "Stop this response?"
+        .init("Respond/RespondPane.swift", "ConfirmAlert", "-", 5, .cli(["respond push", "respond reply-only", "ci push", "conflicts push", "chat"])),   // Push & Reply / Push, Push Anyway (tests, CI), Post, Undo (/undo)
+        .init("Respond/RespondPane.swift", "ConfirmAlert", "Stop fixing the CI?", 1, .cli(["respond cancel", "ci cancel", "conflicts cancel"])),   // or "Stop resolving the conflicts?" / "Stop this response?"
         .init("Main/PRDetailView.swift", "Component:RespondPane", "-", 1, .viewOnly("navigation in the main window")),
         .init("Respond/RespondItemCard.swift", "Toggle", "Implement fix", 1, .cli(["respond select"])),
         .init("Respond/RespondItemCard.swift", "Toggle", "Reply", 1, .cli(["respond select"])),
@@ -300,7 +310,7 @@ enum UIActionInventory {
         .init("Review/HistoryPane.swift", "Button", "Show Response", 1, .cli(["open"])),
         .init("Review/HistoryDetailView.swift", "Button", "Open to Post", 1, .cli(["history reopen"])),
         .init("Review/HistoryDetailView.swift", "ExternalLink", "View Review", 1, .cli(["open"])),
-        .init("Respond/RespondHistoryDetailView.swift", "Button", "Show Fix CI", 1, .cli(["open"])),   // or "Show Response"
+        .init("Respond/RespondHistoryDetailView.swift", "Button", "Show Fix CI", 1, .cli(["open"])),   // or "Show Resolution" / "Show Response"
         // Settings › General
         .init("Settings/GeneralTab.swift", "Picker", "Refresh every", 1, .cli(["config set"])),
         .init("Settings/GeneralTab.swift", "Toggle", "Open at login", 1, .cli(["config set"])),
@@ -441,12 +451,13 @@ enum UIActionInventory {
         .init("Main/MainSidebar.swift", "Button", "What’s New", 1, .cli(["update"])),   // opens the Update sheet
         .init("Main/MainSidebar.swift", "Button", "Install", 1, .cli(["update"])),   // opens the Update sheet (decision 9)
         // Descartar trabajo sin pushear (Dismiss, Analyze Again / Fix CI Again): la CLI pregunta lo mismo.
-        .init("AppModel.swift", "ConfirmAlert", "-", 1, .cli(["respond dismiss", "ci dismiss"])),   // --yes
+        .init("AppModel.swift", "ConfirmAlert", "-", 1, .cli(["respond dismiss", "ci dismiss", "conflicts dismiss"])),   // --yes
         // AppModel.rowActions: los pills de las filas (popover y ventana principal).
         .init("AppModel+Popover.swift", "Component:ReviewButtonActions", "-", 1,
               .cli(["review start", "review cancel", "open", "review dismiss"])),
-        .init("AppModel+Popover.swift", "Component:RespondButtonActions", "-", 2,
-              .cli(["respond start", "respond cancel", "open", "respond dismiss", "ci fix", "ci cancel", "ci dismiss"])),   // Respond and Fix CI
+        .init("AppModel+Popover.swift", "Component:RespondButtonActions", "-", 3,
+              .cli(["respond start", "respond cancel", "open", "respond dismiss", "ci fix", "ci cancel", "ci dismiss",
+                    "conflicts resolve", "conflicts cancel", "conflicts dismiss"])),   // Respond, Fix CI and Resolve Conflicts
         .init("AppModel+Popover.swift", "Component:MergeButtonActions", "-", 1, .cli(["merge"])),   // merge, retry, --dismiss
         .init("Popover/PopoverView.swift", "Component:MessageView", "-", 3, .cli(["app settings", "refresh"])),   // Open Settings, Try Again
         .init("Popover/PopoverView.swift", "Component:MessageView", "checkmark.seal", 1, .viewOnly("a tab’s empty state, no action")),

@@ -9,6 +9,10 @@ public struct PromptFence: Hashable, Sendable {
     public static let commentTag = "COMMENT"
     /// The logs of a Fix CI (spec K.3).
     public static let ciLogTag = "CI_LOG"
+    /// Resolve Conflicts (spec C.4, decisión C.9.13).
+    public static let descriptionTag = "PR_DESCRIPTION"
+    public static let baseCommitsTag = "BASE_COMMITS"
+    public static let prDiffTag = "PR_DIFF"
 
     public let nonce: String
 
@@ -50,7 +54,7 @@ public enum UntrustedText {
     /// PRBar's headings, defused with a "(quoted)" mark when they appear in untrusted text.
     static let headings = [RulesPrompt.heading, "PRBar's rules for this run", "The user says:"]
 
-    private static let tags = "(?:USER_RULES|USER|COMMENT|PR_DESCRIPTION|CI_LOG)"
+    private static let tags = "(?:USER_RULES|USER|COMMENT|PR_DESCRIPTION|CI_LOG|BASE_COMMITS|PR_DIFF)"
     // `<<<USER…`, `<<< COMMENT…` and `…USER_RULES_x>>>`, `COMMENT >>>`, any case. Heredocs (`<<<EOF`) and shifts
     // (`a >>> 2`) stay as they are: they can't pass for PRBar's markers.
     private static let openMarker = try! NSRegularExpression(pattern: "<<<(\\s*)(?=\(tags))", options: [.caseInsensitive])

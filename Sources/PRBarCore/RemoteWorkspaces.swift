@@ -243,6 +243,20 @@ public struct RemoteWorkspaces: Sendable {
         }
     }
 
+    /// Como `WorktreeResolver.fetchBase`, en el mirror del host.
+    public func fetchRespondBase(_ worktree: ResolvedWorktree, repo: RepoRef, baseRef: String) async throws -> String {
+        guard worktree.origin == .dedicated, let bare = worktree.localPath, root.contains(bare), let ref = worktree.ref,
+              ref.hasPrefix("refs/prbar/respond-"), !ref.contains("..") else { throw RemoteRunnerError.outsideRoot(worktree.path) }
+        let resolver = WorktreeResolver(runner: runner, gitPath: gitPath, environment: gitEnvironment, originMatches: originMatches)
+        try await resolver.validateBranchName(baseRef)
+        let target = WorktreeResolver.baseRef(forRunRef: ref)
+        try await fetch(bare, repo: repo, ["+refs/heads/\(baseRef):\(target)"])
+        guard let sha = CommitSHA.parse(try await git(bare, ["rev-parse", "--verify", "--quiet", "\(target)^{commit}"])) else {
+            throw RemoteRunnerError.malformedOutput(host: host.name, what: "commit id")
+        }
+        return sha
+    }
+
     /// `WorktreeResolver.markPushed` on the host: the push ran from the Mac, so the run's `refs/prbar/respond-…` in the
     /// mirror moves to the pushed sha (the mirror has no branches: otherwise the kept folder always looks unpushed).
     /// Never throws.
@@ -260,7 +274,10 @@ public struct RemoteWorkspaces: Sendable {
             return
         }
         await gitLogged(bare, ["worktree", "remove", "--force", worktree.path])
-        if let ref = worktree.ref, ref.hasPrefix("refs/prbar/respond-") { await gitLogged(bare, ["update-ref", "-d", ref]) }
+        if let ref = worktree.ref, ref.hasPrefix("refs/prbar/respond-") {
+            await gitLogged(bare, ["update-ref", "-d", ref])
+            await gitLogged(bare, ["update-ref", "-d", WorktreeResolver.baseRef(forRunRef: ref)])
+        }
         try? await host.removeTree(worktree.path, root: root)
     }
 

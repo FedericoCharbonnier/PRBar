@@ -37,8 +37,8 @@ enum CommandProtocolTests {
             let line = try CommandProtocol.line(CommandResponse.event(id: 1, .text(delta: "a\nb")))
             try expect(!line.contains("\n"), line)
         },
-        TestCase("protocolo: versión 6 (Fix CI y uso de Claude)") {
-            try expectEqual(CommandProtocol.version, 8)
+        TestCase("protocolo: versión 9 (Resolve Conflicts); el teléfono sigue desde la 8") {
+            try expectEqual(CommandProtocol.version, 9)
             try expectEqual(CommandProtocol.minimumRemoteVersion, 8)
         },
         TestCase("protocolo: mensaje de versiones incompatibles") {

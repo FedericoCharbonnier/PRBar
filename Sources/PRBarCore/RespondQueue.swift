@@ -171,8 +171,8 @@ public final class RespondQueue: ObservableObject {
                 self.records[prID] = record
                 self.save(record)
                 self.finish(prID, .ready(draft))
-                // Fix CI has nothing to choose: the fix starts at once (spec K.6.3). If it can't, it stays in `ready`.
-                if draft.isCIFix { self.implementCI(prID: prID) }
+                // Fix CI y Resolve Conflicts no tienen nada que elegir (K.6.3, C.3): arranca solo. Si no puede, queda en `ready`.
+                if draft.implementsAlone { self.implementCI(prID: prID) }
             case .failure(let error):
                 // Sin draft: se guarda uno vacío para que el error quede en el historial (con el log, si lo hay).
                 let pr = item.pr
@@ -191,10 +191,10 @@ public final class RespondQueue: ObservableObject {
         return true
     }
 
-    /// Fix CI: implements its only item with the default selection (never a reply).
+    /// Fix CI o Resolve Conflicts: implementa su único ítem con la selección por defecto (nunca una respuesta).
     @discardableResult
     public func implementCI(prID: String) -> Bool {
-        guard case .ready(let draft)? = phases[prID], draft.isCIFix else { return false }
+        guard case .ready(let draft)? = phases[prID], draft.implementsAlone else { return false }
         let selections = Dictionary(uniqueKeysWithValues: draft.items.map { ($0.id, RespondSelection.defaults(for: $0)) })
         implement(prID: prID, selections: selections)
         return jobs[prID] != nil
@@ -392,10 +392,36 @@ public final class RespondQueue: ObservableObject {
         }.sorted()
     }
 
+    /// PRs con un Resolve Conflicts `done` que se vieron sin conflictos después (decisión C.9.10).
+    private var conflictsClearedSinceDone: Set<String> = []
+
+    /// Spec C.6: los Resolve Conflicts terminados que hay que descartar porque el PR tiene conflictos otra vez: después
+    /// de verse sin conflictos, o con un head que no es el que se pusheó. `conflicting`: los PRs con conflictos del último
+    /// refresco; `heads`: su head. Una corrida con un job o cancelándose no aparece.
+    public func conflictRunsToDrop(conflicting: Set<String>, heads: [String: String]) -> [String] {
+        var drop: [String] = []
+        for (prID, phase) in phases {
+            guard case .done(let record) = phase, record.draft.isConflicts, jobs[prID] == nil, cancelling[prID] == nil else {
+                conflictsClearedSinceDone.remove(prID)
+                continue
+            }
+            guard conflicting.contains(prID) else {
+                conflictsClearedSinceDone.insert(prID)
+                continue
+            }
+            let movedHead = heads[prID].map { $0 != record.result?.headOid } ?? false
+            if conflictsClearedSinceDone.contains(prID) || movedHead { drop.append(prID) }
+        }
+        // Los PRs que ya no tienen fase no guardan nada.
+        conflictsClearedSinceDone.formIntersection(phases.keys)
+        return drop.sorted()
+    }
+
     /// Vuelve a idle, olvida el registro (queda en el historial) y borra el worktree de PRBar. No toca un PR con
     /// un job.
     public func dismiss(prID: String) {
         pushBlockedByTests.remove(prID)
+        conflictsClearedSinceDone.remove(prID)
         guard jobs[prID] == nil, cancelling[prID] == nil else { return }
         pushBlockedByCI[prID] = nil
         modes[prID] = nil
@@ -493,7 +519,13 @@ public final class RespondQueue: ObservableObject {
     }
 
     /// La tarea de Activity del PR.
-    private func activity(_ prID: String) -> ProcessActivity { mode(of: prID) == .ciFix ? .ciFix(prID) : .respond(prID) }
+    private func activity(_ prID: String) -> ProcessActivity {
+        switch mode(of: prID) {
+        case .ciFix: .ciFix(prID)
+        case .conflicts: .conflicts(prID)
+        case .feedback: .respond(prID)
+        }
+    }
 
     private func progress(_ prID: String, _ jobID: UUID, _ phase: RespondPhase) {
         guard jobs[prID]?.id == jobID, phase.isActive else { return }
@@ -571,7 +603,7 @@ public final class RespondQueue: ObservableObject {
         let previous = phases[prID]
         start(prID, kind: .publish, phase: .queued, onStart: .pushing, work: { [weak self] _ in
             if push && !record.pushed, let result = record.result {
-                if draft.isCIFix { try await pipeline.checkCIBeforePush(draft: draft, ignoringPassingChecks: ignoringCI) }
+                if draft.implementsAlone { try await pipeline.checkCIBeforePush(draft: draft, result: result, ignoringPassingChecks: ignoringCI) }
                 try await pipeline.push(draft: draft, result: result)
                 await self?.markPushed(prID, draftID)
             }

@@ -97,6 +97,15 @@ public struct RespondPublisher: Sendable {
         guard ancestor.status == 0 else {
             throw PRBarError.respond("\(reviewed.prefix(12)) doesn't descend from \(draft.startHeadOid), the base of the analysis. Not pushing.")
         }
+        if let conflicts = draft.conflicts {
+            // Resolve Conflicts (C.3.6): lo pusheado tiene que contener la base que PRBar mergeó.
+            let containsBase = try await run(["-C", path] + GitHardening.arguments
+                                             + ["merge-base", "--is-ancestor", conflicts.baseOid, reviewed], timeout: ProcessTimeouts.standard)
+            guard containsBase.status == 0 else {
+                throw PRBarError.respond("\(reviewed.prefix(12)) doesn’t contain \(conflicts.baseRef) (\(conflicts.baseOid.prefix(12))), "
+                    + "the base PRBar merged. Not pushing.")
+            }
+        }
 
         let lsRemote = ["-C", path] + GitHardening.arguments + Self.lsRemoteArguments(headRef: headRef)
         let pushed: ProcessResult
@@ -193,8 +202,8 @@ public struct RespondPublisher: Sendable {
         async -> (posted: [String: PostedReply], error: Error?) {
         var posted = alreadyPosted
         for item in draft.items {
-            // Un Fix CI no responde nada (spec K.6.5), aunque la selección lo diga.
-            guard item.feedback.kind != .ciChecks,
+            // Un Fix CI y un Resolve Conflicts no responden nada (spec K.6.5, C.1), aunque la selección lo diga.
+            guard item.feedback.kind != .ciChecks, item.feedback.kind != .mergeConflicts,
                   let selection = selections[item.id], selection.reply, posted[item.id] == nil else { continue }
             let fix = result?.items.first { $0.id == item.id && $0.status == .committed }
             let values = FixTemplates.values(draft: draft, item: item, count: 1, summary: fix?.summary)
@@ -214,7 +223,7 @@ public struct RespondPublisher: Sendable {
                 case .reviewBody, .conversation:
                     url = try await api.addIssueComment(repo: draft.repo, number: draft.number,
                                                         body: Self.reviewBodyReply(item.feedback, text: text), token: token)
-                case .ciChecks:
+                case .ciChecks, .mergeConflicts:
                     continue
                 }
                 let reply = PostedReply(id: item.id, url: url)

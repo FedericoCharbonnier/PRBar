@@ -116,6 +116,7 @@ private final class SnapshotSession {
         try await notification()
         try await updateSheet()
         try await fixCITab()
+        try await conflictsTab()
         let activity = try makeModel("activity", snapshot: fixtures.snapshot)
         activity.snapshotLiveUsage = fixtures.liveUsage
         activity.main.go(to: .activity, snapshot: activity.prStore.snapshot)
@@ -157,6 +158,8 @@ private final class SnapshotSession {
             respondPipeline: SnapshotRespondPipeline(draft: fixtures.csvDraft, result: fixtures.csvResult, tests: fixtures.csvTests,
                                                      logDirectory: respondHistory.directory.appendingPathComponent("logs"),
                                                      ciDraft: fixtures.ciFixDraft, ciResult: fixtures.ciFixResult,
+                                                     conflictsDraft: fixtures.conflictsDraft,
+                                                     conflictsResult: fixtures.conflictsResult,
                                                      holdsImplementation: holdsImplementation),
             chatBackend: SnapshotChatBackend(),
             instructionsStore: InstructionsStore(fileURL: dir.appendingPathComponent("instructions.json")),
@@ -332,6 +335,24 @@ private final class SnapshotSession {
         try await popover("popover-mine-ci-fix", model: model)
         model.main.go(to: .pr(prID: prID, tab: .fixCI), snapshot: model.prStore.snapshot)
         try await window("main-fix-ci-ready", title: "PRBar", size: Theme.MainLayout.defaultSize) { MainWindow(model: model) }
+    }
+
+    /// Resolve Conflicts (spec C) of web-app#475: the popover row while the merge waits to be pushed (and api#327 in
+    /// Ready to Merge offering Resolve Conflicts), and its Respond tab.
+    private func conflictsTab() async throws {
+        let model = try makeModel("conflicts", snapshot: fixtures.conflictsSnapshot)
+        let item = fixtures.csvExportConflicting
+        let prID = item.id
+        model.respond.analyze(item, localPath: "/Users/sam/Code/web-app", worktreeDir: "/Users/sam/Code/worktrees", mode: .conflicts)
+        try await waitUntil("the resolution") {
+            if case .readyToPush? = model.respond.phases[prID] { return true }
+            return false
+        }
+        guard model.respond.records[prID] != nil else { throw SnapshotError(message: "No Resolve Conflicts draft") }
+        model.popoverTab.selected = .mine
+        try await popover("popover-mine-conflicts", model: model)
+        model.main.go(to: .pr(prID: prID, tab: .respond), snapshot: model.prStore.snapshot)
+        try await window("main-conflicts-ready", title: "PRBar", size: Theme.MainLayout.defaultSize) { MainWindow(model: model) }
     }
 
     /// api#322 (mine, Ready to Merge) in the Merge tab with its summary loaded, and web-app#491 (someone else's) in

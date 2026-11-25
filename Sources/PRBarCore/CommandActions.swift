@@ -224,7 +224,14 @@ public protocol SessionActions: AnyObject {
     func sessionOpen(pr: String, job: SessionJob?, run: Int?) async throws -> ClaudeSessionInfo
 }
 
+/// Resolve Conflicts (spec C.5).
+@MainActor
+public protocol ConflictsActions: AnyObject {
+    func conflictsList() throws -> [ConflictsListEntry]
+    func conflictsResolve(pr: String, wait: Bool, events: CommandEventSink) async throws -> RespondInfo
+}
+
 /// Lo que la app tiene que saber hacer para abrir el socket.
 public typealias PRBarActions = StatusActions & ReviewActions & RespondActions & MergeActions & ConfigActions
     & SlackActions & ChatCommandActions & UpdateCommandActions & InstructionCommandActions & ResourceActions
-    & RunnerActions & CIFixUsageActions & RemoteActions & SessionActions
+    & RunnerActions & CIFixUsageActions & ConflictsActions & RemoteActions & SessionActions

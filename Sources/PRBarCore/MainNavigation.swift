@@ -63,17 +63,20 @@ public struct PRTabContext: Equatable, Sendable {
     public var ciFailing: Bool
     /// Lo que ocupa el lugar de Respond del PR (`RespondQueue.records` o `phases`), en cualquier fase.
     public var respondTask: RespondMode?
+    /// GitHub dice que choca con su base (spec C.2): Respond ofrece "Start Resolve Conflicts".
+    public var hasConflicts: Bool
 
-    public init(isMine: Bool, hasFeedback: Bool, ciFailing: Bool, respondTask: RespondMode?) {
+    public init(isMine: Bool, hasFeedback: Bool, ciFailing: Bool, respondTask: RespondMode?, hasConflicts: Bool = false) {
         self.isMine = isMine
         self.hasFeedback = hasFeedback
         self.ciFailing = ciFailing
         self.respondTask = respondTask
+        self.hasConflicts = hasConflicts
     }
 
     public init(item: ClassifiedPR, respondTask: RespondMode?) {
         self.init(isMine: PopoverTabs.isMine(item), hasFeedback: item.category == .myFeedback,
-                  ciFailing: item.pr.ciState == .failure, respondTask: respondTask)
+                  ciFailing: item.pr.ciState == .failure, respondTask: respondTask, hasConflicts: item.pr.merge.hasConflicts)
     }
 }
 
@@ -90,9 +93,16 @@ public enum PRTabs {
         }
         return [
             PRTabItem(tab: .merge, isEnabled: true),
-            PRTabItem(tab: .respond, isEnabled: c.hasFeedback || c.respondTask == .feedback),
+            PRTabItem(tab: .respond, isEnabled: c.hasFeedback || c.hasConflicts || c.respondTask == .feedback || c.respondTask == .conflicts),
             PRTabItem(tab: .fixCI, isEnabled: c.ciFailing || c.respondTask == .ciFix),
         ]
+    }
+
+    /// El modo de la pestaña Respond (decisión C.9.8): el de la corrida en curso (`running`, nil sin fase); sin
+    /// corrida, Resolve Conflicts si el PR choca con su base y no tiene feedback que responder.
+    public static func respondMode(_ c: PRTabContext, running: RespondMode?) -> RespondMode {
+        if let running { return running == .conflicts ? .conflicts : .feedback }
+        return c.isMine && c.hasConflicts && !c.hasFeedback ? .conflicts : .feedback
     }
 
     /// Why a tab of `tabs` is disabled (its tooltip).
@@ -106,11 +116,14 @@ public enum PRTabs {
 
     public static func initial(_ c: PRTabContext) -> PRTab {
         guard c.isMine else { return .review }
+        // Resolve Conflicts se ve en Respond (decisión C.9.8), aunque el CI esté roto.
+        if c.respondTask == .conflicts { return .respond }
         if c.hasFeedback { return .respond }
         if c.ciFailing { return .fixCI }
         switch c.respondTask {
         case .feedback?: return .respond
         case .ciFix?: return .fixCI
+        case .conflicts?: return .respond
         case nil: return .merge
         }
     }

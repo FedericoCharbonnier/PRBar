@@ -325,6 +325,7 @@ final class AppModel: ObservableObject {
             self?.reviews.dropOutdatedPublished(
                 heads: Dictionary(snapshot.items.map { ($0.id, $0.pr.headOid) }, uniquingKeysWith: { first, _ in first }))
             self?.dropRespondRunsWithNewFeedback(snapshot)
+            self?.dropConflictRunsWithNewConflicts(snapshot)
             self?.updateMergeSessions(snapshot)
             self?.pruneRetainedWorktrees(snapshot)
         }
@@ -1092,7 +1093,11 @@ final class AppModel: ObservableObject {
                 if let draft = self.respond.records[item.id]?.draft { self.discardChat(draftID: draft.id) }
                 self.respond.dismiss(prID: item.id)
             }
-            if mode == .ciFix { self.startCIFix(item) } else { self.startRespond(item) }
+            switch mode {
+            case .ciFix: self.startCIFix(item)
+            case .conflicts: self.startConflicts(item)
+            case .feedback: self.startRespond(item)
+            }
         }
         guard respond.unpushedWork.contains(item.id) else { return restart() }
         ConfirmAlert.present(title: RespondDiscardCopy.title,
@@ -1213,7 +1218,18 @@ final class AppModel: ObservableObject {
         let draft = respond.records[prID]?.draft
         let event: NotificationPlanner.RespondEvent?
         let isCI = respond.mode(of: prID) == .ciFix
+        let isConflicts = respond.mode(of: prID) == .conflicts
         switch phase {
+        // Resolve Conflicts (spec C.6): nothing to choose in `ready`; "listo para pushear" with this mode's text.
+        case .ready where isConflicts:
+            event = nil
+        case .readyToPush(let draft, let result) where isConflicts:
+            event = result.tests == nil ? .conflictsReady(byHand: draft.conflicts?.byHandFiles.count ?? 0) : nil
+        case .done where isConflicts:
+            event = .conflictsPushed
+            Task { await prStore.refresh() }
+        case .failed where isConflicts:
+            event = .conflictsFailed
         // Fix CI (spec K.6.7): nothing to choose in `ready` (the fix starts on its own).
         case .ready where isCI:
             event = nil
