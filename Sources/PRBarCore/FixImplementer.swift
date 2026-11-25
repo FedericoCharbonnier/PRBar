@@ -690,7 +690,8 @@ public struct FixImplementer: Sendable {
 
     /// The ref of a chat turn's snapshot (spec B.6). It's under `refs/prbar/`, so the startup cleanup deletes it too:
     /// it only keeps the snapshot visible in git. Undo doesn't need it: the snapshot is taken on a clean tree, so its
-    /// tree is `headBefore`'s, which stays reachable from the turn's commit.
+    /// tree is `headBefore`'s, which stays reachable from the turn's commit. En Resolve Conflicts el turno rehace el
+    /// merge (no desciende de `headBefore`): ahí la ref (su commit tiene a `headBefore` de padre) lo mantiene alcanzable.
     public static func chatRef(sessionID: UUID, turn: Int) -> String {
         "refs/prbar/chat-\(sessionID.uuidString.lowercased())-\(turn)"
     }
@@ -702,6 +703,8 @@ public struct FixImplementer: Sendable {
     /// `inspect` runs before any git: if git's config or hooks changed it throws without running git; if Claude
     /// failed, the turn's changes are reverted; new ignored files are reverted and it throws. The returned result is
     /// recomputed from `start..HEAD` with the previous items and no tests (the code changed).
+    /// Resolve Conflicts (decisión C.9.5): no apila un commit; rehace el merge (mismos padres, mismo mensaje) con el
+    /// árbol del turno, y un turno que deja marcadores de conflicto nuevos se descarta entero.
     public func chatTurn<T: Sendable>(draft: RespondDraft, current: RespondResult, sessionID: UUID, turn: Int,
                                       body: @Sendable () async throws -> T) async throws -> (T, ChatFilesOutcome) {
         let worktree = URL(fileURLWithPath: draft.worktree.path, isDirectory: true)
@@ -773,13 +776,33 @@ public struct FixImplementer: Sendable {
                 "Claude left a symlink or a nested repo (\(special.prefix(3).joined(separator: ", "))). "
                 + "Stopped before committing. Check the worktree \(worktree.path).")
         }
-        try await git(worktree, ["commit", "--no-verify", "-m", Self.chatCommitMessage], timeout: Self.fixTimeout)
-        let sha = try await head(worktree)
+        let sha: String
+        if let context = draft.conflicts {
+            // Decisión C.9.5: sin marcadores nuevos y un solo commit de merge, rehecho con el árbol del turno.
+            let leftover = try await leftoverMarkers(worktree, start: start, context: context)
+            guard leftover.isEmpty else {
+                try await git(worktree, ["read-tree", "-u", "--reset", "HEAD"])
+                try await restore(worktree)
+                _ = try? await git(worktree, ["update-ref", "-d", ref])
+                throw PRBarError.respond("Claude left conflict markers in \(CILogs.nameList(leftover)): the chat’s changes were discarded.")
+            }
+            let tree = try await git(worktree, ["write-tree"]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let message = Self.singleLine(context.commitMessage(headRef: draft.headRef), limit: 200)
+            sha = try await git(worktree, ["commit-tree", tree, "-p", start, "-p", context.baseOid, "-m", message], timeout: Self.fixTimeout)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard Self.isFullSHA(sha) else { throw PRBarError.respond("git commit-tree returned \(sha.prefix(80)): stopping.") }
+            try await git(worktree, ["update-ref", "--no-deref", "HEAD", sha, headBefore])
+            try await checkMergeParents(worktree, sha: sha, draft: draft, context: context)
+        } else {
+            try await git(worktree, ["commit", "--no-verify", "-m", Self.chatCommitMessage], timeout: Self.fixTimeout)
+            sha = try await head(worktree)
+        }
         guard sha != headBefore, try await isAncestor(worktree, start, sha) else {
             throw PRBarError.respond("Commit \(sha) doesn't descend from \(start): stopping.")
         }
         // The baseline is carried forward, never recomputed (`inspect` already checked nothing changed in the turn).
-        let result = try await summarize(worktree, start: start, items: current.items, integrity: current.gitIntegrity)
+        let result = try await summarize(worktree, start: start, items: current.items, integrity: current.gitIntegrity,
+                                         conflicts: draft.conflicts)
         return (value, ChatFilesOutcome(
             changedFiles: changed,
             snapshot: ChatFileSnapshot(ref: ref, tree: tree, headBefore: headBefore, headAfter: sha, resultBefore: current),

@@ -1053,6 +1053,43 @@ enum RespondPipelineTests {
             }
             try expect(error.localizedDescription.contains("old.txt"), error.localizedDescription)
         },
+        TestCase("resolve conflicts: el chat rehace el merge (mismos padres), rechaza marcadores y Undo vuelve al anterior") { @MainActor in
+            let claude = ScriptedClaude { schema, _, cwd in
+                guard schema == RespondSchemas.conflicts else { return [] }
+                try Data("hola PR y base\n".utf8).write(to: cwd.appendingPathComponent("README.md"))
+                return [conflictsLine()]
+            }
+            let (e, base) = try conflictingE2E(claude: claude)
+            defer { e.repo.remove() }
+            let request = RespondRequest(item: classified(7), localPath: e.repo.local.path, worktreeDir: e.worktreeDir.path, mode: .conflicts)
+            let draft = try await e.pipeline.analyze(request, draftID: UUID()) { _ in }
+            let result = try await e.pipeline.implement(draft: draft, selections: [draft.items[0].id: RespondSelection.defaults(for: draft.items[0])]) { _, _ in }
+            let merge = try e.git(draft.worktree.path, ["rev-parse", "HEAD"])
+            let implementer = FixImplementer(
+                claude: ClaudeRunner(runner: claude, claudePath: "/usr/local/bin/claude", pluginDirs: [], environment: [:],
+                                     logURL: e.history.logURL(for: draft.id), redacting: []),
+                runner: SystemProcessRunner(), gitPath: TempGitRepo.git, environment: gitEnvironment)
+            let readme = URL(fileURLWithPath: draft.worktree.path).appendingPathComponent("README.md")
+            let (_, outcome) = try await implementer.chatTurn(draft: draft, current: result, sessionID: UUID(), turn: 1) {
+                try Data("hola PR, base y chat\n".utf8).write(to: readme)
+            }
+            let rebuilt = try e.git(draft.worktree.path, ["rev-parse", "HEAD"])
+            try expect(rebuilt != merge)
+            try expectEqual(try e.git(draft.worktree.path, ["rev-list", "--parents", "-n", "1", "HEAD"]), "\(rebuilt) \(e.repo.prSHA) \(base)")
+            try expectEqual(try e.git(draft.worktree.path, ["log", "-1", "--format=%s"]), "Merge main into feature")
+            try expectEqual(outcome.result?.commits?.count, 1)
+            try expect(outcome.result?.diff?.contains("hola PR, base y chat") == true)
+            // Un turno que deja un marcador se rechaza y el árbol vuelve a como estaba.
+            _ = try await expectThrows {
+                _ = try await implementer.chatTurn(draft: draft, current: outcome.result!, sessionID: UUID(), turn: 2) {
+                    try Data("<<<<<<< HEAD\na\n=======\nb\n>>>>>>> main\n".utf8).write(to: readme)
+                }
+            }
+            try expectEqual(try e.git(draft.worktree.path, ["rev-parse", "HEAD"]), rebuilt)
+            try expectEqual(try e.git(draft.worktree.path, ["status", "--porcelain"]), "")
+            _ = try await implementer.undoChatTurn(draft: draft, snapshot: try expectNotNil(outcome.snapshot))
+            try expectEqual(try e.git(draft.worktree.path, ["rev-parse", "HEAD"]), merge)
+        },
         TestCase("fix ci: lee los checks en la Mac, prepara el worktree, implementa solo, no responde y pushea con el CI re-verificado") { @MainActor in
             let claude = ScriptedClaude { schema, prompt, cwd in
                 guard schema == RespondSchemas.fix, prompt.contains("MARK-CI") else { return [] }
