@@ -517,8 +517,8 @@ public struct RespondPipeline: RespondPipelineRunning {
         try checkRunner(draft)
         try ensureStopped(draft)
         let token = try await tokens.token(for: draft.account)
-        // Fix CI's prompt names no skill (spec K.3): no plugins to load.
-        let skills = draft.isCIFix ? [] : settings.respondSkills
+        // Fix CI y Conflicts no nombran skills (spec K.3, C.9): no hay plugins que cargar.
+        let skills = draft.implementsAlone ? [] : settings.respondSkills
         let pluginDirs: [String]
         if let remote = placement {
             pluginDirs = try await remote.plugins(skills: skills)

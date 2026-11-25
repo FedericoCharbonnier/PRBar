@@ -171,8 +171,8 @@ public final class RespondQueue: ObservableObject {
                 self.records[prID] = record
                 self.save(record)
                 self.finish(prID, .ready(draft))
-                // Fix CI has nothing to choose: the fix starts at once (spec K.6.3). If it can't, it stays in `ready`.
-                if draft.isCIFix { self.implementCI(prID: prID) }
+                // Fix CI y Resolve Conflicts no tienen nada que elegir (K.6.3, C.3): arranca solo. Si no puede, queda en `ready`.
+                if draft.implementsAlone { self.implementCI(prID: prID) }
             case .failure(let error):
                 // Sin draft: se guarda uno vacío para que el error quede en el historial (con el log, si lo hay).
                 let pr = item.pr
@@ -191,10 +191,10 @@ public final class RespondQueue: ObservableObject {
         return true
     }
 
-    /// Fix CI: implements its only item with the default selection (never a reply).
+    /// Fix CI o Resolve Conflicts: implementa su único ítem con la selección por defecto (nunca una respuesta).
     @discardableResult
     public func implementCI(prID: String) -> Bool {
-        guard case .ready(let draft)? = phases[prID], draft.isCIFix else { return false }
+        guard case .ready(let draft)? = phases[prID], draft.implementsAlone else { return false }
         let selections = Dictionary(uniqueKeysWithValues: draft.items.map { ($0.id, RespondSelection.defaults(for: $0)) })
         implement(prID: prID, selections: selections)
         return jobs[prID] != nil
@@ -493,7 +493,13 @@ public final class RespondQueue: ObservableObject {
     }
 
     /// La tarea de Activity del PR.
-    private func activity(_ prID: String) -> ProcessActivity { mode(of: prID) == .ciFix ? .ciFix(prID) : .respond(prID) }
+    private func activity(_ prID: String) -> ProcessActivity {
+        switch mode(of: prID) {
+        case .ciFix: .ciFix(prID)
+        case .conflicts: .conflicts(prID)
+        case .feedback: .respond(prID)
+        }
+    }
 
     private func progress(_ prID: String, _ jobID: UUID, _ phase: RespondPhase) {
         guard jobs[prID]?.id == jobID, phase.isActive else { return }
