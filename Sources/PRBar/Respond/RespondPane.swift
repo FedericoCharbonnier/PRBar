@@ -241,6 +241,8 @@ private struct RespondAnalyzingView: View {
                      : mode == .conflicts ? "Merging \(baseRef) and preparing the worktree…" : "Claude is analyzing the comments…")
                     .font(.title3)
                     .foregroundStyle(.secondary)
+                // Spec LP.5: the step the job is on, with its time.
+                JobActivityDetail(feed: model.respond.activityFeed, prID: prID)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             HStack {
@@ -837,6 +839,7 @@ struct RespondRunView: View {
                                  : isConflicts ? "Resolving the conflicts in PRBar’s worktree" : "Fix \(fix) of \(max(total, 1))")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
+                            JobActivityDetail(feed: queue.activityFeed, prID: draft.prID)
                         }
                         Spacer(minLength: 0)
                     }
@@ -942,7 +945,7 @@ struct RespondRunView: View {
                                  disabled: queue.phases[prID] != .readyToPush(draft, result) || chat.isRunning
                                      || model.jobsBlockedReason != nil,
                                  start: { model.runRespondTests(prID: prID) },
-                                 cancel: { queue.cancel(prID: prID) })
+                                 cancel: { queue.cancel(prID: prID) }, steps: queue.activityFeed, prID: draft.prID)
                 } else {
                     Text("This repo has no test command. Set one in Settings › Repos to run its tests here.")
                         .font(.callout)
@@ -1234,6 +1237,7 @@ struct RespondRunView: View {
         VStack(spacing: 12) {
             ProgressView().controlSize(.large).tint(Theme.violet)
             Text(text).font(.title3).foregroundStyle(.secondary)
+            JobActivityDetail(feed: queue.activityFeed, prID: draft.prID)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -1577,6 +1581,9 @@ private struct TestsSection: View {
     let disabled: Bool
     let start: () -> Void
     let cancel: () -> Void
+    /// The running tests' step (spec LP.5).
+    let steps: JobActivityFeed
+    let prID: String
     @State private var showOutput = false
 
     var body: some View {
@@ -1599,6 +1606,9 @@ private struct TestsSection: View {
                         Button(run == nil ? "Run Tests" : "Run Again", action: start)
                             .disabled(disabled)
                     }
+                }
+                if running {
+                    JobActivityDetail(feed: steps, prID: prID)
                 }
                 Text("Runs the code Claude wrote in the worktree: do it after reviewing the diff.")
                     .font(.subheadline)
