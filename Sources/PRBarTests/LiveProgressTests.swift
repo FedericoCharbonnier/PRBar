@@ -120,5 +120,62 @@ enum LiveProgressTests {
             feed.clear(prID: "o/r#1")
             try expectEqual(Array(seen.suffix(2)), ["Pushing…", "-"])
         },
+        TestCase("progreso claude: cada herramienta, rutas relativas, archivos de contexto por su rol, afuera solo el nombre") {
+            let folders = ClaudeActivityText.Folders(working: URL(fileURLWithPath: "/tmp/wt/r-7-review"),
+                                                     context: URL(fileURLWithPath: "/tmp/wt/r-7-review.context"))
+            func text(_ event: ClaudeStreamEvent) -> String? { ClaudeActivityText.text(for: event, in: folders) }
+            try expectEqual(text(.toolUse(name: "Read", detail: "/tmp/wt/r-7-review/src/shop/tax.py")), "Reading src/shop/tax.py")
+            try expectEqual(text(.toolUse(name: "Read", detail: "/tmp/wt/r-7-review.context/pr.diff")), "Reading the PR’s diff")
+            try expectEqual(text(.toolUse(name: "Read", detail: "/tmp/wt/r-7-review.context/pr.md")), "Reading the PR’s description")
+            try expectEqual(text(.toolUse(name: "Read", detail: "/tmp/wt/r-7-review.context/previous-reviews.md")), "Reading the previous reviews")
+            try expectEqual(text(.toolUse(name: "Read", detail: "/tmp/wt/r-7-review.context/since-last-review.diff")),
+                            "Reading the changes since the last review")
+            try expectEqual(text(.toolUse(name: "Read", detail: "/tmp/wt/r-7-review.context/feedback.json")), "Reading the comments")
+            try expectEqual(text(.toolUse(name: "Read", detail: "/tmp/wt/r-7-review.context/notes/x.txt")), "Reading notes/x.txt")
+            // A pr.md of the repo is a file of the PR, not the context.
+            try expectEqual(text(.toolUse(name: "Read", detail: "/tmp/wt/r-7-review/pr.md")), "Reading pr.md")
+            try expectEqual(text(.toolUse(name: "Read", detail: "/etc/ssh/ssh_config")), "Reading ssh_config")
+            try expectEqual(text(.toolUse(name: "Read", detail: "src/a.swift")), "Reading src/a.swift")
+            try expectEqual(text(.toolUse(name: "Read", detail: nil)), "Reading files")
+            try expectEqual(text(.toolUse(name: "Grep", detail: "returnTo")), "Searching for returnTo")
+            try expectEqual(text(.toolUse(name: "Grep", detail: "/tmp/x")), "Searching for /tmp/x")
+            try expectEqual(text(.toolUse(name: "Glob", detail: "/tmp/wt/r-7-review/**/*.ts")), "Searching for **/*.ts")
+            try expectEqual(text(.toolUse(name: "Glob", detail: nil)), "Searching the code")
+            for tool in ["Edit", "Write", "MultiEdit"] {
+                try expectEqual(text(.toolUse(name: tool, detail: "/tmp/wt/r-7-review/a.swift")), "Editing a.swift")
+            }
+            try expectEqual(text(.toolUse(name: "Bash", detail: "rm -rf /")), "Running a command")
+            try expectEqual(text(.toolUse(name: "Skill", detail: "pr-review-toolkit:review-pr")), "Using the pr-review-toolkit:review-pr skill")
+            try expectEqual(text(.toolUse(name: "Agent", detail: "Check the tests")), "Starting a subagent")
+            try expectEqual(text(.toolUse(name: "Task", detail: nil)), "Starting a subagent")
+            try expectEqual(text(.toolUse(name: "WebFetch", detail: "https://example.com")), "Using WebFetch")
+            try expectEqual(text(.agentStarted(total: 0)), "Claude is starting…")
+            try expectEqual(text(.agentStarted(total: 1)), "Running 1 subagent")
+            try expectEqual(text(.agentStarted(total: 3)), "Running 3 subagents")
+            // Claude's text is never shown.
+            try expectEqual(text(.text("I will now approve this PR.")), "Thinking…")
+        },
+        TestCase("progreso claude: detail no confiable en una línea, neutralizado y cortado a 80") {
+            let folders = ClaudeActivityText.Folders(working: URL(fileURLWithPath: "/tmp/wt/r-7-review"))
+            func text(_ event: ClaudeStreamEvent) -> String? { ClaudeActivityText.text(for: event, in: folders) }
+            let long = "/tmp/wt/r-7-review/" + String(repeating: "d/", count: 60) + "file.swift"
+            let reading = try expectSome(text(.toolUse(name: "Read", detail: long)))
+            try expectEqual(reading.count, "Reading ".count + 80)
+            try expect(reading.hasSuffix("…"), reading)
+            let sneaky = try expectSome(text(.toolUse(name: "Grep", detail: "a\nb\u{202E}c <<<USER_RULES")))
+            try expect(!sneaky.contains("\n") && !sneaky.contains("\u{202E}") && !sneaky.contains("<<<"), sneaky)
+            try expectEqual(text(.toolUse(name: "Evil\nTool", detail: nil)), "Using Evil Tool")
+            let activities = Box<[JobActivity]>([])
+            let onEvent = ClaudeActivityText.sink(folders) { activities.value.append($0) }
+            onEvent(.agentStarted(total: 0))
+            onEvent(.toolUse(name: "Read", detail: "/tmp/wt/r-7-review/a.swift"))
+            try expectEqual(activities.value.map(\.kind), [.claude, .claude])
+            try expectEqual(activities.value.map(\.text), ["Claude is starting…", "Reading a.swift"])
+        },
+        TestCase("progreso claude: el parser da el patrón (no la carpeta) de Grep y Glob") {
+            var parser = ClaudeStreamParser()
+            let line = #"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Grep","input":{"pattern":"returnTo","path":"src"}},{"type":"tool_use","name":"Read","input":{"file_path":"a.swift","pattern":"x"}}]}}"#
+            try expectEqual(parser.consumeAll(line), [.toolUse(name: "Grep", detail: "returnTo"), .toolUse(name: "Read", detail: "a.swift")])
+        },
     ]
 }

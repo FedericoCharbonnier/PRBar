@@ -73,7 +73,7 @@ public struct ClaudeStreamParser: Sendable {
                     let name = block["name"] as? String ?? ""
                     if ["Agent", "Task"].contains(name) { agents += 1 }
                     guard !name.isEmpty, !Self.hiddenTools.contains(name) else { continue }
-                    events.append(.toolUse(name: name, detail: Self.detail(of: block["input"] as? [String: Any] ?? [:])))
+                    events.append(.toolUse(name: name, detail: Self.detail(of: block["input"] as? [String: Any] ?? [:], tool: name)))
                 default:
                     continue
                 }
@@ -111,8 +111,13 @@ public struct ClaudeStreamParser: Sendable {
         }
     }
 
-    static func detail(of input: [String: Any]) -> String? {
-        for key in ["file_path", "path", "pattern", "skill", "description"] {
+    /// The call's most telling input: for `Grep` and `Glob` the pattern (their `path` is only where to look); for the
+    /// rest the first of `file_path`, `path`, `pattern`, `skill`, `description`.
+    static func detail(of input: [String: Any], tool: String = "") -> String? {
+        let keys = ["Grep", "Glob"].contains(tool)
+            ? ["pattern", "file_path", "path", "skill", "description"]
+            : ["file_path", "path", "pattern", "skill", "description"]
+        for key in keys {
             if let value = input[key] as? String, !value.isEmpty { return value }
         }
         return nil
