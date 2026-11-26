@@ -460,7 +460,7 @@ enum ReviewPipelineTests {
             try expectEqual(draft.previous.map(\.status), [.notFixed])
             try expectEqual(draft.previous[0].github, .open)
             try expectEqual(draft.reviewedSince, since)
-            // try expectEqual(RecommendedAction.of(draft, edits: .initial(for: draft)).event, .requestChanges)
+            try expectEqual(RecommendedAction.of(draft, edits: .initial(for: draft)).event, .requestChanges)
         },
         TestCase("review memory: sin reviews publicadas no hay memoria; si el query de threads falla, la review sigue con unknown") {
             let root = try temporaryDirectory()

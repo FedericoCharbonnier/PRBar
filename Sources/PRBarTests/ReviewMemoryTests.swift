@@ -64,6 +64,21 @@ func sampleMemory() -> ReviewMemory {
     ])])
 }
 
+func previousStatus(_ id: String, _ status: PreviousStatus, file: String = "a.swift", line: Int? = 3, note: String = "",
+                    github: GitHubThreadState = .open, outdated: Bool = false) -> PreviousCommentStatus {
+    PreviousCommentStatus(id: id, recordID: UUID(), findingID: "f-\(id)", file: file, line: line, text: "Texto \(id)",
+                          github: github, outdated: outdated, status: status, note: note)
+}
+
+func memoryDraft(_ items: [ReviewItem], previous: [PreviousCommentStatus], language: PRLanguage = .english) -> ReviewDraft {
+    let pr = makePR(number: 7)
+    var draft = ReviewDraft(prID: pr.id, repo: pr.repo, number: 7, title: "T", url: pr.url, author: "a", headOid: memorySHA2,
+                            account: "me", summary: "s", items: items, language: language)
+    draft.previous = previous
+    draft.reviewedSince = previous.isEmpty ? nil : memorySHA1
+    return draft
+}
+
 enum ReviewMemoryTests {
     static let cases: [TestCase] = [
         TestCase("memoria wire: ReviewInfo suma previous, reviewedSince y recommendedAction opcionales; uno viejo decodifica igual") {
@@ -211,6 +226,78 @@ enum ReviewMemoryTests {
             first()
             await second.value
             try expectEqual(order.value, ["first done", "second"])
+        },
+        TestCase("recomendada: las tres reglas y el motivo") {
+            let fixed = previousStatus("P1", .fixed)
+            let fixed2 = previousStatus("P2", .fixed, file: "b.swift", line: 9)
+            let notFixed = previousStatus("P3", .notFixed, file: "c.swift", line: 12)
+            let high = memoryFinding("f1", severity: .high)
+            let low = memoryFinding("f2", severity: .low)
+            let r1 = RecommendedAction.compute(previous: [fixed, fixed2, notFixed], findings: [high])
+            try expectEqual(r1, RecommendedAction(event: .requestChanges, reason: "2 previous comments fixed, 1 not fixed: c.swift:12; 1 new high finding"))
+            try expectEqual(RecommendedAction.compute(previous: [previousStatus("P4", .partially)], findings: []),
+                            RecommendedAction(event: .requestChanges, reason: "1 previous comment partially fixed: a.swift:3"))
+            try expectEqual(RecommendedAction.compute(previous: [fixed, previousStatus("P5", .unclear, file: "d.swift", line: 1)], findings: []),
+                            RecommendedAction(event: .comment, reason: "1 previous comment fixed, 1 unclear: d.swift:1"))
+            try expectEqual(RecommendedAction.compute(previous: [fixed], findings: [low]),
+                            RecommendedAction(event: .comment, reason: "1 previous comment fixed; 1 new finding"))
+            try expectEqual(RecommendedAction.compute(previous: [fixed, fixed2], findings: []),
+                            RecommendedAction(event: .approve, reason: "2 previous comments fixed"))
+            // Primera review: la misma regla.
+            try expectEqual(RecommendedAction.compute(previous: [], findings: []), RecommendedAction(event: .approve, reason: "No findings to post"))
+            try expectEqual(RecommendedAction.compute(previous: [], findings: [high, low]),
+                            RecommendedAction(event: .requestChanges, reason: "1 new high finding; 1 new other finding"))
+            let many = (1...5).map { (n: Int) in previousStatus("P\(n)", .notFixed, file: "f\(n).swift", line: n) }
+            try expect(RecommendedAction.compute(previous: many, findings: []).reason.hasSuffix("f3.swift:3 and 2 more"))
+        },
+        TestCase("recomendada: se recalcula con lo que se desmarca o se incluye, y la elección manual gana") {
+            let draft = memoryDraft([
+                ReviewItem(finding: memoryFinding("f1", severity: .high), keep: true, reason: nil),
+                ReviewItem(finding: memoryFinding("f2", severity: .low), keep: true, reason: nil),
+                ReviewItem(finding: memoryFinding("f3", severity: .medium), keep: false, reason: "no"),
+                ReviewItem(finding: memoryFinding("f4", severity: .high), keep: true, reason: nil).hiding("minimum severity"),
+            ], previous: [previousStatus("P1", .fixed)])
+            var edits = ReviewEdits.initial(for: draft)
+            try expectEqual(edits.selected, ["f1", "f2"])
+            try expectEqual(RecommendedAction.of(draft, edits: edits).event, .requestChanges)
+            edits.selected.remove("f1")
+            try expectEqual(RecommendedAction.of(draft, edits: edits).event, .comment)
+            edits.selected.remove("f2")
+            try expectEqual(RecommendedAction.of(draft, edits: edits).event, .approve)
+            edits.selected.insert("f3")   // un descartado que el usuario incluye cuenta
+            try expectEqual(edits.effectiveDecision(for: draft), .comment)
+            edits.decision = .approve
+            edits.selected.insert("f1")
+            try expectEqual(edits.effectiveDecision(for: draft), .approve)
+            let decoded = try JSONDecoder().decode(ReviewEdits.self, from: JSONEncoder().encode(edits))
+            try expectEqual(decoded.decision, .approve)
+            let old = try JSONDecoder().decode(ReviewEdits.self, from: Data(#"{"selected":[],"bodies":{},"titles":{},"added":[],"generalComment":""}"#.utf8))
+            try expectEqual(old.decision, nil)
+        },
+        TestCase("comentario general: se prellena con los pendientes, en el idioma del PR") {
+            let previous = [
+                previousStatus("P1", .fixed), previousStatus("P2", .fixed, file: "b.swift", line: 9),
+                previousStatus("P3", .notFixed, file: "c.swift", line: 12, note: "Sigue sin validar."),
+                previousStatus("P4", .partially, file: "d.swift", line: 4, note: "Falta el caso vacío."),
+                previousStatus("P5", .unclear, file: "e.swift", line: 1),
+            ]
+            try expectEqual(ReviewEdits.initial(for: memoryDraft([], previous: previous, language: PRLanguage(code: "es"))).generalComment, """
+                De la review anterior: 2 corregidos. Sigue pendiente:
+                - `c.swift:12` — Sigue sin validar.
+                - `d.swift:4` — Falta el caso vacío.
+                """)
+            let allFixed = [previousStatus("P1", .fixed), previousStatus("P2", .fixed)]
+            try expectEqual(ReviewEdits.initial(for: memoryDraft([], previous: allFixed)).generalComment, "From the previous review: 2 fixed.")
+            try expectEqual(ReviewEdits.initial(for: memoryDraft([], previous: allFixed, language: PRLanguage(code: "ja"))).generalComment,
+                            "From the previous review: 2 fixed.")
+            try expectEqual(ReviewEdits.initial(for: memoryDraft([], previous: [])).generalComment, "")
+        },
+        TestCase("anteriores: encabezado y estado en GitHub para la ventana") {
+            let draft = memoryDraft([], previous: [previousStatus("P1", .fixed, github: .resolved, outdated: true),
+                                                    previousStatus("P2", .notFixed), previousStatus("P3", .unclear, github: .unknown)])
+            try expectEqual(draft.previousHeader, "Reviewed before at 1111111 · 1 fixed · 2 pending")
+            try expectEqual(draft.previous.map(\.githubLabel), ["resolved · outdated", "open", "unknown"])
+            try expectEqual(memoryDraft([], previous: []).previousHeader, nil)
         },
     ]
 }
