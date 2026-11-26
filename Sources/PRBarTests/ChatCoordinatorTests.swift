@@ -266,6 +266,20 @@ enum ChatCoordinatorTests {
             let dirty = await chat.undoDiscardsLaterEdits(chat.session.messages[1].id)
             try expect(!dirty)
         },
+        TestCase("chat coordinator: deshacer en Review conserva la decisión elegida a mano y no la cuenta como edición") { @MainActor in
+            let h = Harness()
+            let chat = h.review()
+            h.backend.reply(.success(output("Set.", [ChatAction(type: "setGeneralComment", text: "Hi")])))
+            chat.send("say hi")
+            try await h.finish(chat)
+            let message = chat.session.messages[1].id
+            chat.reviewEdits.decision = .approve
+            let dirty = await chat.undoDiscardsLaterEdits(message)
+            try expect(!dirty)
+            chat.undo(message)
+            try expectEqual(chat.reviewEdits.generalComment, "")
+            try expectEqual(chat.reviewEdits.decision, .approve)
+        },
         TestCase("chat coordinator: Undo de Review va en orden inverso y avisa si hubo ediciones a mano") { @MainActor in
             let h = Harness()
             let chat = h.review()
