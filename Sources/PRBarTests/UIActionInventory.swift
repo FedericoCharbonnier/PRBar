@@ -119,6 +119,8 @@ enum UIActionInventory {
         .init("Review/ReviewEditor.swift", "Component:OutdatedReviewBanner", "-", 1, .cli(["review start"])),
         .init("Review/ReviewEditor.swift", "Component:ReviewPublishedView", "-", 1, .viewOnly("closes the window")),
         .init("Review/ReviewEditor.swift", "ConfirmAlert", "Approve this PR?", 1, .cli(["review publish"])),
+        .init("Review/PreviousCommentsSection.swift", "Button", "-", 1,
+              .viewOnly("expands the posted comment; `prbar review show --full` prints it")),
         .init("Review/ReviewPane.swift", "Button", "Start Review", 1, .cli(["review start"])),
         .init("Review/ReviewPane.swift", "Button", "Cancel", 1, .cli(["review cancel"])),
         .init("Review/ReviewPane.swift", "Button", "Show Log", 1, .cli(["app logs"])),
