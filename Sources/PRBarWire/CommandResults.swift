@@ -204,10 +204,18 @@ public struct ReviewInfo: Codable, Equatable, Sendable {
     public var logPath: String?
     /// Claude's usage for the review and its chat (spec O); nil if unknown.
     public var usage: ClaudeUsage?
+    /// Spec RM.6: what PRBar posted before and whether it was fixed; nil in a first review (and from an older PRBar).
+    public var previous: [PreviousCommentInfo]?
+    /// The commit of the last posted review this one started from.
+    public var reviewedSince: String?
+    /// Spec RM.5: PRBar's decision for what's selected now; the window and the phone preselect it.
+    public var recommendedAction: RecommendedAction?
 
     public init(pr: String, phase: String, detail: String? = nil, title: String? = nil, summary: String? = nil,
                 language: String? = nil, account: String? = nil, outdated: Bool, findings: [FindingInfo],
-                generalComment: String? = nil, reviewURL: URL? = nil, logPath: String? = nil, usage: ClaudeUsage? = nil) {
+                generalComment: String? = nil, reviewURL: URL? = nil, logPath: String? = nil, usage: ClaudeUsage? = nil,
+                previous: [PreviousCommentInfo]? = nil, reviewedSince: String? = nil,
+                recommendedAction: RecommendedAction? = nil) {
         self.pr = pr
         self.phase = phase
         self.detail = detail
@@ -221,6 +229,9 @@ public struct ReviewInfo: Codable, Equatable, Sendable {
         self.reviewURL = reviewURL
         self.logPath = logPath
         self.usage = usage
+        self.previous = previous
+        self.reviewedSince = reviewedSince
+        self.recommendedAction = recommendedAction
     }
 }
 
