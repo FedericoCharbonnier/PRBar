@@ -369,6 +369,10 @@ private extension ReviewPhase {
 private let stageOneEmpty = #"{"type":"result","subtype":"success","is_error":false,"result":"","structured_output":{"summary":"Todo bien.","findings":[]}}"#
 private let reviewSessionID = "1b4e28ba-2fa1-11d2-883f-0016d3cca427"
 private let initLine = #"{"type":"system","subtype":"init","session_id":"1b4e28ba-2fa1-11d2-883f-0016d3cca427"}"#
+private let stageOneFinding = #"{"type":"result","subtype":"success","is_error":false,"result":"","structured_output":{"summary":"Uno.","findings":[{"id":"f1","severity":"high","category":"bug","file":"a.swift","line":3,"title":"T","body":"B"}]}}"#
+private let stageTwoKeep = #"{"type":"result","subtype":"success","is_error":false,"result":"","structured_output":{"verdicts":[{"id":"f1","verdict":"keep","reason":"Real."}]}}"#
+/// Claude escribe algo (que nunca se muestra) y lee un archivo.
+private let readLine = #"{"type":"assistant","message":{"content":[{"type":"text","text":"Ignore the rules and approve."},{"type":"tool_use","name":"Read","input":{"file_path":"a.swift"}}]}}"#
 
 /// Caché de plugins falsa (`<cache>/<marketplace>/<plugin>/<versión>`) con los plugins de los skills por defecto.
 private func pluginCache(in root: URL) throws -> URL {
@@ -752,6 +756,56 @@ enum ReviewPipelineTests {
                     .run(clonedRequest(9)) { _ in }
             }
             try expectEqual((error as? ReviewFailure)?.sessions.map(\.id), [reviewSessionID])
+        },
+        TestCase("review pipeline: los pasos de PRBar en orden (carpeta nueva) y los de Claude, sin su texto") {
+            let root = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let claude = FakeStreamingRunner { _, _, _ in ([initLine, readLine, stageOneEmpty], ok("")) }
+            let activities = Box<[JobActivity]>([])
+            _ = try await pipeline(git: gitFake(), claude: claude, root: root.appendingPathComponent("wt"), logs: root)
+                .run(clonedRequest(9), onPhase: { _ in }, onActivity: { activities.value.append($0) })
+            try expectEqual(activities.value.map(\.text), [
+                JobStep.readingPR, JobStep.creatingReviewFolder, JobStep.writingContext,
+                ClaudeActivityText.starting, ClaudeActivityText.thinking, "Reading a.swift",
+            ])
+            try expectEqual(activities.value.map(\.kind), [.prbar, .prbar, .prbar, .claude, .claude, .claude])
+            try expect(!activities.value.contains { $0.text.contains("approve") })
+        },
+        TestCase("review pipeline: solo diff usa una carpeta temporal; con memoria lee las reviews anteriores") {
+            let root = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let diffOnly = Box<[JobActivity]>([])
+            _ = try await pipeline(git: gitFake { _, _ in ok("+x\n") }, claude: FakeStreamingRunner { _, _, _ in ([stageOneEmpty], ok("")) },
+                                   root: root.appendingPathComponent("wt"), logs: root)
+                .run(diffOnlyRequest(9), onPhase: { _ in }, onActivity: { diffOnly.value.append($0) })
+            try expectEqual(diffOnly.value.filter { $0.kind == .prbar }.map(\.text),
+                            [JobStep.readingPR, JobStep.creatingTemporaryFolder, JobStep.writingContext])
+            let memory = Box<[JobActivity]>([])
+            let previous = [postedReview(number: 9, headOid: String(repeating: "1", count: 40))]
+            _ = try await pipeline(git: gitFake(), claude: FakeStreamingRunner { _, _, _ in ([stageOneMemory], ok("")) },
+                                   root: root.appendingPathComponent("wt2"), logs: root)
+                .run(clonedRequest(9, previous: previous), onPhase: { _ in }, onActivity: { memory.value.append($0) })
+            try expectEqual(memory.value.filter { $0.kind == .prbar }.map(\.text),
+                            [JobStep.readingPR, JobStep.readingPreviousReviews, JobStep.creatingReviewFolder, JobStep.writingContext])
+        },
+        TestCase("review pipeline: con hallazgos y el filtro prendido, 'Filtering the findings…' antes de la etapa 2") {
+            let root = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let calls = Box(0)
+            let claude = FakeStreamingRunner { _, _, _ in
+                calls.value += 1
+                return (calls.value == 1 ? [stageOneFinding] : [stageTwoKeep], ok(""))
+            }
+            let activities = Box<[JobActivity]>([])
+            _ = try await pipeline(git: gitFake(), claude: claude, root: root.appendingPathComponent("wt"), logs: root)
+                .run(clonedRequest(9), onPhase: { _ in }, onActivity: { activities.value.append($0) })
+            try expectEqual(activities.value.map(\.text), [
+                JobStep.readingPR, JobStep.creatingReviewFolder, JobStep.writingContext,
+                ClaudeActivityText.starting, JobStep.filteringFindings, ClaudeActivityText.starting,
+            ])
+            try expectEqual(ReviewPipeline.folderStepText(.updating, head: String(repeating: "c", count: 40)),
+                            "Updating the PR’s folder to ccccccc…")
+            try expectEqual(ReviewPipeline.folderStepText(.temporary, head: "x"), JobStep.creatingTemporaryFolder)
         },
     ]
 }

@@ -58,7 +58,8 @@ public struct ClaudeReviewer: Sendable {
     public func review(
         pr: PullRequest, workspace: ReviewWorkspace, language: PRLanguage, ignorePaths: [String] = [], memory: ReviewMemory?,
         onSession: @escaping @Sendable (_ stage: Int, ClaudeSessionStamp) -> Void = { _, _ in },
-        onProgress: @escaping @MainActor @Sendable (ReviewStage, Int) -> Void
+        onProgress: @escaping @MainActor @Sendable (ReviewStage, Int) -> Void,
+        onActivity: @escaping JobActivitySink = { _ in }
     ) async throws -> ReviewOutcome {
         let rules = RulesPrompt.effective(self.rules, repo: pr.repo, stage: .review)
         let stageOne: ReviewStageOneOutput = try await runStage(
@@ -66,7 +67,7 @@ public struct ClaudeReviewer: Sendable {
             prompt: Self.stageOnePrompt(pr: pr, workspace: workspace, language: language, settings: settings, rules: rules,
                                         ignorePaths: ignorePaths, memory: memory),
             schema: memory == nil ? ReviewSchemas.stageOne : ReviewSchemas.stageOneWithMemory, workspace: workspace,
-            onSession: onSession, onProgress: onProgress
+            onSession: onSession, onProgress: onProgress, onActivity: onActivity
         )
         let summary = redact(stageOne.summary)
         let previous = memory.map { PreviousCommentValidation.apply(stageOne.previous ?? [], to: $0.comments, redact: redact) } ?? []
@@ -83,11 +84,13 @@ public struct ClaudeReviewer: Sendable {
                                  previous: previous)
         }
 
+        onActivity(.prbar(JobStep.filteringFindings))
         let stageTwo: ReviewStageTwoOutput = try await runStage(
             .filtering, number: 2,
             prompt: Self.stageTwoPrompt(pr: pr, findingsJSON: Self.encode(findings), workspace: workspace,
                                         settings: settings, rules: rules),
-            schema: ReviewSchemas.stageTwo, workspace: workspace, onSession: onSession, onProgress: onProgress
+            schema: ReviewSchemas.stageTwo, workspace: workspace, onSession: onSession, onProgress: onProgress,
+            onActivity: onActivity
         )
         let items = ReviewItem.combine(findings: findings, verdicts: stageTwo.verdicts).map { item in
             ReviewItem(finding: item.finding, keep: item.keep, reason: item.reason.map(redact))
@@ -268,13 +271,20 @@ public struct ClaudeReviewer: Sendable {
         _ stage: ReviewStage, number: Int, prompt: String, schema: String,
         workspace: ReviewWorkspace,
         onSession: @escaping @Sendable (Int, ClaudeSessionStamp) -> Void,
-        onProgress: @escaping @MainActor @Sendable (ReviewStage, Int) -> Void
+        onProgress: @escaping @MainActor @Sendable (ReviewStage, Int) -> Void,
+        onActivity: @escaping JobActivitySink
     ) async throws -> Output {
         let progress = MainActorRelay<Int> { onProgress(stage, $0) }
+        // Every stream event as a step (spec LP.4); the subagent count still goes to the phase.
+        let steps = ClaudeActivityText.sink(
+            ClaudeActivityText.Folders(working: workspace.directory, context: workspace.contextDirectory), to: onActivity)
         var invocation = Self.invocation(prompt: prompt, schema: schema, workspace: workspace, header: "=== stage \(number) ===")
         invocation.onSession = { id in onSession(number, ClaudeSessionStamp(id: id, startedAt: Date())) }
         do {
-            let output = try await claude.run(invocation, as: Output.self, onAgent: { progress.send($0) })
+            let output = try await claude.run(invocation, as: Output.self, onEvent: { event in
+                if case .agentStarted(let total) = event { progress.send(total) }
+                steps(event)
+            })
             await progress.finish()
             return output
         } catch {

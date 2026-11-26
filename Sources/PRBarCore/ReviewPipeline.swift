@@ -118,7 +118,8 @@ public struct ReviewPipeline: ReviewPipelineRunning {
 
     /// Lo que cambia entre esta Mac y un host: preparar/limpiar el worktree, dónde va el contexto y con qué corre Claude.
     private struct Parts: Sendable {
-        let prepare: @Sendable () async throws -> ReviewWorkspace
+        /// Its argument hears what's done with the folder (`ReviewFolderStep`), for the step line.
+        let prepare: @Sendable (@escaping @Sendable (ReviewFolderStep) -> Void) async throws -> ReviewWorkspace
         let cleanup: @Sendable (ReviewWorkspace) async -> Void
         /// Success (spec T.3): the folder stays, without its context.
         let release: @Sendable (ReviewWorkspace) async -> Void
@@ -139,9 +140,9 @@ public struct ReviewPipeline: ReviewPipelineRunning {
             let context = self.context
             let runner = self.processRunner
             return Parts(
-                prepare: {
+                prepare: { onStep in
                     try await worktrees.prepareReview(repo: pr.repo, number: pr.number, baseRef: request.baseRef,
-                                                      localPath: request.localPath)
+                                                      localPath: request.localPath, onStep: onStep)
                 },
                 cleanup: { workspace in await worktrees.cleanup(workspace, localPath: request.localPath) },
                 release: { workspace in worktrees.release(workspace) },
@@ -169,9 +170,10 @@ public struct ReviewPipeline: ReviewPipelineRunning {
         let context = ReviewContextWriter(runner: remote.runner, gitPath: remote.gitPath, ghPath: nil, files: spaces.contextFiles,
                                           gitEnvironment: spaces.gitEnvironment)
         return Parts(
-            prepare: {
+            prepare: { onStep in
                 try await remote.preparing {
-                    try await spaces.prepareReview(repo: pr.repo, number: pr.number, baseRef: request.baseRef, localPath: bare)
+                    try await spaces.prepareReview(repo: pr.repo, number: pr.number, baseRef: request.baseRef, localPath: bare,
+                                                   onStep: onStep)
                 }
             },
             cleanup: { workspace in await spaces.cleanup(workspace, localPath: bare) },
@@ -197,7 +199,23 @@ public struct ReviewPipeline: ReviewPipelineRunning {
                                      promptViaStandardInput: true))
     }
 
+    /// The step of what `prepareReview` does with the folder; `head`: the PR's head the user sees (decision 9).
+    public static func folderStepText(_ step: ReviewFolderStep, head: String) -> String {
+        switch step {
+        case .creating: JobStep.creatingReviewFolder
+        case .updating: JobStep.updatingReviewFolder(head)
+        case .temporary: JobStep.creatingTemporaryFolder
+        }
+    }
+
     public func run(_ request: ReviewRequest, onPhase: @escaping @MainActor @Sendable (ReviewPhase) -> Void) async throws -> ReviewDraft {
+        try await run(request, onPhase: onPhase, onActivity: { _ in })
+    }
+
+    /// Spec LP.3: PRBar's steps (GitHub's on this Mac; the folder and the context where the folder is, with " on <runner>"
+    /// on a host) and Claude's (`ClaudeReviewer`).
+    public func run(_ request: ReviewRequest, onPhase: @escaping @MainActor @Sendable (ReviewPhase) -> Void,
+                    onActivity: @escaping JobActivitySink) async throws -> ReviewDraft {
         let pr = request.item.pr
         let draftID = UUID()
         let logURL = logURLProvider(draftID)
@@ -207,24 +225,31 @@ public struct ReviewPipeline: ReviewPipelineRunning {
             recorded.withLock { $0.sorted { $0.key < $1.key }.map(\.value) }
         }
         let runnerName = placement?.name
+        /// A PRBar step; `onHost`: it runs where the folder is (" on <runner>" on a host, decision 8).
+        let step: @Sendable (String, Bool) -> Void = { text, onHost in
+            onActivity(.prbar(text, runner: onHost ? runnerName : nil))
+        }
 
         do {
             let token = try await tokens.token(for: request.item.account)
             let parts = try await parts(request, token: token, logURL: logURL)
             try Task.checkCancellation()
             await onPhase(.preparing)
+            step(JobStep.readingPR, false)
             let description = try await Self.description(of: pr, api: api, token: token)
             let language = PRLanguage.detect(description: description, title: pr.title)
+            if !request.previousReviews.isEmpty { step(JobStep.readingPreviousReviews, false) }
             let memory = try await Self.memory(for: request, api: api, token: token)
             let unlock = await ReviewFolderLocks.shared.acquire(Self.folderKey(pr, runner: runnerName))
             defer { unlock() }
-            let workspace = try await parts.prepare()
+            let workspace = try await parts.prepare { folder in step(Self.folderStepText(folder, head: pr.headOid), true) }
             let perPR = WorktreeManager.isReviewFolder(workspace)
             if perPR { await parts.noteBusy(workspace) }
 
             let outcome: ClaudeReviewer.ReviewOutcome
             let headOid: String
             do {
+                step(JobStep.writingContext, true)
                 headOid = try await parts.writeContext(workspace, description ?? "")
                 if let memory { try await parts.writeMemory(workspace, memory) }
                 try Task.checkCancellation()
@@ -234,10 +259,11 @@ public struct ReviewPipeline: ReviewPipelineRunning {
                         let session = ClaudeSessionRef.reviewStage(stage, stamp: stamp, directory: workspace.directory.path,
                                                                    runner: runnerName)
                         recorded.withLock { $0[stage] = session }
-                    }
-                ) { stage, agents in
-                    onPhase(stage == .reviewing ? .reviewing(agents: agents) : .filtering)
-                }
+                    },
+                    onProgress: { stage, agents in
+                        onPhase(stage == .reviewing ? .reviewing(agents: agents) : .filtering)
+                    },
+                    onActivity: onActivity)
             } catch {
                 await Self.finish(workspace, parts, keepsFolder: perPR, after: error)
                 throw error
