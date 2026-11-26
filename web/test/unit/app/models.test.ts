@@ -200,6 +200,39 @@ describe("review", () => {
     expect(app.ui.confirms[0]).toMatchObject({ title: "Cancel this review?", cancelLabel: "Keep Running" });
     expect(app.transport.sent.at(-1)!.command).toEqual({ reviewCancel: { pr: "acme/api#317" } });
   });
+
+  it("con memoria: anteriores, recomendación preseleccionada y la elección manual gana", () => {
+    const app = makeApp();
+    const model = createReviewModel(app, "acme/api#317");
+    model.open();
+    const data = topicJSON("pr:acme/api#317");
+    data.review = {
+      ...(data.review as Record<string, unknown>),
+      reviewedSince: "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d",
+      previous: [
+        { id: "P1", location: "src/auth/session.ts:80", text: "Validate it.", status: "notFixed", note: "Still there.",
+          github: "open", outdated: false },
+        { id: "P2", location: "src/auth/session.ts:12", text: "Rename.", status: "fixed", note: "Done.", github: "resolved",
+          outdated: true },
+      ],
+      recommendedAction: { event: "REQUEST_CHANGES", reason: "1 previous comment fixed, 1 not fixed: src/auth/session.ts:80" },
+    };
+    app.transport.setTopic("pr:acme/api#317", data);
+    let view = model.view.value;
+    if (view.kind !== "review") throw new Error("review");
+    expect(view.props.decision).toBe("request_changes");
+    expect(view.props.recommendation).toEqual({ label: "Request Changes",
+                                                reason: "1 previous comment fixed, 1 not fixed: src/auth/session.ts:80" });
+    expect(view.props.previous?.header).toBe("Reviewed before at 1a2b3c4 · 1 fixed · 1 pending");
+    expect(view.props.previous?.comments.map((c) => [c.id, c.statusLabel, c.github]))
+      .toEqual([["P1", "Not fixed", "open"], ["P2", "Fixed", "resolved · outdated"]]);
+    view.props.onSelectDecision("approve");
+    data.review = { ...(data.review as Record<string, unknown>), recommendedAction: { event: "COMMENT", reason: "x" } };
+    app.transport.setTopic("pr:acme/api#317", data);
+    view = model.view.value;
+    if (view.kind !== "review") throw new Error("review");
+    expect(view.props.decision).toBe("approve");
+  });
 });
 
 describe("review fallido", () => {
