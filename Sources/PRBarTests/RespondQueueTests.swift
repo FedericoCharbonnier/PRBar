@@ -1827,5 +1827,44 @@ enum RespondPipelineTests {
             h.queue.analyze(classified(1), localPath: "/repos/r", worktreeDir: nil, mode: .ciFix)
             try expectEqual(h.queue.modes[prID(1)], .ciFix)
         },
+        TestCase("respond pipeline: los pasos de PRBar del análisis en orden, antes de los de Claude") {
+            let claude = ScriptedClaude { schema, _, _ in schema == RespondSchemas.analysis ? [analysisLine(["thread:A", "thread:B"])] : [] }
+            let e = try E2E.make(claude: claude)
+            defer { e.repo.remove() }
+            let activities = Box<[JobActivity]>([])
+            _ = try await e.pipeline.analyze(e.request, draftID: UUID(), onPhase: { _ in }, onActivity: { activities.value.append($0) })
+            try expectEqual(activities.value.filter { $0.kind == .prbar }.map(\.text),
+                            [JobStep.readingComments, JobStep.readingPR, JobStep.creatingWorktree, JobStep.writingContext])
+            let firstClaude = try expectSome(activities.value.firstIndex { $0.kind == .claude })
+            try expectEqual(activities.value[firstClaude].text, ClaudeActivityText.starting)
+            try expectEqual(firstClaude, 4)
+        },
+        TestCase("fix ci: los pasos del análisis: el PR, los checks, los logs, el worktree y el contexto") {
+            let claude = ScriptedClaude { _, _, _ in [] }
+            let e = try E2E.make(claude: claude)
+            defer { e.repo.remove() }
+            e.api.checks[e.repo.prSHA] = [ciRun("build", id: 5)]
+            let request = RespondRequest(item: classified(7), localPath: e.repo.local.path, worktreeDir: e.worktreeDir.path, mode: .ciFix)
+            let activities = Box<[JobActivity]>([])
+            _ = try await e.pipeline.analyze(request, draftID: UUID(), onPhase: { _ in }, onActivity: { activities.value.append($0) })
+            try expectEqual(activities.value.map(\.text), [
+                JobStep.readingPR, JobStep.readingFailingChecks, JobStep.downloadingCILogs, JobStep.creatingWorktree, JobStep.writingContext,
+            ])
+            // A check that isn't from Actions has no log to download: no step for it.
+            let other = Box<[JobActivity]>([])
+            e.api.checks[e.repo.prSHA] = [ciRun("lint", actions: false)]
+            _ = try await e.pipeline.analyze(request, draftID: UUID(), onPhase: { _ in }, onActivity: { other.value.append($0) })
+            try expect(!other.value.contains { $0.text == JobStep.downloadingCILogs }, "\(other.value.map(\.text))")
+        },
+        TestCase("resolve conflicts: los pasos: el PR, el worktree, fetch y merge de la base, el contexto") {
+            let claude = ScriptedClaude { _, _, _ in [] }
+            let (e, _) = try conflictingE2E(claude: claude)
+            defer { e.repo.remove() }
+            let request = RespondRequest(item: classified(7), localPath: e.repo.local.path, worktreeDir: e.worktreeDir.path, mode: .conflicts)
+            let activities = Box<[JobActivity]>([])
+            _ = try await e.pipeline.analyze(request, draftID: UUID(), onPhase: { _ in }, onActivity: { activities.value.append($0) })
+            try expectEqual(activities.value.map(\.text),
+                            [JobStep.readingPR, JobStep.creatingWorktree, "Fetching main…", "Merging main…", JobStep.writingContext])
+        },
     ]
 }
