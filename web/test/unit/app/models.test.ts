@@ -278,6 +278,19 @@ describe("respond y fix CI", () => {
     app.transport.setTopic(`pr:${pr}`, { respond: { ...respondInfo(), pr, ...patch } });
   };
 
+  it("mientras corre: la etapa actual muestra el paso de la Mac con su tiempo (en lugar del archivo)", () => {
+    const app = makeApp();
+    setRespond(app, "acme/web-app#488", {
+      phase: "implementing", currentFile: "src/old.ts",
+      activity: { kind: "prbar", text: "Committing…", startedAt: new Date(NOW - 125_000).toISOString() },
+    });
+    const model = createRespondModel(app, "acme/web-app#488", "feedback");
+    model.open();
+    const view = model.view("main");
+    const stages = (view.props as { progress?: { stages: { state: string; detail?: string }[] } }).progress?.stages ?? [];
+    expect(stages.find((s) => s.state === "current")?.detail).toBe("Committing… · 2 min 5 s");
+  });
+
   it("fix CI listo: checks, archivos, push con Face ID", async () => {
     const app = makeApp();
     setRespond(app, "acme/web-app#488", { phase: "readyToPush", totalChecks: 9, testCommand: "npm test" });
