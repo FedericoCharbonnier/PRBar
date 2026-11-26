@@ -87,6 +87,31 @@ export function Review(props: ReviewProps) {
           </h2>
           <p>{summary.text}</p>
         </section>
+        {props.previous && (
+          <>
+            <BlockTitle title="Previous comments" trailing={props.previous.header} />
+            {props.previous.comments.map((c) => (
+              <article key={c.id} class={`finding previous previous--${c.status}`}>
+                <div class="finding__head">
+                  <span class="previous__status">{c.statusLabel}</span>
+                  <span class="finding__loc">{c.location}</span>
+                  <span class="previous__github">{c.github}</span>
+                </div>
+                {c.note && <p>{c.note}</p>}
+                <details class="previous__text">
+                  <summary>Posted comment</summary>
+                  <p>{c.text}</p>
+                </details>
+              </article>
+            ))}
+          </>
+        )}
+        {props.recommendation && (
+          <p class="recommendation">
+            <Icon name="sparkles" size={16} />
+            <span>Recommended: {props.recommendation.label} · {props.recommendation.reason}</span>
+          </p>
+        )}
         <BlockTitle title="Findings" trailing={`${included} of ${findings.length} included`} />
         {findings.map((f, i) => (
           <article key={f.id} class={f.included ? "finding" : "finding finding--off"}>

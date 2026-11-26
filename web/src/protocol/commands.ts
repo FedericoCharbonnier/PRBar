@@ -341,6 +341,25 @@ export interface FindingInfo {
   hiddenBy?: string;
 }
 
+/** Lo que Claude dice de un comentario que PRBar publicó en una review anterior (spec RM.4). */
+export type PreviousStatus = "fixed" | "notFixed" | "partially" | "unclear";
+
+export interface PreviousCommentInfo {
+  id: string;
+  location: string;
+  text: string;
+  status: PreviousStatus;
+  note: string;
+  github: "resolved" | "open" | "unknown";
+  outdated: boolean;
+}
+
+/** La decisión que recomienda PRBar (spec RM.5). */
+export interface RecommendedAction {
+  event: ReviewEvent;
+  reason: string;
+}
+
 export interface ClaudeUsage {
   runs: number;
   unknownRuns: number;
@@ -367,6 +386,10 @@ export interface ReviewInfo {
   reviewURL?: string;
   logPath?: string;
   usage?: ClaudeUsage;
+  /** Spec RM.6: solo con memoria (opcionales, sin subir la versión del protocolo). */
+  previous?: PreviousCommentInfo[];
+  reviewedSince?: string;
+  recommendedAction?: RecommendedAction;
 }
 
 export interface PublishedReviewInfo {
