@@ -163,5 +163,77 @@ enum ReviewContextTests {
             try expect(md.contains("[… truncated by PRBar]"), "")
             try expect(md.count < huge.count + 1_000, "")
         },
+        TestCase("contexto (git real): since-last-review.diff desde el commit de la última review; uno perdido lo dice en una línea") {
+            let repo = try TempGitRepo.make()
+            defer { repo.remove() }
+            let m = WorktreeManager(runner: SystemProcessRunner(), gitPath: TempGitRepo.git, root: repo.root)
+            let prRepo = RepoRef(owner: "o", name: "r")
+            _ = try await m.prepareReview(repo: prRepo, number: 7, baseRef: "main", localPath: repo.local.path)
+            try repo.advancePR { try Data("otra\n".utf8).write(to: $0.appendingPathComponent("second.txt")) }
+            let ws = try await m.prepareReview(repo: prRepo, number: 7, baseRef: "main", localPath: repo.local.path)
+            let writer = ReviewContextWriter(runner: SystemProcessRunner(), gitPath: TempGitRepo.git, ghPath: nil)
+            let since = { (sha: String) in
+                ReviewMemory(reviews: [PreviousReview(recordID: UUID(), date: t0, action: .comment, headOid: sha, generalComment: nil, comments: [])])
+            }
+            try await writer.writeMemory(since(repo.prSHA), workspace: ws)
+            let diff = try String(contentsOf: ws.sinceLastReviewFile, encoding: .utf8)
+            try expect(diff.contains("+++ b/second.txt"), diff)
+            try expect(!diff.contains("feature.txt"), diff)
+            try expect(try String(contentsOf: ws.previousReviewsFile, encoding: .utf8).contains("# Previous reviews"))
+            let lost = String(repeating: "d", count: 40)
+            try await writer.writeMemory(since(lost), workspace: ws)
+            try expectEqual(try String(contentsOf: ws.sinceLastReviewFile, encoding: .utf8), ReviewMemoryFile.missingCommitLine(lost))
+            let head = try TempGitRepo.run(ws.directory, ["rev-parse", "HEAD"]).trimmingCharacters(in: .whitespacesAndNewlines)
+            try await writer.writeMemory(since(head), workspace: ws)
+            try expectEqual(try String(contentsOf: ws.sinceLastReviewFile, encoding: .utf8), ReviewMemoryFile.noChangesLine(head))
+        },
+        TestCase("contexto (git real): si el historial se reescribió desde la última review, since-last-review.diff lo dice") {
+            let repo = try TempGitRepo.make()
+            defer { repo.remove() }
+            let m = WorktreeManager(runner: SystemProcessRunner(), gitPath: TempGitRepo.git, root: repo.root)
+            let prRepo = RepoRef(owner: "o", name: "r")
+            _ = try await m.prepareReview(repo: prRepo, number: 7, baseRef: "main", localPath: repo.local.path)
+            // Force-push: el commit del PR se reescribe (el viejo sigue en el clone).
+            try TempGitRepo.run(repo.origin, ["checkout", "-q", "feature"])
+            try TempGitRepo.run(repo.origin, ["commit", "-q", "--amend", "-m", "pr reescrito"])
+            try TempGitRepo.run(repo.origin, ["update-ref", "refs/pull/7/head", "HEAD"])
+            try TempGitRepo.run(repo.origin, ["checkout", "-q", "main"])
+            let ws = try await m.prepareReview(repo: prRepo, number: 7, baseRef: "main", localPath: repo.local.path)
+            try expect(ws.headOid != repo.prSHA)
+            let memory = ReviewMemory(reviews: [PreviousReview(recordID: UUID(), date: t0, action: .comment, headOid: repo.prSHA,
+                                                              generalComment: nil, comments: [])])
+            try await ReviewContextWriter(runner: SystemProcessRunner(), gitPath: TempGitRepo.git, ghPath: nil).writeMemory(memory, workspace: ws)
+            try expectEqual(try String(contentsOf: ws.sinceLastReviewFile, encoding: .utf8), ReviewMemoryFile.rewrittenHistoryLine(repo.prSHA))
+        },
+        TestCase("contexto: since-last-review.diff es opcional (un git diff que falla deja una línea); el fetch usa el entorno de git dado") {
+            let root = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let ws = ReviewWorkspace(directory: root.appendingPathComponent("r-7-review"), baseRef: "b", prRef: "p", isDiffOnly: false)
+            let fetched = Box(false)
+            let runner = FakeProcessRunner { _, args in
+                if args.contains("cat-file") { return fetched.value ? ok("") : fail("missing") }
+                if args.contains("fetch") { fetched.value = true; return ok("") }
+                if args.contains("diff") { return fail("fatal: bad object") }
+                return ok("")
+            }
+            let writer = ReviewContextWriter(runner: runner, gitPath: "/usr/bin/git", ghPath: nil,
+                                             gitEnvironment: GitHardening.environment.merging(["GIT_CONFIG_GLOBAL": "/h/.gitconfig"]) { a, _ in a })
+            let memory = sampleMemory()
+            try await writer.writeMemory(memory, workspace: ws)
+            try expectEqual(try String(contentsOf: ws.sinceLastReviewFile, encoding: .utf8), ReviewMemoryFile.diffFailedLine(memory.reviewedSince))
+            let fetch = runner.calls.first { $0.arguments.contains("fetch") }
+            try expectEqual(fetch?.environment?["GIT_CONFIG_GLOBAL"], "/h/.gitconfig")
+            try expectEqual(fetch?.environment?["GIT_TERMINAL_PROMPT"], "0")
+        },
+        TestCase("contexto: en modo solo diff no hay since-last-review.diff y no corre git") {
+            let root = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let ws = ReviewWorkspace(directory: root.appendingPathComponent("r-7-1700000000-0a0a0a0a-diff"), baseRef: nil, isDiffOnly: true)
+            let runner = FakeProcessRunner { _, _ in ok("") }
+            try await ReviewContextWriter(runner: runner, gitPath: "/usr/bin/git", ghPath: nil).writeMemory(sampleMemory(), workspace: ws)
+            try expectEqual(runner.calls.count, 0)
+            try expect(try String(contentsOf: ws.previousReviewsFile, encoding: .utf8).contains("no local checkout"))
+            try expect(!FileManager.default.fileExists(atPath: ws.sinceLastReviewFile.path))
+        },
     ]
 }

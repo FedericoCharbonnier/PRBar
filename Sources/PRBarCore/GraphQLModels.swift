@@ -31,7 +31,7 @@ enum Queries {
           reviewThreads(first: 100) {
             nodes {
               id isResolved isOutdated path line
-              comments(first: 30) { nodes { databaseId body createdAt url author { login __typename } } }
+              comments(first: 30) { nodes { databaseId body createdAt url author { login __typename } pullRequestReview { databaseId } } }
             }
           }
           reviews(last: 50) { nodes { databaseId state body submittedAt url author { login __typename } } }
@@ -318,11 +318,14 @@ struct PRFeedbackNode: Decodable {
         let commit: Commit
     }
     struct CommentNode: Decodable {
+        struct ReviewRef: Decodable { let databaseId: Int? }
         let databaseId: Int?
         let body: String
         let createdAt: Date
         let url: URL
         let author: ActorNode?
+        /// Only in the threads' comments (spec RM.3.1).
+        let pullRequestReview: ReviewRef?
     }
     struct ThreadNode: Decodable {
         let id: String
@@ -357,7 +360,8 @@ struct PRFeedbackNode: Decodable {
                 guard let comment, let id = comment.databaseId else { return nil }
                 return FeedbackComment(
                     databaseID: id, author: comment.author?.login ?? "ghost", isBot: comment.author?.isBot ?? false,
-                    body: comment.body, createdAt: comment.createdAt, url: comment.url)
+                    body: comment.body, createdAt: comment.createdAt, url: comment.url,
+                    reviewDatabaseID: comment.pullRequestReview?.databaseId)
             }
             guard !comments.isEmpty else { return nil }
             return FeedbackItem(

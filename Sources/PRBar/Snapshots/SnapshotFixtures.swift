@@ -220,6 +220,37 @@ struct SnapshotFixtures {
         )
     }
 
+    /// The second review of api#317 (spec RM): the open redirect is still there, the 401 and the test were fixed, and
+    /// Claude found one new low finding. The general comment comes prefilled in Spanish.
+    var followUpDraft: ReviewDraft {
+        let base = loginRedirectDraft
+        let firstReview = UUID(uuidString: "3C2B1A09-8F7E-4D6C-9B5A-493827160504")!
+        var draft = ReviewDraft(
+            prID: base.prID, repo: base.repo, number: base.number, title: base.title, url: base.url, author: base.author,
+            headOid: base.headOid, account: base.account,
+            summary: "The new commits make API routes answer 401 and add a test for the renewed session. returnTo still reaches res.redirect() without validation.",
+            items: [ReviewItem(finding: ReviewFinding(
+                id: "log-token", severity: .low, file: "src/auth/session.ts", line: 102,
+                title: "El log de depuración incluye el token renovado",
+                body: "`debug(\"refreshed\", token)` deja el token en los logs. Conviene loguear solo su vencimiento."),
+                keep: true, reason: "New in these commits: session.ts:102.")],
+            language: base.language)
+        draft.id = UUID(uuidString: "6F1E2D3C-4B5A-4978-8695-A4B3C2D1E0F9")!
+        draft.reviewedSince = "9f3c2a1e7b6d5c4f3e2d1c0b9a8f7e6d5c4b3a21"
+        draft.previous = [
+            PreviousCommentStatus(id: "P1", recordID: firstReview, findingID: "open-redirect", file: "src/auth/session.ts", line: 88,
+                                  text: base.items[0].finding.body, github: .open, outdated: false, status: .notFixed,
+                                  note: "returnTo sigue llegando sin validar a res.redirect()."),
+            PreviousCommentStatus(id: "P2", recordID: firstReview, findingID: "api-401", file: "src/auth/middleware.ts", line: 41,
+                                  text: base.items[1].finding.body, github: .resolved, outdated: true, status: .fixed,
+                                  note: "El middleware responde 401 cuando Accept es JSON."),
+            PreviousCommentStatus(id: "P3", recordID: firstReview, findingID: "missing-test", file: "src/auth/__tests__/session.test.ts",
+                                  line: 12, text: base.items[2].finding.body, github: .open, outdated: true, status: .fixed,
+                                  note: "Agregaron el caso del token renovado."),
+        ]
+        return draft
+    }
+
     static let generalComment = "¡Buen trabajo! El flujo de redirect funciona bien; dejé un par de comentarios sobre la validación de returnTo."
 
     /// The published review of api#317 (3 comments + general comment, Request Changes).

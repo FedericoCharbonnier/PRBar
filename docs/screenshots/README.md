@@ -34,6 +34,7 @@ Every screen comes in `-light` and `-dark`, at 2x:
 | `main-loading` | The main window before the first refresh |
 | `main-review` | A PR's Review tab: Claude's summary, kept findings (one expanded for editing), discarded ones with reasons, a general comment |
 | `main-review-chat` | The Review tab with the chat inspector open (340 pt, headed "Chat · on devbox"), including a "Save as rule" card |
+| `main-review-follow-up` | A second review of a PR: Previous comments (fixed / not fixed, GitHub state), the general comment prefilled with what's pending, the recommended decision preselected |
 | `main-details` | A PR's Details tab: description, reviews, checks, conversations and files |
 | `main-merge` | Your PR's Merge tab: details plus the merge block with the method, "Head 2029172" and "Squash and Merge"; the list rows show their status line (Changes requested, merge blockers) |
 | `main-respond-choose` | The Respond tab: choosing what to do with each comment (fix, reply, fix + reply) |

@@ -242,5 +242,30 @@ enum RetainedWorktreesTests {
             try expect(!FileManager.default.fileExists(atPath: clean.path))
             try expect(!FileManager.default.fileExists(atPath: diffOnly.path))
         },
+        TestCase("carpetas conservadas: la de review del PR se reemplaza en el lugar y no depende de Keep folders") {
+            let first = entry(7, .review, dir: "/wt/r-7-review")
+            let second = entry(7, .review, dir: "/wt/r-7-review")   // otra review, la misma carpeta
+            let legacy = entry(7, .review, dir: "/wt/r-7-1700000000-0a0a0a0a")
+            try expect(second.isReviewFolderPerPR && !legacy.isReviewFolderPerPR)
+            let (entries, replaced) = RetainedWorktreeRules.retain(second, in: [legacy, first])
+            // La del nombre viejo se reemplaza (la regla de siempre); la del PR no: es la misma carpeta, con el último registro.
+            try expectEqual(replaced.map(\.location.directory), ["/wt/r-7-1700000000-0a0a0a0a"])
+            try expectEqual(entries.filter { !$0.superseded }.map(\.recordID), [second.recordID])
+            // Keep folders off: solo se van las de Respond (y las de review con nombre viejo).
+            let removed = Box<[String]>([])
+            let cleaner = RetainedWorktreeCleaner(isBusy: { _ in false }, unpushedWork: { _ in nil },
+                                                  remove: { removed.value.append($0.location.directory); return true })
+            var on = AppConfig()
+            on.setKeepSessionFolders(true)
+            var off = AppConfig()
+            off.setKeepSessionFolders(false)
+            let respond = entry(8, .respond, dir: "/repos/r-worktrees/r-8-respond-0a0a0a0a")
+            let change = try expectSome(await RetainedWorktreeRules.keepSettingChanged(from: on, to: off, retained: [second, respond],
+                                                                                       cleaner: cleaner))
+            try expectEqual(change.removed.map(\.location.directory), ["/repos/r-worktrees/r-8-respond-0a0a0a0a"])
+            try expectEqual(removed.value, ["/repos/r-worktrees/r-8-respond-0a0a0a0a"])
+            // Mergeado o cerrado: se borra como cualquiera.
+            try expectEqual(RetainedWorktreeRules.closedOnes([second], states: ["o/r#7": .merged]).map(\.recordID), [second.recordID])
+        },
     ]
 }

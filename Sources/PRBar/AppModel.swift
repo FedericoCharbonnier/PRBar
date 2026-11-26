@@ -603,8 +603,10 @@ final class AppModel: ObservableObject {
         reviews.dismiss(prID: item.id)
         reviewRuns[item.id] = ClaudeRunInfo(startedAt: Date(), requestedOnPhone: CommandOrigin.current.isPhone)
         let ignorePaths = repoConfig(account: item.account, repo: item.pr.repo)?.ignorePaths ?? []
+        // Spec RM.3.1: the reviews PRBar posted on this PR before (same account), oldest first; none = a first review.
+        let previous = ReviewMemory.publishedRecords(history.all(), repo: item.pr.repo, number: item.pr.number, account: item.account)
         reviews.enqueue(ReviewRequest(item: item, localPath: localPath(for: item), baseRef: item.pr.baseRef,
-                                      ignorePaths: ignorePaths))
+                                      ignorePaths: ignorePaths, previousReviews: previous))
         // 👀 en el mensaje del PR en Slack (spec §17.2); no bloquea la review y sus errores van a los issues de Slack.
         let config = configStore.config
         Task { await postings.track { await slack.reviewStarted(item: item, config: config) } }

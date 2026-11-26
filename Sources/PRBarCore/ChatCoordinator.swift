@@ -358,10 +358,11 @@ public final class ChatCoordinator: ObservableObject {
         guard let restore = session.messages.first(where: { $0.id == id })?.restore else { return false }
         switch subject {
         case .review:
-            // The id counter only grows (undo keeps it): it isn't an edit.
+            // The id counter only grows and the decision is the user's (undo keeps both): neither is an edit.
             return restore.reviewEditsAfter.map { after in
                 var current = reviewEdits
                 current.addedCount = after.addedCount
+                current.decision = after.decision
                 return after != current
             } ?? false
         case .respond(let draft):
@@ -384,6 +385,7 @@ public final class ChatCoordinator: ObservableObject {
         case .review:
             if var before = restore.reviewEdits {
                 before.addedCount = max(before.addedCount, reviewEdits.addedCount)
+                before.decision = reviewEdits.decision
                 reviewEdits = before
             }
             finishUndo(index)

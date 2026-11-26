@@ -1,5 +1,7 @@
 import { computed, signal, type ReadonlySignal } from "@preact/signals";
-import { prTopic, type AppCommand, type FindingInfo, type ReviewEvent } from "../../protocol/commands";
+import {
+  prTopic, type AppCommand, type FindingInfo, type PreviousCommentInfo, type PreviousStatus, type ReviewEvent,
+} from "../../protocol/commands";
 import type { EditProps, FindingVM, ReviewDecision, ReviewPostedProps, ReviewProps } from "../../ui/screens/types";
 import type { AppContext } from "../context";
 import { age, count, duration, lineOf, parseDate, person, shortRef, splitPRId } from "../format";
@@ -9,6 +11,16 @@ import { needsConfirmation, perform, prHeader, showsFaceId } from "./common";
 
 const EVENTS: Record<ReviewDecision, ReviewEvent> = { comment: "COMMENT", request_changes: "REQUEST_CHANGES", approve: "APPROVE" };
 const RUNNING = ["queued", "preparing", "reviewing", "filtering"];
+const DECISION_OF: Record<ReviewEvent, ReviewDecision> = { COMMENT: "comment", REQUEST_CHANGES: "request_changes", APPROVE: "approve" };
+const DECISION_LABEL: Record<ReviewDecision, string> = { comment: "Comment", request_changes: "Request Changes", approve: "Approve" };
+const STATUS_LABEL: Record<PreviousStatus, string> = { fixed: "Fixed", notFixed: "Not fixed", partially: "Partially", unclear: "Unclear" };
+
+/** "Reviewed before at 1a2b3c4 · 2 fixed · 1 pending" (lo mismo que la Mac). */
+export function previousHeader(previous: PreviousCommentInfo[], since?: string): string {
+  const fixed = previous.filter((p) => p.status === "fixed").length;
+  const at = since ? ` at ${since.slice(0, 7)}` : "";
+  return `Reviewed before${at} · ${fixed} fixed · ${previous.length - fixed} pending`;
+}
 
 export type ReviewView =
   | { kind: "review"; props: ReviewProps; edit?: EditProps | undefined }
@@ -25,7 +37,8 @@ export interface ReviewModel {
 
 export function createReviewModel(ctx: AppContext, pr: string): ReviewModel {
   const { store } = ctx;
-  const decision = signal<ReviewDecision>("comment");
+  // La elección del usuario; sin ella, la recomendación de la Mac (en vivo).
+  const picked = signal<ReviewDecision | null>(null);
   const menuOpen = signal(false);
   const posting = signal(false);
   const starting = signal(false);
@@ -37,6 +50,10 @@ export function createReviewModel(ctx: AppContext, pr: string): ReviewModel {
     ({ reviewPublish: { pr, event: EVENTS[chosen], withComments: true, allInBody: false, confirmed: true } });
 
   const review = computed(() => store.details.value[pr]?.review);
+  const decision = computed((): ReviewDecision => {
+    const recommended = review.value?.recommendedAction?.event;
+    return picked.value ?? (recommended ? DECISION_OF[recommended] : "comment");
+  });
   const phase = computed(() => review.value?.phase ?? "none");
   const running = computed(() => RUNNING.includes(phase.value));
   const findings = computed((): FindingInfo[] => (review.value?.findings ?? []).filter((f) => !f.hiddenBy).map((f) => {
@@ -71,6 +88,14 @@ export function createReviewModel(ctx: AppContext, pr: string): ReviewModel {
       const vms: FindingVM[] = findings.value.map((f) => ({
         id: f.id, severity: f.severity, location: f.location, title: f.title, text: f.body, included: f.included,
       }));
+      const previous = r?.previous?.length ? {
+        header: previousHeader(r.previous, r.reviewedSince),
+        comments: r.previous.map((p) => ({
+          id: p.id, location: p.location, status: p.status, statusLabel: STATUS_LABEL[p.status], note: p.note, text: p.text,
+          github: p.github === "unknown" ? "unknown" : p.outdated ? `${p.github} · outdated` : p.github,
+        })),
+      } : undefined;
+      const rec = r?.recommendedAction;
       const metaParts = [r?.detail, r?.usage?.durationSeconds ? duration(r.usage.durationSeconds) : undefined]
         .filter((p): p is string => !!p);
       const summaryText = running.value ? "Claude is reviewing this PR…" : r?.summary ?? "";
@@ -91,6 +116,8 @@ export function createReviewModel(ctx: AppContext, pr: string): ReviewModel {
         },
         summary: { text: summaryText, meta: metaParts.join(" · ") },
         findings: vms,
+        previous,
+        recommendation: rec ? { label: DECISION_LABEL[DECISION_OF[rec.event]], reason: rec.reason } : undefined,
         decision: decision.value,
         menuOpen: menuOpen.value,
         faceIdPending: ctx.runner.faceIdPending.value,
@@ -113,7 +140,7 @@ export function createReviewModel(ctx: AppContext, pr: string): ReviewModel {
         onOpenDecisionMenu: () => (menuOpen.value = true),
         onCloseDecisionMenu: () => (menuOpen.value = false),
         onSelectDecision: (d) => {
-          decision.value = d;
+          picked.value = d;
           menuOpen.value = false;
         },
         onPost: () => void model.post(),

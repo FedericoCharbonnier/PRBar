@@ -204,6 +204,19 @@ export interface FindingVM {
   included: boolean;
 }
 
+export interface PreviousCommentVM {
+  id: string;
+  /** "src/auth/session.ts:88". */
+  location: string;
+  status: "fixed" | "notFixed" | "partially" | "unclear";
+  /** "Not fixed". */
+  statusLabel: string;
+  note: string;
+  /** "open", "resolved · outdated", "unknown". */
+  github: string;
+  text: string;
+}
+
 export interface ReviewProps {
   pr: PRHeaderVM & {
     author: Person;
@@ -216,6 +229,10 @@ export interface ReviewProps {
   };
   summary: { text: string; meta: string };
   findings: FindingVM[];
+  /** Spec RM.6: lo que PRBar publicó antes y si quedó corregido (solo con memoria). */
+  previous?: { header: string; comments: PreviousCommentVM[] } | undefined;
+  /** La decisión recomendada y su motivo: preseleccionada hasta que el usuario elige otra. */
+  recommendation?: { label: string; reason: string } | undefined;
   decision: ReviewDecision;
   /** review:menu. */
   menuOpen?: boolean | undefined;

@@ -7,12 +7,17 @@ public struct ReviewRequest: Sendable {
     public let baseRef: String          // pr.baseRef
     /// The repo's ignored paths (spec E.5).
     public let ignorePaths: [String]
+    /// Spec RM.3.1: the reviews PRBar posted on this PR before (`ReviewMemory.publishedRecords`), oldest first; empty = a
+    /// first review.
+    public let previousReviews: [ReviewRecord]
 
-    public init(item: ClassifiedPR, localPath: String?, baseRef: String, ignorePaths: [String] = []) {
+    public init(item: ClassifiedPR, localPath: String?, baseRef: String, ignorePaths: [String] = [],
+                previousReviews: [ReviewRecord] = []) {
         self.item = item
         self.localPath = localPath
         self.baseRef = baseRef
         self.ignorePaths = ignorePaths
+        self.previousReviews = previousReviews
     }
 }
 
@@ -54,9 +59,10 @@ public struct ReviewFailure: Error, LocalizedError {
     public var errorDescription: String? { underlying.localizedDescription }
 }
 
-/// Implementación real: token → plugins (los de los skills configurados) → worktree → contexto (`pr.diff`, `pr.md`) → `ClaudeReviewer`
-/// (2 etapas) → limpieza.
+/// Implementación real: token → plugins (los de los skills configurados) → carpeta del PR (spec RM.2) → contexto (`pr.diff`,
+/// `pr.md`) y memoria (`previous-reviews.md`, `since-last-review.diff`) → `ClaudeReviewer` (2 etapas) → release o limpieza.
 public struct ReviewPipeline: ReviewPipelineRunning {
+    private let processRunner: ProcessRunning
     private let streamingRunner: StreamingProcessRunning
     private let tokens: TokenProviding
     private let api: GitHubAPI
@@ -83,6 +89,7 @@ public struct ReviewPipeline: ReviewPipelineRunning {
         rules: [Rule] = [], logURLProvider: @escaping @Sendable (UUID) -> URL, placement: RemotePlacement? = nil,
         keepsSessionFolders: Bool = true
     ) {
+        self.processRunner = processRunner
         self.streamingRunner = streamingRunner
         self.tokens = tokens
         self.api = api
@@ -106,6 +113,9 @@ public struct ReviewPipeline: ReviewPipelineRunning {
         let release: @Sendable (ReviewWorkspace) async -> Void
         let location: @Sendable (ReviewWorkspace) -> WorktreeLocation
         let writeContext: @Sendable (ReviewWorkspace, String) async throws -> String
+        let writeMemory: @Sendable (ReviewWorkspace, ReviewMemory) async throws -> Void
+        /// Decision 7: a process with its cwd in the PR's folder (a Terminal) doesn't stop the review; the log says so.
+        let noteBusy: @Sendable (ReviewWorkspace) async -> Void
         let reviewer: ClaudeReviewer
     }
 
@@ -116,8 +126,12 @@ public struct ReviewPipeline: ReviewPipelineRunning {
             let pluginDirs = try ClaudePlugins.locate(skills: settings.reviewSkills, in: pluginCacheDirectory)
             let worktrees = self.worktrees
             let context = self.context
+            let runner = self.processRunner
             return Parts(
-                prepare: { try await worktrees.prepare(repo: pr.repo, number: pr.number, baseRef: request.baseRef, localPath: request.localPath) },
+                prepare: {
+                    try await worktrees.prepareReview(repo: pr.repo, number: pr.number, baseRef: request.baseRef,
+                                                      localPath: request.localPath)
+                },
                 cleanup: { workspace in await worktrees.cleanup(workspace, localPath: request.localPath) },
                 release: { workspace in worktrees.release(workspace) },
                 location: { workspace in
@@ -128,18 +142,25 @@ public struct ReviewPipeline: ReviewPipelineRunning {
                 writeContext: { workspace, description in
                     try await context.write(pr: pr, workspace: workspace, token: token, description: description)
                 },
+                writeMemory: { workspace, memory in try await context.writeMemory(memory, workspace: workspace) },
+                noteBusy: { workspace in
+                    let paths = [workspace.directory.path, CanonicalPath.of(workspace.directory.path)]
+                    guard let result = try? await runner.run(ProcessCwd.lsofPath, ProcessCwd.lsofArguments, timeout: 30),
+                          ProcessCwd.anyInside(paths, lsofOutput: result.stdout) else { return }
+                    ReviewPipeline.logBusy(workspace)
+                },
                 reviewer: ClaudeReviewer(runner: streamingRunner, claudePath: claudePath, pluginDirs: pluginDirs, toolPaths: toolPaths,
                                          redacting: [token], logURL: logURL, settings: settings, rules: rules))
         }
         let pluginDirs = try await remote.plugins(skills: settings.reviewSkills)
         let bare = try await remote.preparing { try await remote.workspaces.mirror(pr.repo) }
         let spaces = remote.workspaces
-        let context = ReviewContextWriter(runner: remote.runner, gitPath: remote.gitPath, ghPath: nil, files: spaces.contextFiles)
+        let context = ReviewContextWriter(runner: remote.runner, gitPath: remote.gitPath, ghPath: nil, files: spaces.contextFiles,
+                                          gitEnvironment: spaces.gitEnvironment)
         return Parts(
             prepare: {
                 try await remote.preparing {
-                    try await spaces.prepare(repo: pr.repo, number: pr.number, baseRef: request.baseRef, localPath: bare, name: nil,
-                                             pinnedHeadOid: nil)
+                    try await spaces.prepareReview(repo: pr.repo, number: pr.number, baseRef: request.baseRef, localPath: bare)
                 }
             },
             cleanup: { workspace in await spaces.cleanup(workspace, localPath: bare) },
@@ -150,6 +171,15 @@ public struct ReviewPipeline: ReviewPipelineRunning {
             },
             writeContext: { workspace, description in
                 try await remote.preparing { try await context.write(pr: pr, workspace: workspace, token: token, description: description) }
+            },
+            writeMemory: { workspace, memory in
+                try await remote.preparing { try await context.writeMemory(memory, workspace: workspace) }
+            },
+            noteBusy: { workspace in
+                guard let script = try? ProcessCwd.remoteScript(resolving: [workspace.directory.path]),
+                      let result = try? await remote.host.runScript(script, timeout: 30), result.status == 0,
+                      ProcessCwd.anyInside([workspace.directory.path], remoteOutput: result.stdout) else { return }
+                ReviewPipeline.logBusy(workspace)
             },
             reviewer: ClaudeReviewer(runner: remote.runner, claudePath: remote.claudePath, pluginDirs: pluginDirs, toolPaths: [],
                                      redacting: [token], logURL: logURL, settings: settings, rules: rules,
@@ -174,15 +204,21 @@ public struct ReviewPipeline: ReviewPipelineRunning {
             await onPhase(.preparing)
             let description = try await Self.description(of: pr, api: api, token: token)
             let language = PRLanguage.detect(description: description, title: pr.title)
+            let memory = try await Self.memory(for: request, api: api, token: token)
+            let unlock = await ReviewFolderLocks.shared.acquire(Self.folderKey(pr, runner: runnerName))
+            defer { unlock() }
             let workspace = try await parts.prepare()
+            let perPR = WorktreeManager.isReviewFolder(workspace)
+            if perPR { await parts.noteBusy(workspace) }
 
-            let result: (summary: String, items: [ReviewItem])
+            let outcome: ClaudeReviewer.ReviewOutcome
             let headOid: String
             do {
                 headOid = try await parts.writeContext(workspace, description ?? "")
+                if let memory { try await parts.writeMemory(workspace, memory) }
                 try Task.checkCancellation()
-                result = try await parts.reviewer.review(
-                    pr: pr, workspace: workspace, language: language, ignorePaths: request.ignorePaths,
+                outcome = try await parts.reviewer.review(
+                    pr: pr, workspace: workspace, language: language, ignorePaths: request.ignorePaths, memory: memory,
                     onSession: { stage, stamp in
                         let session = ClaudeSessionRef.reviewStage(stage, stamp: stamp, directory: workspace.directory.path,
                                                                    runner: runnerName)
@@ -192,32 +228,33 @@ public struct ReviewPipeline: ReviewPipelineRunning {
                     onPhase(stage == .reviewing ? .reviewing(agents: agents) : .filtering)
                 }
             } catch {
-                await Self.cleanup(workspace, parts, after: error)
+                await Self.finish(workspace, parts, keepsFolder: perPR, after: error)
                 throw error
             }
-            // Kept for "Open in Terminal" (spec T.3) only with a Claude session to resume and the setting on; otherwise
-            // cleaned up as before.
-            let keep = keepsSessionFolders && !sessions().isEmpty
+            // The PR's folder always stays (spec RM.2); a per-run one only with a session to resume and the setting on (T.3).
+            let keep = perPR || (keepsSessionFolders && !sessions().isEmpty)
             if keep {
                 await parts.release(workspace)
             } else {
-                await Self.cleanup(workspace, parts, after: nil)
+                await Self.finish(workspace, parts, keepsFolder: false, after: nil)
             }
             if Task.isCancelled {
-                if keep { await Self.cleanup(workspace, parts, after: nil) }
+                if keep && !perPR { await Self.finish(workspace, parts, keepsFolder: false, after: nil) }
                 throw CancellationError()
             }
 
             var draft = ReviewDraft(
                 prID: request.item.id, repo: pr.repo, number: pr.number, title: pr.title, url: pr.url,
                 author: pr.author, headOid: headOid, account: request.item.account,
-                summary: result.summary,
-                items: ReviewOptionsFilter.apply(result.items, options: settings.review, repoIgnorePaths: request.ignorePaths),
+                summary: outcome.summary,
+                items: ReviewOptionsFilter.apply(outcome.items, options: settings.review, repoIgnorePaths: request.ignorePaths),
                 language: language
             )
             draft.id = draftID
             draft.sessions = sessions()
             draft.retainedLocation = keep ? parts.location(workspace) : nil
+            draft.previous = outcome.previous
+            draft.reviewedSince = memory?.reviewedSince
             return draft
         } catch {
             if RemoteUnstoppedJobs.isNotStopped(error) {
@@ -244,13 +281,57 @@ public struct ReviewPipeline: ReviewPipelineRunning {
         }
     }
 
-    /// Corre en una tarea aparte para que la cancelación del job no mate los `git` de la limpieza. Si no se pudo
-    /// confirmar que Claude paró en el host, el worktree queda como está (lo dice el error).
-    private static func cleanup(_ workspace: ReviewWorkspace, _ parts: Parts, after error: Error?) async {
+    /// Spec RM.3.1: nil without previous reviews. The threads come from `reviewFeedback`; if it fails the review goes on
+    /// and every comment is `unknown` (RM.7).
+    static func memory(for request: ReviewRequest, api: GitHubAPI, token: String) async throws -> ReviewMemory? {
+        guard !request.previousReviews.isEmpty else { return nil }
+        let pr = request.item.pr
+        var feedback: PRFeedback?
+        do {
+            feedback = try await api.reviewFeedback(repo: pr.repo, number: pr.number, token: token)
+        } catch {
+            if error is CancellationError || Task.isCancelled { throw CancellationError() }
+            AppLog.write("Review memory: couldn’t read the threads of \(pr.repo.fullName)#\(pr.number); previous comments go as unknown: \(error.localizedDescription)")
+        }
+        return ReviewMemory.build(records: request.previousReviews, feedback: feedback)
+    }
+
+    /// One lock per folder: two repos with the same name (other owners) share `<repo>-<N>-review` in a root.
+    public static func folderKey(_ pr: PullRequest, runner: String?) -> String {
+        "\(runner ?? "this Mac")|\(WorktreeManager.reviewFolderName(repo: pr.repo, number: pr.number))"
+    }
+
+    static func logBusy(_ workspace: ReviewWorkspace) {
+        AppLog.write("Review: a process (e.g. a Terminal) works in \(workspace.directory.path); its checkout is now the PR’s current head.")
+    }
+
+    /// In its own task so the job's cancellation doesn't kill the cleanup's `git`. Not confirmed that Claude stopped on the
+    /// host: left as is. The PR's folder is released (RM.7: it stays, without `.context`); a per-run one is cleaned up.
+    private static func finish(_ workspace: ReviewWorkspace, _ parts: Parts, keepsFolder: Bool, after error: Error?) async {
         if let error, RemoteUnstoppedJobs.isNotStopped(error) {
             AppLog.write("Review: Claude may still be running in \(workspace.directory.path); leaving it as is.")
             return
         }
-        await Task.detached { await parts.cleanup(workspace) }.value
+        if keepsFolder {
+            await Task.detached { await parts.release(workspace) }.value
+        } else {
+            await Task.detached { await parts.cleanup(workspace) }.value
+        }
+    }
+}
+
+/// One review at a time in a PR's folder (spec RM.2, decision 3). `ReviewQueue.cancel` frees the PR's slot at once while
+/// the cancelled run may still be releasing the folder: the next review of the PR waits for it here.
+public actor ReviewFolderLocks {
+    public static let shared = ReviewFolderLocks()
+    private var tails: [String: Task<Void, Never>] = [:]
+
+    /// Waits until the previous holder of `key` lets go; returns what lets go of it (call it exactly once).
+    public func acquire(_ key: String) async -> @Sendable () -> Void {
+        let previous = tails[key]
+        let (stream, continuation) = AsyncStream<Void>.makeStream()
+        tails[key] = Task { for await _ in stream {} }
+        await previous?.value
+        return { continuation.finish() }
     }
 }

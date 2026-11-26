@@ -54,7 +54,7 @@ public enum UntrustedText {
     /// PRBar's headings, defused with a "(quoted)" mark when they appear in untrusted text.
     static let headings = [RulesPrompt.heading, "PRBar's rules for this run", "The user says:"]
 
-    private static let tags = "(?:USER_RULES|USER|COMMENT|PR_DESCRIPTION|CI_LOG|BASE_COMMITS|PR_DIFF)"
+    private static let tags = "(?:USER_RULES|USER|COMMENT|PR_DESCRIPTION|CI_LOG|BASE_COMMITS|PR_DIFF|PREVIOUS_REVIEW)"
     // `<<<USER…`, `<<< COMMENT…` and `…USER_RULES_x>>>`, `COMMENT >>>`, any case. Heredocs (`<<<EOF`) and shifts
     // (`a >>> 2`) stay as they are: they can't pass for PRBar's markers.
     private static let openMarker = try! NSRegularExpression(pattern: "<<<(\\s*)(?=\(tags))", options: [.caseInsensitive])

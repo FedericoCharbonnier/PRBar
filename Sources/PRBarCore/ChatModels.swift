@@ -325,18 +325,21 @@ public struct ReviewEdits: Codable, Equatable, Sendable {
     /// How many `cN` ids the chat has handed out: the next one is `c<addedCount + 1>`, so an id is never reused
     /// after an undo (older messages still refer to it). Undo keeps the highest value.
     public var addedCount: Int
+    /// The decision the user picked in the window (spec RM.5); nil = PRBar's recommendation, recomputed live.
+    public var decision: ReviewEvent?
 
     public init(selected: Set<String>, bodies: [String: String] = [:], titles: [String: String] = [:],
-                added: [ReviewItem] = [], generalComment: String = "", addedCount: Int? = nil) {
+                added: [ReviewItem] = [], generalComment: String = "", addedCount: Int? = nil, decision: ReviewEvent? = nil) {
         self.selected = selected
         self.bodies = bodies
         self.titles = titles
         self.added = added
         self.generalComment = generalComment
         self.addedCount = addedCount ?? Self.highestAddedNumber(in: added)
+        self.decision = decision
     }
 
-    private enum CodingKeys: String, CodingKey { case selected, bodies, titles, added, generalComment, addedCount }
+    private enum CodingKeys: String, CodingKey { case selected, bodies, titles, added, generalComment, addedCount, decision }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -347,6 +350,7 @@ public struct ReviewEdits: Codable, Equatable, Sendable {
         generalComment = try c.decode(String.self, forKey: .generalComment)
         // Saved before the counter existed: the highest added id.
         addedCount = max((try? c.decodeIfPresent(Int.self, forKey: .addedCount)) ?? 0, Self.highestAddedNumber(in: added))
+        decision = (try? c.decodeIfPresent(ReviewEvent.self, forKey: .decision)) ?? nil
     }
 
     /// N of the highest `cN` id in `added` (0 if none).
@@ -357,9 +361,16 @@ public struct ReviewEdits: Codable, Equatable, Sendable {
         }.max() ?? 0
     }
 
-    /// What the window shows when a review opens: the findings the filter kept and the settings don't hide, selected.
+    /// What the window shows when a review opens: the findings the filter kept and the settings don't hide, selected; with
+    /// memory, the general comment prefilled with what's still pending (spec RM.6, editable).
     public static func initial(for draft: ReviewDraft) -> ReviewEdits {
-        ReviewEdits(selected: Set(draft.items.filter { $0.keep && !$0.isHidden }.map(\.id)))
+        ReviewEdits(selected: Set(draft.items.filter { $0.keep && !$0.isHidden }.map(\.id)),
+                    generalComment: PublishedPhrases.previousSummary(draft.previous, language: draft.language) ?? "")
+    }
+
+    /// What the window's picker shows: the user's choice, or the recommendation for what's selected now.
+    public func effectiveDecision(for draft: ReviewDraft) -> ReviewEvent {
+        decision ?? RecommendedAction.of(draft, edits: self).event
     }
 
     /// The draft's findings and then the added ones, with edited titles. Position + 1 is the number (#N).

@@ -491,5 +491,198 @@ enum WorktreeTests {
             try expectEqual(runner.calls.count, 0)
             try expectEqual(try FileManager.default.contentsOfDirectory(atPath: root.path), [])
         },
+        TestCase("worktree (git real): la review del PR crea <repo>-<N>-review y la siguiente la reusa en el head nuevo") {
+            let repo = try TempGitRepo.make(baseSetup: { try Data("*.log\n".utf8).write(to: $0.appendingPathComponent(".gitignore")) })
+            defer { repo.remove() }
+            let m = WorktreeManager(runner: SystemProcessRunner(), gitPath: TempGitRepo.git, root: repo.root)
+            let first = try await m.prepareReview(repo: prRepoRef, number: 7, baseRef: "main", localPath: repo.local.path)
+            try expectEqual(first.directory.lastPathComponent, "r-7-review")
+            try expectEqual(first.prRef, "refs/prbar/pr-7-review")
+            try expectEqual(first.baseRef, "refs/prbar/base-7-review")
+            try expectEqual(first.headOid, repo.prSHA)
+            // Lo que dejó la review anterior (o un build en una Terminal): contexto y un archivo ignorado. No es trabajo.
+            try FileManager.default.createDirectory(at: first.contextDirectory, withIntermediateDirectories: true)
+            try Data("viejo".utf8).write(to: first.diffFile)
+            try Data("build\n".utf8).write(to: first.directory.appendingPathComponent("build.log"))
+            let second = try repo.advancePR { try Data("otra\n".utf8).write(to: $0.appendingPathComponent("second.txt")) }
+
+            let again = try await m.prepareReview(repo: prRepoRef, number: 7, baseRef: "main", localPath: repo.local.path)
+            try expectEqual(again.directory, first.directory)
+            try expectEqual(again.headOid, second)
+            try expectEqual(try TempGitRepo.run(again.directory, ["rev-parse", "HEAD"]).trimmingCharacters(in: .whitespacesAndNewlines), second)
+            try expect(exists(again.directory.appendingPathComponent("second.txt")))
+            try expect(!exists(again.directory.appendingPathComponent("build.log")))
+            try expect(!exists(first.contextDirectory))
+            try expectEqual(try repo.worktreeNames().sorted(), ["local", "r-7-review"])
+            try expectEqual(try repo.prbarRefs().sorted(), ["refs/prbar/base-7-review", "refs/prbar/pr-7-review"])
+        },
+        TestCase("worktree (git real): la carpeta del PR con trabajo del usuario no se toca; la review usa una carpeta propia") {
+            let repo = try TempGitRepo.make()
+            defer { repo.remove() }
+            let m = WorktreeManager(runner: SystemProcessRunner(), gitPath: TempGitRepo.git, root: repo.root)
+            let first = try await m.prepareReview(repo: prRepoRef, number: 7, baseRef: "main", localPath: repo.local.path)
+            // Un cambio sin commitear y un archivo nuevo (p. ej. escritos en una Terminal).
+            try Data("cambio local\n".utf8).write(to: first.directory.appendingPathComponent("feature.txt"))
+            try Data("mío\n".utf8).write(to: first.directory.appendingPathComponent("notas.txt"))
+            let second = try repo.advancePR { try Data("otra\n".utf8).write(to: $0.appendingPathComponent("second.txt")) }
+
+            let fallback = try await m.prepareReview(repo: prRepoRef, number: 7, baseRef: "main", localPath: repo.local.path)
+            try expect(fallback.directory != first.directory, fallback.directory.path)
+            try expect(!WorktreeManager.isReviewFolder(fallback))
+            try expectEqual(fallback.headOid, second)
+            try expectEqual(try String(contentsOf: first.directory.appendingPathComponent("feature.txt"), encoding: .utf8), "cambio local\n")
+            try expect(exists(first.directory.appendingPathComponent("notas.txt")))
+            try expectEqual(try TempGitRepo.run(first.directory, ["rev-parse", "HEAD"]).trimmingCharacters(in: .whitespacesAndNewlines), repo.prSHA)
+            await m.cleanup(fallback, localPath: repo.local.path)
+
+            // Un commit que no está en ninguna rama: tampoco.
+            try TempGitRepo.run(first.directory, ["add", "-A"])
+            try TempGitRepo.run(first.directory, ["commit", "-q", "-m", "mío"])
+            let again = try await m.prepareReview(repo: prRepoRef, number: 7, baseRef: "main", localPath: repo.local.path)
+            try expect(again.directory != first.directory, again.directory.path)
+            try expect(exists(first.directory.appendingPathComponent("notas.txt")))
+            await m.cleanup(again, localPath: repo.local.path)
+            try expectEqual(try repo.worktreeNames().sorted(), ["local", "r-7-review"])
+        },
+        TestCase("worktree (git real): los symlinks neutralizados no cuentan como trabajo: la carpeta del PR se reusa") {
+            let repo = try TempGitRepo.make(prSetup: {
+                try FileManager.default.createSymbolicLink(atPath: $0.appendingPathComponent("link").path, withDestinationPath: "README.md")
+            })
+            defer { repo.remove() }
+            let m = WorktreeManager(runner: SystemProcessRunner(), gitPath: TempGitRepo.git, root: repo.root)
+            let first = try await m.prepareReview(repo: prRepoRef, number: 7, baseRef: "main", localPath: repo.local.path)
+            try expectEqual(try String(contentsOf: first.directory.appendingPathComponent("link"), encoding: .utf8),
+                            WorktreeManager.symlinkPlaceholder(target: "README.md"))
+            let second = try repo.advancePR { try Data("otra\n".utf8).write(to: $0.appendingPathComponent("second.txt")) }
+            let again = try await m.prepareReview(repo: prRepoRef, number: 7, baseRef: "main", localPath: repo.local.path)
+            try expectEqual(again.directory, first.directory)
+            try expectEqual(again.headOid, second)
+        },
+        TestCase("worktree (git real): si el fetch falla, la carpeta del PR queda como estaba") {
+            let repo = try TempGitRepo.make()
+            defer { repo.remove() }
+            let m = WorktreeManager(runner: SystemProcessRunner(), gitPath: TempGitRepo.git, root: repo.root)
+            let first = try await m.prepareReview(repo: prRepoRef, number: 7, baseRef: "main", localPath: repo.local.path)
+            let away = repo.base.appendingPathComponent("origin-away")
+            try FileManager.default.moveItem(at: repo.origin, to: away)
+            do {
+                _ = try await m.prepareReview(repo: prRepoRef, number: 7, baseRef: "main", localPath: repo.local.path)
+                throw TestFailure(description: "el fetch tenía que fallar")
+            } catch is PRBarError {}
+            try FileManager.default.moveItem(at: away, to: repo.origin)
+            try expect(exists(first.directory.appendingPathComponent("feature.txt")))
+            try expectEqual(try repo.worktreeNames().sorted(), ["local", "r-7-review"])
+            try expectEqual(try repo.prbarRefs().sorted(), ["refs/prbar/base-7-review", "refs/prbar/pr-7-review"])
+        },
+        TestCase("worktree (git real): una carpeta del PR rota se recrea; la de otro clone con el mismo nombre no se toca") {
+            let repo = try TempGitRepo.make()
+            defer { repo.remove() }
+            let m = WorktreeManager(runner: SystemProcessRunner(), gitPath: TempGitRepo.git, root: repo.root)
+            // Una carpeta con el nombre que no es un worktree (p. ej. quedó a medio borrar).
+            let broken = repo.root.appendingPathComponent("r-7-review", isDirectory: true)
+            try FileManager.default.createDirectory(at: broken, withIntermediateDirectories: true)
+            try Data("x".utf8).write(to: broken.appendingPathComponent("resto.txt"))
+            let ws = try await m.prepareReview(repo: prRepoRef, number: 7, baseRef: "main", localPath: repo.local.path)
+            try expectEqual(ws.directory.lastPathComponent, "r-7-review")
+            try expect(!exists(broken.appendingPathComponent("resto.txt")))
+            try expect(exists(ws.directory.appendingPathComponent("feature.txt")))
+
+            // Otro clone (otro owner, mismo nombre y número) en la misma raíz: usa una carpeta propia por corrida.
+            let other = try TempGitRepo.make()
+            defer { other.remove() }
+            let otherManager = WorktreeManager(runner: SystemProcessRunner(), gitPath: TempGitRepo.git, root: repo.root)
+            let fallback = try await otherManager.prepareReview(repo: RepoRef(owner: "x", name: "r"), number: 7, baseRef: "main",
+                                                                localPath: other.local.path)
+            try expect(fallback.directory.lastPathComponent != "r-7-review", fallback.directory.path)
+            try expect(!WorktreeManager.isReviewFolder(fallback))
+            try expect(exists(ws.directory.appendingPathComponent("feature.txt")))
+            try expectEqual(try repo.worktreeNames().sorted(), ["local", "r-7-review"])
+        },
+        TestCase("worktree (git real): la carpeta del PR que es un symlink o cuyo .git apunta fuera de este clone no se toca") {
+            let repo = try TempGitRepo.make()
+            defer { repo.remove() }
+            let m = WorktreeManager(runner: SystemProcessRunner(), gitPath: TempGitRepo.git, root: repo.root)
+            try FileManager.default.createDirectory(at: repo.root, withIntermediateDirectories: true)
+            let folder = repo.root.appendingPathComponent("r-7-review", isDirectory: true)
+            // Un symlink a una carpeta del usuario.
+            let target = repo.base.appendingPathComponent("mía", isDirectory: true)
+            try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+            try Data("x".utf8).write(to: target.appendingPathComponent("dato.txt"))
+            try FileManager.default.createSymbolicLink(at: folder, withDestinationURL: target)
+            let viaLink = try await m.prepareReview(repo: prRepoRef, number: 7, baseRef: "main", localPath: repo.local.path)
+            try expect(viaLink.directory != folder, viaLink.directory.path)
+            try expect(exists(target.appendingPathComponent("dato.txt")))
+            try expectEqual(try FileManager.default.destinationOfSymbolicLink(atPath: folder.path), target.path)
+            await m.cleanup(viaLink, localPath: repo.local.path)
+            try FileManager.default.removeItem(at: folder)
+
+            // Un .git con un gitdir relativo a otro clone (existe, pero no es de este) y uno a un clone que ya no está.
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try Data("x".utf8).write(to: folder.appendingPathComponent("dato.txt"))
+            let otherAdmin = repo.base.appendingPathComponent("otro/.git/worktrees/r-7-review", isDirectory: true)
+            try FileManager.default.createDirectory(at: otherAdmin, withIntermediateDirectories: true)
+            for gitdir in ["../../otro/.git/worktrees/r-7-review", "/no/existe/.git/worktrees/r-7-review"] {
+                try Data("gitdir: \(gitdir)\n".utf8).write(to: folder.appendingPathComponent(".git"))
+                let state = await m.reviewFolderState(folder, clone: repo.local.path)
+                try expectEqual(state, .foreign)
+                let fallback = try await m.prepareReview(repo: prRepoRef, number: 7, baseRef: "main", localPath: repo.local.path)
+                try expect(fallback.directory != folder, fallback.directory.path)
+                try expect(exists(folder.appendingPathComponent("dato.txt")))
+                await m.cleanup(fallback, localPath: repo.local.path)
+            }
+        },
+        TestCase("worktree (git real): un gitdir relativo a este clone vale") {
+            let repo = try TempGitRepo.make()
+            defer { repo.remove() }
+            let m = WorktreeManager(runner: SystemProcessRunner(), gitPath: TempGitRepo.git, root: repo.root)
+            let first = try await m.prepareReview(repo: prRepoRef, number: 7, baseRef: "main", localPath: repo.local.path)
+            try Data("gitdir: ../../local/.git/worktrees/r-7-review\n".utf8).write(to: first.directory.appendingPathComponent(".git"))
+            let state = await m.reviewFolderState(first.directory, clone: repo.local.path)
+            try expectEqual(state, .valid)
+        },
+        TestCase("worktree: si actualizar la carpeta del PR falla, la borra y la crea de cero") {
+            let root = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let dir = root.appendingPathComponent("r-42-review", isDirectory: true)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try Data("gitdir: /repos/r/.git/worktrees/r-42-review\n".utf8).write(to: dir.appendingPathComponent(".git"))
+            let runner = FakeProcessRunner { _, args in
+                if args.contains("--git-common-dir") { return ok("/repos/r/.git\n") }
+                if args.contains("rev-parse") { return ok(fetchedSHA + "\n") }
+                if args.contains("list") { return ok("worktree /repos/r\n\nworktree \(dir.path)\n") }
+                if args.contains("checkout") { return fail("error: unable to unlink old 'x'", status: 1) }
+                if args.contains("rev-list") { return ok("0\n") }
+                return ok("")
+            }
+            let ws = try await manager(runner, root: root).prepareReview(repo: repo, number: 42, baseRef: "develop", localPath: "/repos/r")
+            try expectEqual(ws.directory, dir)
+            try expectEqual(ws.headOid, fetchedSHA)
+            let commands = try gitArgs(runner).map { $0.dropFirst(2).first ?? "" }
+            try expectEqual(commands, ["rev-parse", "worktree", "ls-files", "status", "rev-list",  // estado y trabajo del usuario
+                                       "fetch", "rev-parse", "checkout",                      // update, falla
+                                       "worktree", "update-ref", "update-ref",               // cleanup
+                                       "fetch", "rev-parse", "worktree", "ls-files"])        // de cero
+        },
+        TestCase("worktree: sin clone, la review sigue con una carpeta -diff por corrida") {
+            let root = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let runner = gitFake()
+            let ws = try await manager(runner, root: root).prepareReview(repo: repo, number: 42, baseRef: "develop", localPath: nil)
+            try expectEqual(ws.directory.lastPathComponent, "r-42-1700000000-0a1b2c3d-diff")
+            try expect(ws.isDiffOnly && !WorktreeManager.isReviewFolder(ws))
+            try expectEqual(runner.calls.count, 0)
+        },
+        TestCase("worktree (git real): la limpieza del arranque deja la carpeta del PR conservada con sus refs fijas") {
+            let repo = try TempGitRepo.make()
+            defer { repo.remove() }
+            let m = WorktreeManager(runner: SystemProcessRunner(), gitPath: TempGitRepo.git, root: repo.root)
+            let ws = try await m.prepareReview(repo: prRepoRef, number: 7, baseRef: "main", localPath: repo.local.path)
+            await m.cleanupOrphans(localPaths: [repo.local.path], keeping: [ws.directory.path])
+            try expectEqual(try repo.worktreeNames().sorted(), ["local", "r-7-review"])
+            try expectEqual(try repo.prbarRefs().sorted(), ["refs/prbar/base-7-review", "refs/prbar/pr-7-review"])
+            await m.cleanupOrphans(localPaths: [repo.local.path], keeping: [])
+            try expectEqual(try repo.worktreeNames(), ["local"])
+            try expectEqual(try repo.prbarRefs(), [])
+        },
     ]
 }

@@ -100,6 +100,7 @@ enum RemoteFlowTests {
             try expect(!prompt.isEmpty && !args.contains(prompt), "el prompt no fue por stdin")
             let kept = try expectSome(draft.retainedLocation)
             try expectEqual(kept.runner, remote.name)
+            try expectEqual(URL(fileURLWithPath: kept.directory).lastPathComponent, "r-7-review")
             try expectEqual(try FileManager.default.contentsOfDirectory(atPath: remote.root.work),
                             [URL(fileURLWithPath: kept.directory).lastPathComponent])
             let sent = ssh.invocations().flatMap { $0 }.joined()

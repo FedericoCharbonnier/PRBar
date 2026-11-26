@@ -48,6 +48,19 @@ struct TempGitRepo {
         return try Self.run(origin, ["rev-parse", "HEAD"]).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Un commit nuevo en el PR #7 (`feature` y `refs/pull/7/head` de `origin`). Devuelve su sha.
+    @discardableResult
+    func advancePR(_ message: String = "pr change", _ change: (URL) throws -> Void) throws -> String {
+        try Self.run(origin, ["checkout", "-q", "feature"])
+        try change(origin)
+        try Self.run(origin, ["add", "-A"])
+        try Self.run(origin, ["commit", "-q", "-m", message])
+        let sha = try Self.run(origin, ["rev-parse", "HEAD"]).trimmingCharacters(in: .whitespacesAndNewlines)
+        try Self.run(origin, ["update-ref", "refs/pull/7/head", sha])
+        try Self.run(origin, ["checkout", "-q", "main"])
+        return sha
+    }
+
     /// `git -C <directory> <args>` con una configuración aislada (sin la global ni la del sistema).
     @discardableResult
     static func run(_ directory: URL, _ arguments: [String]) throws -> String {

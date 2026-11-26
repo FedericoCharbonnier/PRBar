@@ -56,11 +56,11 @@ shows the help of `review start`, the group’s default subcommand).
 | `prbar version [--json]` | prbar’s and the app’s versions (About PRBar) |
 | `prbar completion zsh\|bash\|fish` | Shell completion script |
 | `prbar review <pr> [--wait]` | Review with Claude |
-| `prbar review show <pr> [--full]` | Findings, selection, texts |
+| `prbar review show <pr> [--full]` | Findings, selection, texts. If PRBar reviewed the PR before: the previous comments (Fixed / Not fixed / Partially / Unclear, their GitHub state, Claude’s note; `--full` prints what was posted) and the recommended decision with its reason |
 | `prbar review edit <pr> <n> [--title T] [--body B\|--body-file F\|--editor]` | Edit a finding |
 | `prbar review include\|exclude <pr> <n>… \| --all` | Choose what to post (Select All / None) |
 | `prbar review comment <pr> --text T\|--editor` | General comment |
-| `prbar review publish <pr> --comment\|--request-changes\|--approve [--only 1,3] [--no-comments] [--all-in-body] [--yes]` | Post |
+| `prbar review publish <pr> --comment\|--request-changes\|--approve\|--recommended [--only 1,3] [--no-comments] [--all-in-body] [--yes]` | Post. `--recommended` uses PRBar’s recommended decision for the current selection (it prints it, doesn’t show the list, and doesn’t go with `--only` or `--no-comments`) |
 | `prbar review cancel\|dismiss <pr>` | Cancel / dismiss |
 | `prbar respond <pr> [--wait]` | Analyze the feedback on your PR |
 | `prbar respond show <pr> [--full]` | Analysis, choices, fixes |
@@ -110,6 +110,12 @@ shows the help of `review start`, the group’s default subcommand).
 | `prbar remote revoke <iphone> [--yes]` | Remove an iPhone (id, id prefix or name) |
 | `prbar remote keep-awake on\|off`, `prbar remote mailbox on\|off` | Keep this Mac awake while charging / leave the last encrypted state on the relay (7 days) |
 | `prbar remote reset [--yes]` | New keys and relay account; every iPhone has to be paired again |
+
+Each PR has one review folder (`<repo>-<N>-review`, here or on the repo’s host), reused by all its reviews and removed when
+the PR is merged or closed (or by Clean Up). If it holds your work (uncommitted changes or unpushed commits) it’s left as
+is and that review uses a folder of its own. When PRBar already posted reviews on a PR, the next review tells Claude what
+was posted (and each thread’s state on GitHub) and what changed since; Claude says which previous comments were fixed and
+looks only for new important findings. PRBar never replies to or resolves those threads.
 
 ## Where Claude runs
 

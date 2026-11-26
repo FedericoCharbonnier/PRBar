@@ -109,6 +109,29 @@ public enum PublishedPhrases {
         return format.replacingOccurrences(of: "%@", with: link)
     }
 
+    /// Spec RM.6: the general comment's prefill, by base code; unknown languages get English.
+    static let previousFormats: [String: (fixed: String, pending: String)] = [
+        "en": ("From the previous review: %d fixed.", "Still pending:"),
+        "es": ("De la review anterior: %d corregidos.", "Sigue pendiente:"),
+        "pt": ("Da revisão anterior: %d corrigidos.", "Ainda pendente:"),
+        "fr": ("De la revue précédente : %d corrigés.", "Encore en attente :"),
+        "de": ("Aus dem vorherigen Review: %d behoben.", "Noch offen:"),
+        "it": ("Dalla revisione precedente: %d corretti.", "Ancora in sospeso:"),
+    ]
+
+    /// "From the previous review: N fixed. Still pending:" and one line per `notFixed` / `partially` with its location and
+    /// Claude's note; one line if nothing is pending. nil without previous comments.
+    public static func previousSummary(_ previous: [PreviousCommentStatus], language: PRLanguage) -> String? {
+        guard !previous.isEmpty else { return nil }
+        let format = previousFormats[language.baseCode] ?? previousFormats["en"]!
+        let fixed = previous.filter { $0.status == .fixed }.count
+        let head = format.fixed.replacingOccurrences(of: "%d", with: "\(fixed)")
+        let pending = previous.filter { $0.status == .notFixed || $0.status == .partially }
+        guard !pending.isEmpty else { return head }
+        let lines = pending.map { "- `\($0.location)`" + ($0.note.isEmpty ? "" : " — \($0.note)") }
+        return ([head + " " + format.pending] + lines).joined(separator: "\n")
+    }
+
     /// A finding whose line isn't in the diff, moved into the review body.
     public static func unanchoredFinding(location: String, text: String) -> String {
         "**\(location)** — \(text)"

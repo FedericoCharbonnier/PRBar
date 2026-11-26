@@ -165,6 +165,15 @@
   text-overflow: ellipsis;
 }
 
+.previous__status { font-size: 13px; font-weight: 600; }
+.previous--fixed .previous__status { color: var(--green); }
+.previous--notFixed .previous__status { color: var(--red); }
+.previous--partially .previous__status { color: var(--orange); }
+.previous--unclear .previous__status { color: var(--fg2); }
+.previous__github { font-size: 13px; color: var(--fg2); }
+.previous__text summary { font-size: 13px; color: var(--fg2); cursor: pointer; }
+.recommendation { display: flex; gap: 6px; align-items: center; margin: 8px 16px; font-size: 14px; color: var(--fg2); }
+
 .finding h3 {
   margin: 10px 0 0;
   font-size: 15px;

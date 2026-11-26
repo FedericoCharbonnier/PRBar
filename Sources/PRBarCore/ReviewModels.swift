@@ -62,6 +62,8 @@ public struct ReviewFinding: Codable, Equatable, Sendable, Identifiable {
 public struct ReviewStageOneOutput: Codable, Equatable, Sendable {
     public let summary: String
     public let findings: [ReviewFinding]
+    /// Spec RM.4: only with memory.
+    public var previous: [PreviousVerdict]? = nil
 }
 
 public struct ReviewVerdict: Codable, Equatable, Sendable {
@@ -138,6 +140,10 @@ public struct ReviewDraft: Codable, Equatable, Sendable, Identifiable {
     public var sessions: [ClaudeSessionRef] = []
     /// The review's folder kept for "Open in Terminal" (spec T.3, Task 5); nil = it was removed. Not encoded.
     public var retainedLocation: WorktreeLocation? = nil
+    /// Spec RM.4: what Claude said about each comment PRBar posted before; empty in a first review and in old files.
+    public var previous: [PreviousCommentStatus] = []
+    /// The commit of the last posted review this one started from (spec RM.4); nil in a first review.
+    public var reviewedSince: String? = nil
 
     public init(prID: String, repo: RepoRef, number: Int, title: String, url: URL, author: String,
                 headOid: String, account: String, summary: String, items: [ReviewItem], language: PRLanguage = .english,
@@ -160,6 +166,7 @@ public struct ReviewDraft: Codable, Equatable, Sendable, Identifiable {
 
     private enum CodingKeys: String, CodingKey {
         case id, prID, repo, number, title, url, author, headOid, account, summary, items, language, chat, edits, usage
+        case previous, reviewedSince
     }
 
     public init(from decoder: Decoder) throws {
@@ -175,6 +182,8 @@ public struct ReviewDraft: Codable, Equatable, Sendable, Identifiable {
         chat = (try? c.decodeIfPresent(ChatSession.self, forKey: .chat)) ?? nil
         edits = (try? c.decodeIfPresent(ReviewEdits.self, forKey: .edits)) ?? nil
         usage = (try? c.decodeIfPresent(ClaudeUsage.self, forKey: .usage)) ?? nil
+        previous = (try? c.decodeIfPresent([PreviousCommentStatus].self, forKey: .previous)) ?? []
+        reviewedSince = (try? c.decodeIfPresent(String.self, forKey: .reviewedSince)) ?? nil
     }
 
     /// The review and its chat (spec O.4.4); nil if neither has data (older history files).
@@ -199,6 +208,29 @@ public enum ReviewSchemas {
           "line":{"type":["integer","null"]},
           "title":{"type":"string"},
           "body":{"type":"string"}}}}}}
+    """
+
+    /// Stage 1 with memory (spec RM.4): `findings` as always plus `previous`, one per previous comment.
+    public static let stageOneWithMemory = """
+    {"type":"object","additionalProperties":false,"required":["summary","findings","previous"],
+     "properties":{
+      "summary":{"type":"string"},
+      "findings":{"type":"array","items":{"type":"object","additionalProperties":false,
+        "required":["id","severity","category","file","line","title","body"],
+        "properties":{
+          "id":{"type":"string"},
+          "severity":{"type":"string","enum":["high","medium","low"]},
+          "category":{"type":"string","enum":["bug","security","performance","tests","style","docs","other"]},
+          "file":{"type":"string"},
+          "line":{"type":["integer","null"]},
+          "title":{"type":"string"},
+          "body":{"type":"string"}}}},
+      "previous":{"type":"array","items":{"type":"object","additionalProperties":false,
+        "required":["id","status","note"],
+        "properties":{
+          "id":{"type":"string"},
+          "status":{"type":"string","enum":["fixed","notFixed","partially","unclear"]},
+          "note":{"type":"string"}}}}}}
     """
 
     public static let stageTwo = """
