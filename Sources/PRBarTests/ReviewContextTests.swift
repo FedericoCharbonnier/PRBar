@@ -167,11 +167,10 @@ enum ReviewContextTests {
             let repo = try TempGitRepo.make()
             defer { repo.remove() }
             let m = WorktreeManager(runner: SystemProcessRunner(), gitPath: TempGitRepo.git, root: repo.root)
-            let ws = try await m.prepare(repo: RepoRef(owner: "o", name: "r"), number: 7, baseRef: "main", localPath: repo.local.path)
-            // Un commit nuevo en el PR después de la última review (en el worktree: no depende de cómo se prepara la carpeta).
-            try Data("otra\n".utf8).write(to: ws.directory.appendingPathComponent("second.txt"))
-            try TempGitRepo.run(ws.directory, ["add", "-A"])
-            try TempGitRepo.run(ws.directory, ["commit", "-q", "-m", "pr change"])
+            let prRepo = RepoRef(owner: "o", name: "r")
+            _ = try await m.prepareReview(repo: prRepo, number: 7, baseRef: "main", localPath: repo.local.path)
+            try repo.advancePR { try Data("otra\n".utf8).write(to: $0.appendingPathComponent("second.txt")) }
+            let ws = try await m.prepareReview(repo: prRepo, number: 7, baseRef: "main", localPath: repo.local.path)
             let writer = ReviewContextWriter(runner: SystemProcessRunner(), gitPath: TempGitRepo.git, ghPath: nil)
             let since = { (sha: String) in
                 ReviewMemory(reviews: [PreviousReview(recordID: UUID(), date: t0, action: .comment, headOid: sha, generalComment: nil, comments: [])])
@@ -187,7 +186,6 @@ enum ReviewContextTests {
             let head = try TempGitRepo.run(ws.directory, ["rev-parse", "HEAD"]).trimmingCharacters(in: .whitespacesAndNewlines)
             try await writer.writeMemory(since(head), workspace: ws)
             try expectEqual(try String(contentsOf: ws.sinceLastReviewFile, encoding: .utf8), ReviewMemoryFile.noChangesLine(head))
-            await m.cleanup(ws, localPath: repo.local.path)
         },
         TestCase("contexto: en modo solo diff no hay since-last-review.diff y no corre git") {
             let root = try temporaryDirectory()
