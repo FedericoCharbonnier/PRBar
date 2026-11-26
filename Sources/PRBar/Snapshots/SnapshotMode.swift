@@ -109,6 +109,7 @@ private final class SnapshotSession {
         try await window("main-loading", title: "PRBar", size: Theme.MainLayout.defaultSize) { MainWindow(model: loading) }
 
         try await reviewTab()
+        try await reviewFollowUpTab()
         try await respondTabs(model: main)
         try await mergeTabs()
         try await history()
@@ -284,6 +285,16 @@ private final class SnapshotSession {
         model.reviews.restore(ruleDraft)
         model.main.detail.focus.setChatShown(true)
         try await window("main-review-chat", title: "PRBar", size: Theme.MainLayout.defaultSize) { MainWindow(model: model) }
+    }
+
+    /// Spec RM.6: the second review of api#317, with memory: Previous comments, the prefilled general comment and Request
+    /// Changes preselected.
+    private func reviewFollowUpTab() async throws {
+        let model = try makeModel("review-follow-up", snapshot: fixtures.snapshot)
+        let draft = fixtures.followUpDraft
+        model.reviews.restore(draft)
+        model.main.go(to: .pr(prID: draft.prID, tab: .review), snapshot: model.prStore.snapshot)
+        try await window("main-review-follow-up", title: "PRBar", size: Theme.MainLayout.defaultSize) { MainWindow(model: model) }
     }
 
     /// web-app#475 (mine, with feedback) in the Respond tab: choosing what to fix, and then, in its own model whose
