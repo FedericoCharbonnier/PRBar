@@ -371,6 +371,13 @@ export interface ClaudeUsage {
   costUSD?: number;
 }
 
+/** Spec LP.2: lo que hace ahora un trabajo en curso. Texto plano (nunca HTML); un `kind` desconocido cuenta como "prbar". */
+export interface JobActivity {
+  kind: "prbar" | "claude";
+  text: string;
+  startedAt: ISODate;
+}
+
 export interface ReviewInfo {
   pr: string;
   /** `ReviewPhase.cliName` o `"none"`. */
@@ -390,6 +397,8 @@ export interface ReviewInfo {
   previous?: PreviousCommentInfo[];
   reviewedSince?: string;
   recommendedAction?: RecommendedAction;
+  /** Spec LP.5: el paso actual mientras corre (opcional, sin subir la versión del protocolo). */
+  activity?: JobActivity;
 }
 
 export interface PublishedReviewInfo {
@@ -475,6 +484,8 @@ export interface RespondInfo {
   totalChecks?: number;
   testSummary?: string;
   currentFile?: string;
+  /** Spec LP.5: el paso actual mientras corre (opcional, sin subir la versión del protocolo). */
+  activity?: JobActivity;
 }
 
 export interface RespondDiff {

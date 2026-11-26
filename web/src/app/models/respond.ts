@@ -6,7 +6,7 @@ import type {
 } from "../../ui/screens/types";
 import type { AppContext, ConfirmRequest } from "../context";
 import { parseUnifiedDiff, type DiffFile } from "../diff";
-import { clock, count, duration, parseDate, person } from "../format";
+import { activityLine, clock, count, duration, parseDate, person } from "../format";
 import { needsConfirmation, perform, prHeader, showsFaceId, undoWithConfirmation } from "./common";
 
 // respond, respond:fixci y respond:diff (RespondModel.swift): Claude contesta el feedback o arregla CI de un PR mío;
@@ -93,6 +93,8 @@ export function createRespondModel(ctx: AppContext, pr: string, fallback: Respon
       let detail: string | undefined;
       if (index === 1 && state === "current" && r?.currentFile) detail = `Editing ${r.currentFile}`;
       if (index === 2 && state !== "pending") detail = r?.testSummary ?? r?.tests?.outputTail;
+      // Spec LP.5: lo que hace la Mac ahora, en la etapa que corre (gana sobre el archivo y la salida de los tests).
+      if (state === "current" && isRunning.value && r?.activity) detail = activityLine(r.activity, store.now.value);
       return { label, state, detail };
     });
     const start = parseDate(r?.startedAt) ?? startedAt.value;
