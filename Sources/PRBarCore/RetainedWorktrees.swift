@@ -69,6 +69,13 @@ public struct RetainedWorktree: Codable, Equatable, Hashable, Sendable {
     }
 }
 
+extension RetainedWorktree {
+    /// The PR's review folder (spec RM.2): kept whatever Settings › Keep folders for Terminal says.
+    public var isReviewFolderPerPR: Bool {
+        job == .review && WorktreeManager.isReviewFolderName((location.directory as NSString).lastPathComponent)
+    }
+}
+
 /// `retained-worktrees.json` in Application Support: survives restarting PRBar.
 public struct RetainedWorktreeStore: Sendable {
     public let fileURL: URL
@@ -133,13 +140,15 @@ public struct RetainedWorktreeStore: Sendable {
 
 /// The retention rules (spec T.3), without side effects.
 public enum RetainedWorktreeRules {
-    /// Settings › Keep folders for Terminal switched off (spec T.6): every kept folder goes through `cleaner` (one with a
-    /// process inside or with unpushed work stays, `superseded`, for Clean Up). `nil` when it wasn't switched off.
-    /// `removed`: all of `retained` (to forget); `left`: those still on disk.
+    /// Settings › Keep folders for Terminal switched off (spec T.6): every kept folder except the PRs' review folders
+    /// (spec RM.2) goes through `cleaner` (one with a process inside or with unpushed work stays, `superseded`, for Clean
+    /// Up). `nil` when it wasn't switched off. `removed`: all of those (to forget); `left`: those still on disk.
     public static func keepSettingChanged(from before: AppConfig, to after: AppConfig, retained: [RetainedWorktree],
                                           cleaner: RetainedWorktreeCleaner) async -> (removed: [RetainedWorktree], left: [RetainedWorktree])? {
         guard before.keepSessionFolders, !after.keepSessionFolders else { return nil }
-        return (retained, await cleaner.removeUnlessBusy(retained))
+        // The PR's review folder doesn't depend on the setting (spec RM.2): only Respond's and older review folders go.
+        let affected = retained.filter { !$0.isReviewFolderPerPR }
+        return (affected, await cleaner.removeUnlessBusy(affected))
     }
 
     /// How often PRBar asks GitHub whether a PR that left the list was merged or closed.
