@@ -101,6 +101,8 @@ public final class Output {
     public let json: Bool
     private let out: (String) -> Void
     private let err: (String) -> Void
+    /// The last progress line printed (decision 23: without a terminal, an identical line in a row is dropped).
+    private var lastProgress: String?
 
     public static let standardOut: (String) -> Void = { FileHandle.standardOutput.write(Data($0.utf8)) }
     public static let standardError: (String) -> Void = { FileHandle.standardError.write(Data($0.utf8)) }
@@ -136,7 +138,13 @@ public final class Output {
 
     public func event(_ event: CommandEvent) {
         switch event {
-        case .progress(let message): note(message)
+        case .progress(let message):
+            // Without a terminal (a log, a script), a line identical to the previous one adds nothing.
+            if !terminal.stdoutIsTTY {
+                guard lastProgress != message else { return }
+                lastProgress = message
+            }
+            note(message)
         case .text(let delta): if !json { write(delta) }
         }
     }

@@ -6,6 +6,7 @@ import { createHomeModel, homeSections, tabCount } from "../../../src/app/models
 import { createMergeModel, methodNote } from "../../../src/app/models/merge";
 import { createRespondModel, logLine } from "../../../src/app/models/respond";
 import { createReviewModel } from "../../../src/app/models/review";
+import { stepElapsed } from "../../../src/app/format";
 import { createSettingsModel, REQUIRE_FACE_ID_LABEL } from "../../../src/app/models/settings";
 import { CommandError, RemoteError } from "../../../src/transport/types";
 import { appFixture, flush, makeApp, NOW, sentNames } from "./helpers";
@@ -233,6 +234,24 @@ describe("review", () => {
     if (view.kind !== "review") throw new Error("review");
     expect(view.props.decision).toBe("approve");
   });
+
+  it("mientras corre: el paso de la Mac con su tiempo debajo de la fase; sin activity (una Mac vieja), nada", () => {
+    const app = makeApp();
+    const model = createReviewModel(app, "acme/api#317");
+    model.open();
+    const data = topicJSON("pr:acme/api#317");
+    data.review = { ...(data.review as Record<string, unknown>), phase: "reviewing",
+                    activity: { kind: "claude", text: "Reading src/shop/tax.py", startedAt: new Date(NOW - 12_000).toISOString() } };
+    app.transport.setTopic("pr:acme/api#317", data);
+    let view = model.view.value;
+    if (view.kind !== "review") throw new Error(view.kind);
+    expect(view.props.summary.activity).toBe("Reading src/shop/tax.py · 12 s");
+    data.review = { ...(data.review as Record<string, unknown>), activity: undefined };
+    app.transport.setTopic("pr:acme/api#317", data);
+    view = model.view.value;
+    if (view.kind !== "review") throw new Error(view.kind);
+    expect(view.props.summary.activity).toBeUndefined();
+  });
 });
 
 describe("review fallido", () => {
@@ -258,6 +277,19 @@ describe("respond y fix CI", () => {
   const setRespond = (app: ReturnType<typeof makeApp>, pr: string, patch: Record<string, unknown>) => {
     app.transport.setTopic(`pr:${pr}`, { respond: { ...respondInfo(), pr, ...patch } });
   };
+
+  it("mientras corre: la etapa actual muestra el paso de la Mac con su tiempo (en lugar del archivo)", () => {
+    const app = makeApp();
+    setRespond(app, "acme/web-app#488", {
+      phase: "implementing", currentFile: "src/old.ts",
+      activity: { kind: "prbar", text: "Committing…", startedAt: new Date(NOW - 125_000).toISOString() },
+    });
+    const model = createRespondModel(app, "acme/web-app#488", "feedback");
+    model.open();
+    const view = model.view("main");
+    const stages = (view.props as { progress?: { stages: { state: string; detail?: string }[] } }).progress?.stages ?? [];
+    expect(stages.find((s) => s.state === "current")?.detail).toBe("Committing… · 2 min 5 s");
+  });
 
   it("fix CI listo: checks, archivos, push con Face ID", async () => {
     const app = makeApp();
@@ -741,5 +773,11 @@ describe("sin Face ID: confirmar antes de publicar", () => {
     await review.post();
     expect(app.ui.confirms).toHaveLength(asked);
     expect(app.signed).toHaveLength(1);
+  });
+});
+
+describe("paso en vivo", () => {
+  it("stepElapsed como la Mac", () => {
+    expect([0, 12.9, 125, 3780, -5].map(stepElapsed)).toEqual(["0 s", "12 s", "2 min 5 s", "1 h 3 min", "0 s"]);
   });
 });

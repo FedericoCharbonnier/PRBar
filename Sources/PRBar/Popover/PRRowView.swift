@@ -64,6 +64,9 @@ struct PRRowView: View {
                     .font(.caption)
                     .padding(.leading, 22 + 8)
             }
+            // Spec LP.5: what the running job is doing, as wide as the row.
+            JobActivityRowLine(item: item, reviews: reviews, respond: respond)
+                .padding(.leading, 22 + 8)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)

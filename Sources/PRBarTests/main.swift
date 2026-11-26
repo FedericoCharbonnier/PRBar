@@ -179,6 +179,7 @@ let allTests: [TestCase] = []
     + TerminalLauncherTests.cases
     + ConflictsTests.cases
     + ReviewMemoryTests.cases
+    + LiveProgressTests.cases
 
 let filter = CommandLine.arguments.dropFirst().first
 let selected = allTests.filter { test in

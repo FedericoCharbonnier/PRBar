@@ -61,6 +61,8 @@ struct PRListRow: View {
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
+                // Spec LP.5: what the running job is doing.
+                JobActivityRowLine(item: item, reviews: model.reviews, respond: model.respond)
                 HStack(spacing: 6) {
                     CIIcon(state: pr.ciState).font(.caption2.weight(.bold))
                     // Never squeezed (they wrapped digit by digit next to a wide pill with the chat open).

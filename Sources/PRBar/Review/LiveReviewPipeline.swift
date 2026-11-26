@@ -38,6 +38,11 @@ struct LiveReviewPipeline: ReviewPipelineRunning {
     let claudeRunner = SystemProcessRunner(killGracePeriod: 5)
 
     func run(_ request: ReviewRequest, onPhase: @escaping @MainActor @Sendable (ReviewPhase) -> Void) async throws -> ReviewDraft {
+        try await run(request, onPhase: onPhase, onActivity: { _ in })
+    }
+
+    func run(_ request: ReviewRequest, onPhase: @escaping @MainActor @Sendable (ReviewPhase) -> Void,
+             onActivity: @escaping JobActivitySink) async throws -> ReviewDraft {
         let context = await context(request.item.account, request.item.pr.repo)
         // Que la limpieza de huérfanos del arranque no borre el worktree de este review.
         await context.orphanCleanup?.value
@@ -58,7 +63,7 @@ struct LiveReviewPipeline: ReviewPipelineRunning {
                     processRunner: runner, streamingRunner: claudeRunner, tokens: tokens,
                     gitPath: git, ghPath: context.tools.gh, claudePath: claude, settings: context.claude, rules: context.rules,
                     logURLProvider: logURLProvider, keepsSessionFolders: context.keepSessionFolders
-                ).run(request, onPhase: onPhase)
+                ).run(request, onPhase: onPhase, onActivity: onActivity)
             },
             remote: { placement in
                 // En el host: su git y su claude; el `gh` no se usa (el diff lo arma git en el host).
@@ -67,7 +72,7 @@ struct LiveReviewPipeline: ReviewPipelineRunning {
                     gitPath: context.tools.git ?? "git", ghPath: nil, claudePath: placement.claudePath,
                     settings: context.claude, rules: context.rules, logURLProvider: logURLProvider, placement: placement,
                     keepsSessionFolders: context.keepSessionFolders
-                ).run(request, onPhase: onPhase)
+                ).run(request, onPhase: onPhase, onActivity: onActivity)
             })
     }
 }

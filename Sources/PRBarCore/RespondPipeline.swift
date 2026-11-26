@@ -147,15 +147,33 @@ public struct CIPassingNow: Error, Equatable, LocalizedError {
 
 extension RespondPipelineRunning {
     public func checkCIBeforePush(draft: RespondDraft, result: RespondResult?, ignoringPassingChecks: Bool) async throws {}
+
+    public func analyze(_ request: RespondRequest, draftID: UUID, onPhase: @escaping @MainActor @Sendable (RespondPhase) -> Void,
+                        onActivity: @escaping JobActivitySink) async throws -> RespondDraft {
+        try await analyze(request, draftID: draftID, onPhase: onPhase)
+    }
+
+    public func implement(draft: RespondDraft, selections: [String: RespondSelection],
+                          onProgress: @escaping @MainActor @Sendable (Int, Int) -> Void,
+                          onActivity: @escaping JobActivitySink) async throws -> RespondResult {
+        try await implement(draft: draft, selections: selections, onProgress: onProgress)
+    }
 }
 
 public protocol RespondPipelineRunning: Sendable {
     /// Token → feedback → filtro → worktree → análisis de Claude. El draft sale con `id == draftID`.
     func analyze(_ request: RespondRequest, draftID: UUID,
                  onPhase: @escaping @MainActor @Sendable (RespondPhase) -> Void) async throws -> RespondDraft
+    /// `analyze` con cada paso (spec LP.2).
+    func analyze(_ request: RespondRequest, draftID: UUID, onPhase: @escaping @MainActor @Sendable (RespondPhase) -> Void,
+                 onActivity: @escaping JobActivitySink) async throws -> RespondDraft
     /// Un fix por ítem elegido. Si se cancela, el árbol queda limpio y se lanza `RespondCancellation`.
     func implement(draft: RespondDraft, selections: [String: RespondSelection],
                    onProgress: @escaping @MainActor @Sendable (Int, Int) -> Void) async throws -> RespondResult
+    /// `implement` con cada paso (spec LP.2).
+    func implement(draft: RespondDraft, selections: [String: RespondSelection],
+                   onProgress: @escaping @MainActor @Sendable (Int, Int) -> Void,
+                   onActivity: @escaping JobActivitySink) async throws -> RespondResult
     /// El `testCommand` del repo, en el worktree. Nunca lanza.
     func runTests(draft: RespondDraft, testCommand: String) async -> TestRun
     /// Pushea `result.headOid` (lo que vio el usuario). Ver `RespondPublisher.push`.
@@ -248,28 +266,43 @@ public struct RespondPipeline: RespondPipelineRunning {
 
     public func logURL(for id: UUID) -> URL { logURLProvider(id) }
 
+    /// Some skill comes from a plugin: on a runner, PRBar checks (and copies) its plugins first, which can take a while.
+    static func needsPlugins(_ skills: [String]) -> Bool {
+        skills.contains { ClaudeSettings.plugin(of: $0) != nil }
+    }
+
     // MARK: - Análisis
 
     public func analyze(_ request: RespondRequest, draftID: UUID,
                         onPhase: @escaping @MainActor @Sendable (RespondPhase) -> Void) async throws -> RespondDraft {
-        if request.mode == .conflicts { return try await analyzeConflicts(request, draftID: draftID) }
-        if request.mode == .ciFix { return try await analyzeCI(request, draftID: draftID) }
+        try await analyze(request, draftID: draftID, onPhase: onPhase, onActivity: { _ in })
+    }
+
+    /// Spec LP.3: los pasos de PRBar de cada modo (decisiones 11–13) y los de Claude.
+    public func analyze(_ request: RespondRequest, draftID: UUID, onPhase: @escaping @MainActor @Sendable (RespondPhase) -> Void,
+                        onActivity: @escaping JobActivitySink) async throws -> RespondDraft {
+        if request.mode == .conflicts { return try await analyzeConflicts(request, draftID: draftID, onActivity: onActivity) }
+        if request.mode == .ciFix { return try await analyzeCI(request, draftID: draftID, onActivity: onActivity) }
         let item = request.item
         let pr = item.pr
         let token = try await tokens.token(for: item.account)
+        onActivity(.prbar(JobStep.readingComments))
         let feedback = try await api.reviewFeedback(repo: pr.repo, number: pr.number, token: token)
         if feedback.isCrossRepository { throw PRBarError.respond(Self.forkMessage) }
         let items = FeedbackFilter.select(feedback, me: item.account)
         guard !items.isEmpty else { throw PRBarError.respond(Self.noItemsMessage) }
         // On demand (the refresh doesn't bring it): context for Claude and the language of the replies.
+        onActivity(.prbar(JobStep.readingPR))
         let description = try await ReviewPipeline.description(of: pr, api: api, token: token)
         let headRef = feedback.headRefName
         let pluginDirs: [String]
         let worktree: ResolvedWorktree
         let startHeadOid: String
         if let remote = placement {
+            if Self.needsPlugins(settings.respondSkills) { onActivity(.prbar(JobStep.preparingPlugins, runner: remote.name)) }
             pluginDirs = try await remote.plugins(skills: settings.respondSkills)
             try Task.checkCancellation()
+            onActivity(.prbar(JobStep.creatingWorktree, runner: remote.name))
             // Siempre un worktree propio y separado en el host, del mirror de PRBar (también sin `localPath`).
             (worktree, startHeadOid) = try await remote.preparing {
                 let bare = try await remote.workspaces.mirror(pr.repo)
@@ -280,6 +313,7 @@ public struct RespondPipeline: RespondPipelineRunning {
             guard let localPath = request.localPath, !localPath.isEmpty else { throw PRBarError.respond(Self.needsLocalPathMessage) }
             pluginDirs = try ClaudePlugins.locate(skills: settings.respondSkills, in: pluginCacheDirectory)
             try Task.checkCancellation()
+            onActivity(.prbar(JobStep.creatingWorktree))
             // Siempre un worktree propio y separado; su commit es la base de todo lo que sigue.
             (worktree, startHeadOid) = try await resolver.prepare(
                 localPath: localPath, repo: pr.repo, number: pr.number, headRef: headRef, worktreeDir: request.worktreeDir)
@@ -289,7 +323,8 @@ public struct RespondPipeline: RespondPipelineRunning {
             try Task.checkCancellation()
             return try await analyze(item: item, items: items, headRef: headRef, worktree: worktree, worktreeURL: worktreeURL,
                                      startHeadOid: startHeadOid, pluginDirs: pluginDirs, token: token, draftID: draftID,
-                                     description: description, localPath: request.localPath, onPhase: onPhase)
+                                     description: description, localPath: request.localPath, onPhase: onPhase,
+                                     onActivity: onActivity)
         } catch {
             // Sin draft no hay nada que revisar: el worktree se borra (fuera de esta tarea, que puede estar cancelada).
             // Salvo si Claude puede seguir corriendo en el host: ahí no se toca.
@@ -307,18 +342,25 @@ public struct RespondPipeline: RespondPipelineRunning {
 
     /// Token → head y checks del PR (en la Mac) → logs de Actions (sin token en la redirección) → worktree en el head que
     /// falló (acá o en el host) → draft con un solo ítem. Sin Claude: la implementación arranca después (K.6.3).
-    private func analyzeCI(_ request: RespondRequest, draftID: UUID) async throws -> RespondDraft {
+    private func analyzeCI(_ request: RespondRequest, draftID: UUID,
+                           onActivity: @escaping JobActivitySink) async throws -> RespondDraft {
         let item = request.item
         let pr = item.pr
         guard let ciAPI else { throw PRBarError.respond("PRBar can’t read this PR’s checks.") }
         let token = try await tokens.token(for: item.account)
+        onActivity(.prbar(JobStep.readingPR))
         let feedback = try await api.reviewFeedback(repo: pr.repo, number: pr.number, token: token)
         if feedback.isCrossRepository { throw PRBarError.respond(Self.forkMessage) }
         let head = feedback.headRefOid
+        onActivity(.prbar(JobStep.readingFailingChecks))
         let runs = try await ciAPI.checkRuns(repo: pr.repo, headOid: head, token: token)
         let failing = CILogs.failing(runs)
         guard !failing.isEmpty else { throw PRBarError.respond(Self.noFailingChecksMessage) }
         var logs: [Int: String] = [:]
+        // Decisión 28: solo si hay algún log de Actions que bajar.
+        if failing.prefix(CILogs.maxChecks).contains(where: { $0.isActions && $0.id != nil }) {
+            onActivity(.prbar(JobStep.downloadingCILogs))
+        }
         for run in failing.prefix(CILogs.maxChecks) where run.isActions {
             try Task.checkCancellation()
             guard let id = run.id else { continue }
@@ -330,7 +372,7 @@ public struct RespondPipeline: RespondPipelineRunning {
             }
         }
         try Task.checkCancellation()
-        let (worktree, startHeadOid) = try await prepareWorktree(request, headRef: feedback.headRefName)
+        let (worktree, startHeadOid) = try await prepareWorktree(request, headRef: feedback.headRefName, onActivity: onActivity)
         // Cancelado justo cuando terminaba de armarlo: nadie va a recibir el draft, así que el worktree se borra acá (L1).
         if Task.isCancelled {
             await Task.detached { [self] in await removeWorktree(worktree) }.value
@@ -340,6 +382,7 @@ public struct RespondPipeline: RespondPipelineRunning {
             await Task.detached { [self] in await removeWorktree(worktree) }.value
             throw PRBarError.respond("The PR got new commits while PRBar was reading its CI (now at \(startHeadOid.prefix(7))). Try Fix CI again.")
         }
+        onActivity(.prbar(JobStep.writingContext))
         let (ciItem, context) = CIFixItem.make(headOid: head, failing: failing, logs: logs, secrets: [token], prURL: pr.url,
                                                total: Set(runs.map { $0.name.lowercased() }).count)
         return RespondDraft(
@@ -393,23 +436,26 @@ public struct RespondPipeline: RespondPipelineRunning {
 
     /// Token → head (feedback, fork) y base (detalles) en la Mac → worktree en el head (acá o en el host) → base a su ref
     /// propia → `merge --no-commit` → draft con un solo ítem. Sin Claude: la implementación arranca después, sola.
-    private func analyzeConflicts(_ request: RespondRequest, draftID: UUID) async throws -> RespondDraft {
+    private func analyzeConflicts(_ request: RespondRequest, draftID: UUID,
+                                  onActivity: @escaping JobActivitySink) async throws -> RespondDraft {
         let item = request.item
         let pr = item.pr
         let token = try await tokens.token(for: item.account)
+        onActivity(.prbar(JobStep.readingPR))
         let feedback = try await api.reviewFeedback(repo: pr.repo, number: pr.number, token: token)
         if feedback.isCrossRepository { throw PRBarError.respond(Self.forkMessage) }
         let details = try await api.pullRequestDetails(repo: pr.repo, number: pr.number, token: token)
         if let state = details.state, state != .open { throw PRBarError.respond("The PR isn’t open anymore.") }
         let baseRef = details.baseRef ?? pr.baseRef
         try Task.checkCancellation()
-        let (worktree, startHeadOid) = try await prepareWorktree(request, headRef: feedback.headRefName)
+        let (worktree, startHeadOid) = try await prepareWorktree(request, headRef: feedback.headRefName, onActivity: onActivity)
         do {
             try Task.checkCancellation()
             guard startHeadOid == feedback.headRefOid else {
                 throw PRBarError.respond("The PR got new commits while PRBar was preparing it (now at \(startHeadOid.prefix(7))). "
                     + "Try Resolve Conflicts again.")
             }
+            onActivity(.prbar(JobStep.fetching(baseRef), runner: placement?.name))
             let baseOid: String
             if let remote = placement {
                 baseOid = try await remote.workspaces.fetchRespondBase(worktree, repo: pr.repo, baseRef: baseRef)
@@ -417,7 +463,9 @@ public struct RespondPipeline: RespondPipelineRunning {
                 baseOid = try await resolver.fetchBase(worktree, baseRef: baseRef)
             }
             let merger = await conflictMerger(worktree, localPath: request.localPath)
+            onActivity(.prbar(JobStep.merging(baseRef), runner: placement?.name))
             let outcome = try await merger.merge(baseRef: baseRef, baseOid: baseOid, startHeadOid: startHeadOid)
+            onActivity(.prbar(JobStep.writingContext))
             let conflictsItem = ConflictsItem.make(startHeadOid: startHeadOid, context: outcome.context, description: details.body,
                                                    incomingLog: outcome.incomingLog, prDiff: outcome.prDiff,
                                                    diffTruncated: outcome.prDiffTruncated, prURL: pr.url)
@@ -452,9 +500,11 @@ public struct RespondPipeline: RespondPipelineRunning {
     }
 
     /// El worktree propio de PRBar en la rama del PR: en el host (de su mirror) o en el clone local.
-    private func prepareWorktree(_ request: RespondRequest, headRef: String) async throws -> (ResolvedWorktree, String) {
+    private func prepareWorktree(_ request: RespondRequest, headRef: String,
+                                 onActivity: @escaping JobActivitySink) async throws -> (ResolvedWorktree, String) {
         let pr = request.item.pr
         if let remote = placement {
+            onActivity(.prbar(JobStep.creatingWorktree, runner: remote.name))
             return try await remote.preparing {
                 let bare = try await remote.workspaces.mirror(pr.repo)
                 return try await remote.workspaces.prepareRespond(localPath: bare, repo: pr.repo, number: pr.number, headRef: headRef,
@@ -462,6 +512,7 @@ public struct RespondPipeline: RespondPipelineRunning {
             }
         }
         guard let localPath = request.localPath, !localPath.isEmpty else { throw PRBarError.respond(Self.needsLocalPathMessage) }
+        onActivity(.prbar(JobStep.creatingWorktree))
         return try await resolver.prepare(localPath: localPath, repo: pr.repo, number: pr.number, headRef: headRef,
                                           worktreeDir: request.worktreeDir)
     }
@@ -487,7 +538,8 @@ public struct RespondPipeline: RespondPipelineRunning {
 
     private func analyze(item: ClassifiedPR, items: [FeedbackItem], headRef: String, worktree: ResolvedWorktree,
                          worktreeURL: URL, startHeadOid: String, pluginDirs: [String], token: String, draftID: UUID,
-                         description: String?, localPath: String?, onPhase: @escaping @MainActor @Sendable (RespondPhase) -> Void) async throws -> RespondDraft {
+                         description: String?, localPath: String?, onPhase: @escaping @MainActor @Sendable (RespondPhase) -> Void,
+                         onActivity: @escaping JobActivitySink) async throws -> RespondDraft {
         let pr = item.pr
         let language = PRLanguage.detect(description: description, title: pr.title)
 
@@ -511,9 +563,15 @@ public struct RespondPipeline: RespondPipelineRunning {
             await Task.detached { await files.removeTree(contextDir.path) }.value
             if placement == nil { WorkspaceRegistry.shared.remove(contextDir.path) }
         }
+        // En el host, `feedback.json` y `pr.md` se escriben allá (decisiones 8 y 13).
+        onActivity(.prbar(JobStep.writingContext, runner: placement?.name))
+        let steps = ClaudeActivityText.sink(ClaudeActivityText.Folders(working: worktreeURL, context: contextDir), to: onActivity)
         do {
             analyzed = try await analyzer.analyze(pr: pr, items: items, worktree: worktreeURL, contextDir: contextDir,
-                                                 description: description ?? "", language: language) { relay.send($0) }
+                                                 description: description ?? "", language: language) { event in
+                if case .agentStarted(let agents) = event { relay.send(agents) }
+                steps(event)
+            }
         } catch {
             await relay.finish()
             // Si Claude puede seguir corriendo en el host, su carpeta de contexto también queda.
@@ -534,6 +592,13 @@ public struct RespondPipeline: RespondPipelineRunning {
 
     public func implement(draft: RespondDraft, selections: [String: RespondSelection],
                           onProgress: @escaping @MainActor @Sendable (Int, Int) -> Void) async throws -> RespondResult {
+        try await implement(draft: draft, selections: selections, onProgress: onProgress, onActivity: { _ in })
+    }
+
+    /// Spec LP.4: los pasos de Claude en cada fix (o en la resolución) y los commits.
+    public func implement(draft: RespondDraft, selections: [String: RespondSelection],
+                          onProgress: @escaping @MainActor @Sendable (Int, Int) -> Void,
+                          onActivity: @escaping JobActivitySink) async throws -> RespondResult {
         guard draft.worktree.origin == .dedicated else {
             throw PRBarError.respond("This analysis is from an older version of PRBar. Analyze the PR again.")
         }
@@ -544,6 +609,7 @@ public struct RespondPipeline: RespondPipelineRunning {
         let skills = draft.implementsAlone ? [] : settings.respondSkills
         let pluginDirs: [String]
         if let remote = placement {
+            if Self.needsPlugins(skills) { onActivity(.prbar(JobStep.preparingPlugins, runner: remote.name)) }
             pluginDirs = try await remote.plugins(skills: skills)
         } else {
             pluginDirs = try ClaudePlugins.locate(skills: skills, in: pluginCacheDirectory)
@@ -551,8 +617,10 @@ public struct RespondPipeline: RespondPipelineRunning {
         let implementer = await fixImplementer(claude: claude(pluginDirs: pluginDirs, token: token, logURL: logURL(for: draft.id)),
                                                draft: draft)
         do {
-            let result = try await implementer.implement(draft: draft, selections: selections, onProgress: onProgress)
+            let result = try await implementer.implement(draft: draft, selections: selections, onProgress: onProgress,
+                                                         onActivity: onActivity)
             guard let importer else { return result }
+            if let remote = placement { onActivity(.prbar(JobStep.bringingFixes(from: remote.name))) }
             // El diff, los commits y los sensibles que ve el usuario se calculan en la Mac desde los objetos traídos.
             return try await importer.importFixes(draft: draft, localPath: draft.localPath, items: result.items,
                                                   integrity: result.gitIntegrity, token: token)

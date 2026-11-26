@@ -142,3 +142,17 @@ export function parseDate(text: string | undefined): number | null {
   const ms = Date.parse(text);
   return Number.isNaN(ms) ? null : ms;
 }
+
+/** "12 s", "2 min 5 s", "1 h 3 min": lo mismo que `JobActivity.elapsedText` en la Mac. */
+export function stepElapsed(seconds: number): string {
+  const total = Math.max(0, Math.floor(seconds));
+  if (total < 60) return `${total} s`;
+  if (total < 3600) return `${Math.floor(total / 60)} min ${total % 60} s`;
+  return `${Math.floor(total / 3600)} h ${Math.floor((total % 3600) / 60)} min`;
+}
+
+/** "Reading src/shop/tax.py · 12 s" (spec LP.5); sin una fecha válida, solo el texto. */
+export function activityLine(activity: { text: string; startedAt: string }, now: number): string {
+  const start = parseDate(activity.startedAt);
+  return start === null ? activity.text : `${activity.text} · ${stepElapsed((now - start) / 1000)}`;
+}

@@ -86,6 +86,7 @@ export function Review(props: ReviewProps) {
             <span class="summary-card__meta">{summary.meta}</span>
           </h2>
           <p>{summary.text}</p>
+          {summary.activity && <p class="summary-card__activity">{summary.activity}</p>}
         </section>
         {props.previous && (
           <>

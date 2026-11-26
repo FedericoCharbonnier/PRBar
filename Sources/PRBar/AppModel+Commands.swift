@@ -48,13 +48,12 @@ extension AppModel {
 
     /// Espera (consultando cada 0,3 s) a que `isDone` sea verdad y avisa cada cambio de `describe`. Si la CLI se va
     /// (Ctrl-C), `Task.sleep` lanza `CancellationError` y la espera termina; el job sigue (o la CLI lo cancela aparte).
-    func waitUntil(_ isDone: () -> Bool, describe: () -> String, events: CommandEventSink) async throws {
-        var last = ""
+    func waitUntil(_ isDone: () -> Bool, describe: () -> String, activity: () -> JobActivity? = { nil },
+                   events: CommandEventSink) async throws {
+        var progress = WaitProgress()
         while !isDone() {
-            let text = describe()
-            if text != last {
-                events(.progress(message: text))
-                last = text
+            if let line = progress.next(phase: describe(), activity: activity()) {
+                events(.progress(message: line))
             }
             try await Task.sleep(for: .milliseconds(300))
         }
@@ -270,8 +269,14 @@ extension AppModel: ReviewActions {
 
     func reviewInfo(_ prID: String) -> ReviewInfo {
         let phase = reviews.phases[prID]
-        guard case .ready(let draft)? = phase else { return ReviewInfo(prID: prID, phase: phase) }
-        return ReviewInfo(prID: prID, phase: phase, edits: reviewChat(for: draft).reviewEdits, outdated: isOutdated(draft))
+        var info: ReviewInfo
+        if case .ready(let draft)? = phase {
+            info = ReviewInfo(prID: prID, phase: phase, edits: reviewChat(for: draft).reviewEdits, outdated: isOutdated(draft))
+        } else {
+            info = ReviewInfo(prID: prID, phase: phase)
+        }
+        info.activity = reviews.activity[prID]
+        return info
     }
 
     private func reviewProgress(_ prID: String) -> String {
@@ -306,7 +311,8 @@ extension AppModel: ReviewActions {
         startReview(item)
         guard wait else { return reviewInfo(item.id) }
         try await waitUntil({ reviews.phases[item.id]?.isActive != true },
-                            describe: { reviewProgress(item.id) }, events: events)
+                            describe: { reviewProgress(item.id) }, activity: { reviews.activity[item.id] },
+                            events: events)
         if case .failed(let message, _)? = reviews.phases[item.id] { throw CommandFailure(.failed, message) }
         return reviewInfo(item.id)
     }
@@ -421,6 +427,7 @@ extension AppModel: RespondActions {
         info.pushBlockedByCI = respond.pushBlockedByCI[prID]
         info.mode = respond.mode(of: prID)
         info.unpushedWork = respond.unpushedWork.contains(prID) ? true : nil
+        info.activity = respond.activity[prID]
         return info
     }
 
@@ -460,7 +467,8 @@ extension AppModel: RespondActions {
 
     func waitForRespond(_ prID: String, events: CommandEventSink) async throws {
         try await waitUntil({ respond.phases[prID]?.isActive != true && !respond.runningTests.contains(prID) },
-                            describe: { respondProgress(prID) }, events: events)
+                            describe: { respondProgress(prID) }, activity: { respond.activity[prID] },
+                            events: events)
         try throwIfRespondFailed(prID)
     }
 

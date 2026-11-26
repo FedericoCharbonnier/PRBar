@@ -215,9 +215,9 @@ enum ReviewMemoryTests {
         },
         TestCase("carpeta del PR: la review siguiente del mismo PR espera a que la cancelada suelte la carpeta") {
             let order = Box<[String]>([])
-            let first = await ReviewFolderLocks.shared.acquire("test|o/r#1")
+            let first = await ReviewFolderLocks.shared.acquire("test|o/r#1") { order.value.append("first waits") }
             let second = Task {
-                let release = await ReviewFolderLocks.shared.acquire("test|o/r#1")
+                let release = await ReviewFolderLocks.shared.acquire("test|o/r#1") { order.value.append("second waits") }
                 order.value.append("second")
                 release()
             }
@@ -225,7 +225,12 @@ enum ReviewMemoryTests {
             order.value.append("first done")
             first()
             await second.value
-            try expectEqual(order.value, ["first done", "second"])
+            try expectEqual(order.value, ["second waits", "first done", "second"])
+            // Everyone let go: the next one doesn't wait (nor says it does).
+            try await Task.sleep(nanoseconds: 20_000_000)
+            let third = await ReviewFolderLocks.shared.acquire("test|o/r#1") { order.value.append("third waits") }
+            third()
+            try expectEqual(order.value, ["second waits", "first done", "second"])
         },
         TestCase("carpeta del PR: el lock es por carpeta (runner + <repo>-<N>-review), no por repo") {
             let a = makePR(repo: RepoRef(owner: "o", name: "r"), number: 7)

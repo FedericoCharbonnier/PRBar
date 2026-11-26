@@ -106,6 +106,28 @@ enum RemoteFlowTests {
             let sent = ssh.invocations().flatMap { $0 }.joined()
             try expect(!sent.contains("tok-me"), "un token salió de la Mac")
         },
+        TestCase("remote flow: un review en el host dice ' on devbox' en los pasos que corren allá; los de GitHub no") {
+            let repo = try TempGitRepo.make()
+            defer { repo.remove() }
+            let ssh = try FakeSSH.make()
+            defer { ssh.remove() }
+            try ssh.installFakeClaude()
+            try stream(ssh, ["summary": "Fine", "findings": []])
+            let remote = try await placement(ssh, origin: repo.origin)
+            var settings = ClaudeSettings()
+            settings.filterEnabled = false
+            settings.reviewSkill = "review"
+            let pipeline = ReviewPipeline(processRunner: SystemProcessRunner(), streamingRunner: SystemProcessRunner(), tokens: FakeTokens(),
+                                          api: FakeAPI(), gitPath: "/usr/bin/git", ghPath: nil, claudePath: "/nonexistent/claude",
+                                          settings: settings, logURLProvider: { _ in ssh.base.appendingPathComponent("review.log") },
+                                          placement: remote)
+            let item = ClassifiedPR(pr: makePR(repo: RepoRef(owner: "o", name: "r"), number: 7, base: "main"), category: .toReview, account: "me")
+            let activities = Box<[JobActivity]>([])
+            _ = try await pipeline.run(ReviewRequest(item: item, localPath: nil, baseRef: "main"), onPhase: { _ in },
+                                       onActivity: { activities.value.append($0) })
+            try expectEqual(activities.value.filter { $0.kind == .prbar }.map(\.text),
+                            [JobStep.readingPR, "Creating the PR’s folder on devbox…", "Writing the context for Claude on devbox…"])
+        },
         TestCase("remote flow: Respond analiza e implementa en el host, el diff se calcula en la Mac y se pushea desde la Mac") {
             let repo = try TempGitRepo.make()
             defer { repo.remove() }
@@ -457,6 +479,34 @@ enum RemoteFlowTests {
             try expect(host.enforceHostKey)
             let info = try await RunnerProbe.check(host)
             try expect(info.root?.hasSuffix("/installs/" + id) == true, info.root ?? "sin raíz")
+        },
+        TestCase("remote flow: Respond en el host: ' on devbox' en los plugins, el worktree, el contexto y el commit; no en GitHub; traer los fixes") {
+            let repo = try TempGitRepo.make()
+            defer { repo.remove() }
+            let ssh = try FakeSSH.make()
+            defer { ssh.remove() }
+            try ssh.installFakeClaude()
+            try stream(ssh, ["status": "done", "summary": "Changed", "commitMessage": "Change it"], call: 2)
+            try Data("printf 'fixed by claude\\n' > feature.txt\n".utf8).write(to: ssh.home.appendingPathComponent("claude-edit-2.sh"))
+            let remote = try await placement(ssh, origin: repo.origin)
+            let pipeline = try respondPipeline(repo, ssh, remote)
+            let activities = Box<[JobActivity]>([])
+            let draft = try await pipeline.analyze(RespondRequest(item: respondItem(), localPath: repo.local.path, worktreeDir: nil),
+                                                   draftID: UUID(), onPhase: { _ in }, onActivity: { activities.value.append($0) })
+            try expectEqual(activities.value.filter { $0.kind == .prbar }.map(\.text), [
+                JobStep.readingComments, JobStep.readingPR, "Preparing Claude’s plugins on devbox…", "Creating the worktree on devbox…",
+                "Writing the context for Claude on devbox…",
+            ])
+            activities.value = []
+            _ = try await pipeline.implement(draft: draft, selections: [draft.items[0].id: fixSelection], onProgress: { _, _ in },
+                                             onActivity: { activities.value.append($0) })
+            try expect(activities.value.contains { $0.kind == .prbar && $0.text == "Committing on devbox…" },
+                       "\(activities.value.map(\.text))")
+            let prbar = activities.value.filter { $0.kind == .prbar }.map(\.text)
+            try expectEqual(prbar.first, "Preparing Claude’s plugins on devbox…")
+            // The last step: the fixes come back to this Mac, after every commit on the host.
+            try expectEqual(prbar.last, "Bringing the fixes from devbox…")
+            await pipeline.cleanup(draft: draft)
         },
     ]
 }

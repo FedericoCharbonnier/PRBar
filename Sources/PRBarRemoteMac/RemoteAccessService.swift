@@ -48,6 +48,8 @@ public struct RemoteServiceEnvironment {
     public var mailboxInterval: Duration
     public var feedDebounce: Duration
     public var activityInterval: Duration
+    /// Cada cuánto, como mucho, un cambio de paso de un trabajo recalcula los `pr:<id>` que miran los teléfonos.
+    public var stepDebounce: Duration
     /// Hosts con IP literal y `ws://` (solo la integración contra el relay local).
     public var allowInsecureForTests: Bool
 
@@ -57,7 +59,8 @@ public struct RemoteServiceEnvironment {
                 tune: @escaping @Sendable (inout RemoteHost.Configuration) -> Void = { _ in },
                 keepAwake: KeepAwake? = nil, connectBackoff: @escaping @Sendable (Int) -> Duration = RemoteBackoff.standard,
                 mailboxInterval: Duration = .seconds(60), feedDebounce: Duration = .milliseconds(300),
-                activityInterval: Duration = .seconds(5), allowInsecureForTests: Bool = false) {
+                activityInterval: Duration = .seconds(5), stepDebounce: Duration = .seconds(1),
+                allowInsecureForTests: Bool = false) {
         self.keys = keys
         self.devices = devices
         self.enroller = enroller
@@ -71,6 +74,7 @@ public struct RemoteServiceEnvironment {
         self.mailboxInterval = mailboxInterval
         self.feedDebounce = feedDebounce
         self.activityInterval = activityInterval
+        self.stepDebounce = stepDebounce
         self.allowInsecureForTests = allowInsecureForTests
     }
 
@@ -218,6 +222,11 @@ public final class RemoteAccessService: ObservableObject {
         feed?.changed()
     }
 
+    /// Cambió solo el paso de los trabajos de esos PRs (spec LP.5): recalcula solo sus `pr:<id>` suscritos.
+    public func stepsChanged(prIDs: Set<String>) {
+        feed?.stepsChanged(prIDs: prIDs)
+    }
+
     private func startHost() {
         guard host == nil, settings.enabled, let relay = settings.relayHost, let account = settings.accountId else { return }
         let keys: MacKeys
@@ -238,7 +247,7 @@ public final class RemoteAccessService: ObservableObject {
                               })
         self.host = host
         let feed = RemoteStateFeed(host: host, actions: { [weak self] in self?.actions }, debounce: env.feedDebounce,
-                                   activityInterval: env.activityInterval,
+                                   activityInterval: env.activityInterval, stepDebounce: env.stepDebounce,
                                    redactor: { [weak self] in self?.redactor() ?? RemoteRedactor.standard() })
         let mailbox = RemoteMailboxWriter(host: host, enabled: settings.mailboxEnabled)
         feed.onHome = { [weak mailbox] value in mailbox?.homeChanged(value) }

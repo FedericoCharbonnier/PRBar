@@ -56,14 +56,14 @@ shows the help of `review start`, the group’s default subcommand).
 | `prbar version [--json]` | prbar’s and the app’s versions (About PRBar) |
 | `prbar completion zsh\|bash\|fish` | Shell completion script |
 | `prbar review <pr> [--wait]` | Review with Claude |
-| `prbar review show <pr> [--full]` | Findings, selection, texts. If PRBar reviewed the PR before: the previous comments (Fixed / Not fixed / Partially / Unclear, their GitHub state, Claude’s note; `--full` prints what was posted) and the recommended decision with its reason |
+| `prbar review show <pr> [--full]` | Findings, selection, texts. If PRBar reviewed the PR before: the previous comments (Fixed / Not fixed / Partially / Unclear, their GitHub state, Claude’s note; `--full` prints what was posted) and the recommended decision with its reason. While the review runs: `Now: <step> (<time>)` |
 | `prbar review edit <pr> <n> [--title T] [--body B\|--body-file F\|--editor]` | Edit a finding |
 | `prbar review include\|exclude <pr> <n>… \| --all` | Choose what to post (Select All / None) |
 | `prbar review comment <pr> --text T\|--editor` | General comment |
 | `prbar review publish <pr> --comment\|--request-changes\|--approve\|--recommended [--only 1,3] [--no-comments] [--all-in-body] [--yes]` | Post. `--recommended` uses PRBar’s recommended decision for the current selection (it prints it, doesn’t show the list, and doesn’t go with `--only` or `--no-comments`) |
 | `prbar review cancel\|dismiss <pr>` | Cancel / dismiss |
 | `prbar respond <pr> [--wait]` | Analyze the feedback on your PR |
-| `prbar respond show <pr> [--full]` | Analysis, choices, fixes |
+| `prbar respond show <pr> [--full]` | Analysis, choices, fixes. While something runs (analysis, fixes, tests, push): `Now: <step> (<time>)` |
 | `prbar respond select <pr> <n>… --implement\|--reply-only\|--skip [--no-reply] [--reply T] [--plan T]`, `--reset` | Choose |
 | `prbar respond implement\|test <pr> [--wait]` | Implement the fixes / run the tests |
 | `prbar respond diff <pr> [--stat]` | The diff that would be pushed |
@@ -116,6 +116,12 @@ the PR is merged or closed (or by Clean Up). If it holds your work (uncommitted 
 is and that review uses a folder of its own. When PRBar already posted reviews on a PR, the next review tells Claude what
 was posted (and each thread’s state on GitHub) and what changed since; Claude says which previous comments were fixed and
 looks only for new important findings. PRBar never replies to or resolves those threads.
+
+While a job runs (Review, Respond, Fix CI, Resolve Conflicts), PRBar shows its current step: one of PRBar’s own
+(“Creating the worktree…”, “Pushing…”, with “on <host>” when it runs on the repo’s host) or the tool Claude is using
+(“Reading src/shop/tax.py”, “Searching for returnTo”). `show` prints it as `Now: <step> (<time>)`, `--wait` prints each
+new step on its own line (without a terminal, a line identical to the previous one is skipped), and `--json` has it as
+`activity` (`kind`: `prbar` or `claude`, `text`, `startedAt`). Claude’s own text is never shown.
 
 ## Where Claude runs
 

@@ -530,8 +530,10 @@ public struct WorktreeManager: Sendable {
     /// per-run folder (`prepare`). A failed fetch leaves it as it is (the error goes up); one that isn't a valid worktree
     /// of this clone, or whose checkout fails, is removed and created again (logged). Without a clone: `prepare` (a
     /// `-diff` folder per run).
-    public func prepareReview(repo: RepoRef, number: Int, baseRef: String, localPath: String?) async throws -> ReviewWorkspace {
+    public func prepareReview(repo: RepoRef, number: Int, baseRef: String, localPath: String?,
+                              onStep: @Sendable (ReviewFolderStep) -> Void = { _ in }) async throws -> ReviewWorkspace {
         guard let localPath else {
+            onStep(.temporary)
             return try await prepare(repo: repo, number: number, baseRef: baseRef, localPath: nil)
         }
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -542,10 +544,12 @@ public struct WorktreeManager: Sendable {
             let state = await reviewFolderState(directory, clone: localPath)
             if state == .valid, let reason = await reviewFolderWork(directory.path) {
                 AppLog.write("Review: \(directory.path) \(reason); left as is, this review uses a folder of its own.")
+                onStep(.temporary)
                 return try await prepare(repo: repo, number: number, baseRef: baseRef, localPath: localPath)
             }
             switch state {
             case .valid:
+                onStep(.updating)
                 // A fetch that fails (offline, no access) says nothing about the folder: it stays as it is.
                 WorkspaceRegistry.shared.insert(directory.path)
                 WorkspaceRegistry.shared.insert(directory.path + ".context")
@@ -567,11 +571,13 @@ public struct WorktreeManager: Sendable {
                 AppLog.write("Review: \(directory.path) \(why); creating it again.")
             case .foreign:
                 AppLog.write("Review: \(directory.path) belongs to another clone; this review uses a folder of its own.")
+                onStep(.temporary)
                 return try await prepare(repo: repo, number: number, baseRef: baseRef, localPath: localPath)
             }
             let manager = self
             await Task.detached { await manager.cleanup(workspace, localPath: localPath) }.value
         }
+        onStep(.creating)
         return try await createReviewFolder(workspace, number: number, baseRef: baseRef, localPath: localPath)
     }
 
@@ -741,4 +747,14 @@ extension ReviewWorkspace {
     func at(_ headOid: String) -> ReviewWorkspace {
         ReviewWorkspace(directory: directory, baseRef: baseRef, prRef: prRef, isDiffOnly: isDiffOnly, headOid: headOid)
     }
+}
+
+/// What `prepareReview` does with the PR's folder (spec LP.3), for the review's step line.
+public enum ReviewFolderStep: Equatable, Sendable {
+    /// The PR's folder doesn't exist or isn't usable: it's created (also after an update that failed).
+    case creating
+    /// The PR's folder is brought to the PR's head in place.
+    case updating
+    /// A folder for this run only: diff-only mode, or the PR's folder is someone else's or has the user's work.
+    case temporary
 }

@@ -233,6 +233,7 @@ struct MergeDetailPane: View {
                 .fixedSize(horizontal: false, vertical: true)
             infoRows
             statusLabel
+            ConflictsRunStep(respond: model.respond, prID: prID)
             HStack(spacing: 8) {
                 if let head = window.shownHead {
                     HStack(spacing: 5) {
@@ -345,6 +346,23 @@ struct MergeDetailPane: View {
 }
 
 /// El chat de la pestaña Merge (spec G.4): se crea la primera vez que se abre el inspector.
+/// Spec LP.5 (decision 27): a Resolve Conflicts running on the PR (its window is the Respond tab), with its step.
+private struct ConflictsRunStep: View {
+    @ObservedObject var respond: RespondQueue
+    let prID: String
+
+    var body: some View {
+        if respond.mode(of: prID) == .conflicts, respond.phases[prID]?.isActive == true {
+            VStack(alignment: .leading, spacing: 2) {
+                Label("Resolving the conflicts…", systemImage: "arrow.triangle.merge")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                JobActivityDetail(feed: respond.activityFeed, prID: prID)
+            }
+        }
+    }
+}
+
 struct MergeChatPanel: View {
     @ObservedObject var model: AppModel
     @ObservedObject var session: MergeSession

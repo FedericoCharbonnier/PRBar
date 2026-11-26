@@ -10,6 +10,7 @@ final class RemoteStateFeed {
     private let actions: () -> (any PRBarActions)?
     private let debounce: Duration
     private let activityInterval: Duration
+    private let stepDebounce: Duration
     private let redactor: () -> RemoteRedactor
     /// Lo llama con cada `home` calculado (el buzón guarda el último).
     var onHome: ((JSONValue) -> Void)?
@@ -21,14 +22,18 @@ final class RemoteStateFeed {
     /// Lo que se pidió mientras se calculaba (M4): un pedido completo no se pierde detrás de un tick de `activity`.
     private var pendingAll = false
     private var pendingOnly: Set<RemoteTopic> = []
+    /// Los PRs cuyo paso cambió desde el último recálculo de pasos (spec LP.5).
+    private var stepPRs: Set<String> = []
+    private var stepPending: Task<Void, Never>?
 
     init(host: RemoteHost, actions: @escaping () -> (any PRBarActions)?, debounce: Duration, activityInterval: Duration,
-         redactor: @escaping () -> RemoteRedactor) {
+         stepDebounce: Duration = .seconds(1), redactor: @escaping () -> RemoteRedactor) {
         self.host = host
         self.redactor = redactor
         self.actions = actions
         self.debounce = debounce
         self.activityInterval = activityInterval
+        self.stepDebounce = stepDebounce
     }
 
     /// Cambió lo que miran los teléfonos.
@@ -62,9 +67,34 @@ final class RemoteStateFeed {
         }
     }
 
+    /// Cambió solo el paso de los trabajos de `prIDs` (spec LP.5): el paso no está en `home`, así que se recalculan
+    /// solo los `pr:<id>` suscritos de esos PRs, agrupados cada `stepDebounce`. Si ningún teléfono los mira, nada.
+    func stepsChanged(prIDs: Set<String>) {
+        let watched = prIDs.filter { topics.contains(.pr($0)) }
+        guard !watched.isEmpty else { return }
+        stepPRs.formUnion(watched)
+        guard stepPending == nil else { return }
+        stepPending = Task { [weak self, stepDebounce] in
+            try? await Task.sleep(for: stepDebounce)
+            guard !Task.isCancelled, let self else { return }
+            self.stepPending = nil
+            let ids = self.stepPRs
+            self.stepPRs = []
+            // Lo suscrito ahora: un teléfono pudo dejar de mirar el PR mientras se esperaba.
+            let list = self.topics.filter { topic in
+                if case .pr(let id) = topic { ids.contains(id) } else { false }
+            }
+            guard !list.isEmpty else { return }
+            await self.recompute(only: list)
+        }
+    }
+
     func stop() {
         pending?.cancel()
         pending = nil
+        stepPending?.cancel()
+        stepPending = nil
+        stepPRs = []
         activityTimer?.cancel()
         activityTimer = nil
     }

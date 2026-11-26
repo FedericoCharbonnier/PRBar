@@ -19,6 +19,11 @@ struct LiveRespondPipeline: RespondPipelineRunning {
 
     func analyze(_ request: RespondRequest, draftID: UUID,
                  onPhase: @escaping @MainActor @Sendable (RespondPhase) -> Void) async throws -> RespondDraft {
+        try await analyze(request, draftID: draftID, onPhase: onPhase, onActivity: { _ in })
+    }
+
+    func analyze(_ request: RespondRequest, draftID: UUID, onPhase: @escaping @MainActor @Sendable (RespondPhase) -> Void,
+                 onActivity: @escaping JobActivitySink) async throws -> RespondDraft {
         let context = await context(request.item.account, request.item.pr.repo)
         // Que la limpieza de huérfanos del arranque termine antes de tocar los repos.
         await context.orphanCleanup?.value
@@ -29,13 +34,21 @@ struct LiveRespondPipeline: RespondPipelineRunning {
             destination: context.runner, coordinator: context.coordinator,
             canRunLocally: !(request.localPath ?? "").isEmpty && context.tools.git != nil && context.tools.claude != nil,
             onPlacement: { await context.onPlacement(prID, $0) },
-            local: { try await pipeline(context).analyze(request, draftID: draftID, onPhase: onPhase) },
-            remote: { try await pipeline(context, placement: $0).analyze(request, draftID: draftID, onPhase: onPhase) })
+            local: { try await pipeline(context).analyze(request, draftID: draftID, onPhase: onPhase, onActivity: onActivity) },
+            remote: { try await pipeline(context, placement: $0).analyze(request, draftID: draftID, onPhase: onPhase, onActivity: onActivity) })
     }
 
     func implement(draft: RespondDraft, selections: [String: RespondSelection],
                    onProgress: @escaping @MainActor @Sendable (Int, Int) -> Void) async throws -> RespondResult {
-        try await pinned(draft) { try await $0.implement(draft: draft, selections: selections, onProgress: onProgress) }
+        try await implement(draft: draft, selections: selections, onProgress: onProgress, onActivity: { _ in })
+    }
+
+    func implement(draft: RespondDraft, selections: [String: RespondSelection],
+                   onProgress: @escaping @MainActor @Sendable (Int, Int) -> Void,
+                   onActivity: @escaping JobActivitySink) async throws -> RespondResult {
+        try await pinned(draft) {
+            try await $0.implement(draft: draft, selections: selections, onProgress: onProgress, onActivity: onActivity)
+        }
     }
 
     func runTests(draft: RespondDraft, testCommand: String) async -> TestRun {

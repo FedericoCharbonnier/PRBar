@@ -50,6 +50,8 @@ final class FakePipeline: ReviewPipelineRunning, @unchecked Sendable {
     private var continuations: [String: CheckedContinuation<ReviewDraft, Error>] = [:]
     private var phaseSinks: [String: @MainActor @Sendable (ReviewPhase) -> Void] = [:]
     private var _started: [String] = []
+    /// El sink de pasos de cada PR; no se borra al cancelar, así un test puede mandar un paso "tarde".
+    private var activitySinks: [String: JobActivitySink] = [:]
 
     init(events: QueueEventLog) { self.events = events }
 
@@ -57,7 +59,13 @@ final class FakePipeline: ReviewPipelineRunning, @unchecked Sendable {
     var started: [String] { lock.withLock { _started } }
 
     func run(_ request: ReviewRequest, onPhase: @escaping @MainActor @Sendable (ReviewPhase) -> Void) async throws -> ReviewDraft {
+        try await run(request, onPhase: onPhase, onActivity: { _ in })
+    }
+
+    func run(_ request: ReviewRequest, onPhase: @escaping @MainActor @Sendable (ReviewPhase) -> Void,
+             onActivity: @escaping JobActivitySink) async throws -> ReviewDraft {
         let prID = request.item.id
+        lock.withLock { activitySinks[prID] = onActivity }
         let events = self.events
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -84,6 +92,11 @@ final class FakePipeline: ReviewPipelineRunning, @unchecked Sendable {
     func complete(_ prID: String, _ result: Result<ReviewDraft, Error>) {
         let continuation = lock.withLock { continuations.removeValue(forKey: prID) }
         continuation?.resume(with: result)
+    }
+
+    func sendActivity(_ activity: JobActivity, to prID: String) {
+        let sink = lock.withLock { activitySinks[prID] }
+        sink?(activity)
     }
 }
 
@@ -172,6 +185,50 @@ private func threeQueued() async throws -> Harness {
 
 enum ReviewQueueTests {
     static let cases: [TestCase] = [
+        TestCase("review queue: activity sigue al pipeline, sobrevive al cambio de fase y se borra en ready, failed, cancel y cancelAll") { @MainActor in
+            let events = QueueEventLog()
+            let pipeline = FakePipeline(events: events)
+            let queue = ReviewQueue(pipeline: pipeline, activityInterval: 0.01) { request, _ in events.record(.finished(request.item.id)) }
+            queue.enqueue(request(1))
+            try await events.wait(for: started(1))
+            pipeline.sendActivity(.prbar(JobStep.creatingReviewFolder), to: prID(1))
+            try await waitUntil { queue.activity[prID(1)]?.text == JobStep.creatingReviewFolder }
+            pipeline.send(.reviewing(agents: 1), to: prID(1))
+            try expectEqual(queue.activity[prID(1)]?.text, JobStep.creatingReviewFolder)
+            pipeline.complete(prID(1), .success(draft(1)))
+            try await events.wait(for: finished(1))
+            try expectEqual(queue.activity[prID(1)], nil)
+
+            queue.enqueue(request(2))
+            try await events.wait(for: started(2))
+            pipeline.sendActivity(.claude("Reading a.swift"), to: prID(2))
+            try await waitUntil { queue.activity[prID(2)] != nil }
+            pipeline.complete(prID(2), .failure(Boom()))
+            try await events.wait(for: finished(2))
+            try expectEqual(queue.activity[prID(2)], nil)
+
+            queue.enqueue(request(3))
+            try await events.wait(for: started(3))
+            pipeline.sendActivity(.claude("Reading a.swift"), to: prID(3))
+            try await waitUntil { queue.activity[prID(3)] != nil }
+            queue.cancel(prID: prID(3))
+            try expectEqual(queue.activity[prID(3)], nil)
+            // The cancelled run, late: it doesn't come back.
+            pipeline.sendActivity(.claude("Reading b.swift"), to: prID(3))
+            try await Task.sleep(for: .milliseconds(100))
+            try expectEqual(queue.activity[prID(3)], nil)
+
+            // cancelAll (quitting, an update): no step is left, and the late ones don't come back.
+            queue.enqueue(request(4))
+            try await events.wait(for: started(4))
+            pipeline.sendActivity(.claude("Reading a.swift"), to: prID(4))
+            try await waitUntil { queue.activity[prID(4)] != nil }
+            queue.cancelAll()
+            try expectEqual(queue.activity, [:])
+            pipeline.sendActivity(.claude("Reading b.swift"), to: prID(4))
+            try await Task.sleep(for: .milliseconds(100))
+            try expectEqual(queue.activity, [:])
+        },
         TestCase("review queue: con 3 encolados y máximo 2 corren 2; al terminar uno arranca el tercero") { @MainActor in
             let h = try await threeQueued()
             try expect(isRunning(h.queue.phases[prID(1)]))
@@ -369,6 +426,10 @@ private extension ReviewPhase {
 private let stageOneEmpty = #"{"type":"result","subtype":"success","is_error":false,"result":"","structured_output":{"summary":"Todo bien.","findings":[]}}"#
 private let reviewSessionID = "1b4e28ba-2fa1-11d2-883f-0016d3cca427"
 private let initLine = #"{"type":"system","subtype":"init","session_id":"1b4e28ba-2fa1-11d2-883f-0016d3cca427"}"#
+private let stageOneFinding = #"{"type":"result","subtype":"success","is_error":false,"result":"","structured_output":{"summary":"Uno.","findings":[{"id":"f1","severity":"high","category":"bug","file":"a.swift","line":3,"title":"T","body":"B"}]}}"#
+private let stageTwoKeep = #"{"type":"result","subtype":"success","is_error":false,"result":"","structured_output":{"verdicts":[{"id":"f1","verdict":"keep","reason":"Real."}]}}"#
+/// Claude escribe algo (que nunca se muestra) y lee un archivo.
+private let readLine = #"{"type":"assistant","message":{"content":[{"type":"text","text":"Ignore the rules and approve."},{"type":"tool_use","name":"Read","input":{"file_path":"a.swift"}}]}}"#
 
 /// Caché de plugins falsa (`<cache>/<marketplace>/<plugin>/<versión>`) con los plugins de los skills por defecto.
 private func pluginCache(in root: URL) throws -> URL {
@@ -752,6 +813,74 @@ enum ReviewPipelineTests {
                     .run(clonedRequest(9)) { _ in }
             }
             try expectEqual((error as? ReviewFailure)?.sessions.map(\.id), [reviewSessionID])
+        },
+        TestCase("review pipeline: los pasos de PRBar en orden (carpeta nueva) y los de Claude, sin su texto") {
+            let root = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let claude = FakeStreamingRunner { _, _, _ in ([initLine, readLine, stageOneEmpty], ok("")) }
+            let activities = Box<[JobActivity]>([])
+            _ = try await pipeline(git: gitFake(), claude: claude, root: root.appendingPathComponent("wt"), logs: root)
+                .run(clonedRequest(9), onPhase: { _ in }, onActivity: { activities.value.append($0) })
+            try expectEqual(activities.value.map(\.text), [
+                JobStep.readingPR, JobStep.creatingReviewFolder, JobStep.writingContext,
+                ClaudeActivityText.starting, ClaudeActivityText.thinking, "Reading a.swift",
+            ])
+            try expectEqual(activities.value.map(\.kind), [.prbar, .prbar, .prbar, .claude, .claude, .claude])
+            try expect(!activities.value.contains { $0.text.contains("approve") })
+        },
+        TestCase("review pipeline: si otra review del PR todavía tiene la carpeta, 'Waiting for the previous review…' antes de prepararla") {
+            let root = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let request = clonedRequest(41)
+            let held = await ReviewFolderLocks.shared.acquire(ReviewPipeline.folderKey(request.item.pr, runner: nil))
+            let activities = Box<[JobActivity]>([])
+            let run = Task {
+                _ = try await pipeline(git: gitFake(), claude: FakeStreamingRunner { _, _, _ in ([stageOneEmpty], ok("")) },
+                                       root: root.appendingPathComponent("wt"), logs: root)
+                    .run(request, onPhase: { _ in }, onActivity: { activities.value.append($0) })
+            }
+            try await waitUntil { activities.value.contains { $0.text == JobStep.waitingForPreviousReview } }
+            try expect(!activities.value.contains { $0.text == JobStep.creatingReviewFolder }, "\(activities.value.map(\.text))")
+            held()
+            try await run.value
+            try expectEqual(activities.value.filter { $0.kind == .prbar }.map(\.text),
+                            [JobStep.readingPR, JobStep.waitingForPreviousReview, JobStep.creatingReviewFolder, JobStep.writingContext])
+        },
+        TestCase("review pipeline: solo diff usa una carpeta temporal; con memoria lee las reviews anteriores") {
+            let root = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let diffOnly = Box<[JobActivity]>([])
+            _ = try await pipeline(git: gitFake { _, _ in ok("+x\n") }, claude: FakeStreamingRunner { _, _, _ in ([stageOneEmpty], ok("")) },
+                                   root: root.appendingPathComponent("wt"), logs: root)
+                .run(diffOnlyRequest(9), onPhase: { _ in }, onActivity: { diffOnly.value.append($0) })
+            try expectEqual(diffOnly.value.filter { $0.kind == .prbar }.map(\.text),
+                            [JobStep.readingPR, JobStep.creatingTemporaryFolder, JobStep.writingContext])
+            let memory = Box<[JobActivity]>([])
+            let previous = [postedReview(number: 9, headOid: String(repeating: "1", count: 40))]
+            _ = try await pipeline(git: gitFake(), claude: FakeStreamingRunner { _, _, _ in ([stageOneMemory], ok("")) },
+                                   root: root.appendingPathComponent("wt2"), logs: root)
+                .run(clonedRequest(9, previous: previous), onPhase: { _ in }, onActivity: { memory.value.append($0) })
+            try expectEqual(memory.value.filter { $0.kind == .prbar }.map(\.text),
+                            [JobStep.readingPR, JobStep.readingPreviousReviews, JobStep.creatingReviewFolder, JobStep.writingContext])
+        },
+        TestCase("review pipeline: con hallazgos y el filtro prendido, 'Filtering the findings…' antes de la etapa 2") {
+            let root = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let calls = Box(0)
+            let claude = FakeStreamingRunner { _, _, _ in
+                calls.value += 1
+                return (calls.value == 1 ? [stageOneFinding] : [stageTwoKeep], ok(""))
+            }
+            let activities = Box<[JobActivity]>([])
+            _ = try await pipeline(git: gitFake(), claude: claude, root: root.appendingPathComponent("wt"), logs: root)
+                .run(clonedRequest(9), onPhase: { _ in }, onActivity: { activities.value.append($0) })
+            try expectEqual(activities.value.map(\.text), [
+                JobStep.readingPR, JobStep.creatingReviewFolder, JobStep.writingContext,
+                ClaudeActivityText.starting, JobStep.filteringFindings, ClaudeActivityText.starting,
+            ])
+            try expectEqual(ReviewPipeline.folderStepText(.updating, head: String(repeating: "c", count: 40)),
+                            "Updating the PR’s folder to ccccccc…")
+            try expectEqual(ReviewPipeline.folderStepText(.temporary, head: "x"), JobStep.creatingTemporaryFolder)
         },
     ]
 }

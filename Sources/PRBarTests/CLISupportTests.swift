@@ -5,6 +5,33 @@ import PRBarCore
 
 enum CLISupportTests {
     static let cases: [TestCase] = [
+        TestCase("cli: --wait manda una línea cuando cambia la fase o el paso; el mismo paso empezado de nuevo es otra línea") {
+            var progress = WaitProgress()
+            let reading = JobActivity(kind: .claude, text: "Reading a.swift", startedAt: t0)
+            try expectEqual(progress.next(phase: "Reviewing…", activity: nil), "Reviewing…")
+            try expectEqual(progress.next(phase: "Reviewing…", activity: nil), nil)
+            try expectEqual(progress.next(phase: "Reviewing…", activity: reading), "Reviewing… · Reading a.swift")
+            try expectEqual(progress.next(phase: "Reviewing…", activity: reading), nil)
+            var again = reading
+            again.startedAt = t0.addingTimeInterval(5)
+            try expectEqual(progress.next(phase: "Reviewing…", activity: again), "Reviewing… · Reading a.swift")
+            try expectEqual(progress.next(phase: "Filtering the findings…", activity: again), "Filtering the findings… · Reading a.swift")
+            try expectEqual(progress.next(phase: "Filtering the findings…", activity: nil), "Filtering the findings…")
+        },
+        TestCase("cli: sin terminal no repite una línea de progreso idéntica seguida; en un terminal sí") {
+            var err = ""
+            let plain = Output(terminal: .plain, json: false, out: { _ in }, err: { err += $0 })
+            plain.event(.progress(message: "Reviewing… · Reading a.swift"))
+            plain.event(.progress(message: "Reviewing… · Reading a.swift"))
+            plain.event(.progress(message: "Reviewing… · Reading b.swift"))
+            try expectEqual(err, "Reviewing… · Reading a.swift\nReviewing… · Reading b.swift\n")
+            var tty = ""
+            let terminal = Output(terminal: Terminal(stdinIsTTY: true, stdoutIsTTY: true, colors: false), json: false,
+                                  out: { _ in }, err: { tty += $0 })
+            terminal.event(.progress(message: "x"))
+            terminal.event(.progress(message: "x"))
+            try expectEqual(tty, "x\nx\n")
+        },
         TestCase("cli soporte: exit codes del spec C.5") {
             try expectEqual(CLIExit.code(for: CommandFailure(.invalidUsage, "")), 2)
             try expectEqual(CLIExit.code(for: CommandFailure(.protocolMismatch, "")), 3)
