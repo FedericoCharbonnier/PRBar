@@ -50,6 +50,8 @@ final class FakePipeline: ReviewPipelineRunning, @unchecked Sendable {
     private var continuations: [String: CheckedContinuation<ReviewDraft, Error>] = [:]
     private var phaseSinks: [String: @MainActor @Sendable (ReviewPhase) -> Void] = [:]
     private var _started: [String] = []
+    /// El sink de pasos de cada PR; no se borra al cancelar, así un test puede mandar un paso "tarde".
+    private var activitySinks: [String: JobActivitySink] = [:]
 
     init(events: QueueEventLog) { self.events = events }
 
@@ -57,7 +59,13 @@ final class FakePipeline: ReviewPipelineRunning, @unchecked Sendable {
     var started: [String] { lock.withLock { _started } }
 
     func run(_ request: ReviewRequest, onPhase: @escaping @MainActor @Sendable (ReviewPhase) -> Void) async throws -> ReviewDraft {
+        try await run(request, onPhase: onPhase, onActivity: { _ in })
+    }
+
+    func run(_ request: ReviewRequest, onPhase: @escaping @MainActor @Sendable (ReviewPhase) -> Void,
+             onActivity: @escaping JobActivitySink) async throws -> ReviewDraft {
         let prID = request.item.id
+        lock.withLock { activitySinks[prID] = onActivity }
         let events = self.events
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -84,6 +92,11 @@ final class FakePipeline: ReviewPipelineRunning, @unchecked Sendable {
     func complete(_ prID: String, _ result: Result<ReviewDraft, Error>) {
         let continuation = lock.withLock { continuations.removeValue(forKey: prID) }
         continuation?.resume(with: result)
+    }
+
+    func sendActivity(_ activity: JobActivity, to prID: String) {
+        let sink = lock.withLock { activitySinks[prID] }
+        sink?(activity)
     }
 }
 
@@ -172,6 +185,39 @@ private func threeQueued() async throws -> Harness {
 
 enum ReviewQueueTests {
     static let cases: [TestCase] = [
+        TestCase("review queue: activity sigue al pipeline, sobrevive al cambio de fase y se borra en ready, failed y cancel") { @MainActor in
+            let events = QueueEventLog()
+            let pipeline = FakePipeline(events: events)
+            let queue = ReviewQueue(pipeline: pipeline, activityInterval: 0.01) { request, _ in events.record(.finished(request.item.id)) }
+            queue.enqueue(request(1))
+            try await events.wait(for: started(1))
+            pipeline.sendActivity(.prbar(JobStep.creatingReviewFolder), to: prID(1))
+            try await waitUntil { queue.activity[prID(1)]?.text == JobStep.creatingReviewFolder }
+            pipeline.send(.reviewing(agents: 1), to: prID(1))
+            try expectEqual(queue.activity[prID(1)]?.text, JobStep.creatingReviewFolder)
+            pipeline.complete(prID(1), .success(draft(1)))
+            try await events.wait(for: finished(1))
+            try expectEqual(queue.activity[prID(1)], nil)
+
+            queue.enqueue(request(2))
+            try await events.wait(for: started(2))
+            pipeline.sendActivity(.claude("Reading a.swift"), to: prID(2))
+            try await waitUntil { queue.activity[prID(2)] != nil }
+            pipeline.complete(prID(2), .failure(Boom()))
+            try await events.wait(for: finished(2))
+            try expectEqual(queue.activity[prID(2)], nil)
+
+            queue.enqueue(request(3))
+            try await events.wait(for: started(3))
+            pipeline.sendActivity(.claude("Reading a.swift"), to: prID(3))
+            try await waitUntil { queue.activity[prID(3)] != nil }
+            queue.cancel(prID: prID(3))
+            try expectEqual(queue.activity[prID(3)], nil)
+            // The cancelled run, late: it doesn't come back.
+            pipeline.sendActivity(.claude("Reading b.swift"), to: prID(3))
+            try await Task.sleep(for: .milliseconds(100))
+            try expectEqual(queue.activity[prID(3)], nil)
+        },
         TestCase("review queue: con 3 encolados y máximo 2 corren 2; al terminar uno arranca el tercero") { @MainActor in
             let h = try await threeQueued()
             try expect(isRunning(h.queue.phases[prID(1)]))
