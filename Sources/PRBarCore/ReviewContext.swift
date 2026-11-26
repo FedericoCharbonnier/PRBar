@@ -11,12 +11,17 @@ public struct ReviewContextWriter: Sendable {
     private let ghPath: String?
     /// Dónde queda la carpeta de contexto: esta Mac o el host del worktree (spec J.3).
     let files: any ContextFiles
+    /// The environment of every `git`: `GitHardening.environment`, or on a host `RemoteWorkspaces.gitEnvironment` (its
+    /// credentials, for the memory's fetch).
+    private let gitEnvironment: [String: String]
 
-    public init(runner: ProcessRunning, gitPath: String, ghPath: String?, files: any ContextFiles = LocalContextFiles()) {
+    public init(runner: ProcessRunning, gitPath: String, ghPath: String?, files: any ContextFiles = LocalContextFiles(),
+                gitEnvironment: [String: String] = GitHardening.environment) {
         self.runner = runner
         self.gitPath = gitPath
         self.ghPath = ghPath
         self.files = files
+        self.gitEnvironment = gitEnvironment.merging(GitHardening.environment) { _, forced in forced }
     }
 
     /// Escribe `workspace.diffFile` y `workspace.metadataFile` y devuelve el SHA del commit revisado (el que
@@ -39,7 +44,7 @@ public struct ReviewContextWriter: Sendable {
                 gitPath,
                 GitHardening.arguments
                     + ["-C", workspace.directory.path, "diff", GitHardening.ignoreSubmodules, "--no-ext-diff", "--no-textconv", "--no-color", "\(base)...HEAD"],
-                environment: GitHardening.environment, display: "git diff \(base)...HEAD"
+                environment: gitEnvironment, display: "git diff \(base)...HEAD"
             )
         } else {
             guard let ghPath else { throw PRBarError.toolNotFound("gh") }
@@ -63,8 +68,9 @@ public struct ReviewContextWriter: Sendable {
     }
 
     /// Spec RM.3: `previous-reviews.md` and, with a worktree, `since-last-review.diff` (`git diff <since>..HEAD`). If the
-    /// clone doesn't have that commit it's fetched first (best effort, decision 8); if it's gone (force-push, rebase) the
-    /// file says so in one line and Claude works with `pr.diff`. Diff only: no `since-last-review.diff`.
+    /// clone doesn't have that commit it's fetched first (best effort, decision 8); if it's gone, or isn't an ancestor
+    /// of HEAD any more (rebase, force-push), or the diff fails, the file says so in one line and Claude works with
+    /// `pr.diff`: the memory never fails the review. Diff only: no `since-last-review.diff`.
     public func writeMemory(_ memory: ReviewMemory, workspace: ReviewWorkspace) async throws {
         try await files.createDirectory(workspace.contextDirectory.path)
         try await files.write(Data(ReviewMemoryFile.markdown(memory, diffOnly: workspace.isDiffOnly).utf8),
@@ -73,12 +79,23 @@ public struct ReviewContextWriter: Sendable {
         let since = memory.reviewedSince
         let text: String
         if await hasCommit(since, in: workspace) {
-            let diff = try await output(
-                gitPath,
-                GitHardening.arguments + ["-C", workspace.directory.path, "diff", GitHardening.ignoreSubmodules, "--no-ext-diff",
-                                          "--no-textconv", "--no-color", "\(since)..HEAD"],
-                environment: GitHardening.environment, display: "git diff \(since.prefix(12))..HEAD")
-            text = diff.isEmpty ? ReviewMemoryFile.noChangesLine(since) : diff
+            if await succeeds(["-C", workspace.directory.path, "merge-base", "--is-ancestor", since, "HEAD"]) {
+                do {
+                    let diff = try await output(
+                        gitPath,
+                        GitHardening.arguments + ["-C", workspace.directory.path, "diff", GitHardening.ignoreSubmodules, "--no-ext-diff",
+                                                  "--no-textconv", "--no-color", "\(since)..HEAD"],
+                        environment: gitEnvironment, display: "git diff \(since.prefix(12))..HEAD")
+                    text = diff.isEmpty ? ReviewMemoryFile.noChangesLine(since) : diff
+                } catch {
+                    if error is CancellationError || Task.isCancelled { throw CancellationError() }
+                    AppLog.write("Review memory: git diff \(since.prefix(12))..HEAD failed (\(error.localizedDescription)); Claude works with pr.diff.")
+                    text = ReviewMemoryFile.diffFailedLine(since)
+                }
+            } else {
+                AppLog.write("Review memory: \(since) isn’t an ancestor of the PR’s head (history rewritten); Claude works with pr.diff.")
+                text = ReviewMemoryFile.rewrittenHistoryLine(since)
+            }
         } else {
             AppLog.write("Review memory: \(since) isn’t in the repo any more; Claude works with pr.diff.")
             text = ReviewMemoryFile.missingCommitLine(since)
@@ -97,7 +114,7 @@ public struct ReviewContextWriter: Sendable {
     }
 
     private func succeeds(_ arguments: [String], timeout: TimeInterval = ProcessTimeouts.standard) async -> Bool {
-        let result = try? await runner.run(gitPath, GitHardening.arguments + arguments, environment: GitHardening.environment,
+        let result = try? await runner.run(gitPath, GitHardening.arguments + arguments, environment: gitEnvironment,
                                            currentDirectory: nil, timeout: timeout)
         return result?.status == 0
     }

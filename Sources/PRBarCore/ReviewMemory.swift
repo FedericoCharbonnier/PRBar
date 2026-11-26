@@ -211,6 +211,16 @@ public enum ReviewMemoryFile {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(identifier: "UTC")
         formatter.dateFormat = "yyyy-MM-dd HH:mm 'UTC'"
+    /// `since-last-review.diff` when that commit is no longer an ancestor of the PR's head (rebase, force-push).
+    public static func rewrittenHistoryLine(_ sha: String) -> String {
+        "The PR's history was rewritten since the last posted review (commit \(sha) is not an ancestor of HEAD): use pr.diff.\n"
+    }
+
+    /// `since-last-review.diff` when `git diff` failed: the memory is optional, the review goes on.
+    public static func diffFailedLine(_ sha: String) -> String {
+        "PRBar couldn't compute the changes since the last posted review (commit \(sha)): use pr.diff.\n"
+    }
+
         return formatter.string(from: date)
     }
 

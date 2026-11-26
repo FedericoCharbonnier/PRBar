@@ -155,7 +155,8 @@ public struct ReviewPipeline: ReviewPipelineRunning {
         let pluginDirs = try await remote.plugins(skills: settings.reviewSkills)
         let bare = try await remote.preparing { try await remote.workspaces.mirror(pr.repo) }
         let spaces = remote.workspaces
-        let context = ReviewContextWriter(runner: remote.runner, gitPath: remote.gitPath, ghPath: nil, files: spaces.contextFiles)
+        let context = ReviewContextWriter(runner: remote.runner, gitPath: remote.gitPath, ghPath: nil, files: spaces.contextFiles,
+                                          gitEnvironment: spaces.gitEnvironment)
         return Parts(
             prepare: {
                 try await remote.preparing {
