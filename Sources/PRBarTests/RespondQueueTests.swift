@@ -785,7 +785,7 @@ enum RespondQueueTests {
             try await waitUntil { h.pipeline.cleanups == [draft.id] }
             try expectEqual(h.pipeline.releases, [])
         },
-        TestCase("respond queue: activity sigue al análisis, sobrevive al cambio de fase y se borra en ready; cancelar la borra") { @MainActor in
+        TestCase("respond queue: activity sigue al análisis, sobrevive al cambio de fase y se borra en ready; cancelar (y cancelAll) la borra") { @MainActor in
             let h = try Harness()
             h.queue.analyze(classified(1), localPath: "/repos/r", worktreeDir: nil)
             try await h.events.wait(for: [.started("analyze:\(prID(1))")])
@@ -806,6 +806,17 @@ enum RespondQueueTests {
             h.pipeline.sendAnalysisActivity(.claude("Reading b.swift"), to: prID(2))   // the old run, late
             try await Task.sleep(for: .milliseconds(100))
             try expectEqual(h.queue.activity[prID(2)], nil)
+
+            // cancelAll (quitting, an update): no step is left, and the late ones don't come back.
+            h.queue.analyze(classified(3), localPath: "/repos/r", worktreeDir: nil)
+            try await h.events.wait(for: [.started("analyze:\(prID(3))")])
+            h.pipeline.sendAnalysisActivity(.claude("Reading a.swift"), to: prID(3))
+            try await waitUntil { h.queue.activity[prID(3)] != nil }
+            h.queue.cancelAll()
+            try expectEqual(h.queue.activity, [:])
+            h.pipeline.sendAnalysisActivity(.claude("Reading b.swift"), to: prID(3))
+            try await Task.sleep(for: .milliseconds(100))
+            try expectEqual(h.queue.activity, [:])
         },
         TestCase("respond queue: los fixes, los tests, el push y las respuestas dicen su paso; al terminar no queda ninguno") { @MainActor in
             let h = try Harness()

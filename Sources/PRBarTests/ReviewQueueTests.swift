@@ -185,7 +185,7 @@ private func threeQueued() async throws -> Harness {
 
 enum ReviewQueueTests {
     static let cases: [TestCase] = [
-        TestCase("review queue: activity sigue al pipeline, sobrevive al cambio de fase y se borra en ready, failed y cancel") { @MainActor in
+        TestCase("review queue: activity sigue al pipeline, sobrevive al cambio de fase y se borra en ready, failed, cancel y cancelAll") { @MainActor in
             let events = QueueEventLog()
             let pipeline = FakePipeline(events: events)
             let queue = ReviewQueue(pipeline: pipeline, activityInterval: 0.01) { request, _ in events.record(.finished(request.item.id)) }
@@ -217,6 +217,17 @@ enum ReviewQueueTests {
             pipeline.sendActivity(.claude("Reading b.swift"), to: prID(3))
             try await Task.sleep(for: .milliseconds(100))
             try expectEqual(queue.activity[prID(3)], nil)
+
+            // cancelAll (quitting, an update): no step is left, and the late ones don't come back.
+            queue.enqueue(request(4))
+            try await events.wait(for: started(4))
+            pipeline.sendActivity(.claude("Reading a.swift"), to: prID(4))
+            try await waitUntil { queue.activity[prID(4)] != nil }
+            queue.cancelAll()
+            try expectEqual(queue.activity, [:])
+            pipeline.sendActivity(.claude("Reading b.swift"), to: prID(4))
+            try await Task.sleep(for: .milliseconds(100))
+            try expectEqual(queue.activity, [:])
         },
         TestCase("review queue: con 3 encolados y máximo 2 corren 2; al terminar uno arranca el tercero") { @MainActor in
             let h = try await threeQueued()
