@@ -5,6 +5,19 @@ import PRBarCore
 
 enum CLISupportTests {
     static let cases: [TestCase] = [
+        TestCase("cli: --wait manda una línea cuando cambia la fase o el paso; el mismo paso empezado de nuevo es otra línea") {
+            var progress = WaitProgress()
+            let reading = JobActivity(kind: .claude, text: "Reading a.swift", startedAt: t0)
+            try expectEqual(progress.next(phase: "Reviewing…", activity: nil), "Reviewing…")
+            try expectEqual(progress.next(phase: "Reviewing…", activity: nil), nil)
+            try expectEqual(progress.next(phase: "Reviewing…", activity: reading), "Reviewing… · Reading a.swift")
+            try expectEqual(progress.next(phase: "Reviewing…", activity: reading), nil)
+            var again = reading
+            again.startedAt = t0.addingTimeInterval(5)
+            try expectEqual(progress.next(phase: "Reviewing…", activity: again), "Reviewing… · Reading a.swift")
+            try expectEqual(progress.next(phase: "Filtering the findings…", activity: again), "Filtering the findings… · Reading a.swift")
+            try expectEqual(progress.next(phase: "Filtering the findings…", activity: nil), "Filtering the findings…")
+        },
         TestCase("cli soporte: exit codes del spec C.5") {
             try expectEqual(CLIExit.code(for: CommandFailure(.invalidUsage, "")), 2)
             try expectEqual(CLIExit.code(for: CommandFailure(.protocolMismatch, "")), 3)
