@@ -69,8 +69,7 @@ struct PRListRow: View {
                     DiffStat(additions: pr.additions, deletions: pr.deletions)
                     Spacer(minLength: 6)
                     PRRowAccessory(item: item, model: model, reviews: model.reviews, respond: model.respond,
-                                   merges: model.merges, reviewSteps: model.reviews.activityFeed,
-                                   respondSteps: model.respond.activityFeed)
+                                   merges: model.merges)
                         .font(.subheadline.weight(.medium))
                         // In a tight row (the chat open) the pill's text truncates; the +/− stats don't.
                         .lineLimit(1)
@@ -130,8 +129,7 @@ struct PRListRow: View {
             parts.append(FeedbackLabel.text(for: ActionClassifier.newFeedback(pr, me: item.account)))
         }
         if model.isConflictsCandidate(item) { parts.append(MergePolicy.conflicts) }
-        let step = model.reviews.activity[item.id]?.text ?? model.respond.activity[item.id]?.text
-        return parts.joined(separator: ", ") + (step.map { ", now: \($0)" } ?? "")
+        return parts.joined(separator: ", ")
     }
 }
 

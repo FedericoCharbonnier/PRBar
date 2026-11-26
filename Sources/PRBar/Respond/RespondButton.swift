@@ -23,8 +23,8 @@ struct RespondButton: View {
     let actions: RespondButtonActions
     /// A Fix CI (spec K) or a Resolve Conflicts (spec C): their own labels.
     var mode: RespondMode = .feedback
-    /// The running job's step (spec LP.5), in the tooltip.
-    var activity: JobActivity? = nil
+    /// Where the running job's step is (spec LP.5), for the tooltip.
+    var steps: JobStepSource? = nil
     private var isCI: Bool { mode == .ciFix }
     private var isConflicts: Bool { mode == .conflicts }
 
@@ -44,14 +44,14 @@ struct RespondButton: View {
                 .help(unavailableReason ?? "Respond to this PR’s feedback with Claude")
                 .accessibilityHint(unavailableReason ?? "Claude analyzes the unresolved comments")
         case .queued?:
-            cancellable(label: "Queued", tooltip: "Queued · click to cancel", fg: .secondary, bg: Color.primary.opacity(0.06)) {
+            cancellable(label: "Queued", tooltip: "Queued", fg: .secondary, bg: Color.primary.opacity(0.06), showsStep: false) {
                 Image(systemName: "pause.fill").font(.system(size: 9))
             }
         case .preparing?:
             cancellable(label: isCI ? "Reading CI…" : isConflicts ? "Merging…" : "Preparing…",
-                        tooltip: running(isCI ? "Reading the failing checks and preparing the worktree"
-                                              : isConflicts ? "Merging the base and preparing the worktree"
-                                              : "Preparing the worktree")) {
+                        tooltip: isCI ? "Reading the failing checks and preparing the worktree"
+                                    : isConflicts ? "Merging the base and preparing the worktree"
+                                    : "Preparing the worktree") {
                 Image(systemName: "hourglass").font(.system(size: 10, weight: .semibold))
             }
         case .analyzing(let agents)?:
@@ -60,9 +60,9 @@ struct RespondButton: View {
             }
         case .implementing(let done, let total)?:
             cancellable(label: isCI ? "Fixing CI…" : isConflicts ? "Resolving…" : "Implementing \(min(done + 1, max(total, 1)))/\(max(total, 1))…",
-                        tooltip: running(isCI ? "Claude is fixing the CI"
-                                              : isConflicts ? "Claude is resolving the conflicts"
-                                              : "Claude is implementing the fixes")) {
+                        tooltip: isCI ? "Claude is fixing the CI"
+                                    : isConflicts ? "Claude is resolving the conflicts"
+                                    : "Claude is implementing the fixes") {
                 ProgressView().controlSize(.mini).frame(width: 10, height: 10)
             }
         case .ready(let draft)?:
@@ -83,7 +83,7 @@ struct RespondButton: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .help("Open the window to see the tests" + (activity.map { " · \($0.text)" } ?? ""))
+                .jobStepHelp(steps) { "Open the window to see the tests" + ($0.map { " · \($0.text)" } ?? "") }
             } else {
                 openPill(label: isCI ? "CI fix ready to push" : isConflicts ? "Resolution ready to push" : "Ready to push",
                          icon: "arrow.up.circle.fill",
@@ -98,9 +98,11 @@ struct RespondButton: View {
                 }
             }
             .buttonStyle(.plain)
-            .help((isCI ? "Checking the CI again and pushing"
-                        : isConflicts ? "Checking the PR again and pushing" : "Pushing and posting the replies")
-                  + (activity.map { " · \($0.text)" } ?? ""))
+            .jobStepHelp(steps) { [isCI, isConflicts] step in
+                (isCI ? "Checking the CI again and pushing"
+                      : isConflicts ? "Checking the PR again and pushing" : "Pushing and posting the replies")
+                    + (step.map { " · \($0.text)" } ?? "")
+            }
         case .done?:
             openPill(label: isCI ? "CI fix pushed" : isConflicts ? "Conflicts resolved" : "Responded", icon: "checkmark.seal.fill",
                      tooltip: isCI || isConflicts ? "See what was pushed" : "See what was pushed and what was replied", done: true)
@@ -121,12 +123,7 @@ struct RespondButton: View {
     }
 
     private func analyzingTooltip(_ agents: Int) -> String {
-        running(agents == 0 ? "Claude is analyzing the comments" : "\(agents) agent\(agents == 1 ? "" : "s")")
-    }
-
-    /// The tooltip of a running phase with its step (spec LP.5): "2 agents · Reading src/a.swift · click to cancel".
-    private func running(_ base: String) -> String {
-        ([base] + [activity?.text].compactMap { $0 }).joined(separator: " · ") + " · click to cancel"
+        agents == 0 ? "Claude is analyzing the comments" : "\(agents) agent\(agents == 1 ? "" : "s")"
     }
 
     /// Claude's result waiting for you: violet (green with a check read as "approved"). Done stays green.
@@ -144,9 +141,9 @@ struct RespondButton: View {
     /// Fase activa: con hover dice "Cancel"; el clic pregunta antes de cancelar (`CancellablePill`).
     private func cancellable<Icon: View>(
         label: String, tooltip: String, fg: Color = Theme.violet, bg: Color = Theme.tint(Theme.violet),
-        @ViewBuilder icon: () -> Icon
+        showsStep: Bool = true, @ViewBuilder icon: () -> Icon
     ) -> some View {
-        CancellablePill(label: label, tooltip: tooltip, fg: fg, bg: bg, job: isCI ? "CI fix" : isConflicts ? "conflicts resolution" : "response",
+        CancellablePill(label: label, tooltip: tooltip, steps: showsStep ? steps : nil, fg: fg, bg: bg, job: isCI ? "CI fix" : isConflicts ? "conflicts resolution" : "response",
                         accessibilityValue: accessibilityValue, cancel: actions.cancel, icon: icon)
     }
 

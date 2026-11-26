@@ -18,8 +18,8 @@ struct ReviewButton: View {
     /// Why a review can't start (an update is being installed); `nil` = it can.
     var unavailableReason: String? = nil
     let actions: ReviewButtonActions
-    /// The running review's step (spec LP.5), in the tooltip.
-    var activity: JobActivity? = nil
+    /// Where the running review's step is (spec LP.5), for the tooltip.
+    var steps: JobStepSource? = nil
 
     var body: some View {
         content
@@ -36,19 +36,19 @@ struct ReviewButton: View {
                 .disabled(unavailableReason != nil)
                 .help(unavailableReason ?? "Review this PR with Claude")
         case .queued?:
-            cancellable(label: "Queued", tooltip: "Queued · click to cancel", fg: .secondary, bg: Color.primary.opacity(0.06)) {
+            cancellable(label: "Queued", tooltip: "Queued", fg: .secondary, bg: Color.primary.opacity(0.06), showsStep: false) {
                 Image(systemName: "pause.fill").font(.system(size: 9))
             }
         case .preparing?:
-            cancellable(label: "Preparing…", tooltip: running("Preparing the worktree")) {
+            cancellable(label: "Preparing…", tooltip: "Preparing the worktree") {
                 Image(systemName: "hourglass").font(.system(size: 10, weight: .semibold))
             }
         case .reviewing(let agents)?:
-            cancellable(label: "Reviewing…", tooltip: running("\(agents) agent\(agents == 1 ? "" : "s")")) {
+            cancellable(label: "Reviewing…", tooltip: "\(agents) agent\(agents == 1 ? "" : "s")") {
                 ProgressView().controlSize(.mini).frame(width: 10, height: 10)
             }
         case .filtering?:
-            cancellable(label: "Filtering…", tooltip: running("Filtering the findings")) {
+            cancellable(label: "Filtering…", tooltip: "Filtering the findings") {
                 Image(systemName: "line.3.horizontal.decrease").font(.system(size: 10, weight: .bold))
             }
         case .ready(let draft)?:
@@ -87,17 +87,12 @@ struct ReviewButton: View {
         }
     }
 
-    /// The tooltip of a running phase with its step (spec LP.5): "2 agents · Reading src/a.swift · click to cancel".
-    private func running(_ base: String) -> String {
-        ([base] + [activity?.text].compactMap { $0 }).joined(separator: " · ") + " · click to cancel"
-    }
-
     /// Fase activa: con hover dice "Cancel"; el clic pregunta antes de cancelar (`CancellablePill`).
     private func cancellable<Icon: View>(
         label: String, tooltip: String, fg: Color = Theme.violet, bg: Color = Theme.tint(Theme.violet),
-        @ViewBuilder icon: () -> Icon
+        showsStep: Bool = true, @ViewBuilder icon: () -> Icon
     ) -> some View {
-        CancellablePill(label: label, tooltip: tooltip, fg: fg, bg: bg, job: "review",
+        CancellablePill(label: label, tooltip: tooltip, steps: showsStep ? steps : nil, fg: fg, bg: bg, job: "review",
                         accessibilityValue: accessibilityValue, cancel: actions.cancel, icon: icon)
     }
 
@@ -130,7 +125,9 @@ struct ReviewButton: View {
 /// is what Esc and Return do). VoiceOver reads it as "Cancel review", with the progress as its value.
 struct CancellablePill<Icon: View>: View {
     let label: String
+    /// "2 agents": the tooltip is "2 agents · <step> · click to cancel" (spec LP.5).
     let tooltip: String
+    let steps: JobStepSource?
     let fg: Color
     let bg: Color
     /// "review", "response": in "Cancel review" and the question.
@@ -141,10 +138,11 @@ struct CancellablePill<Icon: View>: View {
     @State private var hovering = false
     @State private var confirming = false
 
-    init(label: String, tooltip: String, fg: Color, bg: Color, job: String, accessibilityValue: String,
+    init(label: String, tooltip: String, steps: JobStepSource?, fg: Color, bg: Color, job: String, accessibilityValue: String,
          cancel: @escaping () -> Void, @ViewBuilder icon: () -> Icon) {
         self.label = label
         self.tooltip = tooltip
+        self.steps = steps
         self.fg = fg
         self.bg = bg
         self.job = job
@@ -174,7 +172,9 @@ struct CancellablePill<Icon: View>: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .help(tooltip)
+        .jobStepHelp(steps) { [tooltip] step in
+            ([tooltip] + [step?.text].compactMap { $0 }).joined(separator: " · ") + " · click to cancel"
+        }
         .accessibilityLabel("Cancel \(job)")
         .accessibilityValue(accessibilityValue)
         .accessibilityHint("Asks before cancelling")

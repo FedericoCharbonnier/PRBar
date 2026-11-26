@@ -146,8 +146,7 @@ struct PRRowView: View {
     private var showsConflictsLine: Bool { item.category != .readyToMerge && model.isConflictsCandidate(item) }
 
     private var trailingAccessory: some View {
-        PRRowAccessory(item: item, model: model, reviews: reviews, respond: respond, merges: merges,
-                       reviewSteps: reviews.activityFeed, respondSteps: respond.activityFeed)
+        PRRowAccessory(item: item, model: model, reviews: reviews, respond: respond, merges: merges)
     }
 
     @ViewBuilder

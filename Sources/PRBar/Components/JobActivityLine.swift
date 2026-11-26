@@ -23,6 +23,44 @@ struct JobActivityLine: View {
     }
 }
 
+/// Where a pill reads its job's step (spec LP.5): the queue's feed and the PR.
+struct JobStepSource {
+    let feed: JobActivityFeed
+    let prID: String
+}
+
+extension View {
+    /// `.help(text(step))`: only this modifier observes the feed, so a step change (of any PR) redraws the tooltip and
+    /// not the row's pills. Without a source, `text(nil)`.
+    func jobStepHelp(_ source: JobStepSource?, _ text: @escaping (JobActivity?) -> String) -> some View {
+        modifier(JobStepHelp(source: source, text: text))
+    }
+}
+
+private struct JobStepHelp: ViewModifier {
+    let source: JobStepSource?
+    let text: (JobActivity?) -> String
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if let source {
+            content.modifier(JobStepHelpObserving(feed: source.feed, prID: source.prID, text: text))
+        } else {
+            content.help(text(nil))
+        }
+    }
+}
+
+private struct JobStepHelpObserving: ViewModifier {
+    @ObservedObject var feed: JobActivityFeed
+    let prID: String
+    let text: (JobActivity?) -> String
+
+    func body(content: Content) -> some View {
+        content.help(text(feed.current[prID]))
+    }
+}
+
 /// The step line of a row: its review's (PRs to review) or its Respond slot's (my PRs: Respond, Fix CI, Resolve
 /// Conflicts). Nothing while nothing runs.
 struct JobActivityRowLine: View {
