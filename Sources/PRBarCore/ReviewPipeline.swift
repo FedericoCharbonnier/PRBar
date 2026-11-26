@@ -41,6 +41,17 @@ public enum ReviewPhase: Equatable, Sendable {
 public protocol ReviewPipelineRunning: Sendable {
     /// Hace worktree → Claude → limpieza (la limpieza corre siempre, incluso con error o cancelación).
     func run(_ request: ReviewRequest, onPhase: @escaping @MainActor @Sendable (ReviewPhase) -> Void) async throws -> ReviewDraft
+    /// Lo mismo, con cada paso (spec LP.2): los de PRBar y los de Claude. Un cambio de fase no borra el paso.
+    func run(_ request: ReviewRequest, onPhase: @escaping @MainActor @Sendable (ReviewPhase) -> Void,
+             onActivity: @escaping JobActivitySink) async throws -> ReviewDraft
+}
+
+extension ReviewPipelineRunning {
+    /// Un pipeline que no sabe de pasos (los fakes de los tests y de las capturas): sin pasos.
+    public func run(_ request: ReviewRequest, onPhase: @escaping @MainActor @Sendable (ReviewPhase) -> Void,
+                    onActivity: @escaping JobActivitySink) async throws -> ReviewDraft {
+        try await run(request, onPhase: onPhase)
+    }
 }
 
 /// Error de una review, con el log de Claude si llegó a escribirse.

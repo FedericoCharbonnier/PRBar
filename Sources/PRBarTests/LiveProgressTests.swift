@@ -177,5 +177,24 @@ enum LiveProgressTests {
             let line = #"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Grep","input":{"pattern":"returnTo","path":"src"}},{"type":"tool_use","name":"Read","input":{"file_path":"a.swift","pattern":"x"}}]}}"#
             try expectEqual(parser.consumeAll(line), [.toolUse(name: "Grep", detail: "returnTo"), .toolUse(name: "Read", detail: "a.swift")])
         },
+        TestCase("progreso: un pipeline sin onActivity sigue andando (implementación por defecto) y las colas arrancan sin pasos") { @MainActor in
+            let pipeline: any ReviewPipelineRunning = PhaseOnlyPipeline()
+            let pr = makePR(number: 3)
+            let request = ReviewRequest(item: ClassifiedPR(pr: pr, category: .toReview, account: "fede"), localPath: nil, baseRef: pr.baseRef)
+            let draft = try await pipeline.run(request, onPhase: { _ in }, onActivity: { _ in })
+            try expectEqual(draft.summary, "ok")
+            let queue = ReviewQueue(pipeline: pipeline) { _, _ in }
+            try expectEqual(queue.activity, [:])
+            try expect(queue.activityFeed.current.isEmpty)
+        },
     ]
+}
+
+/// Solo la firma vieja (`run(_:onPhase:)`): la de `onActivity` la pone la extensión del protocolo.
+private struct PhaseOnlyPipeline: ReviewPipelineRunning {
+    func run(_ request: ReviewRequest, onPhase: @escaping @MainActor @Sendable (ReviewPhase) -> Void) async throws -> ReviewDraft {
+        let pr = request.item.pr
+        return ReviewDraft(prID: request.item.id, repo: pr.repo, number: pr.number, title: pr.title, url: pr.url, author: pr.author,
+                           headOid: pr.headOid, account: request.item.account, summary: "ok", items: [], language: .english)
+    }
 }

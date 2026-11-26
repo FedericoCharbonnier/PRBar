@@ -4,6 +4,10 @@ import Foundation
 @MainActor
 public final class ReviewQueue: ObservableObject {
     @Published public private(set) var phases: [String: ReviewPhase] = [:]   // por prID
+    /// The step each running review is on (spec LP.2). Its own `ObservableObject`: see `JobActivityFeed`.
+    public let activityFeed: JobActivityFeed
+    /// `activity[prID]` of the spec.
+    public var activity: [String: JobActivity] { activityFeed.current }
 
     private let pipeline: ReviewPipelineRunning
     private let scheduler: JobScheduler<String>
@@ -15,8 +19,10 @@ public final class ReviewQueue: ObservableObject {
     private var publishedHeads: [String: String] = [:]
 
     public init(pipeline: ReviewPipelineRunning, maxConcurrent: Int = 2,
+                activityInterval: TimeInterval = ActivityThrottle.defaultInterval,
                 onFinished: @escaping @MainActor (ReviewRequest, Result<ReviewDraft, Error>) -> Void) {
         self.pipeline = pipeline
+        self.activityFeed = JobActivityFeed(interval: activityInterval)
         self.scheduler = JobScheduler(maxConcurrent: maxConcurrent)
         self.onFinished = onFinished
     }

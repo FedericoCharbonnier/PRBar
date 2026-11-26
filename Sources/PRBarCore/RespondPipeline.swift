@@ -147,15 +147,33 @@ public struct CIPassingNow: Error, Equatable, LocalizedError {
 
 extension RespondPipelineRunning {
     public func checkCIBeforePush(draft: RespondDraft, result: RespondResult?, ignoringPassingChecks: Bool) async throws {}
+
+    public func analyze(_ request: RespondRequest, draftID: UUID, onPhase: @escaping @MainActor @Sendable (RespondPhase) -> Void,
+                        onActivity: @escaping JobActivitySink) async throws -> RespondDraft {
+        try await analyze(request, draftID: draftID, onPhase: onPhase)
+    }
+
+    public func implement(draft: RespondDraft, selections: [String: RespondSelection],
+                          onProgress: @escaping @MainActor @Sendable (Int, Int) -> Void,
+                          onActivity: @escaping JobActivitySink) async throws -> RespondResult {
+        try await implement(draft: draft, selections: selections, onProgress: onProgress)
+    }
 }
 
 public protocol RespondPipelineRunning: Sendable {
     /// Token → feedback → filtro → worktree → análisis de Claude. El draft sale con `id == draftID`.
     func analyze(_ request: RespondRequest, draftID: UUID,
                  onPhase: @escaping @MainActor @Sendable (RespondPhase) -> Void) async throws -> RespondDraft
+    /// `analyze` con cada paso (spec LP.2).
+    func analyze(_ request: RespondRequest, draftID: UUID, onPhase: @escaping @MainActor @Sendable (RespondPhase) -> Void,
+                 onActivity: @escaping JobActivitySink) async throws -> RespondDraft
     /// Un fix por ítem elegido. Si se cancela, el árbol queda limpio y se lanza `RespondCancellation`.
     func implement(draft: RespondDraft, selections: [String: RespondSelection],
                    onProgress: @escaping @MainActor @Sendable (Int, Int) -> Void) async throws -> RespondResult
+    /// `implement` con cada paso (spec LP.2).
+    func implement(draft: RespondDraft, selections: [String: RespondSelection],
+                   onProgress: @escaping @MainActor @Sendable (Int, Int) -> Void,
+                   onActivity: @escaping JobActivitySink) async throws -> RespondResult
     /// El `testCommand` del repo, en el worktree. Nunca lanza.
     func runTests(draft: RespondDraft, testCommand: String) async -> TestRun
     /// Pushea `result.headOid` (lo que vio el usuario). Ver `RespondPublisher.push`.

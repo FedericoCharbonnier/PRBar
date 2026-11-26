@@ -36,6 +36,10 @@ public final class RespondQueue: ObservableObject {
     @Published public private(set) var leftWork: Set<String> = []
     /// Cuándo empezó la corrida de cada PR y si la pidió un iPhone (grupo Claude de la ventana principal, spec M.4).
     @Published public private(set) var runs: [String: ClaudeRunInfo] = [:]
+    /// The step each PR's run is on (spec LP.2). Its own `ObservableObject`: see `JobActivityFeed`.
+    public let activityFeed: JobActivityFeed
+    /// `activity[prID]` of the spec.
+    public var activity: [String: JobActivity] { activityFeed.current }
     /// Set only while `onEvent` hears the `readyToPush` of a push the CI stopped (the checks pass now).
     private var reportingCIBlock: String?
     public func isReportingCIBlock(_ prID: String) -> Bool { reportingCIBlock == prID }
@@ -65,11 +69,13 @@ public final class RespondQueue: ObservableObject {
     private var cancelling: [String: UUID] = [:]
 
     public init(pipeline: RespondPipelineRunning, history: RespondHistory = RespondHistory(), maxConcurrent: Int = 2,
+                activityInterval: TimeInterval = ActivityThrottle.defaultInterval,
                 onEvent: @escaping @MainActor (String, RespondPhase) -> Void,
                 onRetain: (@MainActor (RespondRecord) -> Void)? = nil,
                 keepsFolders: @escaping @MainActor () -> Bool = { true }) {
         self.pipeline = pipeline
         self.history = history
+        self.activityFeed = JobActivityFeed(interval: activityInterval)
         self.scheduler = JobScheduler(maxConcurrent: maxConcurrent)
         self.onEvent = onEvent
         self.onRetain = onRetain
@@ -474,7 +480,7 @@ public final class RespondQueue: ObservableObject {
         let usage = Slot<ClaudeUsage>()
         jobs[prID] = Job(id: jobID, kind: kind, previous: previous ?? phases[prID])
         if let phase { phases[prID] = phase }
-        scheduler.enqueue(prID, activity: activity(prID), onStart: { [weak self] in
+        scheduler.enqueue(prID, activity: processActivity(prID), onStart: { [weak self] in
             if let onStart, self?.jobs[prID]?.id == jobID { self?.phases[prID] = onStart }
         }, work: {
             // Claude's usage for this job goes to the record (spec O.4.4), also when it fails or is canceled.
@@ -519,7 +525,7 @@ public final class RespondQueue: ObservableObject {
     }
 
     /// La tarea de Activity del PR.
-    private func activity(_ prID: String) -> ProcessActivity {
+    private func processActivity(_ prID: String) -> ProcessActivity {
         switch mode(of: prID) {
         case .ciFix: .ciFix(prID)
         case .conflicts: .conflicts(prID)
