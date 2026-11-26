@@ -227,7 +227,7 @@ export interface ReviewProps {
     base: string;
     files: number;
   };
-  summary: { text: string; meta: string };
+  summary: { text: string; meta: string; activity?: string | undefined };
   findings: FindingVM[];
   /** Spec RM.6: lo que PRBar publicó antes y si quedó corregido (solo con memoria). */
   previous?: { header: string; comments: PreviousCommentVM[] } | undefined;

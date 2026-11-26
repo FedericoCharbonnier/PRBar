@@ -4,7 +4,7 @@ import {
 } from "../../protocol/commands";
 import type { EditProps, FindingVM, ReviewDecision, ReviewPostedProps, ReviewProps } from "../../ui/screens/types";
 import type { AppContext } from "../context";
-import { age, count, duration, lineOf, parseDate, person, shortRef, splitPRId } from "../format";
+import { activityLine, age, count, duration, lineOf, parseDate, person, shortRef, splitPRId } from "../format";
 import { needsConfirmation, perform, prHeader, showsFaceId } from "./common";
 
 // review (+ :menu, :faceid), edit y review:posted (ReviewModel.swift). Postear (cualquier decisión) pide Face ID.
@@ -99,6 +99,8 @@ export function createReviewModel(ctx: AppContext, pr: string): ReviewModel {
       const metaParts = [r?.detail, r?.usage?.durationSeconds ? duration(r.usage.durationSeconds) : undefined]
         .filter((p): p is string => !!p);
       const summaryText = running.value ? "Claude is reviewing this PR…" : r?.summary ?? "";
+      // Solo mientras corre (y solo entonces el reloj de segundos la recalcula).
+      const activity = running.value && r?.activity ? activityLine(r.activity, store.now.value) : undefined;
       // Un review que falló no tiene nada que mostrar ni publicar: el motivo y "Try Again" (`reviewStart` reemplaza
       // al fallido, como "Retry" en la Mac).
       const failed = phase.value === "failed";
@@ -114,7 +116,7 @@ export function createReviewModel(ctx: AppContext, pr: string): ReviewModel {
           base: info?.baseRef ?? "",
           files: info?.changedFiles ?? 0,
         },
-        summary: { text: summaryText, meta: metaParts.join(" · ") },
+        summary: { text: summaryText, meta: metaParts.join(" · "), activity },
         findings: vms,
         previous,
         recommendation: rec ? { label: DECISION_LABEL[DECISION_OF[rec.event]], reason: rec.reason } : undefined,

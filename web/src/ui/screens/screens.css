@@ -141,6 +141,14 @@
   line-height: 18.5px;
 }
 
+.summary-card__activity {
+  color: var(--fg2);
+  font-size: 15px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .finding {
   margin-bottom: 18px;
   padding: 16px 16px 16px;
