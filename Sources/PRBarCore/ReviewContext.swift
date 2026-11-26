@@ -62,6 +62,46 @@ public struct ReviewContextWriter: Sendable {
         return headOid
     }
 
+    /// Spec RM.3: `previous-reviews.md` and, with a worktree, `since-last-review.diff` (`git diff <since>..HEAD`). If the
+    /// clone doesn't have that commit it's fetched first (best effort, decision 8); if it's gone (force-push, rebase) the
+    /// file says so in one line and Claude works with `pr.diff`. Diff only: no `since-last-review.diff`.
+    public func writeMemory(_ memory: ReviewMemory, workspace: ReviewWorkspace) async throws {
+        try await files.createDirectory(workspace.contextDirectory.path)
+        try await files.write(Data(ReviewMemoryFile.markdown(memory, diffOnly: workspace.isDiffOnly).utf8),
+                              to: workspace.previousReviewsFile.path)
+        guard !workspace.isDiffOnly else { return }
+        let since = memory.reviewedSince
+        let text: String
+        if await hasCommit(since, in: workspace) {
+            let diff = try await output(
+                gitPath,
+                GitHardening.arguments + ["-C", workspace.directory.path, "diff", GitHardening.ignoreSubmodules, "--no-ext-diff",
+                                          "--no-textconv", "--no-color", "\(since)..HEAD"],
+                environment: GitHardening.environment, display: "git diff \(since.prefix(12))..HEAD")
+            text = diff.isEmpty ? ReviewMemoryFile.noChangesLine(since) : diff
+        } else {
+            AppLog.write("Review memory: \(since) isn’t in the repo any more; Claude works with pr.diff.")
+            text = ReviewMemoryFile.missingCommitLine(since)
+        }
+        try await files.write(Data(text.utf8), to: workspace.sinceLastReviewFile.path)
+    }
+
+    /// The commit is in the clone (or the host's mirror), after fetching it from `origin` if needed.
+    private func hasCommit(_ sha: String, in workspace: ReviewWorkspace) async -> Bool {
+        guard CommitSHA.parse(sha) == sha else { return false }
+        let directory = workspace.directory.path
+        let check = ["-C", directory, "cat-file", "-e", "\(sha)^{commit}"]
+        if await succeeds(check) { return true }
+        _ = await succeeds(["-C", directory, "fetch", "--no-write-fetch-head", "--no-tags", "origin", sha], timeout: Self.diffTimeout)
+        return await succeeds(check)
+    }
+
+    private func succeeds(_ arguments: [String], timeout: TimeInterval = ProcessTimeouts.standard) async -> Bool {
+        let result = try? await runner.run(gitPath, GitHardening.arguments + arguments, environment: GitHardening.environment,
+                                           currentDirectory: nil, timeout: timeout)
+        return result?.status == 0
+    }
+
     /// Markers around the description in `pr.md`. Their keyword is defused inside the description itself, so the
     /// PR's author can't close the block early and write text that looks like PRBar's.
     static let descriptionStart = "<<<PR_DESCRIPTION (untrusted)"

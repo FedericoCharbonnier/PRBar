@@ -62,6 +62,8 @@ public struct ReviewFinding: Codable, Equatable, Sendable, Identifiable {
 public struct ReviewStageOneOutput: Codable, Equatable, Sendable {
     public let summary: String
     public let findings: [ReviewFinding]
+    /// Spec RM.4: only with memory.
+    public var previous: [PreviousVerdict]? = nil
 }
 
 public struct ReviewVerdict: Codable, Equatable, Sendable {
@@ -199,6 +201,29 @@ public enum ReviewSchemas {
           "line":{"type":["integer","null"]},
           "title":{"type":"string"},
           "body":{"type":"string"}}}}}}
+    """
+
+    /// Stage 1 with memory (spec RM.4): `findings` as always plus `previous`, one per previous comment.
+    public static let stageOneWithMemory = """
+    {"type":"object","additionalProperties":false,"required":["summary","findings","previous"],
+     "properties":{
+      "summary":{"type":"string"},
+      "findings":{"type":"array","items":{"type":"object","additionalProperties":false,
+        "required":["id","severity","category","file","line","title","body"],
+        "properties":{
+          "id":{"type":"string"},
+          "severity":{"type":"string","enum":["high","medium","low"]},
+          "category":{"type":"string","enum":["bug","security","performance","tests","style","docs","other"]},
+          "file":{"type":"string"},
+          "line":{"type":["integer","null"]},
+          "title":{"type":"string"},
+          "body":{"type":"string"}}}},
+      "previous":{"type":"array","items":{"type":"object","additionalProperties":false,
+        "required":["id","status","note"],
+        "properties":{
+          "id":{"type":"string"},
+          "status":{"type":"string","enum":["fixed","notFixed","partially","unclear"]},
+          "note":{"type":"string"}}}}}}
     """
 
     public static let stageTwo = """

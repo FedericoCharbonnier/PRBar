@@ -163,5 +163,41 @@ enum ReviewContextTests {
             try expect(md.contains("[… truncated by PRBar]"), "")
             try expect(md.count < huge.count + 1_000, "")
         },
+        TestCase("contexto (git real): since-last-review.diff desde el commit de la última review; uno perdido lo dice en una línea") {
+            let repo = try TempGitRepo.make()
+            defer { repo.remove() }
+            let m = WorktreeManager(runner: SystemProcessRunner(), gitPath: TempGitRepo.git, root: repo.root)
+            let ws = try await m.prepare(repo: RepoRef(owner: "o", name: "r"), number: 7, baseRef: "main", localPath: repo.local.path)
+            // Un commit nuevo en el PR después de la última review (en el worktree: no depende de cómo se prepara la carpeta).
+            try Data("otra\n".utf8).write(to: ws.directory.appendingPathComponent("second.txt"))
+            try TempGitRepo.run(ws.directory, ["add", "-A"])
+            try TempGitRepo.run(ws.directory, ["commit", "-q", "-m", "pr change"])
+            let writer = ReviewContextWriter(runner: SystemProcessRunner(), gitPath: TempGitRepo.git, ghPath: nil)
+            let since = { (sha: String) in
+                ReviewMemory(reviews: [PreviousReview(recordID: UUID(), date: t0, action: .comment, headOid: sha, generalComment: nil, comments: [])])
+            }
+            try await writer.writeMemory(since(repo.prSHA), workspace: ws)
+            let diff = try String(contentsOf: ws.sinceLastReviewFile, encoding: .utf8)
+            try expect(diff.contains("+++ b/second.txt"), diff)
+            try expect(!diff.contains("feature.txt"), diff)
+            try expect(try String(contentsOf: ws.previousReviewsFile, encoding: .utf8).contains("# Previous reviews"))
+            let lost = String(repeating: "d", count: 40)
+            try await writer.writeMemory(since(lost), workspace: ws)
+            try expectEqual(try String(contentsOf: ws.sinceLastReviewFile, encoding: .utf8), ReviewMemoryFile.missingCommitLine(lost))
+            let head = try TempGitRepo.run(ws.directory, ["rev-parse", "HEAD"]).trimmingCharacters(in: .whitespacesAndNewlines)
+            try await writer.writeMemory(since(head), workspace: ws)
+            try expectEqual(try String(contentsOf: ws.sinceLastReviewFile, encoding: .utf8), ReviewMemoryFile.noChangesLine(head))
+            await m.cleanup(ws, localPath: repo.local.path)
+        },
+        TestCase("contexto: en modo solo diff no hay since-last-review.diff y no corre git") {
+            let root = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let ws = ReviewWorkspace(directory: root.appendingPathComponent("r-7-1700000000-0a0a0a0a-diff"), baseRef: nil, isDiffOnly: true)
+            let runner = FakeProcessRunner { _, _ in ok("") }
+            try await ReviewContextWriter(runner: runner, gitPath: "/usr/bin/git", ghPath: nil).writeMemory(sampleMemory(), workspace: ws)
+            try expectEqual(runner.calls.count, 0)
+            try expect(try String(contentsOf: ws.previousReviewsFile, encoding: .utf8).contains("no local checkout"))
+            try expect(!FileManager.default.fileExists(atPath: ws.sinceLastReviewFile.path))
+        },
     ]
 }

@@ -182,8 +182,14 @@ struct FakeAPI: GitHubAPI {
     func submitReview(repo: RepoRef, number: Int, submission: ReviewSubmission, token: String) async throws -> URL {
         URL(string: "https://github.com/\(repo.fullName)/pull/\(number)#pullrequestreview-1")!
     }
+    /// What `reviewFeedback` returns (nil = an empty feedback) and how many times it was asked.
+    var feedback: Result<PRFeedback, PRBarError>?
+    let feedbackCalls = Box<Int>(0)
+
     func reviewFeedback(repo: RepoRef, number: Int, token: String) async throws -> PRFeedback {
-        PRFeedback(
+        feedbackCalls.value += 1
+        if let feedback { return try feedback.get() }
+        return PRFeedback(
             headRefName: "feature", headRefOid: "abc", isCrossRepository: false, lastCommitAt: Date(timeIntervalSince1970: 0),
             threads: [], reviews: [])
     }

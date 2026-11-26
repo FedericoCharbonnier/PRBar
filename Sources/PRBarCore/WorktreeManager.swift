@@ -33,6 +33,12 @@ public struct ReviewWorkspace: Equatable, Sendable {
 
     /// Los metadatos del PR en Markdown.
     public var metadataFile: URL { contextDirectory.appendingPathComponent("pr.md") }
+
+    /// Spec RM.3.1: the reviews PRBar posted before on this PR (only with memory).
+    public var previousReviewsFile: URL { contextDirectory.appendingPathComponent("previous-reviews.md") }
+
+    /// Spec RM.3.2: `git diff <last reviewed commit>..HEAD` (only with memory and a worktree).
+    public var sinceLastReviewFile: URL { contextDirectory.appendingPathComponent("since-last-review.diff") }
 }
 
 /// SHA de un commit tal como lo imprimen `git rev-parse` o `gh` (40 o 64 dígitos hexadecimales).

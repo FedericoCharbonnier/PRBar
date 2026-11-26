@@ -7,14 +7,19 @@ public struct FeedbackComment: Codable, Equatable, Sendable {
     public let body: String
     public let createdAt: Date
     public let url: URL
+    /// The review the comment belongs to (`pullRequestReview.databaseId`, spec RM.3.1); nil for general comments, in
+    /// older drafts and if GitHub didn't say.
+    public let reviewDatabaseID: Int?
 
-    public init(databaseID: Int, author: String, isBot: Bool, body: String, createdAt: Date, url: URL) {
+    public init(databaseID: Int, author: String, isBot: Bool, body: String, createdAt: Date, url: URL,
+                reviewDatabaseID: Int? = nil) {
         self.databaseID = databaseID
         self.author = author
         self.isBot = isBot
         self.body = body
         self.createdAt = createdAt
         self.url = url
+        self.reviewDatabaseID = reviewDatabaseID
     }
 }
 
