@@ -210,12 +210,14 @@ public struct ReviewInfo: Codable, Equatable, Sendable {
     public var reviewedSince: String?
     /// Spec RM.5: PRBar's decision for what's selected now; the window and the phone preselect it.
     public var recommendedAction: RecommendedAction?
+    /// Spec LP.5: what the review is doing now; nil when it isn't running (and from an older PRBar).
+    public var activity: JobActivity?
 
     public init(pr: String, phase: String, detail: String? = nil, title: String? = nil, summary: String? = nil,
                 language: String? = nil, account: String? = nil, outdated: Bool, findings: [FindingInfo],
                 generalComment: String? = nil, reviewURL: URL? = nil, logPath: String? = nil, usage: ClaudeUsage? = nil,
                 previous: [PreviousCommentInfo]? = nil, reviewedSince: String? = nil,
-                recommendedAction: RecommendedAction? = nil) {
+                recommendedAction: RecommendedAction? = nil, activity: JobActivity? = nil) {
         self.pr = pr
         self.phase = phase
         self.detail = detail
@@ -232,6 +234,7 @@ public struct ReviewInfo: Codable, Equatable, Sendable {
         self.previous = previous
         self.reviewedSince = reviewedSince
         self.recommendedAction = recommendedAction
+        self.activity = activity
     }
 }
 
@@ -371,6 +374,8 @@ public struct RespondInfo: Codable, Equatable, Sendable {
     public var outsideConflicts: [String]?
     /// Resolve Conflicts (decisión C.9.18): los archivos en conflicto que quedaron iguales a uno de los lados.
     public var oneSidedResolutions: [OneSidedResolution]?
+    /// Spec LP.5: what the run (analysis, fixes, tests, push) is doing now; nil when nothing runs (and from an older PRBar).
+    public var activity: JobActivity?
 
     public init(pr: String, phase: String, detail: String? = nil, runningTests: Bool, title: String? = nil,
                 account: String? = nil, headRef: String? = nil, worktree: String? = nil, language: String? = nil,
@@ -378,7 +383,7 @@ public struct RespondInfo: Codable, Equatable, Sendable {
                 sensitiveChanges: [String], tests: TestInfo? = nil, pushed: Bool, pendingReplies: Int,
                 testCommand: String? = nil, errorMessage: String? = nil, logPath: String? = nil,
                 pushBlockedByTests: Bool, mode: RespondMode? = nil, ciChecks: [CICheckFailure]? = nil,
-                pushBlockedByCI: String? = nil, usage: ClaudeUsage? = nil) {
+                pushBlockedByCI: String? = nil, usage: ClaudeUsage? = nil, activity: JobActivity? = nil) {
         self.pr = pr
         self.phase = phase
         self.detail = detail
@@ -405,6 +410,7 @@ public struct RespondInfo: Codable, Equatable, Sendable {
         self.ciChecks = ciChecks
         self.pushBlockedByCI = pushBlockedByCI
         self.usage = usage
+        self.activity = activity
     }
 }
 
