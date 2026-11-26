@@ -17,6 +17,8 @@ Repos. Nada de esto se hace con repos reales de nadie. Para la parte de hosts, e
 - [ ] La pestaña Review de la ventana del PR: debajo de la fase, "<paso> · 12 s" que avanza cada segundo.
 - [ ] Un archivo con una ruta larguísima se corta en el medio en la fila; el tooltip la muestra entera (hasta 80).
 - [ ] Cancel: el paso desaparece en el acto. Una review que falla: no queda paso colgado.
+- [ ] Cancelar una review y pedir Review Again enseguida: si la cancelada todavía suelta la carpeta, "Waiting for the
+      previous review of this PR…" antes de preparar la carpeta.
 - [ ] El texto de Claude (lo que escribe entre herramientas) nunca aparece: solo "Thinking…".
 
 ## B. Respond, Fix CI, Resolve Conflicts
@@ -30,8 +32,10 @@ Repos. Nada de esto se hace con repos reales de nadie. Para la parte de hosts, e
       el paso y su tiempo.
 - [ ] La pestaña Respond muestra el paso con su tiempo en el análisis, en la tarjeta de "Claude is editing…", en los
       tests y en el push.
-- [ ] Con el repo en un host: "Creating the worktree on <host>…", "Writing the context for Claude on <host>…",
-      "Committing on <host>…", "Running the tests on <host>…"; "Reading the PR on GitHub…" y "Pushing…" sin host.
+- [ ] Con el repo en un host: "Preparing Claude’s plugins on <host>…" (con skills de un plugin), "Creating the worktree
+      on <host>…", "Writing the context for Claude on <host>…", "Committing on <host>…", al terminar de implementar
+      "Bringing the fixes from <host>…", "Running the tests on <host>…"; "Reading the PR on GitHub…" y "Pushing…" sin
+      host.
 
 ## C. CLI, web y capturas
 - [ ] `prbar review show <pr>` mientras corre: "Now: <paso> (<tiempo>)"; `--json` trae `activity` con `kind`, `text`,

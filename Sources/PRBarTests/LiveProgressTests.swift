@@ -37,6 +37,8 @@ enum LiveProgressTests {
             try expectEqual(JobActivity.prbar(JobStep.creatingWorktree, runner: "").text, "Creating the worktree…")
             try expectEqual(JobActivity.prbar(JobStep.committing, runner: "dev\nbox").text, "Committing on dev box…")
             try expectEqual(JobStep.fetching("main"), "Fetching main…")
+            try expectEqual(JobActivity.prbar(JobStep.preparingPlugins, runner: "build-box").text, "Preparing Claude’s plugins on build-box…")
+            try expectEqual(JobStep.bringingFixes(from: "dev\nbox"), "Bringing the fixes from dev box…")
             try expectEqual(JobStep.merging("release/2.0"), "Merging release/2.0…")
             try expectEqual(JobStep.updatingReviewFolder(String(repeating: "a", count: 40)), "Updating the PR’s folder to aaaaaaa…")
             let long = JobStep.fetching(String(repeating: "b", count: 200))

@@ -266,6 +266,11 @@ public struct RespondPipeline: RespondPipelineRunning {
 
     public func logURL(for id: UUID) -> URL { logURLProvider(id) }
 
+    /// Some skill comes from a plugin: on a runner, PRBar checks (and copies) its plugins first, which can take a while.
+    static func needsPlugins(_ skills: [String]) -> Bool {
+        skills.contains { ClaudeSettings.plugin(of: $0) != nil }
+    }
+
     // MARK: - Análisis
 
     public func analyze(_ request: RespondRequest, draftID: UUID,
@@ -294,6 +299,7 @@ public struct RespondPipeline: RespondPipelineRunning {
         let worktree: ResolvedWorktree
         let startHeadOid: String
         if let remote = placement {
+            if Self.needsPlugins(settings.respondSkills) { onActivity(.prbar(JobStep.preparingPlugins, runner: remote.name)) }
             pluginDirs = try await remote.plugins(skills: settings.respondSkills)
             try Task.checkCancellation()
             onActivity(.prbar(JobStep.creatingWorktree, runner: remote.name))
@@ -603,6 +609,7 @@ public struct RespondPipeline: RespondPipelineRunning {
         let skills = draft.implementsAlone ? [] : settings.respondSkills
         let pluginDirs: [String]
         if let remote = placement {
+            if Self.needsPlugins(skills) { onActivity(.prbar(JobStep.preparingPlugins, runner: remote.name)) }
             pluginDirs = try await remote.plugins(skills: skills)
         } else {
             pluginDirs = try ClaudePlugins.locate(skills: skills, in: pluginCacheDirectory)
@@ -613,6 +620,7 @@ public struct RespondPipeline: RespondPipelineRunning {
             let result = try await implementer.implement(draft: draft, selections: selections, onProgress: onProgress,
                                                          onActivity: onActivity)
             guard let importer else { return result }
+            if let remote = placement { onActivity(.prbar(JobStep.bringingFixes(from: remote.name))) }
             // El diff, los commits y los sensibles que ve el usuario se calculan en la Mac desde los objetos traídos.
             return try await importer.importFixes(draft: draft, localPath: draft.localPath, items: result.items,
                                                   integrity: result.gitIntegrity, token: token)

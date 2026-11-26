@@ -240,7 +240,9 @@ public struct ReviewPipeline: ReviewPipelineRunning {
             let language = PRLanguage.detect(description: description, title: pr.title)
             if !request.previousReviews.isEmpty { step(JobStep.readingPreviousReviews, false) }
             let memory = try await Self.memory(for: request, api: api, token: token)
-            let unlock = await ReviewFolderLocks.shared.acquire(Self.folderKey(pr, runner: runnerName))
+            let unlock = await ReviewFolderLocks.shared.acquire(Self.folderKey(pr, runner: runnerName)) {
+                step(JobStep.waitingForPreviousReview, false)
+            }
             defer { unlock() }
             let workspace = try await parts.prepare { folder in step(Self.folderStepText(folder, head: pr.headOid), true) }
             let perPR = WorktreeManager.isReviewFolder(workspace)
@@ -361,14 +363,27 @@ public struct ReviewPipeline: ReviewPipelineRunning {
 /// the cancelled run may still be releasing the folder: the next review of the PR waits for it here.
 public actor ReviewFolderLocks {
     public static let shared = ReviewFolderLocks()
-    private var tails: [String: Task<Void, Never>] = [:]
+    private var tails: [String: (id: UUID, task: Task<Void, Never>)] = [:]
 
     /// Waits until the previous holder of `key` lets go; returns what lets go of it (call it exactly once).
-    public func acquire(_ key: String) async -> @Sendable () -> Void {
-        let previous = tails[key]
+    /// `onWait` runs (before waiting) only when someone still holds it.
+    public func acquire(_ key: String, onWait: @Sendable () -> Void = {}) async -> @Sendable () -> Void {
+        let previous = tails[key]?.task
+        let id = UUID()
         let (stream, continuation) = AsyncStream<Void>.makeStream()
-        tails[key] = Task { for await _ in stream {} }
-        await previous?.value
+        tails[key] = (id, Task { [weak self] in
+            for await _ in stream {}
+            await self?.forget(key, id: id)
+        })
+        if let previous {
+            onWait()
+            await previous.value
+        }
         return { continuation.finish() }
+    }
+
+    /// Let go and nobody after it: the next one doesn't wait.
+    private func forget(_ key: String, id: UUID) {
+        if tails[key]?.id == id { tails[key] = nil }
     }
 }

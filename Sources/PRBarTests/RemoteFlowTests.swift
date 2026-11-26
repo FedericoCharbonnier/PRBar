@@ -480,7 +480,7 @@ enum RemoteFlowTests {
             let info = try await RunnerProbe.check(host)
             try expect(info.root?.hasSuffix("/installs/" + id) == true, info.root ?? "sin raíz")
         },
-        TestCase("remote flow: Respond en el host: ' on devbox' en el worktree, el contexto y el commit; no en GitHub") {
+        TestCase("remote flow: Respond en el host: ' on devbox' en los plugins, el worktree, el contexto y el commit; no en GitHub; traer los fixes") {
             let repo = try TempGitRepo.make()
             defer { repo.remove() }
             let ssh = try FakeSSH.make()
@@ -494,13 +494,18 @@ enum RemoteFlowTests {
             let draft = try await pipeline.analyze(RespondRequest(item: respondItem(), localPath: repo.local.path, worktreeDir: nil),
                                                    draftID: UUID(), onPhase: { _ in }, onActivity: { activities.value.append($0) })
             try expectEqual(activities.value.filter { $0.kind == .prbar }.map(\.text), [
-                JobStep.readingComments, JobStep.readingPR, "Creating the worktree on devbox…", "Writing the context for Claude on devbox…",
+                JobStep.readingComments, JobStep.readingPR, "Preparing Claude’s plugins on devbox…", "Creating the worktree on devbox…",
+                "Writing the context for Claude on devbox…",
             ])
             activities.value = []
             _ = try await pipeline.implement(draft: draft, selections: [draft.items[0].id: fixSelection], onProgress: { _, _ in },
                                              onActivity: { activities.value.append($0) })
             try expect(activities.value.contains { $0.kind == .prbar && $0.text == "Committing on devbox…" },
                        "\(activities.value.map(\.text))")
+            let prbar = activities.value.filter { $0.kind == .prbar }.map(\.text)
+            try expectEqual(prbar.first, "Preparing Claude’s plugins on devbox…")
+            // The last step: the fixes come back to this Mac, after every commit on the host.
+            try expectEqual(prbar.last, "Bringing the fixes from devbox…")
             await pipeline.cleanup(draft: draft)
         },
     ]

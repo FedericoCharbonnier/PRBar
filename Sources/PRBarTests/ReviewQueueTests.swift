@@ -817,6 +817,24 @@ enum ReviewPipelineTests {
             try expectEqual(activities.value.map(\.kind), [.prbar, .prbar, .prbar, .claude, .claude, .claude])
             try expect(!activities.value.contains { $0.text.contains("approve") })
         },
+        TestCase("review pipeline: si otra review del PR todavía tiene la carpeta, 'Waiting for the previous review…' antes de prepararla") {
+            let root = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let request = clonedRequest(41)
+            let held = await ReviewFolderLocks.shared.acquire(ReviewPipeline.folderKey(request.item.pr, runner: nil))
+            let activities = Box<[JobActivity]>([])
+            let run = Task {
+                _ = try await pipeline(git: gitFake(), claude: FakeStreamingRunner { _, _, _ in ([stageOneEmpty], ok("")) },
+                                       root: root.appendingPathComponent("wt"), logs: root)
+                    .run(request, onPhase: { _ in }, onActivity: { activities.value.append($0) })
+            }
+            try await waitUntil { activities.value.contains { $0.text == JobStep.waitingForPreviousReview } }
+            try expect(!activities.value.contains { $0.text == JobStep.creatingReviewFolder }, "\(activities.value.map(\.text))")
+            held()
+            try await run.value
+            try expectEqual(activities.value.filter { $0.kind == .prbar }.map(\.text),
+                            [JobStep.readingPR, JobStep.waitingForPreviousReview, JobStep.creatingReviewFolder, JobStep.writingContext])
+        },
         TestCase("review pipeline: solo diff usa una carpeta temporal; con memoria lee las reviews anteriores") {
             let root = try temporaryDirectory()
             defer { try? FileManager.default.removeItem(at: root) }

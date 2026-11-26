@@ -27,6 +27,8 @@ public enum JobStep {
     public static let creatingTemporaryFolder = "Creating a temporary folder…"
     public static let readingPreviousReviews = "Reading the previous reviews…"
     public static let filteringFindings = "Filtering the findings…"
+    /// A cancelled review of the same PR is still letting go of its folder (`ReviewFolderLocks`).
+    public static let waitingForPreviousReview = "Waiting for the previous review of this PR…"
     // Respond, Fix CI, Resolve Conflicts.
     public static let readingComments = "Reading the comments and their threads…"
     public static let creatingWorktree = "Creating the worktree…"
@@ -40,6 +42,10 @@ public enum JobStep {
     public static func merging(_ baseRef: String) -> String { "Merging \(name(baseRef))…" }
     public static let checkingConflictMarkers = "Checking for conflict markers…"
     public static let committingMerge = "Committing the merge…"
+    /// On a runner: its copy of the respond skills' plugins (" on <runner>").
+    public static let preparingPlugins = "Preparing Claude’s plugins…"
+    /// On a runner: the fixes come back to this Mac.
+    public static func bringingFixes(from runner: String) -> String { "Bringing the fixes from \(name(runner))…" }
 
     /// The most a name from outside (a branch, a host, what Claude asked for) takes in a step (spec LP.4).
     public static let maxNameLength = 80
