@@ -396,9 +396,11 @@ public struct WorktreeManager: Sendable {
     }
 
     /// Nombres que crea `prepare`: `<repo>-<N>-<epoch>-<id>` o `<repo>-<N>-<epoch>-<id>-diff`, y sus carpetas
-    /// de contexto (`<nombre>.context`). También acepta los de versiones anteriores, sin `-<id>`.
+    /// de contexto (`<nombre>.context`), y la carpeta de review del PR (`<repo>-<N>-review`, spec RM.2).
+    /// También acepta los de versiones anteriores, sin `-<id>`.
     public static func isWorkspaceName(_ name: String) -> Bool {
         if isChatWorkspaceName(name) { return true }
+        if isReviewFolderName(name) { return true }
         if name.hasSuffix(".respond-context") { return isRespondContextName(name) }
         var base = Substring(name)
         if base.hasSuffix(".context") { base = base.dropLast(8) }
@@ -464,6 +466,11 @@ public struct WorktreeManager: Sendable {
     /// The two refs of a review folder `<repo>-<N>-<epoch>-<id>` (`refs/prbar/pr-<N>-<id>`, `refs/prbar/base-<N>-<id>`);
     /// none for any other name (diff-only, context, chat or without a run id).
     public static func reviewRefs(forWorkspaceName name: String) -> [String] {
+        if isReviewFolderName(name) {
+            guard !name.hasSuffix(".context"),
+                  let number = name.dropLast("-review".count).split(separator: "-").last.flatMap({ Int($0) }) else { return [] }
+            return [prRef(number, reviewRunID), baseRef(number, reviewRunID)]
+        }
         guard !isChatWorkspaceName(name), !name.hasSuffix(".context"), !name.hasSuffix("-diff"), isWorkspaceName(name) else { return [] }
         let parts = name.split(separator: "-", omittingEmptySubsequences: false)
         guard parts.count >= 4, let id = parts.last, isRunID(id), let number = Int(parts[parts.count - 3]) else { return [] }
@@ -472,6 +479,33 @@ public struct WorktreeManager: Sendable {
 
     static func prRef(_ number: Int, _ id: String) -> String { "\(refPrefix)pr-\(number)-\(id)" }
     static func baseRef(_ number: Int, _ id: String) -> String { "\(refPrefix)base-\(number)-\(id)" }
+
+    // MARK: - The PR's review folder (spec RM.2)
+
+    /// The run id of the PR's review folder: its refs are `refs/prbar/pr-<N>-review` and `refs/prbar/base-<N>-review`.
+    public static let reviewRunID = "review"
+
+    /// `<repo>-<N>-review`: the folder every review of the PR uses (spec RM.2).
+    public static func reviewFolderName(repo: RepoRef, number: Int) -> String {
+        "\(sanitize(repo.name))-\(number)-review"
+    }
+
+    /// `<repo>-<N>-review` or its `<…>.context`.
+    public static func isReviewFolderName(_ name: String) -> Bool {
+        var base = Substring(name)
+        if base.hasSuffix(".context") { base = base.dropLast(8) }
+        guard base.hasSuffix("-review") else { return false }
+        let rest = base.dropLast(7)   // "<repo>-<N>"
+        guard let dash = rest.lastIndex(of: "-"), dash > rest.startIndex else { return false }
+        let number = rest[rest.index(after: dash)...]
+        return !number.isEmpty && number.allSatisfy { $0.isASCII && $0.isNumber }
+    }
+
+    /// The workspace is the PR's review folder: not a diff-only one, nor a per-run one (the fallback of decision 1).
+    public static func isReviewFolder(_ workspace: ReviewWorkspace) -> Bool {
+        let name = workspace.directory.lastPathComponent
+        return !workspace.isDiffOnly && !name.hasSuffix(".context") && isReviewFolderName(name)
+    }
 
     // MARK: - Git
 
