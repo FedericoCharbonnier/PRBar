@@ -14,6 +14,12 @@ enum Render {
         return single.count <= limit ? single : String(single.prefix(max(limit - 1, 0))) + "…"
     }
 
+    /// Spec LP.5: "Now: <step> (<time>)" while the job runs.
+    static func now(_ activity: JobActivity?, _ output: Output, at date: Date = Date()) {
+        guard let activity else { return }
+        output.line("Now: \(activity.text) (\(activity.elapsedText(now: date)))")
+    }
+
     static func onOff(_ value: Bool) -> String { value ? "on" : "off" }
 
     static func date(_ date: Date) -> String {

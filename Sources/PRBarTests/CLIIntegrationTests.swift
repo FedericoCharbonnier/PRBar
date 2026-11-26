@@ -58,6 +58,7 @@ private func run<C: RemoteCommand>(_ command: C, _ environment: CLIEnvironment) 
 enum CLIIntegrationTests {
     static let cases: [TestCase] = [
         TestCase("integración: --json por el socket real") { try await jsonStatus() },
+        TestCase("integración: show con Now: mientras corre y activity en --json") { try await nowLine() },
         TestCase("integración: publicar sin --yes y sin terminal → exit 4, sin llamar a la app") { try await needsYes() },
         TestCase("integración: review show con anteriores y recomendación; publish --recommended la usa y sigue pidiendo --yes") {
             try await recommended()
@@ -238,6 +239,29 @@ enum CLIIntegrationTests {
         let none = try await runCLI(["session", "open", "api#7"], socket: harness.url)
         try expectEqual(none.code, CLIExit.invalidState)
         try expect(none.err.contains("No Claude session for this PR yet."), none.err)
+    }
+
+    @MainActor
+    private static func nowLine() async throws {
+        let harness = try Harness()
+        defer { harness.server.stop() }
+        harness.fake.reviewPhase = .reviewing(agents: 1)
+        harness.fake.reviewActivity = JobActivity(kind: .claude, text: "Reading src/a.swift", startedAt: Date().addingTimeInterval(-12))
+        let show = try await runCLI(["review", "show", "acme/api#1"], socket: harness.url)
+        try expectEqual(show.code, 0)
+        try expect(show.out.contains("Now: Reading src/a.swift (1"), show.out)
+        let json = try await runCLI(["review", "show", "acme/api#1", "--json"], socket: harness.url)
+        try expect(json.out.contains(#""activity""#) && json.out.contains(#""kind" : "claude""#), json.out)
+        harness.fake.respondPhase = .analyzing(agents: 0)
+        harness.fake.respondActivity = JobActivity(kind: .prbar, text: "Creating the worktree…", startedAt: Date())
+        for command in [["respond", "show", "acme/web#2"], ["ci", "show", "acme/web#2"], ["conflicts", "show", "acme/web#2"]] {
+            let result = try await runCLI(command, socket: harness.url)
+            try expect(result.out.contains("Now: Creating the worktree… ("), "\(command): \(result.out)")
+        }
+        // Nothing running: no line.
+        harness.fake.reviewActivity = nil
+        let idle = try await runCLI(["review", "show", "acme/api#1"], socket: harness.url)
+        try expect(!idle.out.contains("Now:"), idle.out)
     }
 
     @MainActor
