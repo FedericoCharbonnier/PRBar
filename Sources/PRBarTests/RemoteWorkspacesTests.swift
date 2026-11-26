@@ -252,6 +252,35 @@ enum RemoteWorkspacesTests {
             // Their refs stay too (a worktree is left in the mirror).
             try expect(!(try TempGitRepo.run(URL(fileURLWithPath: bare), ["for-each-ref", "refs/prbar/"])).isEmpty)
         },
+        TestCase("remote workspaces: la review de un PR usa work/<repo>-<N>-review y la reusa en el head nuevo") {
+            let repo = try TempGitRepo.make()
+            defer { repo.remove() }
+            let (ssh, host, info, root) = try await verifiedFake()
+            defer { ssh.remove() }
+            let spaces = remoteWorkspaces(host, info, root, origin: repo.origin)
+            let gitHubRepo = RepoRef(owner: "o", name: "r")
+            let bare = try await spaces.mirror(gitHubRepo)
+            let first = try await spaces.prepareReview(repo: gitHubRepo, number: 7, baseRef: "main", localPath: bare)
+            try expectEqual(first.directory.path, try root.child(["work", "r-7-review"]))
+            try expectEqual(first.prRef, "refs/prbar/pr-7-review")
+            try expectEqual(first.headOid, repo.prSHA)
+            try Data("basura\n".utf8).write(to: first.directory.appendingPathComponent("suelto.txt"))
+            let second = try repo.advancePR { try Data("otra\n".utf8).write(to: $0.appendingPathComponent("second.txt")) }
+
+            let again = try await spaces.prepareReview(repo: gitHubRepo, number: 7, baseRef: "main", localPath: bare)
+            try expectEqual(again.directory, first.directory)
+            try expectEqual(again.headOid, second)
+            try expect(FileManager.default.fileExists(atPath: again.directory.appendingPathComponent("second.txt").path))
+            try expect(!FileManager.default.fileExists(atPath: again.directory.appendingPathComponent("suelto.txt").path))
+            try expectEqual(try FileManager.default.contentsOfDirectory(atPath: root.work), ["r-7-review"])
+            // Rota (sin worktree registrado): se recrea.
+            try TempGitRepo.run(URL(fileURLWithPath: bare), ["worktree", "remove", "--force", again.directory.path])
+            try FileManager.default.createDirectory(at: again.directory, withIntermediateDirectories: true)
+            let recreated = try await spaces.prepareReview(repo: gitHubRepo, number: 7, baseRef: "main", localPath: bare)
+            try expect(FileManager.default.fileExists(atPath: recreated.directory.appendingPathComponent("second.txt").path))
+            await spaces.cleanup(recreated, localPath: bare)
+            try expectEqual(try TempGitRepo.run(URL(fileURLWithPath: bare), ["for-each-ref", "refs/prbar/"]), "")
+        },
     ]
 }
 
