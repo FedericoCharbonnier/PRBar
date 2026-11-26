@@ -87,9 +87,15 @@ struct SnapshotReviewPipeline: ReviewPipelineRunning {
     let inProgress: Set<String>
 
     func run(_ request: ReviewRequest, onPhase: @escaping @MainActor @Sendable (ReviewPhase) -> Void) async throws -> ReviewDraft {
+        try await run(request, onPhase: onPhase, onActivity: { _ in })
+    }
+
+    func run(_ request: ReviewRequest, onPhase: @escaping @MainActor @Sendable (ReviewPhase) -> Void,
+             onActivity: @escaping JobActivitySink) async throws -> ReviewDraft {
         let prID = request.item.id
         await onPhase(.reviewing(agents: 3))
         if inProgress.contains(prID) {
+            onActivity(.claude("Reading src/shop/tax.py"))
             while true { try await Task.sleep(for: .seconds(3600)) }
         }
         guard let draft = drafts[prID] else { throw SnapshotFakes.refused }
@@ -125,8 +131,15 @@ struct SnapshotRespondPipeline: RespondPipelineRunning {
 
     func implement(draft: RespondDraft, selections: [String: RespondSelection],
                    onProgress: @escaping @MainActor @Sendable (Int, Int) -> Void) async throws -> RespondResult {
+        try await implement(draft: draft, selections: selections, onProgress: onProgress, onActivity: { _ in })
+    }
+
+    func implement(draft: RespondDraft, selections: [String: RespondSelection],
+                   onProgress: @escaping @MainActor @Sendable (Int, Int) -> Void,
+                   onActivity: @escaping JobActivitySink) async throws -> RespondResult {
         if holdsImplementation {
             await onProgress(1, 3)
+            onActivity(.claude("Editing src/reports/export.ts"))
             try await Task.sleep(for: .seconds(3600))
         }
         return draft.isCIFix ? (ciResult ?? result) : draft.isConflicts ? (conflictsResult ?? result) : result
