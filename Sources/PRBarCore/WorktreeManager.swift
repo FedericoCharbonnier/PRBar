@@ -402,9 +402,11 @@ public struct WorktreeManager: Sendable {
     }
 
     /// Nombres que crea `prepare`: `<repo>-<N>-<epoch>-<id>` o `<repo>-<N>-<epoch>-<id>-diff`, y sus carpetas
-    /// de contexto (`<nombre>.context`). También acepta los de versiones anteriores, sin `-<id>`.
+    /// de contexto (`<nombre>.context`), y la carpeta de review del PR (`<repo>-<N>-review`, spec RM.2).
+    /// También acepta los de versiones anteriores, sin `-<id>`.
     public static func isWorkspaceName(_ name: String) -> Bool {
         if isChatWorkspaceName(name) { return true }
+        if isReviewFolderName(name) { return true }
         if name.hasSuffix(".respond-context") { return isRespondContextName(name) }
         var base = Substring(name)
         if base.hasSuffix(".context") { base = base.dropLast(8) }
@@ -470,6 +472,11 @@ public struct WorktreeManager: Sendable {
     /// The two refs of a review folder `<repo>-<N>-<epoch>-<id>` (`refs/prbar/pr-<N>-<id>`, `refs/prbar/base-<N>-<id>`);
     /// none for any other name (diff-only, context, chat or without a run id).
     public static func reviewRefs(forWorkspaceName name: String) -> [String] {
+        if isReviewFolderName(name) {
+            guard !name.hasSuffix(".context"),
+                  let number = name.dropLast("-review".count).split(separator: "-").last.flatMap({ Int($0) }) else { return [] }
+            return [prRef(number, reviewRunID), baseRef(number, reviewRunID)]
+        }
         guard !isChatWorkspaceName(name), !name.hasSuffix(".context"), !name.hasSuffix("-diff"), isWorkspaceName(name) else { return [] }
         let parts = name.split(separator: "-", omittingEmptySubsequences: false)
         guard parts.count >= 4, let id = parts.last, isRunID(id), let number = Int(parts[parts.count - 3]) else { return [] }
@@ -478,6 +485,150 @@ public struct WorktreeManager: Sendable {
 
     static func prRef(_ number: Int, _ id: String) -> String { "\(refPrefix)pr-\(number)-\(id)" }
     static func baseRef(_ number: Int, _ id: String) -> String { "\(refPrefix)base-\(number)-\(id)" }
+
+    // MARK: - The PR's review folder (spec RM.2)
+
+    /// The run id of the PR's review folder: its refs are `refs/prbar/pr-<N>-review` and `refs/prbar/base-<N>-review`.
+    public static let reviewRunID = "review"
+
+    /// `<repo>-<N>-review`: the folder every review of the PR uses (spec RM.2).
+    public static func reviewFolderName(repo: RepoRef, number: Int) -> String {
+        "\(sanitize(repo.name))-\(number)-review"
+    }
+
+    /// `<repo>-<N>-review` or its `<…>.context`.
+    public static func isReviewFolderName(_ name: String) -> Bool {
+        var base = Substring(name)
+        if base.hasSuffix(".context") { base = base.dropLast(8) }
+        guard base.hasSuffix("-review") else { return false }
+        let rest = base.dropLast(7)   // "<repo>-<N>"
+        guard let dash = rest.lastIndex(of: "-"), dash > rest.startIndex else { return false }
+        let number = rest[rest.index(after: dash)...]
+        return !number.isEmpty && number.allSatisfy { $0.isASCII && $0.isNumber }
+    }
+
+    /// The workspace is the PR's review folder: not a diff-only one, nor a per-run one (the fallback of decision 1).
+    public static func isReviewFolder(_ workspace: ReviewWorkspace) -> Bool {
+        let name = workspace.directory.lastPathComponent
+        return !workspace.isDiffOnly && !name.hasSuffix(".context") && isReviewFolderName(name)
+    }
+
+    /// What `prepareReview` finds at the PR's folder.
+    public enum ReviewFolderState: Equatable, Sendable {
+        /// A worktree of this clone without nested `.git`: updated in place.
+        case valid
+        /// Not usable (why): removed and created again.
+        case invalid(String)
+        /// Someone else's (a worktree of another clone, or a whole repo): never touched (decision 1).
+        case foreign
+    }
+
+    /// The review's folder (spec RM.2): `<root>/<repo>-<N>-review`, the same for every review of the PR. The first time
+    /// it's created like `prepare`; later it's brought to the PR's current head in place (fetch to the PR's fixed refs,
+    /// `checkout --detach --force`, `clean -ffdx`, symlinks neutralized; `.context` starts empty). One that isn't a valid
+    /// worktree of this clone, or whose update fails, is removed and created again (logged); one of another clone is never
+    /// touched: this review uses a per-run folder (`prepare`). Without a clone: `prepare` (a `-diff` folder per run).
+    public func prepareReview(repo: RepoRef, number: Int, baseRef: String, localPath: String?) async throws -> ReviewWorkspace {
+        guard let localPath else {
+            return try await prepare(repo: repo, number: number, baseRef: baseRef, localPath: nil)
+        }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let directory = root.appendingPathComponent(Self.reviewFolderName(repo: repo, number: number), isDirectory: true)
+        let workspace = ReviewWorkspace(directory: directory, baseRef: Self.baseRef(number, Self.reviewRunID),
+                                        prRef: Self.prRef(number, Self.reviewRunID), isDiffOnly: false)
+        if FileManager.default.fileExists(atPath: directory.path) {
+            switch await reviewFolderState(directory, clone: localPath) {
+            case .valid:
+                do {
+                    return try await updateReviewFolder(workspace, number: number, baseRef: baseRef, localPath: localPath)
+                } catch {
+                    if error is CancellationError || Task.isCancelled { throw CancellationError() }
+                    AppLog.write("Review: couldn’t update \(directory.path) (\(error.localizedDescription)); creating it again.")
+                }
+            case .invalid(let why):
+                AppLog.write("Review: \(directory.path) \(why); creating it again.")
+            case .foreign:
+                AppLog.write("Review: \(directory.path) belongs to another clone; this review uses a folder of its own.")
+                return try await prepare(repo: repo, number: number, baseRef: baseRef, localPath: localPath)
+            }
+            let manager = self
+            await Task.detached { await manager.cleanup(workspace, localPath: localPath) }.value
+        }
+        return try await createReviewFolder(workspace, number: number, baseRef: baseRef, localPath: localPath)
+    }
+
+    /// Decision 2: valid = this clone's `git worktree list` has it and it has no nested `.git`. Not listed: its `.git`
+    /// file says whose it is (a gitdir that exists = another clone's).
+    public func reviewFolderState(_ directory: URL, clone: String) async -> ReviewFolderState {
+        let dotGit = directory.appendingPathComponent(".git")
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: dotGit.path, isDirectory: &isDirectory) else {
+            return .invalid("isn’t a git worktree")
+        }
+        // A `.git` folder: a whole repo someone put there, not one of PRBar's worktrees.
+        if isDirectory.boolValue { return .foreign }
+        if let list = await gitLogged(clone, ["worktree", "list", "--porcelain"]),
+           Self.worktreePaths(fromPorcelain: list).contains(where: { CanonicalPath.of($0) == CanonicalPath.of(directory.path) }) {
+            let nested = WorktreeIntegrity.nestedGitEntries(in: directory)
+            return nested.isEmpty ? .valid : .invalid("has nested .git entries (\(nested.prefix(3).joined(separator: ", ")))")
+        }
+        guard let text = try? String(contentsOf: dotGit, encoding: .utf8), text.hasPrefix("gitdir: ") else {
+            return .invalid("has a .git file git can’t read")
+        }
+        let gitdir = String(text.dropFirst("gitdir: ".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        return FileManager.default.fileExists(atPath: gitdir) ? .foreign : .invalid("is a worktree of a clone that’s gone")
+    }
+
+    private func createReviewFolder(_ workspace: ReviewWorkspace, number: Int, baseRef: String,
+                                    localPath: String) async throws -> ReviewWorkspace {
+        let directory = workspace.directory
+        WorkspaceRegistry.shared.insert(directory.path)
+        WorkspaceRegistry.shared.insert(directory.path + ".context")
+        do {
+            let sha = try await fetchReviewRefs(workspace, number: number, baseRef: baseRef, localPath: localPath)
+            try await git(localPath, ["worktree", "add", "--detach", directory.path, workspace.prRef ?? ""], timeout: Self.slowTimeout)
+            try await neutralizeSymlinks(in: directory)
+            return workspace.at(sha)
+        } catch {
+            // Like `prepare`: refs and a half-made worktree go, outside the (maybe cancelled) task.
+            let manager = self
+            await Task.detached { await manager.cleanup(workspace, localPath: localPath) }.value
+            throw error
+        }
+    }
+
+    private func updateReviewFolder(_ workspace: ReviewWorkspace, number: Int, baseRef: String,
+                                    localPath: String) async throws -> ReviewWorkspace {
+        let directory = workspace.directory
+        WorkspaceRegistry.shared.insert(directory.path)
+        WorkspaceRegistry.shared.insert(directory.path + ".context")
+        do {
+            if isDirectChildOfRoot(workspace.contextDirectory) { removeItem(workspace.contextDirectory) }
+            let sha = try await fetchReviewRefs(workspace, number: number, baseRef: baseRef, localPath: localPath)
+            try await git(directory.path, ["checkout", "--detach", "--force", workspace.prRef ?? ""], timeout: Self.slowTimeout)
+            try await git(directory.path, ["clean", "-ffdx"], timeout: Self.slowTimeout)
+            try await neutralizeSymlinks(in: directory)
+            return workspace.at(sha)
+        } catch {
+            WorkspaceRegistry.shared.remove(directory.path)
+            WorkspaceRegistry.shared.remove(directory.path + ".context")
+            throw error
+        }
+    }
+
+    /// Fetch of the PR's head and base to the folder's fixed refs; the commit really fetched (the review's `headOid`).
+    private func fetchReviewRefs(_ workspace: ReviewWorkspace, number: Int, baseRef: String, localPath: String) async throws -> String {
+        guard let prRef = workspace.prRef, let baseRefName = workspace.baseRef else {
+            throw PRBarError.invalidResponse("The PR's review folder has no refs")
+        }
+        try await git(localPath, ["fetch", "--no-write-fetch-head", "origin", "+pull/\(number)/head:\(prRef)", "+refs/heads/\(baseRef):\(baseRefName)"],
+                      timeout: Self.slowTimeout)
+        let output = try await git(localPath, ["rev-parse", "--verify", "--quiet", "\(prRef)^{commit}"])
+        guard let sha = CommitSHA.parse(output) else {
+            throw PRBarError.invalidResponse("git rev-parse \(prRef) returned \"\(output.prefix(80))\"")
+        }
+        return sha
+    }
 
     // MARK: - Git
 
@@ -524,5 +675,12 @@ public struct WorktreeManager: Sendable {
         } catch {
             AppLog.write("Worktree: couldn't delete \(url.path): \(error.localizedDescription)")
         }
+    }
+}
+
+extension ReviewWorkspace {
+    /// The same folder and refs at the commit that was fetched.
+    func at(_ headOid: String) -> ReviewWorkspace {
+        ReviewWorkspace(directory: directory, baseRef: baseRef, prRef: prRef, isDiffOnly: isDiffOnly, headOid: headOid)
     }
 }

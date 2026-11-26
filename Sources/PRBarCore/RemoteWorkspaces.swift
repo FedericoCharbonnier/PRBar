@@ -201,6 +201,86 @@ public struct RemoteWorkspaces: Sendable {
         try? await host.removeTree(workspace.contextDirectory.path, root: root)
     }
 
+    // MARK: The PR's review folder (spec RM.2)
+
+    /// `WorktreeManager.prepareReview` on the host: `<root>/work/<repo>-<N>-review` in PRBar's mirror, created once and
+    /// then updated in place; invalid or failing → removed and created again; another mirror's → a per-run folder.
+    public func prepareReview(repo: RepoRef, number: Int, baseRef: String, localPath: String?) async throws -> ReviewWorkspace {
+        guard let bare = localPath, root.contains(bare) else { throw RemoteRunnerError.outsideRoot(localPath ?? "") }
+        let directory = try root.child(["work", WorktreeManager.reviewFolderName(repo: repo, number: number)])
+        let workspace = ReviewWorkspace(directory: URL(fileURLWithPath: directory, isDirectory: true),
+                                        baseRef: WorktreeManager.baseRef(number, WorktreeManager.reviewRunID),
+                                        prRef: WorktreeManager.prRef(number, WorktreeManager.reviewRunID), isDiffOnly: false)
+        let spaces = self
+        if await contextFiles.exists(directory) {
+            switch await reviewFolderState(directory, bare: bare) {
+            case .valid:
+                do {
+                    return try await updateReviewFolder(workspace, repo: repo, number: number, baseRef: baseRef, bare: bare)
+                } catch {
+                    if error is CancellationError || Task.isCancelled { throw CancellationError() }
+                    AppLog.write("Remote (\(host.name)): couldn’t update \(directory) (\(error.localizedDescription)); creating it again.")
+                }
+            case .invalid(let why):
+                AppLog.write("Remote (\(host.name)): \(directory) \(why); creating it again.")
+            case .foreign:
+                AppLog.write("Remote (\(host.name)): \(directory) belongs to another mirror; this review uses a folder of its own.")
+                return try await prepare(repo: repo, number: number, baseRef: baseRef, localPath: bare, name: nil, pinnedHeadOid: nil)
+            }
+            await Task.detached { await spaces.cleanup(workspace, localPath: bare) }.value
+        }
+        do {
+            let sha = try await fetchReviewRefs(workspace, repo: repo, number: number, baseRef: baseRef, bare: bare)
+            try await git(bare, ["worktree", "add", "--detach", directory, workspace.prRef ?? ""])
+            try await neutralizeReviewSymlinks(directory)
+            return workspace.at(sha)
+        } catch {
+            await Task.detached { await spaces.cleanup(workspace, localPath: bare) }.value
+            throw error
+        }
+    }
+
+    func reviewFolderState(_ directory: String, bare: String) async -> WorktreeManager.ReviewFolderState {
+        if let list = await gitLogged(bare, ["worktree", "list", "--porcelain"]),
+           WorktreeManager.worktreePaths(fromPorcelain: list).contains(directory) {
+            guard let nested = try? await fs.nestedGits(directory) else { return .invalid("couldn’t be checked") }
+            return nested.isEmpty ? .valid : .invalid("has nested .git entries")
+        }
+        guard let text = try? await fs.readText(directory + "/.git", limit: 4096), text.hasPrefix("gitdir: ") else {
+            return .invalid("isn’t a git worktree")
+        }
+        let gitdir = String(text.dropFirst("gitdir: ".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        return await contextFiles.exists(gitdir) ? .foreign : .invalid("is a worktree of a mirror that’s gone")
+    }
+
+    private func updateReviewFolder(_ workspace: ReviewWorkspace, repo: RepoRef, number: Int, baseRef: String,
+                                    bare: String) async throws -> ReviewWorkspace {
+        let directory = workspace.directory.path
+        try? await host.removeTree(workspace.contextDirectory.path, root: root)
+        let sha = try await fetchReviewRefs(workspace, repo: repo, number: number, baseRef: baseRef, bare: bare)
+        try await git(directory, ["checkout", "--detach", "--force", workspace.prRef ?? ""])
+        try await git(directory, ["clean", "-ffdx"])
+        try await neutralizeReviewSymlinks(directory)
+        return workspace.at(sha)
+    }
+
+    private func fetchReviewRefs(_ workspace: ReviewWorkspace, repo: RepoRef, number: Int, baseRef: String,
+                                 bare: String) async throws -> String {
+        guard let prRef = workspace.prRef, let base = workspace.baseRef else {
+            throw RemoteRunnerError.malformedOutput(host: host.name, what: "review refs")
+        }
+        try await fetch(bare, repo: repo, ["+pull/\(number)/head:\(prRef)", "+refs/heads/\(baseRef):\(base)"])
+        guard let sha = CommitSHA.parse(try await git(bare, ["rev-parse", "--verify", "--quiet", "\(prRef)^{commit}"])) else {
+            throw RemoteRunnerError.malformedOutput(host: host.name, what: "commit id")
+        }
+        return sha
+    }
+
+    private func neutralizeReviewSymlinks(_ directory: String) async throws {
+        let listing = try await git(directory, ["ls-files", "-s", "-z"])
+        try await fs.neutralizeSymlinks(WorktreeManager.symlinkPaths(fromLsFiles: listing), in: directory)
+    }
+
     /// `WorktreeResolver.unpushedWork` on the host: `nil` if the worktree at `path` (inside the root) can go; otherwise why
     /// not (uncommitted changes, commits on no branch, remote, tag or `refs/prbar/*`, or git couldn't tell).
     public func unpushedWork(_ path: String) async -> String? {
