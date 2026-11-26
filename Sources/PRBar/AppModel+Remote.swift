@@ -65,6 +65,9 @@ extension AppModel {
             reviews.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
             respond.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
             merges.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
+            // El paso de cada trabajo (spec LP.5): vive en un feed aparte de las fases.
+            reviews.activityFeed.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
+            respond.activityFeed.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
         ]
         remoteObservers.append(Publishers.MergeMany(changes).sink { [weak service] in service?.stateChanged() })
         // Lo que ve Settings › iPhone.

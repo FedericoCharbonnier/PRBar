@@ -29,6 +29,7 @@ enum CIRender {
         var header = "\(info.pr) · Fix CI · \(info.runningTests ? "running tests" : info.phase)"
         if let detail = info.detail, info.phase != "failed" { header += " (\(detail))" }
         output.line(output.paint(header, .bold))
+        Render.now(info.activity, output)
         if info.phase == "failed", let detail = info.detail { output.line(output.paint(detail, .red)) }
         if let title = info.title { output.line(title) }
         var pairs: [(String, String)] = []

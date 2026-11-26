@@ -24,6 +24,9 @@ final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActi
     /// Lo que devuelven `reviewShow` y `respondShow` (las preguntas de publicar, pushear y responder lo miran antes).
     var reviewPhase: ReviewPhase?
     var respondPhase: RespondPhase?
+    /// El paso que devuelven `reviewShow` y `respondShow` (spec LP.5).
+    var reviewActivity: JobActivity?
+    var respondActivity: JobActivity?
     /// Lo que `mergePreview` dice que impide mergear (`MergePreviewInfo.problem`).
     var previewProblem: String?
     /// Si no es nil, merge, publicar el review y las llamadas a Slack tardan esto (cancelable, como `URLSession`).
@@ -87,7 +90,12 @@ final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActi
     func reviewStart(pr: String, wait: Bool, events: CommandEventSink) async throws -> ReviewInfo {
         try record("reviewStart \(pr) wait=\(wait)"); if wait { emit(events) }; return ReviewInfo(prID: pr, phase: nil)
     }
-    func reviewShow(pr: String) throws -> ReviewInfo { try record("reviewShow \(pr)"); return ReviewInfo(prID: pr, phase: reviewPhase) }
+    func reviewShow(pr: String) throws -> ReviewInfo {
+        try record("reviewShow \(pr)")
+        var info = ReviewInfo(prID: pr, phase: reviewPhase)
+        info.activity = reviewActivity
+        return info
+    }
     func reviewEdit(pr: String, finding: String, title: String?, body: String?) throws -> ReviewInfo {
         try record("reviewEdit \(pr) \(finding) title=\(title ?? "-") body=\(body ?? "-")"); return ReviewInfo(prID: pr, phase: nil)
     }
@@ -107,7 +115,9 @@ final class FakeActions: StatusActions, ReviewActions, RespondActions, MergeActi
 
     // MARK: RespondActions
     private func respondInfo(_ pr: String) -> RespondInfo {
-        RespondInfo(prID: pr, phase: respondPhase, record: nil, selections: [:], runningTests: false, testCommand: nil)
+        var info = RespondInfo(prID: pr, phase: respondPhase, record: nil, selections: [:], runningTests: false, testCommand: nil)
+        info.activity = respondActivity
+        return info
     }
     func respondStart(pr: String, wait: Bool, events: CommandEventSink) async throws -> RespondInfo {
         try record("respondStart \(pr) wait=\(wait)"); if wait { emit(events) }; return respondInfo(pr)

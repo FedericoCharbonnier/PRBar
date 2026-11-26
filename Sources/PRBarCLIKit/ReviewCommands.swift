@@ -16,6 +16,7 @@ enum ReviewRender {
         var header = "\(info.pr) · \(info.phase)"
         if let detail = info.detail, info.phase != "failed" { header += " (\(detail))" }
         output.line(output.paint(header, .bold))
+        Render.now(info.activity, output)
         if info.phase == "failed", let detail = info.detail { output.line(output.paint(detail, .red)) }
         if let log = info.logPath { output.line("Log: \(log)") }
         if let url = info.reviewURL { output.line("Posted: \(url.absoluteString)") }
