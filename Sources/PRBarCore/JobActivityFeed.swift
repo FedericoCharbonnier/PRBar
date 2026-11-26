@@ -1,8 +1,8 @@
 import Combine
 import Foundation
 
-/// Spec LP.2: at most one change every `interval` per PR, the last one wins; a PRBar step is shown at once (and is never
-/// lost to a Claude step that comes right after it). Pure: the caller passes the clock.
+/// Spec LP.2: at most one change every `interval` per PR, the last one wins; a PRBar step is published at once (and is
+/// never lost to a Claude step that comes right after it; SwiftUI may still coalesce two publications into one redraw). Pure: the caller passes the clock.
 public struct ActivityThrottle: Sendable {
     public static let defaultInterval: TimeInterval = 0.5
 
@@ -43,6 +43,12 @@ public struct ActivityThrottle: Sendable {
         return .hold(until: lastChange.addingTimeInterval(interval))
     }
 
+    /// When the pending step is due (nil without one): `lastChange + interval`.
+    public var pendingDue: Date? {
+        guard pending != nil, let lastChange else { return nil }
+        return lastChange.addingTimeInterval(interval)
+    }
+
     /// The pending step once its time came (it becomes the one shown); nil if there's none or it's still early.
     public mutating func due(now: Date) -> JobActivity? {
         guard let next = pending, let lastChange, now >= lastChange.addingTimeInterval(interval) else { return nil }
@@ -63,11 +69,12 @@ public final class JobActivityFeed: ObservableObject {
     private let interval: TimeInterval
     private let now: @Sendable () -> Date
     private var throttles: [String: ActivityThrottle] = [:]
-    private var timers: [String: Task<Void, Never>] = [:]
+    /// At most one per PR, armed for its pending step's due time.
+    private var timers: [String: (due: Date, task: Task<Void, Never>)] = [:]
     /// Goes up with each `clear`: what an older job's sink sends is ignored.
     private var generations: [String: Int] = [:]
     /// The current job's inbox of each PR: `clear` delivers what it still has first (a job that ends right after a
-    /// PRBar step still showed it once).
+    /// PRBar step still publishes it once; a view may coalesce that with the clear).
     private var inboxes: [String: ActivityInbox] = [:]
 
     public init(interval: TimeInterval = ActivityThrottle.defaultInterval, now: @escaping @Sendable () -> Date = { Date() }) {
@@ -91,7 +98,7 @@ public final class JobActivityFeed: ObservableObject {
         inboxes.removeValue(forKey: prID)?.drainNow()
         generations[prID, default: 0] += 1
         throttles[prID] = nil
-        timers.removeValue(forKey: prID)?.cancel()
+        timers.removeValue(forKey: prID)?.task.cancel()
         if current[prID] != nil { current[prID] = nil }
     }
 
@@ -106,6 +113,8 @@ public final class JobActivityFeed: ObservableObject {
             switch throttle.offer(activity, now: now()) {
             case .show(let shown):
                 current[prID] = shown
+                // What was pending is older news now: its timer has nothing to show.
+                timers.removeValue(forKey: prID)?.task.cancel()
             case .hold(let until):
                 schedule(prID, at: until, generation: generation)
             case .ignore:
@@ -115,21 +124,25 @@ public final class JobActivityFeed: ObservableObject {
         }
     }
 
-    /// One timer per PR: when it fires it shows what's pending then (the last one).
+    /// One timer per PR, for the pending step's due time: when it fires it shows what's pending then (the last one).
+    /// If the due time moved, it's re-armed for the new one; if it fired early, for the same one (not a whole
+    /// `interval` later).
     private func schedule(_ prID: String, at date: Date, generation: Int) {
-        guard timers[prID] == nil else { return }
+        if let timer = timers[prID] {
+            guard timer.due != date else { return }
+            timer.task.cancel()
+        }
         let delay = max(0, date.timeIntervalSince(now()))
-        timers[prID] = Task { [weak self] in
+        let task = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(Int(delay * 1000) + 1))
             guard !Task.isCancelled, let self else { return }
             self.timers[prID] = nil
             guard self.generations[prID, default: 0] == generation, var throttle = self.throttles[prID] else { return }
             if let next = throttle.due(now: self.now()) { self.current[prID] = next }
             self.throttles[prID] = throttle
-            if let still = throttle.pending, still != self.current[prID] {
-                self.schedule(prID, at: self.now().addingTimeInterval(self.interval), generation: generation)
-            }
+            if let due = throttle.pendingDue { self.schedule(prID, at: due, generation: generation) }
         }
+        timers[prID] = (date, task)
     }
 }
 

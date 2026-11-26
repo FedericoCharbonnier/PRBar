@@ -61,15 +61,21 @@ enum LiveProgressTests {
             func at(_ seconds: TimeInterval) -> Date { progressT0.addingTimeInterval(seconds) }
             var throttle = ActivityThrottle()
             try expectEqual(throttle.offer(claude("A"), now: at(0)), .show(claude("A")))
+            try expectEqual(throttle.pendingDue, nil)
             try expectEqual(throttle.offer(claude("B"), now: at(0.1)), .hold(until: at(0.5)))
             try expectEqual(throttle.offer(claude("C"), now: at(0.2)), .hold(until: at(0.5)))
+            try expectEqual(throttle.pendingDue, at(0.5))
             try expectEqual(throttle.due(now: at(0.4)), nil)
             try expectEqual(throttle.due(now: at(0.5)), claude("C"))   // B never showed: the last one wins
             try expectEqual(throttle.due(now: at(0.6)), nil)
             // A PRBar step doesn't wait, and drops the Claude step that was waiting.
             try expectEqual(throttle.offer(claude("D"), now: at(0.7)), .hold(until: at(1.0)))
             try expectEqual(throttle.offer(prbar("Committing…"), now: at(0.75)), .show(prbar("Committing…")))
+            try expectEqual(throttle.pendingDue, nil)
             try expectEqual(throttle.due(now: at(2)), nil)
+            // The hold time moves with the last change.
+            try expectEqual(throttle.offer(claude("D2"), now: at(0.755)), .hold(until: at(1.25)))
+            try expectEqual(throttle.pendingDue, at(1.25))
             try expectEqual(throttle.offer(prbar("Pushing…"), now: at(0.76)), .show(prbar("Pushing…")))
             // The same step as the one shown: ignored, it keeps its startedAt.
             try expectEqual(throttle.offer(JobActivity(kind: .prbar, text: "Pushing…", startedAt: at(0.8)), now: at(0.8)), .ignore)
@@ -119,6 +125,22 @@ enum LiveProgressTests {
             sink(.prbar("Pushing…"))
             feed.clear(prID: "o/r#1")
             try expectEqual(Array(seen.suffix(2)), ["Pushing…", "-"])
+        },
+        TestCase("progreso feed: un timer que despierta antes de tiempo se re-arma para la hora debida, no un intervalo después") { @MainActor in
+            let clock = RemoteTestClock(progressT0)
+            let feed = JobActivityFeed(interval: 0.3, now: clock.function)
+            let sink = feed.sink(prID: "o/r#1")
+            sink(.claude("Reading a.swift"))
+            sink(.claude("Reading b.swift"))   // held until t0 + 0.3: a timer of 0.3 s
+            try await waitUntil { feed.current["o/r#1"]?.text == "Reading a.swift" }
+            // The clock runs behind the timer: when it fires (0.3 s) the clock says t0 + 0.25, still early.
+            clock.advance(0.25)
+            try await Task.sleep(for: .milliseconds(350))
+            try expectEqual(feed.current["o/r#1"]?.text, "Reading a.swift")
+            // Now it's due: re-armed for t0 + 0.3 (not another 0.3 s later), it shows within a few ms.
+            clock.advance(0.06)
+            try await waitUntil(timeout: 0.12) { feed.current["o/r#1"]?.text == "Reading b.swift" }
+            feed.clearAll()
         },
         TestCase("progreso claude: cada herramienta, rutas relativas, archivos de contexto por su rol, afuera solo el nombre") {
             let folders = ClaudeActivityText.Folders(working: URL(fileURLWithPath: "/tmp/wt/r-7-review"),
