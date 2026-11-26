@@ -299,6 +299,54 @@ enum RemoteWorkspacesTests {
             await spaces.cleanup(recreated, localPath: bare)
             try expectEqual(try TempGitRepo.run(URL(fileURLWithPath: bare), ["for-each-ref", "refs/prbar/"]), "")
         },
+        TestCase("remote workspaces: la carpeta del PR ajena (symlink, repo entero, gitdir de otro lado) o con Claude corriendo no se toca") {
+            let repo = try TempGitRepo.make()
+            defer { repo.remove() }
+            let (ssh, host, info, root) = try await verifiedFake()
+            defer { ssh.remove() }
+            let spaces = remoteWorkspaces(host, info, root, origin: repo.origin)
+            let gitHubRepo = RepoRef(owner: "o", name: "r")
+            let bare = try await spaces.mirror(gitHubRepo)
+            let folder = URL(fileURLWithPath: try root.child(["work", "r-7-review"]), isDirectory: true)
+            try FileManager.default.createDirectory(at: folder.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let fresh = { () async throws -> ReviewWorkspace in
+                let ws = try await spaces.prepareReview(repo: gitHubRepo, number: 7, baseRef: "main", localPath: bare)
+                try expect(ws.directory != folder, ws.directory.path)
+                await spaces.cleanup(ws, localPath: bare)
+                return ws
+            }
+            // Un symlink a una carpeta de afuera.
+            let target = ssh.base.appendingPathComponent("mía", isDirectory: true)
+            try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+            try Data("x".utf8).write(to: target.appendingPathComponent("dato.txt"))
+            try FileManager.default.createSymbolicLink(at: folder, withDestinationURL: target)
+            _ = try await fresh()
+            try expect(FileManager.default.fileExists(atPath: target.appendingPathComponent("dato.txt").path))
+            try FileManager.default.removeItem(at: folder)
+            // Un repo entero (.git carpeta).
+            try FileManager.default.createDirectory(at: folder.appendingPathComponent(".git"), withIntermediateDirectories: true)
+            try Data("x".utf8).write(to: folder.appendingPathComponent("dato.txt"))
+            _ = try await fresh()
+            try expect(FileManager.default.fileExists(atPath: folder.appendingPathComponent("dato.txt").path))
+            try FileManager.default.removeItem(at: folder.appendingPathComponent(".git"))
+            // Un .git cuyo gitdir (relativo, o de un mirror que no está) no es de este mirror.
+            for gitdir in ["../../repos/x/y.git/worktrees/r-7-review", "/no/existe/y.git/worktrees/r-7-review"] {
+                try Data("gitdir: \(gitdir)\n".utf8).write(to: folder.appendingPathComponent(".git"))
+                let state = await spaces.reviewFolderState(folder.path, bare: bare)
+                try expectEqual(state, .foreign)
+                _ = try await fresh()
+                try expect(FileManager.default.fileExists(atPath: folder.appendingPathComponent("dato.txt").path))
+            }
+            try FileManager.default.removeItem(at: folder)
+            // La carpeta del PR de verdad, con Claude quizás corriendo todavía.
+            let first = try await spaces.prepareReview(repo: gitHubRepo, number: 7, baseRef: "main", localPath: bare)
+            try expectEqual(first.directory.path, folder.path)
+            RemoteUnstoppedJobs.shared.insert(host: host.name, path: folder.path)
+            try repo.advancePR { try Data("otra\n".utf8).write(to: $0.appendingPathComponent("second.txt")) }
+            _ = try await fresh()
+            try expect(!FileManager.default.fileExists(atPath: folder.appendingPathComponent("second.txt").path))
+            try expectEqual(try TempGitRepo.run(folder, ["rev-parse", "HEAD"]).trimmingCharacters(in: .whitespacesAndNewlines), repo.prSHA)
+        },
     ]
 }
 

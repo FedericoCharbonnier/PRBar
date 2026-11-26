@@ -598,13 +598,57 @@ enum WorktreeTests {
             try expect(exists(ws.directory.appendingPathComponent("feature.txt")))
             try expectEqual(try repo.worktreeNames().sorted(), ["local", "r-7-review"])
         },
+        TestCase("worktree (git real): la carpeta del PR que es un symlink o cuyo .git apunta fuera de este clone no se toca") {
+            let repo = try TempGitRepo.make()
+            defer { repo.remove() }
+            let m = WorktreeManager(runner: SystemProcessRunner(), gitPath: TempGitRepo.git, root: repo.root)
+            try FileManager.default.createDirectory(at: repo.root, withIntermediateDirectories: true)
+            let folder = repo.root.appendingPathComponent("r-7-review", isDirectory: true)
+            // Un symlink a una carpeta del usuario.
+            let target = repo.base.appendingPathComponent("mía", isDirectory: true)
+            try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+            try Data("x".utf8).write(to: target.appendingPathComponent("dato.txt"))
+            try FileManager.default.createSymbolicLink(at: folder, withDestinationURL: target)
+            let viaLink = try await m.prepareReview(repo: prRepoRef, number: 7, baseRef: "main", localPath: repo.local.path)
+            try expect(viaLink.directory != folder, viaLink.directory.path)
+            try expect(exists(target.appendingPathComponent("dato.txt")))
+            try expectEqual(try FileManager.default.destinationOfSymbolicLink(atPath: folder.path), target.path)
+            await m.cleanup(viaLink, localPath: repo.local.path)
+            try FileManager.default.removeItem(at: folder)
+
+            // Un .git con un gitdir relativo a otro clone (existe, pero no es de este) y uno a un clone que ya no está.
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try Data("x".utf8).write(to: folder.appendingPathComponent("dato.txt"))
+            let otherAdmin = repo.base.appendingPathComponent("otro/.git/worktrees/r-7-review", isDirectory: true)
+            try FileManager.default.createDirectory(at: otherAdmin, withIntermediateDirectories: true)
+            for gitdir in ["../../otro/.git/worktrees/r-7-review", "/no/existe/.git/worktrees/r-7-review"] {
+                try Data("gitdir: \(gitdir)\n".utf8).write(to: folder.appendingPathComponent(".git"))
+                let state = await m.reviewFolderState(folder, clone: repo.local.path)
+                try expectEqual(state, .foreign)
+                let fallback = try await m.prepareReview(repo: prRepoRef, number: 7, baseRef: "main", localPath: repo.local.path)
+                try expect(fallback.directory != folder, fallback.directory.path)
+                try expect(exists(folder.appendingPathComponent("dato.txt")))
+                await m.cleanup(fallback, localPath: repo.local.path)
+            }
+        },
+        TestCase("worktree (git real): un gitdir relativo a este clone vale") {
+            let repo = try TempGitRepo.make()
+            defer { repo.remove() }
+            let m = WorktreeManager(runner: SystemProcessRunner(), gitPath: TempGitRepo.git, root: repo.root)
+            let first = try await m.prepareReview(repo: prRepoRef, number: 7, baseRef: "main", localPath: repo.local.path)
+            try Data("gitdir: ../../local/.git/worktrees/r-7-review\n".utf8).write(to: first.directory.appendingPathComponent(".git"))
+            let state = await m.reviewFolderState(first.directory, clone: repo.local.path)
+            try expectEqual(state, .valid)
+        },
         TestCase("worktree: si actualizar la carpeta del PR falla, la borra y la crea de cero") {
             let root = try temporaryDirectory()
             defer { try? FileManager.default.removeItem(at: root) }
             let dir = root.appendingPathComponent("r-42-review", isDirectory: true)
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             try Data("gitdir: /repos/r/.git/worktrees/r-42-review\n".utf8).write(to: dir.appendingPathComponent(".git"))
-            let runner = gitFake { _, args in
+            let runner = FakeProcessRunner { _, args in
+                if args.contains("--git-common-dir") { return ok("/repos/r/.git\n") }
+                if args.contains("rev-parse") { return ok(fetchedSHA + "\n") }
                 if args.contains("list") { return ok("worktree /repos/r\n\nworktree \(dir.path)\n") }
                 if args.contains("checkout") { return fail("error: unable to unlink old 'x'", status: 1) }
                 if args.contains("rev-list") { return ok("0\n") }
@@ -614,7 +658,7 @@ enum WorktreeTests {
             try expectEqual(ws.directory, dir)
             try expectEqual(ws.headOid, fetchedSHA)
             let commands = try gitArgs(runner).map { $0.dropFirst(2).first ?? "" }
-            try expectEqual(commands, ["worktree", "ls-files", "status", "rev-list",          // estado y trabajo del usuario
+            try expectEqual(commands, ["rev-parse", "worktree", "ls-files", "status", "rev-list",  // estado y trabajo del usuario
                                        "fetch", "rev-parse", "checkout",                      // update, falla
                                        "worktree", "update-ref", "update-ref",               // cleanup
                                        "fetch", "rev-parse", "worktree", "ls-files"])        // de cero

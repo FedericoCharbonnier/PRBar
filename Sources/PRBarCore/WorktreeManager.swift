@@ -538,7 +538,7 @@ public struct WorktreeManager: Sendable {
         let directory = root.appendingPathComponent(Self.reviewFolderName(repo: repo, number: number), isDirectory: true)
         let workspace = ReviewWorkspace(directory: directory, baseRef: Self.baseRef(number, Self.reviewRunID),
                                         prRef: Self.prRef(number, Self.reviewRunID), isDiffOnly: false)
-        if FileManager.default.fileExists(atPath: directory.path) {
+        if CanonicalPath.exists(directory.path) {
             let state = await reviewFolderState(directory, clone: localPath)
             if state == .valid, let reason = await reviewFolderWork(directory.path) {
                 AppLog.write("Review: \(directory.path) \(reason); left as is, this review uses a folder of its own.")
@@ -598,26 +598,46 @@ public struct WorktreeManager: Sendable {
         }
     }
 
-    /// Decision 2: valid = this clone's `git worktree list` has it and it has no nested `.git`. Not listed: its `.git`
-    /// file says whose it is (a gitdir that exists = another clone's).
+    /// Decision 2: valid = a real folder (not a symlink) whose `.git` file points to an admin dir in this clone's
+    /// `<common-dir>/worktrees/`, listed by its `git worktree list` and without nested `.git`. A symlink, a `.git`
+    /// folder (a whole repo) or a gitdir anywhere else (another clone's, or one that's gone) is someone else's: foreign,
+    /// never touched. A relative gitdir is read from the folder, as git does.
     public func reviewFolderState(_ directory: URL, clone: String) async -> ReviewFolderState {
+        guard CanonicalPath.isDirectory(directory.path) else { return .foreign }
         let dotGit = directory.appendingPathComponent(".git")
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: dotGit.path, isDirectory: &isDirectory) else {
-            return .invalid("isn’t a git worktree")
+        var info = stat()
+        guard lstat(dotGit.path, &info) == 0 else { return .invalid("isn’t a git worktree") }
+        // A `.git` folder (a whole repo someone put there) or a link: not one of PRBar's worktrees.
+        guard info.st_mode & S_IFMT == S_IFREG else { return .foreign }
+        guard let text = try? String(contentsOf: dotGit, encoding: .utf8), text.hasPrefix("gitdir: ") else {
+            return .invalid("has a .git file git can’t read")
         }
-        // A `.git` folder: a whole repo someone put there, not one of PRBar's worktrees.
-        if isDirectory.boolValue { return .foreign }
+        let gitdir = Self.resolvedGitdir(text, in: directory.path)
+        guard let common = await gitLogged(clone, ["rev-parse", "--path-format=absolute", "--git-common-dir"])?
+            .trimmingCharacters(in: .newlines), !common.isEmpty else { return .foreign }
+        let admins = CanonicalPath.of((common as NSString).appendingPathComponent("worktrees"))
+        guard CanonicalPath.of((gitdir as NSString).deletingLastPathComponent) == admins else { return .foreign }
         if let list = await gitLogged(clone, ["worktree", "list", "--porcelain"]),
            Self.worktreePaths(fromPorcelain: list).contains(where: { CanonicalPath.of($0) == CanonicalPath.of(directory.path) }) {
             let nested = WorktreeIntegrity.nestedGitEntries(in: directory)
             return nested.isEmpty ? .valid : .invalid("has nested .git entries (\(nested.prefix(3).joined(separator: ", ")))")
         }
-        guard let text = try? String(contentsOf: dotGit, encoding: .utf8), text.hasPrefix("gitdir: ") else {
-            return .invalid("has a .git file git can’t read")
+        // This clone's admin dir, but git doesn't list the folder: a stale one goes; one that's there belongs to
+        // another folder.
+        return CanonicalPath.exists(gitdir) ? .foreign : .invalid("is a worktree this clone no longer knows")
+    }
+
+    /// The gitdir of a `.git` file (`gitdir: <path>`), absolute and standardized: a relative one is from `directory`.
+    static func resolvedGitdir(_ text: String, in directory: String) -> String {
+        let raw = String(text.dropFirst("gitdir: ".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        let absolute = raw.hasPrefix("/") ? raw : (directory as NSString).appendingPathComponent(raw)
+        var parts: [Substring] = []
+        for part in absolute.split(separator: "/") {
+            if part == "." { continue }
+            if part == ".." { _ = parts.popLast(); continue }
+            parts.append(part)
         }
-        let gitdir = String(text.dropFirst("gitdir: ".count)).trimmingCharacters(in: .whitespacesAndNewlines)
-        return FileManager.default.fileExists(atPath: gitdir) ? .foreign : .invalid("is a worktree of a clone that’s gone")
+        return "/" + parts.joined(separator: "/")
     }
 
     private func createReviewFolder(_ workspace: ReviewWorkspace, number: Int, baseRef: String,

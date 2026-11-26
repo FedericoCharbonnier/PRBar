@@ -213,7 +213,12 @@ public struct RemoteWorkspaces: Sendable {
                                         baseRef: WorktreeManager.baseRef(number, WorktreeManager.reviewRunID),
                                         prRef: WorktreeManager.prRef(number, WorktreeManager.reviewRunID), isDiffOnly: false)
         let spaces = self
-        if await contextFiles.exists(directory) {
+        // Claude may still be running in it (a Stop that couldn't be confirmed): not touched in this session.
+        if RemoteUnstoppedJobs.shared.contains(host: host.name, path: directory) {
+            AppLog.write("Remote (\(host.name)): Claude may still be running in \(directory); this review uses a folder of its own.")
+            return try await prepare(repo: repo, number: number, baseRef: baseRef, localPath: bare, name: nil, pinnedHeadOid: nil)
+        }
+        if await reviewFolderExists(directory) {
             let state = await reviewFolderState(directory, bare: bare)
             if state == .valid, let reason = await reviewFolderWork(directory) {
                 AppLog.write("Remote (\(host.name)): \(directory) \(reason); left as is, this review uses a folder of its own.")
@@ -248,17 +253,48 @@ public struct RemoteWorkspaces: Sendable {
         }
     }
 
-    func reviewFolderState(_ directory: String, bare: String) async -> WorktreeManager.ReviewFolderState {
+    /// `WorktreeManager.reviewFolderState` on the host: a real folder whose `.git` file points to an admin dir in this
+    /// mirror's `worktrees/`, listed and without nested `.git`. A symlink, a `.git` folder or a gitdir anywhere else is
+    /// foreign (never touched); so is a folder the host can't describe.
+    public func reviewFolderState(_ directory: String, bare: String) async -> WorktreeManager.ReviewFolderState {
+        let dotGit = directory + "/.git"
+        guard let kinds = try? await fs.describe([directory, dotGit]), kinds[directory]?.hasPrefix("dir:") == true else {
+            return .foreign
+        }
+        let kind = kinds[dotGit] ?? "none"
+        if kind == "none" { return .invalid("isn’t a git worktree") }
+        guard kind.hasPrefix("file:") else { return .foreign }
+        guard let text = try? await fs.readText(dotGit, limit: 4096), text.hasPrefix("gitdir: ") else {
+            return .invalid("has a .git file git can’t read")
+        }
+        let gitdir = WorktreeManager.resolvedGitdir(text, in: directory)
+        let parent = (gitdir as NSString).deletingLastPathComponent
+        let admins = bare + "/worktrees"
+        if parent != admins {
+            guard let real = await realDirectory(parent), real == (await realDirectory(admins)) else { return .foreign }
+        }
         if let list = await gitLogged(bare, ["worktree", "list", "--porcelain"]),
            WorktreeManager.worktreePaths(fromPorcelain: list).contains(directory) {
             guard let nested = try? await fs.nestedGits(directory) else { return .invalid("couldn’t be checked") }
             return nested.isEmpty ? .valid : .invalid("has nested .git entries")
         }
-        guard let text = try? await fs.readText(directory + "/.git", limit: 4096), text.hasPrefix("gitdir: ") else {
-            return .invalid("isn’t a git worktree")
+        return await contextFiles.exists(gitdir) ? .foreign : .invalid("is a worktree this mirror no longer knows")
+    }
+
+    /// Something is at `path` (`lstat`: a dangling symlink counts).
+    private func reviewFolderExists(_ path: String) async -> Bool {
+        guard let kinds = try? await fs.describe([path]) else { return await contextFiles.exists(path) }
+        return (kinds[path] ?? "none") != "none"
+    }
+
+    /// `pwd -P` of a folder on the host, or nil.
+    private func realDirectory(_ path: String) async -> String? {
+        guard let quoted = try? ShellQuote.posix(path),
+              let result = try? await host.runScript("cd -P -- \(quoted) 2>/dev/null && pwd -P", timeout: 30), result.status == 0 else {
+            return nil
         }
-        let gitdir = String(text.dropFirst("gitdir: ".count)).trimmingCharacters(in: .whitespacesAndNewlines)
-        return await contextFiles.exists(gitdir) ? .foreign : .invalid("is a worktree of a mirror that’s gone")
+        let real = result.stdout.trimmingCharacters(in: .newlines)
+        return real.isEmpty ? nil : real
     }
 
     /// The folder at the fetched head (`workspace.headOid`): checkout, clean, symlinks neutralized, `.context` empty.
