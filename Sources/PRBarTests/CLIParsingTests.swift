@@ -135,6 +135,15 @@ enum CLIParsingTests {
                 try expectEqual(try parsed(["review", "cancel", "api#1"]), .reviewCancel(pr: "api#1"))
                 try expectEqual(try parsed(["review", "dismiss", "api#1"]), .reviewDismiss(pr: "api#1"))
             },
+            TestCase("cli parse: review publish --recommended") {
+                let command = try PRBarCommand.parseAsRoot(["review", "publish", "api#1", "--recommended", "--yes"])
+                let remote = try expectSome(command as? any RemoteCommand)
+                // Sin resolver (lo hace `prepare` con `review show`) no manda nada.
+                try expect((try? remote.appCommand(confirmed: true)) == nil)
+                try expect(rejects(["review", "publish", "api#1", "--recommended", "--only", "1"]))
+                try expect(rejects(["review", "publish", "api#1", "--recommended", "--no-comments"]))
+                try expect(rejects(["review", "publish", "api#1", "--recommended", "--approve"]))
+            },
             TestCase("cli: pregunta de confirmación de la review") {
                 try expectEqual(ReviewQuestion.text(event: .approve, pr: "acme/api#1", account: "me", comments: 2, general: true),
                                 "Approve acme/api#1 as @me with 2 comments and a general comment?")
