@@ -61,13 +61,16 @@ struct PRListRow: View {
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
+                // Spec LP.5: what the running job is doing.
+                JobActivityRowLine(item: item, reviews: model.reviews, respond: model.respond)
                 HStack(spacing: 6) {
                     CIIcon(state: pr.ciState).font(.caption2.weight(.bold))
                     // Never squeezed (they wrapped digit by digit next to a wide pill with the chat open).
                     DiffStat(additions: pr.additions, deletions: pr.deletions)
                     Spacer(minLength: 6)
                     PRRowAccessory(item: item, model: model, reviews: model.reviews, respond: model.respond,
-                                   merges: model.merges)
+                                   merges: model.merges, reviewSteps: model.reviews.activityFeed,
+                                   respondSteps: model.respond.activityFeed)
                         .font(.subheadline.weight(.medium))
                         // In a tight row (the chat open) the pill's text truncates; the +/− stats don't.
                         .lineLimit(1)
@@ -127,7 +130,8 @@ struct PRListRow: View {
             parts.append(FeedbackLabel.text(for: ActionClassifier.newFeedback(pr, me: item.account)))
         }
         if model.isConflictsCandidate(item) { parts.append(MergePolicy.conflicts) }
-        return parts.joined(separator: ", ")
+        let step = model.reviews.activity[item.id]?.text ?? model.respond.activity[item.id]?.text
+        return parts.joined(separator: ", ") + (step.map { ", now: \($0)" } ?? "")
     }
 }
 

@@ -18,6 +18,8 @@ struct ReviewButton: View {
     /// Why a review can't start (an update is being installed); `nil` = it can.
     var unavailableReason: String? = nil
     let actions: ReviewButtonActions
+    /// The running review's step (spec LP.5), in the tooltip.
+    var activity: JobActivity? = nil
 
     var body: some View {
         content
@@ -38,15 +40,15 @@ struct ReviewButton: View {
                 Image(systemName: "pause.fill").font(.system(size: 9))
             }
         case .preparing?:
-            cancellable(label: "Preparing…", tooltip: "Preparing the worktree · click to cancel") {
+            cancellable(label: "Preparing…", tooltip: running("Preparing the worktree")) {
                 Image(systemName: "hourglass").font(.system(size: 10, weight: .semibold))
             }
         case .reviewing(let agents)?:
-            cancellable(label: "Reviewing…", tooltip: "\(agents) agent\(agents == 1 ? "" : "s") · click to cancel") {
+            cancellable(label: "Reviewing…", tooltip: running("\(agents) agent\(agents == 1 ? "" : "s")")) {
                 ProgressView().controlSize(.mini).frame(width: 10, height: 10)
             }
         case .filtering?:
-            cancellable(label: "Filtering…", tooltip: "Filtering the findings · click to cancel") {
+            cancellable(label: "Filtering…", tooltip: running("Filtering the findings")) {
                 Image(systemName: "line.3.horizontal.decrease").font(.system(size: 10, weight: .bold))
             }
         case .ready(let draft)?:
@@ -83,6 +85,11 @@ struct ReviewButton: View {
             .buttonStyle(.plain)
             .help("View the review on GitHub")
         }
+    }
+
+    /// The tooltip of a running phase with its step (spec LP.5): "2 agents · Reading src/a.swift · click to cancel".
+    private func running(_ base: String) -> String {
+        ([base] + [activity?.text].compactMap { $0 }).joined(separator: " · ") + " · click to cancel"
     }
 
     /// Fase activa: con hover dice "Cancel"; el clic pregunta antes de cancelar (`CancellablePill`).

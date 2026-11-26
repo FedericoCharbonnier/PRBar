@@ -23,6 +23,8 @@ struct RespondButton: View {
     let actions: RespondButtonActions
     /// A Fix CI (spec K) or a Resolve Conflicts (spec C): their own labels.
     var mode: RespondMode = .feedback
+    /// The running job's step (spec LP.5), in the tooltip.
+    var activity: JobActivity? = nil
     private var isCI: Bool { mode == .ciFix }
     private var isConflicts: Bool { mode == .conflicts }
 
@@ -47,9 +49,9 @@ struct RespondButton: View {
             }
         case .preparing?:
             cancellable(label: isCI ? "Reading CI…" : isConflicts ? "Merging…" : "Preparing…",
-                        tooltip: isCI ? "Reading the failing checks and preparing the worktree · click to cancel"
-                                      : isConflicts ? "Merging the base and preparing the worktree · click to cancel"
-                                      : "Preparing the worktree · click to cancel") {
+                        tooltip: running(isCI ? "Reading the failing checks and preparing the worktree"
+                                              : isConflicts ? "Merging the base and preparing the worktree"
+                                              : "Preparing the worktree")) {
                 Image(systemName: "hourglass").font(.system(size: 10, weight: .semibold))
             }
         case .analyzing(let agents)?:
@@ -58,9 +60,9 @@ struct RespondButton: View {
             }
         case .implementing(let done, let total)?:
             cancellable(label: isCI ? "Fixing CI…" : isConflicts ? "Resolving…" : "Implementing \(min(done + 1, max(total, 1)))/\(max(total, 1))…",
-                        tooltip: isCI ? "Claude is fixing the CI · click to cancel"
-                                      : isConflicts ? "Claude is resolving the conflicts · click to cancel"
-                                      : "Claude is implementing the fixes · click to cancel") {
+                        tooltip: running(isCI ? "Claude is fixing the CI"
+                                              : isConflicts ? "Claude is resolving the conflicts"
+                                              : "Claude is implementing the fixes")) {
                 ProgressView().controlSize(.mini).frame(width: 10, height: 10)
             }
         case .ready(let draft)?:
@@ -81,7 +83,7 @@ struct RespondButton: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .help("Open the window to see the tests")
+                .help("Open the window to see the tests" + (activity.map { " · \($0.text)" } ?? ""))
             } else {
                 openPill(label: isCI ? "CI fix ready to push" : isConflicts ? "Resolution ready to push" : "Ready to push",
                          icon: "arrow.up.circle.fill",
@@ -96,8 +98,9 @@ struct RespondButton: View {
                 }
             }
             .buttonStyle(.plain)
-            .help(isCI ? "Checking the CI again and pushing"
-                       : isConflicts ? "Checking the PR again and pushing" : "Pushing and posting the replies")
+            .help((isCI ? "Checking the CI again and pushing"
+                        : isConflicts ? "Checking the PR again and pushing" : "Pushing and posting the replies")
+                  + (activity.map { " · \($0.text)" } ?? ""))
         case .done?:
             openPill(label: isCI ? "CI fix pushed" : isConflicts ? "Conflicts resolved" : "Responded", icon: "checkmark.seal.fill",
                      tooltip: isCI || isConflicts ? "See what was pushed" : "See what was pushed and what was replied", done: true)
@@ -118,9 +121,12 @@ struct RespondButton: View {
     }
 
     private func analyzingTooltip(_ agents: Int) -> String {
-        agents == 0
-            ? "Claude is analyzing the comments · click to cancel"
-            : "\(agents) agent\(agents == 1 ? "" : "s") · click to cancel"
+        running(agents == 0 ? "Claude is analyzing the comments" : "\(agents) agent\(agents == 1 ? "" : "s")")
+    }
+
+    /// The tooltip of a running phase with its step (spec LP.5): "2 agents · Reading src/a.swift · click to cancel".
+    private func running(_ base: String) -> String {
+        ([base] + [activity?.text].compactMap { $0 }).joined(separator: " · ") + " · click to cancel"
     }
 
     /// Claude's result waiting for you: violet (green with a check read as "approved"). Done stays green.

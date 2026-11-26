@@ -19,6 +19,9 @@ struct PRRowAccessory: View {
     @ObservedObject var reviews: ReviewQueue
     @ObservedObject var respond: RespondQueue
     @ObservedObject var merges: MergeQueue
+    /// The running jobs' steps (spec LP.5), for the pills' tooltips.
+    @ObservedObject var reviewSteps: JobActivityFeed
+    @ObservedObject var respondSteps: JobActivityFeed
 
     var body: some View {
         let actions = model.rowActions(item)
@@ -27,7 +30,8 @@ struct PRRowAccessory: View {
                 phase: respond.phases[item.id], runningTests: respond.runningTests.contains(item.id),
                 unavailableReason: mode == .ciFix ? model.ciFixUnavailableReason(item) : model.conflictsUnavailableReason(item),
                 hasRecord: respond.records[item.id] != nil,
-                actions: mode == .ciFix ? actions.ciFix : actions.conflicts, mode: mode
+                actions: mode == .ciFix ? actions.ciFix : actions.conflicts, mode: mode,
+                activity: respondSteps.current[item.id]
             )
         } else {
             categoryAccessory(actions)
@@ -63,11 +67,12 @@ struct PRRowAccessory: View {
                 RespondButton(
                     phase: respond.phases[item.id], runningTests: respond.runningTests.contains(item.id),
                     unavailableReason: model.respondUnavailableReason(item), hasRecord: respond.records[item.id] != nil,
-                    actions: actions.respond
+                    actions: actions.respond, activity: respondSteps.current[item.id]
                 )
             }
         case .toReview, .updatedSinceMyReview:
-            ReviewButton(phase: reviews.phases[item.id], unavailableReason: model.jobsBlockedReason, actions: actions.review)
+            ReviewButton(phase: reviews.phases[item.id], unavailableReason: model.jobsBlockedReason, actions: actions.review,
+                         activity: reviewSteps.current[item.id])
         case .readyToMerge:
             // Con conflictos, Resolve Conflicts reemplaza al Merge deshabilitado (spec C.2).
             if offersConflicts {
