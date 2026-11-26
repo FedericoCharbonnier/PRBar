@@ -492,7 +492,7 @@ enum WorktreeTests {
             try expectEqual(try FileManager.default.contentsOfDirectory(atPath: root.path), [])
         },
         TestCase("worktree (git real): la review del PR crea <repo>-<N>-review y la siguiente la reusa en el head nuevo") {
-            let repo = try TempGitRepo.make()
+            let repo = try TempGitRepo.make(baseSetup: { try Data("*.log\n".utf8).write(to: $0.appendingPathComponent(".gitignore")) })
             defer { repo.remove() }
             let m = WorktreeManager(runner: SystemProcessRunner(), gitPath: TempGitRepo.git, root: repo.root)
             let first = try await m.prepareReview(repo: prRepoRef, number: 7, baseRef: "main", localPath: repo.local.path)
@@ -500,11 +500,10 @@ enum WorktreeTests {
             try expectEqual(first.prRef, "refs/prbar/pr-7-review")
             try expectEqual(first.baseRef, "refs/prbar/base-7-review")
             try expectEqual(first.headOid, repo.prSHA)
-            // Lo que dejó la review anterior (o una Terminal): contexto, un archivo suelto y un cambio sin commitear.
+            // Lo que dejó la review anterior (o un build en una Terminal): contexto y un archivo ignorado. No es trabajo.
             try FileManager.default.createDirectory(at: first.contextDirectory, withIntermediateDirectories: true)
             try Data("viejo".utf8).write(to: first.diffFile)
-            try Data("basura\n".utf8).write(to: first.directory.appendingPathComponent("suelto.txt"))
-            try Data("cambio local\n".utf8).write(to: first.directory.appendingPathComponent("feature.txt"))
+            try Data("build\n".utf8).write(to: first.directory.appendingPathComponent("build.log"))
             let second = try repo.advancePR { try Data("otra\n".utf8).write(to: $0.appendingPathComponent("second.txt")) }
 
             let again = try await m.prepareReview(repo: prRepoRef, number: 7, baseRef: "main", localPath: repo.local.path)
@@ -512,9 +511,66 @@ enum WorktreeTests {
             try expectEqual(again.headOid, second)
             try expectEqual(try TempGitRepo.run(again.directory, ["rev-parse", "HEAD"]).trimmingCharacters(in: .whitespacesAndNewlines), second)
             try expect(exists(again.directory.appendingPathComponent("second.txt")))
-            try expect(!exists(again.directory.appendingPathComponent("suelto.txt")))
-            try expectEqual(try String(contentsOf: again.directory.appendingPathComponent("feature.txt"), encoding: .utf8), "nuevo\n")
+            try expect(!exists(again.directory.appendingPathComponent("build.log")))
             try expect(!exists(first.contextDirectory))
+            try expectEqual(try repo.worktreeNames().sorted(), ["local", "r-7-review"])
+            try expectEqual(try repo.prbarRefs().sorted(), ["refs/prbar/base-7-review", "refs/prbar/pr-7-review"])
+        },
+        TestCase("worktree (git real): la carpeta del PR con trabajo del usuario no se toca; la review usa una carpeta propia") {
+            let repo = try TempGitRepo.make()
+            defer { repo.remove() }
+            let m = WorktreeManager(runner: SystemProcessRunner(), gitPath: TempGitRepo.git, root: repo.root)
+            let first = try await m.prepareReview(repo: prRepoRef, number: 7, baseRef: "main", localPath: repo.local.path)
+            // Un cambio sin commitear y un archivo nuevo (p. ej. escritos en una Terminal).
+            try Data("cambio local\n".utf8).write(to: first.directory.appendingPathComponent("feature.txt"))
+            try Data("mío\n".utf8).write(to: first.directory.appendingPathComponent("notas.txt"))
+            let second = try repo.advancePR { try Data("otra\n".utf8).write(to: $0.appendingPathComponent("second.txt")) }
+
+            let fallback = try await m.prepareReview(repo: prRepoRef, number: 7, baseRef: "main", localPath: repo.local.path)
+            try expect(fallback.directory != first.directory, fallback.directory.path)
+            try expect(!WorktreeManager.isReviewFolder(fallback))
+            try expectEqual(fallback.headOid, second)
+            try expectEqual(try String(contentsOf: first.directory.appendingPathComponent("feature.txt"), encoding: .utf8), "cambio local\n")
+            try expect(exists(first.directory.appendingPathComponent("notas.txt")))
+            try expectEqual(try TempGitRepo.run(first.directory, ["rev-parse", "HEAD"]).trimmingCharacters(in: .whitespacesAndNewlines), repo.prSHA)
+            await m.cleanup(fallback, localPath: repo.local.path)
+
+            // Un commit que no está en ninguna rama: tampoco.
+            try TempGitRepo.run(first.directory, ["add", "-A"])
+            try TempGitRepo.run(first.directory, ["commit", "-q", "-m", "mío"])
+            let again = try await m.prepareReview(repo: prRepoRef, number: 7, baseRef: "main", localPath: repo.local.path)
+            try expect(again.directory != first.directory, again.directory.path)
+            try expect(exists(first.directory.appendingPathComponent("notas.txt")))
+            await m.cleanup(again, localPath: repo.local.path)
+            try expectEqual(try repo.worktreeNames().sorted(), ["local", "r-7-review"])
+        },
+        TestCase("worktree (git real): los symlinks neutralizados no cuentan como trabajo: la carpeta del PR se reusa") {
+            let repo = try TempGitRepo.make(prSetup: {
+                try FileManager.default.createSymbolicLink(atPath: $0.appendingPathComponent("link").path, withDestinationPath: "README.md")
+            })
+            defer { repo.remove() }
+            let m = WorktreeManager(runner: SystemProcessRunner(), gitPath: TempGitRepo.git, root: repo.root)
+            let first = try await m.prepareReview(repo: prRepoRef, number: 7, baseRef: "main", localPath: repo.local.path)
+            try expectEqual(try String(contentsOf: first.directory.appendingPathComponent("link"), encoding: .utf8),
+                            WorktreeManager.symlinkPlaceholder(target: "README.md"))
+            let second = try repo.advancePR { try Data("otra\n".utf8).write(to: $0.appendingPathComponent("second.txt")) }
+            let again = try await m.prepareReview(repo: prRepoRef, number: 7, baseRef: "main", localPath: repo.local.path)
+            try expectEqual(again.directory, first.directory)
+            try expectEqual(again.headOid, second)
+        },
+        TestCase("worktree (git real): si el fetch falla, la carpeta del PR queda como estaba") {
+            let repo = try TempGitRepo.make()
+            defer { repo.remove() }
+            let m = WorktreeManager(runner: SystemProcessRunner(), gitPath: TempGitRepo.git, root: repo.root)
+            let first = try await m.prepareReview(repo: prRepoRef, number: 7, baseRef: "main", localPath: repo.local.path)
+            let away = repo.base.appendingPathComponent("origin-away")
+            try FileManager.default.moveItem(at: repo.origin, to: away)
+            do {
+                _ = try await m.prepareReview(repo: prRepoRef, number: 7, baseRef: "main", localPath: repo.local.path)
+                throw TestFailure(description: "el fetch tenía que fallar")
+            } catch is PRBarError {}
+            try FileManager.default.moveItem(at: away, to: repo.origin)
+            try expect(exists(first.directory.appendingPathComponent("feature.txt")))
             try expectEqual(try repo.worktreeNames().sorted(), ["local", "r-7-review"])
             try expectEqual(try repo.prbarRefs().sorted(), ["refs/prbar/base-7-review", "refs/prbar/pr-7-review"])
         },
@@ -551,13 +607,15 @@ enum WorktreeTests {
             let runner = gitFake { _, args in
                 if args.contains("list") { return ok("worktree /repos/r\n\nworktree \(dir.path)\n") }
                 if args.contains("checkout") { return fail("error: unable to unlink old 'x'", status: 1) }
+                if args.contains("rev-list") { return ok("0\n") }
                 return ok("")
             }
             let ws = try await manager(runner, root: root).prepareReview(repo: repo, number: 42, baseRef: "develop", localPath: "/repos/r")
             try expectEqual(ws.directory, dir)
             try expectEqual(ws.headOid, fetchedSHA)
             let commands = try gitArgs(runner).map { $0.dropFirst(2).first ?? "" }
-            try expectEqual(commands, ["worktree", "fetch", "rev-parse", "checkout",          // update, falla
+            try expectEqual(commands, ["worktree", "ls-files", "status", "rev-list",          // estado y trabajo del usuario
+                                       "fetch", "rev-parse", "checkout",                      // update, falla
                                        "worktree", "update-ref", "update-ref",               // cleanup
                                        "fetch", "rev-parse", "worktree", "ls-files"])        // de cero
         },

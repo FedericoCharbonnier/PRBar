@@ -264,15 +264,33 @@ enum RemoteWorkspacesTests {
             try expectEqual(first.directory.path, try root.child(["work", "r-7-review"]))
             try expectEqual(first.prRef, "refs/prbar/pr-7-review")
             try expectEqual(first.headOid, repo.prSHA)
-            try Data("basura\n".utf8).write(to: first.directory.appendingPathComponent("suelto.txt"))
             let second = try repo.advancePR { try Data("otra\n".utf8).write(to: $0.appendingPathComponent("second.txt")) }
 
             let again = try await spaces.prepareReview(repo: gitHubRepo, number: 7, baseRef: "main", localPath: bare)
             try expectEqual(again.directory, first.directory)
             try expectEqual(again.headOid, second)
             try expect(FileManager.default.fileExists(atPath: again.directory.appendingPathComponent("second.txt").path))
-            try expect(!FileManager.default.fileExists(atPath: again.directory.appendingPathComponent("suelto.txt").path))
             try expectEqual(try FileManager.default.contentsOfDirectory(atPath: root.work), ["r-7-review"])
+            // Con trabajo del usuario (un archivo nuevo) no se toca: la review usa una carpeta propia.
+            let mine = again.directory.appendingPathComponent("suelto.txt")
+            try Data("mío\n".utf8).write(to: mine)
+            let third = try repo.advancePR { try Data("tres\n".utf8).write(to: $0.appendingPathComponent("third.txt")) }
+            let fallback = try await spaces.prepareReview(repo: gitHubRepo, number: 7, baseRef: "main", localPath: bare)
+            try expect(fallback.directory != again.directory, fallback.directory.path)
+            try expectEqual(fallback.headOid, third)
+            try expect(FileManager.default.fileExists(atPath: mine.path))
+            try expect(!FileManager.default.fileExists(atPath: again.directory.appendingPathComponent("third.txt").path))
+            await spaces.cleanup(fallback, localPath: bare)
+            try FileManager.default.removeItem(at: mine)
+            // Un fetch que falla no la borra.
+            let away = repo.base.appendingPathComponent("origin-away")
+            try FileManager.default.moveItem(at: repo.origin, to: away)
+            do {
+                _ = try await spaces.prepareReview(repo: gitHubRepo, number: 7, baseRef: "main", localPath: bare)
+                throw TestFailure(description: "el fetch tenía que fallar")
+            } catch is RemoteRunnerError {}
+            try FileManager.default.moveItem(at: away, to: repo.origin)
+            try expect(FileManager.default.fileExists(atPath: again.directory.appendingPathComponent("second.txt").path))
             // Rota (sin worktree registrado): se recrea.
             try TempGitRepo.run(URL(fileURLWithPath: bare), ["worktree", "remove", "--force", again.directory.path])
             try FileManager.default.createDirectory(at: again.directory, withIntermediateDirectories: true)

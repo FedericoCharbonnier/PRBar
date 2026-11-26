@@ -32,6 +32,10 @@ ya resueltos, no darse cuenta de que algo quedó sin corregir, y la decisión de
   La carpeta `.context` se recrea vacía en cada review.
 - **Recreación:** si la carpeta no existe, no es un worktree válido de ese repo, o la actualización falla, se borra
   (`cleanup`) y se crea de cero. Se loguea el motivo. Nunca falla la review por esto.
+- **Trabajo del usuario:** antes de actualizarla o recrearla se mira `unpushedWork` (en un host, el equivalente allá);
+  si tiene cambios sin commitear o commits sin pushear (los symlinks que PRBar neutralizó no cuentan), no se toca: se
+  loguea y esa review usa una carpeta propia por corrida (`prepare`), como con la carpeta de otro clon. Un fetch que
+  falla tampoco la borra: el error sube y la carpeta queda como estaba.
 - **Modo solo diff** (sin clon local ni host): no hay worktree que reutilizar; la carpeta `-diff` sigue siendo por
   corrida. La memoria (RM.3) funciona igual, salvo `since-last-review.diff` (RM.3.2).
 - **Retención:** la carpeta queda registrada en `RetainedWorktrees` como `job: .review` de ese PR, siempre (no depende
