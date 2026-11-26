@@ -206,7 +206,8 @@ public struct RemoteWorkspaces: Sendable {
     /// `WorktreeManager.prepareReview` on the host: `<root>/work/<repo>-<N>-review` in PRBar's mirror, created once and
     /// then updated in place; a failed fetch leaves it as it is; invalid or a failing checkout → removed and created again;
     /// with the user's work or another mirror's → untouched, a per-run folder.
-    public func prepareReview(repo: RepoRef, number: Int, baseRef: String, localPath: String?) async throws -> ReviewWorkspace {
+    public func prepareReview(repo: RepoRef, number: Int, baseRef: String, localPath: String?,
+                              onStep: @Sendable (ReviewFolderStep) -> Void = { _ in }) async throws -> ReviewWorkspace {
         guard let bare = localPath, root.contains(bare) else { throw RemoteRunnerError.outsideRoot(localPath ?? "") }
         let directory = try root.child(["work", WorktreeManager.reviewFolderName(repo: repo, number: number)])
         let workspace = ReviewWorkspace(directory: URL(fileURLWithPath: directory, isDirectory: true),
@@ -216,16 +217,19 @@ public struct RemoteWorkspaces: Sendable {
         // Claude may still be running in it (a Stop that couldn't be confirmed): not touched in this session.
         if RemoteUnstoppedJobs.shared.contains(host: host.name, path: directory) {
             AppLog.write("Remote (\(host.name)): Claude may still be running in \(directory); this review uses a folder of its own.")
+            onStep(.temporary)
             return try await prepare(repo: repo, number: number, baseRef: baseRef, localPath: bare, name: nil, pinnedHeadOid: nil)
         }
         if await reviewFolderExists(directory) {
             let state = await reviewFolderState(directory, bare: bare)
             if state == .valid, let reason = await reviewFolderWork(directory) {
                 AppLog.write("Remote (\(host.name)): \(directory) \(reason); left as is, this review uses a folder of its own.")
+                onStep(.temporary)
                 return try await prepare(repo: repo, number: number, baseRef: baseRef, localPath: bare, name: nil, pinnedHeadOid: nil)
             }
             switch state {
             case .valid:
+                onStep(.updating)
                 // A fetch that fails says nothing about the folder: it stays as it is.
                 let sha = try await fetchReviewRefs(workspace, repo: repo, number: number, baseRef: baseRef, bare: bare)
                 do {
@@ -238,10 +242,12 @@ public struct RemoteWorkspaces: Sendable {
                 AppLog.write("Remote (\(host.name)): \(directory) \(why); creating it again.")
             case .foreign:
                 AppLog.write("Remote (\(host.name)): \(directory) belongs to another mirror; this review uses a folder of its own.")
+                onStep(.temporary)
                 return try await prepare(repo: repo, number: number, baseRef: baseRef, localPath: bare, name: nil, pinnedHeadOid: nil)
             }
             await Task.detached { await spaces.cleanup(workspace, localPath: bare) }.value
         }
+        onStep(.creating)
         do {
             let sha = try await fetchReviewRefs(workspace, repo: repo, number: number, baseRef: baseRef, bare: bare)
             try await git(bare, ["worktree", "add", "--detach", directory, workspace.prRef ?? ""])

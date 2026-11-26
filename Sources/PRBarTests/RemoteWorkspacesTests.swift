@@ -299,6 +299,19 @@ enum RemoteWorkspacesTests {
             await spaces.cleanup(recreated, localPath: bare)
             try expectEqual(try TempGitRepo.run(URL(fileURLWithPath: bare), ["for-each-ref", "refs/prbar/"]), "")
         },
+        TestCase("remote workspaces: prepareReview en el host dice si crea o actualiza la carpeta del PR") {
+            let repo = try TempGitRepo.make()
+            defer { repo.remove() }
+            let (ssh, host, info, root) = try await verifiedFake()
+            defer { ssh.remove() }
+            let spaces = remoteWorkspaces(host, info, root, origin: repo.origin)
+            let gitHubRepo = RepoRef(owner: "o", name: "r")
+            let bare = try await spaces.mirror(gitHubRepo)
+            let steps = Box<[ReviewFolderStep]>([])
+            _ = try await spaces.prepareReview(repo: gitHubRepo, number: 7, baseRef: "main", localPath: bare) { steps.value.append($0) }
+            _ = try await spaces.prepareReview(repo: gitHubRepo, number: 7, baseRef: "main", localPath: bare) { steps.value.append($0) }
+            try expectEqual(steps.value, [.creating, .updating])
+        },
         TestCase("remote workspaces: la carpeta del PR ajena (symlink, repo entero, gitdir de otro lado) o con Claude corriendo no se toca") {
             let repo = try TempGitRepo.make()
             defer { repo.remove() }
