@@ -106,6 +106,28 @@ enum RemoteFlowTests {
             let sent = ssh.invocations().flatMap { $0 }.joined()
             try expect(!sent.contains("tok-me"), "un token salió de la Mac")
         },
+        TestCase("remote flow: un review en el host dice ' on devbox' en los pasos que corren allá; los de GitHub no") {
+            let repo = try TempGitRepo.make()
+            defer { repo.remove() }
+            let ssh = try FakeSSH.make()
+            defer { ssh.remove() }
+            try ssh.installFakeClaude()
+            try stream(ssh, ["summary": "Fine", "findings": []])
+            let remote = try await placement(ssh, origin: repo.origin)
+            var settings = ClaudeSettings()
+            settings.filterEnabled = false
+            settings.reviewSkill = "review"
+            let pipeline = ReviewPipeline(processRunner: SystemProcessRunner(), streamingRunner: SystemProcessRunner(), tokens: FakeTokens(),
+                                          api: FakeAPI(), gitPath: "/usr/bin/git", ghPath: nil, claudePath: "/nonexistent/claude",
+                                          settings: settings, logURLProvider: { _ in ssh.base.appendingPathComponent("review.log") },
+                                          placement: remote)
+            let item = ClassifiedPR(pr: makePR(repo: RepoRef(owner: "o", name: "r"), number: 7, base: "main"), category: .toReview, account: "me")
+            let activities = Box<[JobActivity]>([])
+            _ = try await pipeline.run(ReviewRequest(item: item, localPath: nil, baseRef: "main"), onPhase: { _ in },
+                                       onActivity: { activities.value.append($0) })
+            try expectEqual(activities.value.filter { $0.kind == .prbar }.map(\.text),
+                            [JobStep.readingPR, "Creating the PR’s folder on devbox…", "Writing the context for Claude on devbox…"])
+        },
         TestCase("remote flow: Respond analiza e implementa en el host, el diff se calcula en la Mac y se pushea desde la Mac") {
             let repo = try TempGitRepo.make()
             defer { repo.remove() }

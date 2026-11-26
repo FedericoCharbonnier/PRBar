@@ -36,6 +36,8 @@ public final class ReviewQueue: ObservableObject {
         let draft = DraftSlot()
         jobs[prID] = jobID
         phases[prID] = .queued
+        // This run's steps; once the job ends or is cancelled, what it still sends is ignored (decision 5).
+        let steps = activityFeed.sink(prID: prID)
         scheduler.enqueue(prID, activity: .review(prID), onStart: { [weak self] in
             self?.phases[prID] = .preparing
         }, work: { [weak self] in
@@ -43,9 +45,9 @@ public final class ReviewQueue: ObservableObject {
                 // Claude's usage for the review goes in its draft (spec O.4.4).
                 let sink = ClaudeUsageSink()
                 var ran = try await sink.measure {
-                    try await pipeline.run(request) { [weak self] phase in
+                    try await pipeline.run(request, onPhase: { [weak self] phase in
                         self?.update(prID, job: jobID, phase: phase)
-                    }
+                    }, onActivity: steps)
                 }
                 if sink.total.runs > 0 { ran.usage = sink.total }
                 draft.value = ran
@@ -62,6 +64,7 @@ public final class ReviewQueue: ObservableObject {
     public func cancel(prID: String) {
         guard jobs.removeValue(forKey: prID) != nil else { return }
         phases[prID] = nil
+        activityFeed.clear(prID: prID)
         scheduler.cancel(prID)
     }
 
@@ -69,6 +72,7 @@ public final class ReviewQueue: ObservableObject {
     public func cancelAll() {
         for prID in jobs.keys { phases[prID] = nil }
         jobs.removeAll()
+        activityFeed.clearAll()
         scheduler.cancelAll()
     }
 
@@ -133,6 +137,8 @@ public final class ReviewQueue: ObservableObject {
         let prID = request.item.id
         guard isCurrent(prID, jobID) else { return }
         jobs[prID] = nil
+        // Spec LP.6: the step goes with the job (success, error or cancellation).
+        activityFeed.clear(prID: prID)
         switch result {
         case .success(let draft):
             phases[prID] = .ready(draft)

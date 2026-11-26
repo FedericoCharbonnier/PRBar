@@ -516,6 +516,33 @@ enum WorktreeTests {
             try expectEqual(try repo.worktreeNames().sorted(), ["local", "r-7-review"])
             try expectEqual(try repo.prbarRefs().sorted(), ["refs/prbar/base-7-review", "refs/prbar/pr-7-review"])
         },
+        TestCase("worktree (git real): prepareReview dice qué hace con la carpeta del PR: crear, actualizar o una temporal") {
+            let repo = try TempGitRepo.make()
+            defer { repo.remove() }
+            let m = WorktreeManager(runner: SystemProcessRunner(), gitPath: TempGitRepo.git, root: repo.root)
+            let steps = Box<[ReviewFolderStep]>([])
+            let first = try await m.prepareReview(repo: prRepoRef, number: 7, baseRef: "main", localPath: repo.local.path) {
+                steps.value.append($0)
+            }
+            try expectEqual(steps.value, [.creating])
+            steps.value = []
+            _ = try repo.advancePR { try Data("otra\n".utf8).write(to: $0.appendingPathComponent("second.txt")) }
+            _ = try await m.prepareReview(repo: prRepoRef, number: 7, baseRef: "main", localPath: repo.local.path) { steps.value.append($0) }
+            try expectEqual(steps.value, [.updating])
+            // With the user's work it isn't touched: a folder for this run only.
+            steps.value = []
+            try Data("mío\n".utf8).write(to: first.directory.appendingPathComponent("notas.txt"))
+            let fallback = try await m.prepareReview(repo: prRepoRef, number: 7, baseRef: "main", localPath: repo.local.path) {
+                steps.value.append($0)
+            }
+            try expectEqual(steps.value, [.temporary])
+            await m.cleanup(fallback, localPath: repo.local.path)
+            // Diff-only mode.
+            steps.value = []
+            let diffOnly = try await m.prepareReview(repo: prRepoRef, number: 7, baseRef: "main", localPath: nil) { steps.value.append($0) }
+            try expectEqual(steps.value, [.temporary])
+            await m.cleanup(diffOnly, localPath: nil)
+        },
         TestCase("worktree (git real): la carpeta del PR con trabajo del usuario no se toca; la review usa una carpeta propia") {
             let repo = try TempGitRepo.make()
             defer { repo.remove() }
