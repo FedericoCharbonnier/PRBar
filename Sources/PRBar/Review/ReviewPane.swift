@@ -138,6 +138,8 @@ private struct ReviewProgressView: View {
                     Text(text(now: context.date))
                         .font(.title3.weight(.semibold).monospacedDigit())
                 }
+                // Spec LP.5: the step the review is on, with its time.
+                JobActivityDetail(feed: model.reviews.activityFeed, prID: prID)
                 Button("Cancel") { model.cancelReview(prID: prID) }
                     .help("Stop the review (what Claude did so far is lost)")
                 Spacer()
