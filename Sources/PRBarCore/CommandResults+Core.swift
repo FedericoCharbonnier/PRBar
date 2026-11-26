@@ -264,6 +264,13 @@ extension PullRequest {
     }
 }
 
+extension PreviousCommentInfo {
+    public init(_ status: PreviousCommentStatus) {
+        self.init(id: status.id, location: status.location, text: status.text, status: status.status, note: status.note,
+                  github: status.github, outdated: status.outdated)
+    }
+}
+
 extension ReviewInfo {
     public init(prID: String, phase: ReviewPhase?, edits: ReviewEdits? = nil, outdated: Bool = false) {
         self.init(pr: prID, phase: phase?.cliName ?? "none", detail: phase?.cliDetail, outdated: outdated, findings: [])
@@ -282,6 +289,9 @@ extension ReviewInfo {
             findings = edits.items(of: draft).enumerated().map { FindingInfo(number: $0.offset + 1, item: $0.element, edits: edits) }
             generalComment = edits.generalComment.isEmpty ? nil : edits.generalComment
             usage = draft.totalUsage
+            previous = draft.previous.isEmpty ? nil : draft.previous.map(PreviousCommentInfo.init)
+            reviewedSince = draft.reviewedSince
+            recommendedAction = RecommendedAction.of(draft, edits: edits)
         default:
             break
         }

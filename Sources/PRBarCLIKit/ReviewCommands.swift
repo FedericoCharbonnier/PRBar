@@ -24,6 +24,22 @@ enum ReviewRender {
         if info.outdated { output.line(output.paint("The PR changed since the review: comments will go in the review body.", .yellow)) }
         if let usage = info.usage { output.line(output.paint("Claude: \(UsageFormat.summary(usage))", .dim)) }
         if let summary = info.summary, !summary.isEmpty { output.line(); output.line(summary) }
+        if let previous = info.previous, !previous.isEmpty {
+            output.line()
+            let fixed = previous.filter { $0.status == .fixed }.count
+            let since = info.reviewedSince.map { " at \($0.prefix(7))" } ?? ""
+            output.line(output.paint("Previous comments", .bold) + " · reviewed before\(since) · \(fixed) fixed · \(previous.count - fixed) pending")
+            output.table(["", "Status", "GitHub", "Location", "Note"], previous.map { comment in
+                [comment.id, comment.status.title, github(comment), comment.location, Render.truncate(comment.note, 60)]
+            })
+            if full {
+                for comment in previous {
+                    output.line()
+                    output.line(output.paint("\(comment.id) \(comment.location)", .bold))
+                    output.line(Render.indent(comment.text))
+                }
+            }
+        }
         output.line()
         let selected = info.findings.filter(\.included).count
         output.line("\(selected) of \(info.findings.count) selected · posting as @\(info.account ?? "?") in \(info.language ?? "English")")
@@ -41,6 +57,14 @@ enum ReviewRender {
             }
         }
         if let general = info.generalComment { output.line(); output.line("General comment: \(general)") }
+        if let recommended = info.recommendedAction {
+            output.line()
+            output.line("Recommended: \(recommended.event.title) — \(recommended.reason)")
+        }
+    }
+
+    static func github(_ comment: PreviousCommentInfo) -> String {
+        comment.github == .unknown ? "unknown" : comment.outdated ? "\(comment.github.rawValue), outdated" : comment.github.rawValue
     }
 }
 
@@ -169,26 +193,43 @@ struct ReviewComment: RemoteCommand {
 }
 
 enum PublishEvent: String, EnumerableFlag {
-    case comment, requestChanges, approve
+    case comment, requestChanges, approve, recommended
 
-    var event: ReviewEvent {
+    init(_ event: ReviewEvent) {
+        switch event {
+        case .comment: self = .comment
+        case .requestChanges: self = .requestChanges
+        case .approve: self = .approve
+        }
+    }
+
+    /// nil for `--recommended` until `ReviewPublish.prepare` resolves it.
+    var event: ReviewEvent? {
         switch self {
         case .comment: .comment
         case .requestChanges: .requestChanges
         case .approve: .approve
+        case .recommended: nil
         }
+    }
+
+    static func help(for value: PublishEvent) -> ArgumentHelp? {
+        value == .recommended ? "Use PRBar’s recommended decision for the current selection (see `prbar review show`)." : nil
     }
 }
 
 struct ReviewPublish: RemoteCommand {
     static let configuration = CommandConfiguration(
         commandName: "publish", abstract: "Post the review to GitHub.",
-        discussion: "In a terminal, without --only, you choose the comments in a list (space, e = edit in $EDITOR, ↩) and confirm. Without a terminal it needs --yes.")
+        discussion: "In a terminal, without --only, you choose the comments in a list (space, e = edit in $EDITOR, ↩) and confirm. Without a terminal it needs --yes. --recommended uses PRBar’s recommended decision for the current selection (no list).")
     @Argument(help: prHelp) var pr: String
     @Flag var event: PublishEvent
     @Option(help: "Post only these findings (numbers or ids, comma-separated) instead of the selection.") var only: String?
     @Flag(help: "Post only the verdict (Approve Without Comments).") var noComments = false
     @Flag(help: "Put every comment in the review body (if GitHub rejected the inline ones).") var allInBody = false
+    /// Set by `prepare` when it resolved `--recommended`: the list isn't shown (the recommendation is for the selection as
+    /// it is, decision 14).
+    @Flag(help: .private) var resolvedRecommendation = false
     @OptionGroup var global: GlobalOptions
 
     private var onlyList: [String]? {
@@ -196,8 +237,25 @@ struct ReviewPublish: RemoteCommand {
     }
 
     func validate() throws {
+        if event == .recommended && (only != nil || noComments) {
+            throw ValidationError("--recommended doesn’t go with --only or --no-comments: it uses the current selection.")
+        }
         if noComments && event != .approve { throw ValidationError("--no-comments only goes with --approve.") }
         if noComments && only != nil { throw ValidationError("--no-comments and --only don’t go together.") }
+    }
+
+    mutating func prepare(_ connection: AppConnection, _ output: Output) throws {
+        guard event == .recommended else { return }
+        let info: ReviewInfo = try connection.run(.reviewShow(pr: pr)).decode()
+        guard info.phase == "ready" else {
+            throw CommandFailure(.invalidState, "There’s no review ready to post for \(info.pr). Run `prbar review \(info.pr)` first.")
+        }
+        guard let recommended = info.recommendedAction else {
+            throw CommandFailure(.invalidState, "PRBar has no recommended decision for \(info.pr). Use --comment, --request-changes or --approve.")
+        }
+        event = PublishEvent(recommended.event)
+        resolvedRecommendation = true
+        if !output.json { output.line("Recommended: \(recommended.event.title) — \(recommended.reason)") }
     }
 
     func confirmation(_ connection: AppConnection, _ output: Output) throws -> String? {
@@ -205,7 +263,7 @@ struct ReviewPublish: RemoteCommand {
         guard info.phase == "ready" else {
             throw CommandFailure(.invalidState, "There’s no review ready to post for \(info.pr). Run `prbar review \(info.pr)` first.")
         }
-        if output.terminal.isInteractive, !output.json, only == nil, !noComments {
+        if output.terminal.isInteractive, !output.json, only == nil, !noComments, !resolvedRecommendation {
             guard let chosen = try ReviewPicker.run(info: info, connection: connection, output: output) else {
                 throw CommandFailure(.cancelled, "Canceled.")
             }
@@ -213,11 +271,15 @@ struct ReviewPublish: RemoteCommand {
         }
         let comments = noComments ? 0 : onlyList?.count ?? info.findings.filter(\.included).count
         let general = !noComments && !(info.generalComment ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        return ReviewQuestion.text(event: event.event, pr: info.pr, account: info.account ?? "?", comments: comments, general: general)
+        guard let chosen = event.event else { throw CommandFailure(.invalidUsage, "PRBar couldn’t resolve the recommended decision.") }
+        return ReviewQuestion.text(event: chosen, pr: info.pr, account: info.account ?? "?", comments: comments, general: general)
     }
 
-    func appCommand(confirmed: Bool) -> AppCommand {
-        .reviewPublish(pr: pr, event: event.event, only: onlyList, withComments: !noComments, allInBody: allInBody, confirmed: confirmed)
+    func appCommand(confirmed: Bool) throws -> AppCommand {
+        guard let chosen = event.event else {
+            throw CommandFailure(.invalidUsage, "PRBar couldn’t resolve the recommended decision.")
+        }
+        return .reviewPublish(pr: pr, event: chosen, only: onlyList, withComments: !noComments, allInBody: allInBody, confirmed: confirmed)
     }
 
     func render(_ result: JSONValue, _ output: Output) throws {

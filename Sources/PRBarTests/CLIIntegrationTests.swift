@@ -59,6 +59,9 @@ enum CLIIntegrationTests {
     static let cases: [TestCase] = [
         TestCase("integración: --json por el socket real") { try await jsonStatus() },
         TestCase("integración: publicar sin --yes y sin terminal → exit 4, sin llamar a la app") { try await needsYes() },
+        TestCase("integración: review show con anteriores y recomendación; publish --recommended la usa y sigue pidiendo --yes") {
+            try await recommended()
+        },
         TestCase("integración: con terminal pregunta; si dice que no → 130") { try await asks() },
         TestCase("integración: errores de la app → exit codes") { try await errors() },
         TestCase("integración: sin app → exit 3") { try await noApp() },
@@ -317,6 +320,31 @@ enum CLIIntegrationTests {
         let confirmed = try await runCLI(["review", "publish", "acme/api#1", "--approve", "--yes"], socket: harness.url)
         try expectEqual(confirmed.code, 0)
         try expect(harness.fake.calls.contains { $0.hasPrefix("reviewPublish acme/api#1 APPROVE") }, "\(harness.fake.calls)")
+    }
+
+    @MainActor
+    private static func recommended() async throws {
+        let harness = try Harness()
+        defer { harness.server.stop() }
+        var draft = editDraft()
+        draft.previous = [PreviousCommentStatus(id: "P1", recordID: UUID(), findingID: "f1", file: "src/a.ts", line: 3, text: "Validate it.",
+                                                github: .open, outdated: false, status: .notFixed, note: "Still there.")]
+        draft.reviewedSince = String(repeating: "a", count: 40)
+        harness.fake.reviewPhase = .ready(draft)
+        let show = try await runCLI(["review", "show", "acme/api#1", "--full"], socket: harness.url)
+        try expectEqual(show.code, 0)
+        try expect(show.out.contains("Previous comments"), show.out)
+        try expect(show.out.contains("reviewed before at aaaaaaa · 0 fixed · 1 pending"), show.out)
+        try expect(show.out.contains("Not fixed"), show.out)
+        try expect(show.out.contains("Validate it."), show.out)
+        try expect(show.out.contains("Recommended: Request Changes — 1 previous comment not fixed: src/a.ts:3; 2 new findings"), show.out)
+        let unconfirmed = try await runCLI(["review", "publish", "acme/api#1", "--recommended"], socket: harness.url)
+        try expectEqual(unconfirmed.code, 4)
+        try expect(!harness.fake.calls.contains { $0.hasPrefix("reviewPublish") }, "\(harness.fake.calls)")
+        let posted = try await runCLI(["review", "publish", "acme/api#1", "--recommended", "--yes"], socket: harness.url)
+        try expectEqual(posted.code, 0)
+        try expect(posted.out.contains("Recommended: Request Changes"), posted.out)
+        try expect(harness.fake.calls.contains { $0.hasPrefix("reviewPublish acme/api#1 REQUEST_CHANGES") }, "\(harness.fake.calls)")
     }
 
     @MainActor
