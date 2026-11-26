@@ -180,5 +180,37 @@ enum ReviewMemoryTests {
             let perRun = ReviewWorkspace(directory: URL(fileURLWithPath: "/wt/r-7-1700000000-0a0a0a0a"), baseRef: "b", isDiffOnly: false)
             try expect(WorktreeManager.isReviewFolder(perPR) && !WorktreeManager.isReviewFolder(perRun))
         },
+        TestCase("memoria: el draft guarda previous y reviewedSince; uno viejo decodifica sin ellos") {
+            let pr = makePR(number: 7)
+            var draft = ReviewDraft(prID: pr.id, repo: pr.repo, number: 7, title: "T", url: pr.url, author: "a", headOid: memorySHA2,
+                                    account: "me", summary: "s", items: [])
+            draft.previous = PreviousCommentValidation.apply([PreviousVerdict(id: "P1", status: .fixed, note: "Ok.")],
+                                                             to: sampleMemory().comments)
+            draft.reviewedSince = memorySHA1
+            let data = try JSONCoding.encoder.encode(draft)
+            let decoded = try JSONCoding.decoder.decode(ReviewDraft.self, from: data)
+            try expectEqual(decoded.previous, draft.previous)
+            try expectEqual(decoded.reviewedSince, memorySHA1)
+            var object = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+            object["previous"] = nil
+            object["reviewedSince"] = nil
+            let old = try JSONCoding.decoder.decode(ReviewDraft.self, from: JSONSerialization.data(withJSONObject: object))
+            try expectEqual(old.previous, [])
+            try expectEqual(old.reviewedSince, nil)
+        },
+        TestCase("carpeta del PR: la review siguiente del mismo PR espera a que la cancelada suelte la carpeta") {
+            let order = Box<[String]>([])
+            let first = await ReviewFolderLocks.shared.acquire("test|o/r#1")
+            let second = Task {
+                let release = await ReviewFolderLocks.shared.acquire("test|o/r#1")
+                order.value.append("second")
+                release()
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+            order.value.append("first done")
+            first()
+            await second.value
+            try expectEqual(order.value, ["first done", "second"])
+        },
     ]
 }

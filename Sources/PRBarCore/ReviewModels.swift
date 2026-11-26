@@ -140,6 +140,10 @@ public struct ReviewDraft: Codable, Equatable, Sendable, Identifiable {
     public var sessions: [ClaudeSessionRef] = []
     /// The review's folder kept for "Open in Terminal" (spec T.3, Task 5); nil = it was removed. Not encoded.
     public var retainedLocation: WorktreeLocation? = nil
+    /// Spec RM.4: what Claude said about each comment PRBar posted before; empty in a first review and in old files.
+    public var previous: [PreviousCommentStatus] = []
+    /// The commit of the last posted review this one started from (spec RM.4); nil in a first review.
+    public var reviewedSince: String? = nil
 
     public init(prID: String, repo: RepoRef, number: Int, title: String, url: URL, author: String,
                 headOid: String, account: String, summary: String, items: [ReviewItem], language: PRLanguage = .english,
@@ -162,6 +166,7 @@ public struct ReviewDraft: Codable, Equatable, Sendable, Identifiable {
 
     private enum CodingKeys: String, CodingKey {
         case id, prID, repo, number, title, url, author, headOid, account, summary, items, language, chat, edits, usage
+        case previous, reviewedSince
     }
 
     public init(from decoder: Decoder) throws {
@@ -177,6 +182,8 @@ public struct ReviewDraft: Codable, Equatable, Sendable, Identifiable {
         chat = (try? c.decodeIfPresent(ChatSession.self, forKey: .chat)) ?? nil
         edits = (try? c.decodeIfPresent(ReviewEdits.self, forKey: .edits)) ?? nil
         usage = (try? c.decodeIfPresent(ClaudeUsage.self, forKey: .usage)) ?? nil
+        previous = (try? c.decodeIfPresent([PreviousCommentStatus].self, forKey: .previous)) ?? []
+        reviewedSince = (try? c.decodeIfPresent(String.self, forKey: .reviewedSince)) ?? nil
     }
 
     /// The review and its chat (spec O.4.4); nil if neither has data (older history files).
