@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import PRBarCore
 
@@ -97,9 +98,19 @@ final class FakeRespondPipeline: RespondPipelineRunning, @unchecked Sendable {
 
     func logURL(for id: UUID) -> URL { URL(fileURLWithPath: "/nonexistent/\(id.uuidString).log") }
 
+    /// Each job's step sink; not emptied on cancel (a test sends a late step from the old run).
+    private var analysisSteps: [String: JobActivitySink] = [:]
+    private var implementSteps: [String: JobActivitySink] = [:]
+
     func analyze(_ request: RespondRequest, draftID: UUID,
                  onPhase: @escaping @MainActor @Sendable (RespondPhase) -> Void) async throws -> RespondDraft {
+        try await analyze(request, draftID: draftID, onPhase: onPhase, onActivity: { _ in })
+    }
+
+    func analyze(_ request: RespondRequest, draftID: UUID, onPhase: @escaping @MainActor @Sendable (RespondPhase) -> Void,
+                 onActivity: @escaping JobActivitySink) async throws -> RespondDraft {
         let prID = request.item.id
+        lock.withLock { analysisSteps[prID] = onActivity }
         let events = self.events
         if let spend = lock.withLock({ self.spend }) { ClaudeUsageCenter.shared.record(spend, stage: "analysis") }
         return try await withTaskCancellationHandler {
@@ -115,7 +126,14 @@ final class FakeRespondPipeline: RespondPipelineRunning, @unchecked Sendable {
 
     func implement(draft: RespondDraft, selections: [String: RespondSelection],
                    onProgress: @escaping @MainActor @Sendable (Int, Int) -> Void) async throws -> RespondResult {
+        try await implement(draft: draft, selections: selections, onProgress: onProgress, onActivity: { _ in })
+    }
+
+    func implement(draft: RespondDraft, selections: [String: RespondSelection],
+                   onProgress: @escaping @MainActor @Sendable (Int, Int) -> Void,
+                   onActivity: @escaping JobActivitySink) async throws -> RespondResult {
         let prID = draft.prID
+        lock.withLock { implementSteps[prID] = onActivity }
         let events = self.events
         if let spend = lock.withLock({ self.spend }) { ClaudeUsageCenter.shared.record(spend, stage: "fix") }
         do {
@@ -193,6 +211,16 @@ final class FakeRespondPipeline: RespondPipelineRunning, @unchecked Sendable {
     func completeImplementation(_ prID: String, _ result: Result<RespondResult, Error>) {
         let entry = lock.withLock { implementations.removeValue(forKey: prID) }
         entry?.continuation.resume(with: result)
+    }
+
+    func sendAnalysisActivity(_ activity: JobActivity, to prID: String) {
+        let sink = lock.withLock { analysisSteps[prID] }
+        sink?(activity)
+    }
+
+    func sendImplementActivity(_ activity: JobActivity, to prID: String) {
+        let sink = lock.withLock { implementSteps[prID] }
+        sink?(activity)
     }
 
     func finishCancel(_ prID: String) {
@@ -756,6 +784,54 @@ enum RespondQueueTests {
             try await h.events.wait(for: reached(1, "done"))
             try await waitUntil { h.pipeline.cleanups == [draft.id] }
             try expectEqual(h.pipeline.releases, [])
+        },
+        TestCase("respond queue: activity sigue al análisis, sobrevive al cambio de fase y se borra en ready; cancelar la borra") { @MainActor in
+            let h = try Harness()
+            h.queue.analyze(classified(1), localPath: "/repos/r", worktreeDir: nil)
+            try await h.events.wait(for: [.started("analyze:\(prID(1))")])
+            h.pipeline.sendAnalysisActivity(.prbar(JobStep.creatingWorktree), to: prID(1))
+            try await waitUntil { h.queue.activity[prID(1)]?.text == JobStep.creatingWorktree }
+            h.pipeline.sendAnalysis(.analyzing(agents: 0), to: prID(1))
+            try expectEqual(h.queue.activity[prID(1)]?.text, JobStep.creatingWorktree)
+            h.pipeline.completeAnalysis(1)
+            try await h.events.wait(for: reached(1, "ready"))
+            try expectEqual(h.queue.activity[prID(1)], nil)
+
+            h.queue.analyze(classified(2), localPath: "/repos/r", worktreeDir: nil)
+            try await h.events.wait(for: [.started("analyze:\(prID(2))")])
+            h.pipeline.sendAnalysisActivity(.claude("Reading a.swift"), to: prID(2))
+            try await waitUntil { h.queue.activity[prID(2)] != nil }
+            h.queue.cancel(prID: prID(2))
+            try expectEqual(h.queue.activity[prID(2)], nil)
+            h.pipeline.sendAnalysisActivity(.claude("Reading b.swift"), to: prID(2))   // the old run, late
+            try await Task.sleep(for: .milliseconds(100))
+            try expectEqual(h.queue.activity[prID(2)], nil)
+        },
+        TestCase("respond queue: los fixes, los tests, el push y las respuestas dicen su paso; al terminar no queda ninguno") { @MainActor in
+            let h = try Harness()
+            try await h.toReady(1)
+            h.queue.implement(prID: prID(1), selections: bothSelected)
+            try await h.events.wait(for: [.started("implement:\(prID(1))")])
+            h.pipeline.sendImplementActivity(.prbar(JobStep.committing), to: prID(1))
+            try await waitUntil { h.queue.activity[prID(1)]?.text == JobStep.committing }
+            h.pipeline.completeImplementation(prID(1), .success(fixResult))
+            try await h.events.wait(for: reached(1, "readyToPush"))
+            try expectEqual(h.queue.activity[prID(1)], nil)
+
+            var seen: [String] = []
+            let observation = h.queue.activityFeed.$current.sink { current in
+                if let text = current[prID(1)]?.text, seen.last != text { seen.append(text) }
+            }
+            defer { observation.cancel() }
+            h.pipeline.testsPass = true
+            try expect(h.queue.runTests(prID: prID(1), testCommand: "make test"))
+            try await waitUntil { !h.queue.runningTests.contains(prID(1)) }
+            let record = try expectSome(h.queue.records[prID(1)])
+            h.queue.publish(prID: prID(1))
+            try await h.events.wait(for: reached(1, "done"))
+            let replies = RespondCounts.pendingReplies(record) > 0 ? [JobStep.replying] : []
+            try expectEqual(seen, [JobStep.runningTests, JobStep.pushing] + replies)
+            try expectEqual(h.queue.activity[prID(1)], nil)
         },
     ] + RespondPipelineTests.cases
 }
@@ -1826,6 +1902,84 @@ enum RespondPipelineTests {
             try expectEqual(h.queue.openRunConflict(prID: prID(1), starting: .ciFix), nil)
             h.queue.analyze(classified(1), localPath: "/repos/r", worktreeDir: nil, mode: .ciFix)
             try expectEqual(h.queue.modes[prID(1)], .ciFix)
+        },
+        TestCase("respond pipeline: los pasos de PRBar del análisis en orden, antes de los de Claude") {
+            let claude = ScriptedClaude { schema, _, _ in schema == RespondSchemas.analysis ? [analysisLine(["thread:A", "thread:B"])] : [] }
+            let e = try E2E.make(claude: claude)
+            defer { e.repo.remove() }
+            let activities = Box<[JobActivity]>([])
+            _ = try await e.pipeline.analyze(e.request, draftID: UUID(), onPhase: { _ in }, onActivity: { activities.value.append($0) })
+            try expectEqual(activities.value.filter { $0.kind == .prbar }.map(\.text),
+                            [JobStep.readingComments, JobStep.readingPR, JobStep.creatingWorktree, JobStep.writingContext])
+            let firstClaude = try expectSome(activities.value.firstIndex { $0.kind == .claude })
+            try expectEqual(activities.value[firstClaude].text, ClaudeActivityText.starting)
+            try expectEqual(firstClaude, 4)
+        },
+        TestCase("fix ci: los pasos del análisis: el PR, los checks, los logs, el worktree y el contexto") {
+            let claude = ScriptedClaude { _, _, _ in [] }
+            let e = try E2E.make(claude: claude)
+            defer { e.repo.remove() }
+            e.api.checks[e.repo.prSHA] = [ciRun("build", id: 5)]
+            let request = RespondRequest(item: classified(7), localPath: e.repo.local.path, worktreeDir: e.worktreeDir.path, mode: .ciFix)
+            let activities = Box<[JobActivity]>([])
+            _ = try await e.pipeline.analyze(request, draftID: UUID(), onPhase: { _ in }, onActivity: { activities.value.append($0) })
+            try expectEqual(activities.value.map(\.text), [
+                JobStep.readingPR, JobStep.readingFailingChecks, JobStep.downloadingCILogs, JobStep.creatingWorktree, JobStep.writingContext,
+            ])
+            // A check that isn't from Actions has no log to download: no step for it.
+            let other = Box<[JobActivity]>([])
+            e.api.checks[e.repo.prSHA] = [ciRun("lint", actions: false)]
+            _ = try await e.pipeline.analyze(request, draftID: UUID(), onPhase: { _ in }, onActivity: { other.value.append($0) })
+            try expect(!other.value.contains { $0.text == JobStep.downloadingCILogs }, "\(other.value.map(\.text))")
+        },
+        TestCase("resolve conflicts: los pasos: el PR, el worktree, fetch y merge de la base, el contexto") {
+            let claude = ScriptedClaude { _, _, _ in [] }
+            let (e, _) = try conflictingE2E(claude: claude)
+            defer { e.repo.remove() }
+            let request = RespondRequest(item: classified(7), localPath: e.repo.local.path, worktreeDir: e.worktreeDir.path, mode: .conflicts)
+            let activities = Box<[JobActivity]>([])
+            _ = try await e.pipeline.analyze(request, draftID: UUID(), onPhase: { _ in }, onActivity: { activities.value.append($0) })
+            try expectEqual(activities.value.map(\.text),
+                            [JobStep.readingPR, JobStep.creatingWorktree, "Fetching main…", "Merging main…", JobStep.writingContext])
+        },
+        TestCase("respond pipeline: implementar: los pasos de Claude y 'Committing…' antes de cada commit") {
+            let claude = ScriptedClaude { schema, _, cwd in
+                if schema == RespondSchemas.analysis { return [analysisLine(["thread:A", "thread:B"])] }
+                try append("chau\n", to: "README.md", in: cwd)
+                return [fixLine("Add farewell")]
+            }
+            let e = try E2E.make(claude: claude)
+            defer { e.repo.remove() }
+            let draft = try await e.pipeline.analyze(e.request, draftID: UUID()) { _ in }
+            let selections: [String: RespondSelection] = [
+                "thread:A": RespondSelection(implement: true, fixPlan: "Arreglalo", reply: false, replyText: ""),
+                "thread:B": RespondSelection(implement: false, fixPlan: "", reply: false, replyText: ""),
+            ]
+            let activities = Box<[JobActivity]>([])
+            _ = try await e.pipeline.implement(draft: draft, selections: selections, onProgress: { _, _ in },
+                                               onActivity: { activities.value.append($0) })
+            try expectEqual(activities.value.first?.text, ClaudeActivityText.starting)
+            let prbar = activities.value.filter { $0.kind == .prbar }.map(\.text)
+            // One per commit (and one more for the squash in single-commit mode).
+            try expect(!prbar.isEmpty && prbar.allSatisfy { $0 == JobStep.committing }, "\(prbar)")
+        },
+        TestCase("resolve conflicts: implementar: Claude, después los marcadores y el commit del merge") {
+            let claude = ScriptedClaude { schema, _, cwd in
+                guard schema == RespondSchemas.conflicts else { return [] }
+                try Data("hola PR y base\n".utf8).write(to: cwd.appendingPathComponent("README.md"))
+                return [conflictsLine()]
+            }
+            let (e, _) = try conflictingE2E(claude: claude)
+            defer { e.repo.remove() }
+            let request = RespondRequest(item: classified(7), localPath: e.repo.local.path, worktreeDir: e.worktreeDir.path, mode: .conflicts)
+            let draft = try await e.pipeline.analyze(request, draftID: UUID()) { _ in }
+            let selections = Dictionary(uniqueKeysWithValues: draft.items.map { ($0.id, RespondSelection.defaults(for: $0)) })
+            let activities = Box<[JobActivity]>([])
+            _ = try await e.pipeline.implement(draft: draft, selections: selections, onProgress: { _, _ in },
+                                               onActivity: { activities.value.append($0) })
+            try expectEqual(activities.value.first?.text, ClaudeActivityText.starting)
+            try expectEqual(activities.value.filter { $0.kind == .prbar }.map(\.text),
+                            [JobStep.checkingConflictMarkers, JobStep.committingMerge])
         },
     ]
 }

@@ -480,5 +480,28 @@ enum RemoteFlowTests {
             let info = try await RunnerProbe.check(host)
             try expect(info.root?.hasSuffix("/installs/" + id) == true, info.root ?? "sin raíz")
         },
+        TestCase("remote flow: Respond en el host: ' on devbox' en el worktree, el contexto y el commit; no en GitHub") {
+            let repo = try TempGitRepo.make()
+            defer { repo.remove() }
+            let ssh = try FakeSSH.make()
+            defer { ssh.remove() }
+            try ssh.installFakeClaude()
+            try stream(ssh, ["status": "done", "summary": "Changed", "commitMessage": "Change it"], call: 2)
+            try Data("printf 'fixed by claude\\n' > feature.txt\n".utf8).write(to: ssh.home.appendingPathComponent("claude-edit-2.sh"))
+            let remote = try await placement(ssh, origin: repo.origin)
+            let pipeline = try respondPipeline(repo, ssh, remote)
+            let activities = Box<[JobActivity]>([])
+            let draft = try await pipeline.analyze(RespondRequest(item: respondItem(), localPath: repo.local.path, worktreeDir: nil),
+                                                   draftID: UUID(), onPhase: { _ in }, onActivity: { activities.value.append($0) })
+            try expectEqual(activities.value.filter { $0.kind == .prbar }.map(\.text), [
+                JobStep.readingComments, JobStep.readingPR, "Creating the worktree on devbox…", "Writing the context for Claude on devbox…",
+            ])
+            activities.value = []
+            _ = try await pipeline.implement(draft: draft, selections: [draft.items[0].id: fixSelection], onProgress: { _, _ in },
+                                             onActivity: { activities.value.append($0) })
+            try expect(activities.value.contains { $0.kind == .prbar && $0.text == "Committing on devbox…" },
+                       "\(activities.value.map(\.text))")
+            await pipeline.cleanup(draft: draft)
+        },
     ]
 }

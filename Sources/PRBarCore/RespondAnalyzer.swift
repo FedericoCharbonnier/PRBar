@@ -36,10 +36,10 @@ public struct RespondAnalyzer: Sendable {
     /// Escribe <contextDir>/feedback.json (los FeedbackItem) y pr.md (con `description`, como texto no confiable),
     /// y corre Claude con cwd = worktree y --add-dir contextDir. Los borradores de respuesta salen en `language`.
     /// Devuelve un `RespondItem` por cada ítem de entrada, en el mismo orden: los que Claude no evaluó quedan en
-    /// `skip`; los ids que Claude inventó se ignoran.
+    /// `skip`; los ids que Claude inventó se ignoran. `onEvent`: cada evento del stream de Claude (subagentes, herramientas).
     public func analyze(pr: PullRequest, items: [FeedbackItem], worktree: URL, contextDir: URL,
                         description: String, language: PRLanguage,
-                        onAgent: @escaping @Sendable (Int) -> Void) async throws -> [RespondItem] {
+                        onEvent: @escaping @Sendable (ClaudeStreamEvent) -> Void) async throws -> [RespondItem] {
         try await files.createDirectory(contextDir.path)
         let feedbackFile = contextDir.appendingPathComponent("feedback.json")
         let metadataFile = contextDir.appendingPathComponent("pr.md")
@@ -53,7 +53,7 @@ public struct RespondAnalyzer: Sendable {
             schema: RespondSchemas.analysis, tools: Self.tools, workingDirectory: worktree,
             additionalDirectories: [contextDir], timeout: Self.timeout, logHeader: "=== feedback analysis ==="
         )
-        let output = try await claude.run(invocation, as: AnalysisOutput.self, onAgent: onAgent)
+        let output = try await claude.run(invocation, as: AnalysisOutput.self, onEvent: onEvent)
         return Self.combine(items: items, output: output.items)
     }
 

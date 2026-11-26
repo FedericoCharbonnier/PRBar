@@ -62,6 +62,18 @@ enum RespondAnalyzerTests {
             try expect(text.contains("Use the `my-plugin:triage` skill"), text)
             try expect(!text.contains("superpowers"), text)
         },
+        TestCase("respond analyzer: onEvent recibe cada evento del stream (arranque, herramientas)") {
+            let context = try temporaryDirectory().appendingPathComponent("ctx")
+            defer { try? FileManager.default.removeItem(at: context.deletingLastPathComponent()) }
+            let read = #"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/tmp/wt/feature-7/a.swift"}}]}}"#
+            let runner = FakeStreamingRunner { _, _, _ in ([read, resultLine("")], ok("")) }
+            let events = Box<[ClaudeStreamEvent]>([])
+            _ = try await analyzer(runner, log: context.appendingPathComponent("log/respond.log"))
+                .analyze(pr: makePR(number: 7), items: [thread("thread:A")], worktree: worktreeDir, contextDir: context,
+                         description: "", language: PRLanguage(code: "en")) { events.value.append($0) }
+            try expectEqual(events.value.first, .agentStarted(total: 0))
+            try expect(events.value.contains(.toolUse(name: "Read", detail: "/tmp/wt/feature-7/a.swift")), "\(events.value)")
+        },
         TestCase("respond analyzer: solo herramientas de lectura, aislado, cwd = worktree y --add-dir contexto") {
             let context = try temporaryDirectory().appendingPathComponent("ctx")
             let runner = FakeStreamingRunner { _, _, _ in ([resultLine("")], ok("")) }
