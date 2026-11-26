@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import PRBarCore
 
@@ -97,9 +98,19 @@ final class FakeRespondPipeline: RespondPipelineRunning, @unchecked Sendable {
 
     func logURL(for id: UUID) -> URL { URL(fileURLWithPath: "/nonexistent/\(id.uuidString).log") }
 
+    /// Each job's step sink; not emptied on cancel (a test sends a late step from the old run).
+    private var analysisSteps: [String: JobActivitySink] = [:]
+    private var implementSteps: [String: JobActivitySink] = [:]
+
     func analyze(_ request: RespondRequest, draftID: UUID,
                  onPhase: @escaping @MainActor @Sendable (RespondPhase) -> Void) async throws -> RespondDraft {
+        try await analyze(request, draftID: draftID, onPhase: onPhase, onActivity: { _ in })
+    }
+
+    func analyze(_ request: RespondRequest, draftID: UUID, onPhase: @escaping @MainActor @Sendable (RespondPhase) -> Void,
+                 onActivity: @escaping JobActivitySink) async throws -> RespondDraft {
         let prID = request.item.id
+        lock.withLock { analysisSteps[prID] = onActivity }
         let events = self.events
         if let spend = lock.withLock({ self.spend }) { ClaudeUsageCenter.shared.record(spend, stage: "analysis") }
         return try await withTaskCancellationHandler {
@@ -115,7 +126,14 @@ final class FakeRespondPipeline: RespondPipelineRunning, @unchecked Sendable {
 
     func implement(draft: RespondDraft, selections: [String: RespondSelection],
                    onProgress: @escaping @MainActor @Sendable (Int, Int) -> Void) async throws -> RespondResult {
+        try await implement(draft: draft, selections: selections, onProgress: onProgress, onActivity: { _ in })
+    }
+
+    func implement(draft: RespondDraft, selections: [String: RespondSelection],
+                   onProgress: @escaping @MainActor @Sendable (Int, Int) -> Void,
+                   onActivity: @escaping JobActivitySink) async throws -> RespondResult {
         let prID = draft.prID
+        lock.withLock { implementSteps[prID] = onActivity }
         let events = self.events
         if let spend = lock.withLock({ self.spend }) { ClaudeUsageCenter.shared.record(spend, stage: "fix") }
         do {
@@ -193,6 +211,16 @@ final class FakeRespondPipeline: RespondPipelineRunning, @unchecked Sendable {
     func completeImplementation(_ prID: String, _ result: Result<RespondResult, Error>) {
         let entry = lock.withLock { implementations.removeValue(forKey: prID) }
         entry?.continuation.resume(with: result)
+    }
+
+    func sendAnalysisActivity(_ activity: JobActivity, to prID: String) {
+        let sink = lock.withLock { analysisSteps[prID] }
+        sink?(activity)
+    }
+
+    func sendImplementActivity(_ activity: JobActivity, to prID: String) {
+        let sink = lock.withLock { implementSteps[prID] }
+        sink?(activity)
     }
 
     func finishCancel(_ prID: String) {
@@ -756,6 +784,54 @@ enum RespondQueueTests {
             try await h.events.wait(for: reached(1, "done"))
             try await waitUntil { h.pipeline.cleanups == [draft.id] }
             try expectEqual(h.pipeline.releases, [])
+        },
+        TestCase("respond queue: activity sigue al análisis, sobrevive al cambio de fase y se borra en ready; cancelar la borra") { @MainActor in
+            let h = try Harness()
+            h.queue.analyze(classified(1), localPath: "/repos/r", worktreeDir: nil)
+            try await h.events.wait(for: [.started("analyze:\(prID(1))")])
+            h.pipeline.sendAnalysisActivity(.prbar(JobStep.creatingWorktree), to: prID(1))
+            try await waitUntil { h.queue.activity[prID(1)]?.text == JobStep.creatingWorktree }
+            h.pipeline.sendAnalysis(.analyzing(agents: 0), to: prID(1))
+            try expectEqual(h.queue.activity[prID(1)]?.text, JobStep.creatingWorktree)
+            h.pipeline.completeAnalysis(1)
+            try await h.events.wait(for: reached(1, "ready"))
+            try expectEqual(h.queue.activity[prID(1)], nil)
+
+            h.queue.analyze(classified(2), localPath: "/repos/r", worktreeDir: nil)
+            try await h.events.wait(for: [.started("analyze:\(prID(2))")])
+            h.pipeline.sendAnalysisActivity(.claude("Reading a.swift"), to: prID(2))
+            try await waitUntil { h.queue.activity[prID(2)] != nil }
+            h.queue.cancel(prID: prID(2))
+            try expectEqual(h.queue.activity[prID(2)], nil)
+            h.pipeline.sendAnalysisActivity(.claude("Reading b.swift"), to: prID(2))   // the old run, late
+            try await Task.sleep(for: .milliseconds(100))
+            try expectEqual(h.queue.activity[prID(2)], nil)
+        },
+        TestCase("respond queue: los fixes, los tests, el push y las respuestas dicen su paso; al terminar no queda ninguno") { @MainActor in
+            let h = try Harness()
+            try await h.toReady(1)
+            h.queue.implement(prID: prID(1), selections: bothSelected)
+            try await h.events.wait(for: [.started("implement:\(prID(1))")])
+            h.pipeline.sendImplementActivity(.prbar(JobStep.committing), to: prID(1))
+            try await waitUntil { h.queue.activity[prID(1)]?.text == JobStep.committing }
+            h.pipeline.completeImplementation(prID(1), .success(fixResult))
+            try await h.events.wait(for: reached(1, "readyToPush"))
+            try expectEqual(h.queue.activity[prID(1)], nil)
+
+            var seen: [String] = []
+            let observation = h.queue.activityFeed.$current.sink { current in
+                if let text = current[prID(1)]?.text, seen.last != text { seen.append(text) }
+            }
+            defer { observation.cancel() }
+            h.pipeline.testsPass = true
+            try expect(h.queue.runTests(prID: prID(1), testCommand: "make test"))
+            try await waitUntil { !h.queue.runningTests.contains(prID(1)) }
+            let record = try expectSome(h.queue.records[prID(1)])
+            h.queue.publish(prID: prID(1))
+            try await h.events.wait(for: reached(1, "done"))
+            let replies = RespondCounts.pendingReplies(record) > 0 ? [JobStep.replying] : []
+            try expectEqual(seen, [JobStep.runningTests, JobStep.pushing] + replies)
+            try expectEqual(h.queue.activity[prID(1)], nil)
         },
     ] + RespondPipelineTests.cases
 }

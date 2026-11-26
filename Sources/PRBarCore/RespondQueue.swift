@@ -158,11 +158,11 @@ public final class RespondQueue: ObservableObject {
         let onPhone = CommandOrigin.current.isPhone
         runs[prID] = ClaudeRunInfo(startedAt: startedAt, requestedOnPhone: onPhone)
         let pipeline = self.pipeline
-        start(prID, kind: .analyze, phase: .queued, onStart: .preparing, work: { [weak self] jobID in
+        start(prID, kind: .analyze, phase: .queued, onStart: .preparing, work: { [weak self] jobID, steps in
             do {
-                return try await pipeline.analyze(request, draftID: draftID) { [weak self] phase in
+                return try await pipeline.analyze(request, draftID: draftID, onPhase: { [weak self] phase in
                     self?.progress(prID, jobID, phase)
-                }
+                }, onActivity: steps)
             } catch {
                 if RemoteUnstoppedJobs.isNotStopped(error) { await self?.analyzeNotStopped(prID, draftID, error) }
                 throw error
@@ -232,12 +232,12 @@ public final class RespondQueue: ObservableObject {
         let total = draft.items.filter { selections[$0.id]?.implement == true }.count
         let pipeline = self.pipeline
         start(prID, kind: .implement, phase: .queued, previous: .ready(draft), onStart: .implementing(done: 0, total: total),
-              work: { [weak self] jobID in
+              work: { [weak self] jobID, steps in
                   let outcome: Result<RespondResult, Error>
                   do {
-                      outcome = .success(try await pipeline.implement(draft: draft, selections: selections) { [weak self] done, total in
+                      outcome = .success(try await pipeline.implement(draft: draft, selections: selections, onProgress: { [weak self] done, total in
                           self?.progress(prID, jobID, .implementing(done: done, total: total))
-                      })
+                      }, onActivity: steps))
                   } catch {
                       outcome = .failure(error)
                   }
@@ -286,8 +286,10 @@ public final class RespondQueue: ObservableObject {
         pushBlockedByTests.remove(prID)
         runningTests.insert(prID)
         let pipeline = self.pipeline
-        start(prID, kind: .tests, phase: nil, work: { _ in
-            await pipeline.runTests(draft: draft, testCommand: testCommand)
+        start(prID, kind: .tests, phase: nil, work: { _, steps in
+            // Decisión 7: el paso lo da la cola (una sola llamada al pipeline), con el host del draft.
+            steps(.prbar(JobStep.runningTests, runner: draft.runner))
+            return await pipeline.runTests(draft: draft, testCommand: testCommand)
         }, completion: { [weak self] result in
             guard let self else { return }
             self.runningTests.remove(prID)
@@ -342,6 +344,7 @@ public final class RespondQueue: ObservableObject {
         guard let job = jobs[prID] else { return }
         if scheduler.isQueued(prID) {
             jobs[prID] = nil
+            activityFeed.clear(prID: prID)
             scheduler.cancel(prID)
             phases[prID] = job.previous
             if job.kind == .tests { runningTests.remove(prID) }
@@ -357,6 +360,7 @@ public final class RespondQueue: ObservableObject {
         case .tests:
             runningTests.remove(prID)
         }
+        activityFeed.clear(prID: prID)
         jobs[prID] = nil
         scheduler.cancel(prID)
     }
@@ -384,6 +388,7 @@ public final class RespondQueue: ObservableObject {
         }
         runningTests.removeAll()
         jobs.removeAll()
+        activityFeed.clearAll()
         scheduler.cancelAll()
     }
 
@@ -471,10 +476,12 @@ public final class RespondQueue: ObservableObject {
     /// `completion` solo se llama si el job sigue siendo el vigente (no se canceló).
     private func start<T: Sendable>(
         _ prID: String, kind: Kind, phase: RespondPhase?, previous: RespondPhase? = nil, onStart: RespondPhase? = nil,
-        work: @escaping @Sendable (UUID) async throws -> T,
+        work: @escaping @Sendable (UUID, @escaping JobActivitySink) async throws -> T,
         completion: @escaping @MainActor (Result<T, Error>) -> Void
     ) {
         guard canStart(prID) else { return }
+        // Los pasos de este job (spec LP.2); lo que mande después de terminar o de cancelarse se ignora.
+        let steps = activityFeed.sink(prID: prID)
         let jobID = UUID()
         let slot = Slot<T>()
         let usage = Slot<ClaudeUsage>()
@@ -486,10 +493,12 @@ public final class RespondQueue: ObservableObject {
             // Claude's usage for this job goes to the record (spec O.4.4), also when it fails or is canceled.
             let sink = ClaudeUsageSink()
             defer { usage.value = sink.total }
-            slot.value = try await sink.measure { try await work(jobID) }
+            slot.value = try await sink.measure { try await work(jobID, steps) }
         }, onComplete: { [weak self] result in
             guard let self, self.jobs[prID]?.id == jobID else { return }
             self.jobs[prID] = nil
+            // Decisión 6: cualquier fin de un trabajo (éxito o error) borra su paso.
+            self.activityFeed.clear(prID: prID)
             // Saved before `completion`, so the record the phase event announces already has it. An analysis makes
             // a new record: its `completion` puts the usage there (`jobUsage`).
             if kind == .analyze {
@@ -607,12 +616,19 @@ public final class RespondQueue: ObservableObject {
         let draft = record.draft
         let draftID = draft.id
         let previous = phases[prID]
-        start(prID, kind: .publish, phase: .queued, onStart: .pushing, work: { [weak self] _ in
+        start(prID, kind: .publish, phase: .queued, onStart: .pushing, work: { [weak self] _, steps in
             if push && !record.pushed, let result = record.result {
-                if draft.implementsAlone { try await pipeline.checkCIBeforePush(draft: draft, result: result, ignoringPassingChecks: ignoringCI) }
+                if draft.implementsAlone {
+                    // `checkCIBeforePush` lee el PR en GitHub (decisión 7).
+                    steps(.prbar(JobStep.readingPR))
+                    try await pipeline.checkCIBeforePush(draft: draft, result: result, ignoringPassingChecks: ignoringCI)
+                }
+                // El push sale de la Mac: sin host (decisión 8).
+                steps(.prbar(JobStep.pushing))
                 try await pipeline.push(draft: draft, result: result)
                 await self?.markPushed(prID, draftID)
             }
+            if RespondCounts.pendingReplies(record) > 0 { steps(.prbar(JobStep.replying)) }
             let (posted, error) = await pipeline.postReplies(
                 draft: draft, selections: record.selections, result: record.result, alreadyPosted: record.posted
             ) { [weak self] id, reply in
