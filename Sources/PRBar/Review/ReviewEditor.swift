@@ -21,8 +21,6 @@ struct ReviewEditor: View {
     @State private var result: PublishedReview?
     @State private var showDiscarded: Bool
     @State private var showHidden: Bool
-    /// La decisión de la barra inferior (Approve / Comment / Request Changes).
-    @State private var decision: ReviewEvent = .comment
     /// Findings whose comment starts expanded (snapshot mode).
     private let initiallyExpanded: Set<String>
     @FocusState private var focus: ReviewFocus?
@@ -76,6 +74,13 @@ struct ReviewEditor: View {
     private var hiddenBySettings: [ReviewItem] { items.filter(\.isHidden) }
     private var selected: Set<String> { chat.reviewEdits.selected }
     private var general: String { chat.reviewEdits.generalComment }
+    /// Spec RM.5: recomputed live from what's selected.
+    private var recommended: RecommendedAction { RecommendedAction.of(draft, edits: chat.reviewEdits) }
+    /// The recommendation until the user picks one; their choice wins from then on (`ReviewEdits.decision`).
+    private var decision: ReviewEvent { chat.reviewEdits.decision ?? recommended.event }
+    private var decisionBinding: Binding<ReviewEvent> {
+        Binding(get: { decision }, set: { chat.reviewEdits.decision = $0 })
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -125,6 +130,7 @@ struct ReviewEditor: View {
             selectionBar
             ScrollView {
                 LazyVStack(spacing: 8) {
+                    if !draft.previous.isEmpty { PreviousCommentsSection(draft: draft) }
                     ForEach(kept) { item in
                         FindingCard(
                             item: item, number: chat.number(of: item.id) ?? 0, isSelected: selection(item.id),
@@ -268,7 +274,7 @@ struct ReviewEditor: View {
             }
             // Its own row: next to the chat inspector the detail can be ~440 pt wide.
             HStack(spacing: 8) {
-                Picker("Decision", selection: $decision) {
+                Picker("Decision", selection: decisionBinding) {
                     Text("Approve").tag(ReviewEvent.approve)
                     Text("Comment").tag(ReviewEvent.comment)
                     Text("Request Changes").tag(ReviewEvent.requestChanges)
@@ -287,6 +293,17 @@ struct ReviewEditor: View {
                     .fixedSize()
             }
             .disabled(publishing)
+            Label {
+                Text("Recommended: \(recommended.event.title) · \(recommended.reason)")
+            } icon: {
+                Image(systemName: "lightbulb")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(2)
+            .help(chat.reviewEdits.decision == nil
+                  ? "PRBar’s recommendation for what’s selected; it updates as you include or exclude findings."
+                  : "You chose the decision yourself; PRBar’s recommendation is shown for reference.")
         }
         .padding(.horizontal, 20)
         .padding(.top, 12)
