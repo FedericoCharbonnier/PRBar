@@ -28,6 +28,22 @@ private let feedbackJSON = """
 
 enum FeedbackAPITests {
     static let cases: [TestCase] = [
+        TestCase("feedback api: cada comentario de un thread trae el id de su review (spec RM.3.1)") {
+            let json = """
+            {"data":{"repository":{"pullRequest":{
+             "headRefName":"f","headRefOid":"abc","isCrossRepository":false,"commits":{"nodes":[]},
+             "reviewThreads":{"nodes":[{"id":"PRRT_1","isResolved":false,"isOutdated":true,"path":"a.swift","line":3,
+               "comments":{"nodes":[
+                 {"databaseId":1,"body":"Validá","createdAt":"2026-11-18T09:00:00Z","url":"https://github.com/o/r/pull/7#discussion_r1","author":{"login":"me","__typename":"User"},"pullRequestReview":{"databaseId":900}},
+                 {"databaseId":2,"body":"Hecho","createdAt":"2026-11-18T09:05:00Z","url":"https://github.com/o/r/pull/7#discussion_r2","author":{"login":"ana","__typename":"User"},"pullRequestReview":null}]}}]},
+             "reviews":{"nodes":[]},"comments":{"nodes":[]}}}}}
+            """
+            let transport = FakeTransport([(200, [:], json)])
+            let feedback = try await GitHubClient(transport: transport).reviewFeedback(repo: repo, number: 7, token: "tok")
+            try expectEqual(feedback.threads[0].comments.map(\.reviewDatabaseID), [900, nil])
+            let query = String(decoding: transport.requests[0].httpBody ?? Data(), as: UTF8.self)
+            try expect(query.contains("pullRequestReview { databaseId }"), query)
+        },
         TestCase("feedback api: mapea hilos, bots, autor null y line null") {
             let transport = FakeTransport([(200, [:], feedbackJSON)])
             let feedback = try await GitHubClient(transport: transport).reviewFeedback(repo: repo, number: 7, token: "tok")
