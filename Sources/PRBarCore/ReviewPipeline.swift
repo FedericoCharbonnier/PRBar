@@ -296,8 +296,9 @@ public struct ReviewPipeline: ReviewPipelineRunning {
         return ReviewMemory.build(records: request.previousReviews, feedback: feedback)
     }
 
-    static func folderKey(_ pr: PullRequest, runner: String?) -> String {
-        "\(runner ?? "this Mac")|\(pr.repo.fullName)#\(pr.number)"
+    /// One lock per folder: two repos with the same name (other owners) share `<repo>-<N>-review` in a root.
+    public static func folderKey(_ pr: PullRequest, runner: String?) -> String {
+        "\(runner ?? "this Mac")|\(WorktreeManager.reviewFolderName(repo: pr.repo, number: pr.number))"
     }
 
     static func logBusy(_ workspace: ReviewWorkspace) {

@@ -93,8 +93,10 @@ public struct ReviewMemory: Equatable, Sendable {
     /// `unknown`). Only what PRBar posted counts (`published`); comments written by hand on GitHub don't.
     public static func build(records: [ReviewRecord], feedback: PRFeedback?) -> ReviewMemory? {
         guard !records.isEmpty else { return nil }
+        if let feedback { logTruncation(feedback) }
         var next = 1
         var reviews: [PreviousReview] = []
+        var matched: [String: String] = [:]   // thread id → the first P id that matched it
         for record in records {
             let reviewID = reviewDatabaseID(record.reviewURL)
             let items = record.draft.edits?.items(of: record.draft) ?? record.draft.items
@@ -104,6 +106,13 @@ public struct ReviewMemory: Equatable, Sendable {
                 let finding = item.finding
                 let match = feedback.flatMap {
                     matchingThread(text: text, file: finding.file, reviewID: reviewID, account: record.draft.account, in: $0.threads)
+                }
+                if let match {
+                    if let first = matched[match.id] {
+                        AppLog.write("Review memory: \(first) and P\(next) match the same thread (\(match.id)); both get its state.")
+                    } else {
+                        matched[match.id] = "P\(next)"
+                    }
                 }
                 let state: GitHubThreadState = match.map { $0.isResolved ? .resolved : .open } ?? .unknown
                 let replies = match.map { $0.comments.dropFirst().map { PreviousReply(author: $0.author, body: $0.body) } } ?? []
@@ -117,6 +126,22 @@ public struct ReviewMemory: Equatable, Sendable {
                                           headOid: record.draft.headOid, generalComment: record.generalComment, comments: comments))
         }
         return ReviewMemory(reviews: reviews)
+    }
+
+    /// What `GitHubAPI.reviewFeedback` reads at most: `reviewThreads(first: 100)`, `comments(first: 30)`.
+    public static let threadLimit = 100
+    public static let commentLimit = 30
+
+    /// At a limit, GitHub may have more: a comment whose thread was left out goes as unknown, and replies may be missing.
+    static func logTruncation(_ feedback: PRFeedback) {
+        let threads = feedback.threads.filter { $0.kind == .thread }
+        if threads.count >= threadLimit {
+            AppLog.write("Review memory: the PR has \(threads.count) threads (the limit read); later ones may be missing and their comments go as unknown.")
+        }
+        let full = threads.filter { $0.comments.count >= commentLimit }
+        if !full.isEmpty {
+            AppLog.write("Review memory: \(full.count) thread\(full.count == 1 ? "" : "s") reached \(commentLimit) comments (the limit read); later replies may be missing.")
+        }
     }
 
     /// `…#pullrequestreview-<id>` → id.
@@ -186,6 +211,16 @@ public enum ReviewMemoryFile {
         "The commit of the last posted review (\(sha)) is no longer in the repository (force-push or rebase): use pr.diff.\n"
     }
 
+    /// `since-last-review.diff` when that commit is no longer an ancestor of the PR's head (rebase, force-push).
+    public static func rewrittenHistoryLine(_ sha: String) -> String {
+        "The PR's history was rewritten since the last posted review (commit \(sha) is not an ancestor of HEAD): use pr.diff.\n"
+    }
+
+    /// `since-last-review.diff` when `git diff` failed: the memory is optional, the review goes on.
+    public static func diffFailedLine(_ sha: String) -> String {
+        "PRBar couldn't compute the changes since the last posted review (commit \(sha)): use pr.diff.\n"
+    }
+
     public static func noChangesLine(_ sha: String) -> String {
         "No changes since the last posted review (commit \(sha)).\n"
     }
@@ -197,7 +232,6 @@ public enum ReviewMemoryFile {
     static func sanitize(_ text: String) -> String {
         UntrustedText.neutralize(text)
             .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "PREVIOUS_REVIEW", with: "PREVIOUS-REVIEW")
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
@@ -211,16 +245,6 @@ public enum ReviewMemoryFile {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(identifier: "UTC")
         formatter.dateFormat = "yyyy-MM-dd HH:mm 'UTC'"
-    /// `since-last-review.diff` when that commit is no longer an ancestor of the PR's head (rebase, force-push).
-    public static func rewrittenHistoryLine(_ sha: String) -> String {
-        "The PR's history was rewritten since the last posted review (commit \(sha) is not an ancestor of HEAD): use pr.diff.\n"
-    }
-
-    /// `since-last-review.diff` when `git diff` failed: the memory is optional, the review goes on.
-    public static func diffFailedLine(_ sha: String) -> String {
-        "PRBar couldn't compute the changes since the last posted review (commit \(sha)): use pr.diff.\n"
-    }
-
         return formatter.string(from: date)
     }
 

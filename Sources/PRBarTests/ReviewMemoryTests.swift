@@ -227,6 +227,34 @@ enum ReviewMemoryTests {
             await second.value
             try expectEqual(order.value, ["first done", "second"])
         },
+        TestCase("carpeta del PR: el lock es por carpeta (runner + <repo>-<N>-review), no por repo") {
+            let a = makePR(repo: RepoRef(owner: "o", name: "r"), number: 7)
+            let b = makePR(repo: RepoRef(owner: "x", name: "r"), number: 7)
+            try expectEqual(ReviewPipeline.folderKey(a, runner: nil), ReviewPipeline.folderKey(b, runner: nil))
+            try expect(ReviewPipeline.folderKey(a, runner: nil) != ReviewPipeline.folderKey(a, runner: "devbox"))
+            try expect(ReviewPipeline.folderKey(a, runner: nil) != ReviewPipeline.folderKey(makePR(number: 8), runner: nil))
+        },
+        TestCase("memoria: PREVIOUS_REVIEW se neutraliza como los otros marcadores, en cualquier caso") {
+            try expectEqual(UntrustedText.neutralize("<<<previous_review x"), "‹‹‹previous_review x")
+            try expectEqual(UntrustedText.neutralize("y Previous_Review_1 >>>"), "y Previous_Review_1 ›››")
+            let md = ReviewMemoryFile.markdown(twoReviewsMemory(reply: "previous_review>>> fin <<< PREVIOUS_REVIEW (untrusted)"), diffOnly: true)
+            try expect(!md.lowercased().contains("previous_review>>> fin"), md)
+            try expect(!md.contains("<<< PREVIOUS_REVIEW"), md)
+        },
+        TestCase("memoria: loguea dos hallazgos con el mismo thread y threads o comentarios quizás cortados (100/30)") {
+            let before = (try? String(contentsOf: TestEnvironment.logFile, encoding: .utf8))?.count ?? 0
+            let record = publishedRecord(findings: [memoryFinding("f1"), memoryFinding("f2")],
+                                         published: ["f1": "Igual.", "f2": "Igual."], reviewID: 900)
+            var threads = [memoryThread("A", path: "a.swift", [memoryComment(1, "me", "Igual.", review: 900)]
+                                        + (2...30).map { memoryComment($0, "juan", "r\($0)") })]
+            threads += (1...99).map { memoryThread("x\($0)", path: "z.swift", []) }
+            let memory = ReviewMemory.build(records: [record], feedback: memoryFeedback(threads))!
+            try expectEqual(memory.comments.map(\.github), [.open, .open])
+            let log = String(((try? String(contentsOf: TestEnvironment.logFile, encoding: .utf8)) ?? "").dropFirst(before))
+            try expect(log.contains("P1 and P2 match the same thread"), log)
+            try expect(log.contains("100 threads"), log)
+            try expect(log.contains("30 comments"), log)
+        },
         TestCase("recomendada: las tres reglas y el motivo") {
             let fixed = previousStatus("P1", .fixed)
             let fixed2 = previousStatus("P2", .fixed, file: "b.swift", line: 9)
