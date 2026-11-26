@@ -1866,5 +1866,44 @@ enum RespondPipelineTests {
             try expectEqual(activities.value.map(\.text),
                             [JobStep.readingPR, JobStep.creatingWorktree, "Fetching main…", "Merging main…", JobStep.writingContext])
         },
+        TestCase("respond pipeline: implementar: los pasos de Claude y 'Committing…' antes de cada commit") {
+            let claude = ScriptedClaude { schema, _, cwd in
+                if schema == RespondSchemas.analysis { return [analysisLine(["thread:A", "thread:B"])] }
+                try append("chau\n", to: "README.md", in: cwd)
+                return [fixLine("Add farewell")]
+            }
+            let e = try E2E.make(claude: claude)
+            defer { e.repo.remove() }
+            let draft = try await e.pipeline.analyze(e.request, draftID: UUID()) { _ in }
+            let selections: [String: RespondSelection] = [
+                "thread:A": RespondSelection(implement: true, fixPlan: "Arreglalo", reply: false, replyText: ""),
+                "thread:B": RespondSelection(implement: false, fixPlan: "", reply: false, replyText: ""),
+            ]
+            let activities = Box<[JobActivity]>([])
+            _ = try await e.pipeline.implement(draft: draft, selections: selections, onProgress: { _, _ in },
+                                               onActivity: { activities.value.append($0) })
+            try expectEqual(activities.value.first?.text, ClaudeActivityText.starting)
+            let prbar = activities.value.filter { $0.kind == .prbar }.map(\.text)
+            // One per commit (and one more for the squash in single-commit mode).
+            try expect(!prbar.isEmpty && prbar.allSatisfy { $0 == JobStep.committing }, "\(prbar)")
+        },
+        TestCase("resolve conflicts: implementar: Claude, después los marcadores y el commit del merge") {
+            let claude = ScriptedClaude { schema, _, cwd in
+                guard schema == RespondSchemas.conflicts else { return [] }
+                try Data("hola PR y base\n".utf8).write(to: cwd.appendingPathComponent("README.md"))
+                return [conflictsLine()]
+            }
+            let (e, _) = try conflictingE2E(claude: claude)
+            defer { e.repo.remove() }
+            let request = RespondRequest(item: classified(7), localPath: e.repo.local.path, worktreeDir: e.worktreeDir.path, mode: .conflicts)
+            let draft = try await e.pipeline.analyze(request, draftID: UUID()) { _ in }
+            let selections = Dictionary(uniqueKeysWithValues: draft.items.map { ($0.id, RespondSelection.defaults(for: $0)) })
+            let activities = Box<[JobActivity]>([])
+            _ = try await e.pipeline.implement(draft: draft, selections: selections, onProgress: { _, _ in },
+                                               onActivity: { activities.value.append($0) })
+            try expectEqual(activities.value.first?.text, ClaudeActivityText.starting)
+            try expectEqual(activities.value.filter { $0.kind == .prbar }.map(\.text),
+                            [JobStep.checkingConflictMarkers, JobStep.committingMerge])
+        },
     ]
 }

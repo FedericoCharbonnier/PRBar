@@ -586,6 +586,13 @@ public struct RespondPipeline: RespondPipelineRunning {
 
     public func implement(draft: RespondDraft, selections: [String: RespondSelection],
                           onProgress: @escaping @MainActor @Sendable (Int, Int) -> Void) async throws -> RespondResult {
+        try await implement(draft: draft, selections: selections, onProgress: onProgress, onActivity: { _ in })
+    }
+
+    /// Spec LP.4: los pasos de Claude en cada fix (o en la resolución) y los commits.
+    public func implement(draft: RespondDraft, selections: [String: RespondSelection],
+                          onProgress: @escaping @MainActor @Sendable (Int, Int) -> Void,
+                          onActivity: @escaping JobActivitySink) async throws -> RespondResult {
         guard draft.worktree.origin == .dedicated else {
             throw PRBarError.respond("This analysis is from an older version of PRBar. Analyze the PR again.")
         }
@@ -603,7 +610,8 @@ public struct RespondPipeline: RespondPipelineRunning {
         let implementer = await fixImplementer(claude: claude(pluginDirs: pluginDirs, token: token, logURL: logURL(for: draft.id)),
                                                draft: draft)
         do {
-            let result = try await implementer.implement(draft: draft, selections: selections, onProgress: onProgress)
+            let result = try await implementer.implement(draft: draft, selections: selections, onProgress: onProgress,
+                                                         onActivity: onActivity)
             guard let importer else { return result }
             // El diff, los commits y los sensibles que ve el usuario se calculan en la Mac desde los objetos traídos.
             return try await importer.importFixes(draft: draft, localPath: draft.localPath, items: result.items,

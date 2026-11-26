@@ -84,10 +84,11 @@ public struct FixImplementer: Sendable {
     /// hay cambios, .noChanges. Si el commit falla, se lanza el error con el stderr, sin seguir (los cambios
     /// quedan en el árbol para que el usuario los vea).
     /// Al final: `git diff --stat <startHeadOid>..HEAD` y los archivos sensibles cambiados. Nunca corre tests
-    /// (`tests` queda nil; ver `runTests`).
+    /// (`tests` queda nil; ver `runTests`). `onActivity`: los pasos de Claude y "Committing…" (spec LP.3).
     public func implement(draft: RespondDraft, selections: [String: RespondSelection],
-                          onProgress: @escaping @MainActor @Sendable (_ done: Int, _ total: Int) -> Void) async throws -> RespondResult {
-        if draft.isConflicts { return try await resolveConflicts(draft: draft, onProgress: onProgress) }
+                          onProgress: @escaping @MainActor @Sendable (_ done: Int, _ total: Int) -> Void,
+                          onActivity: @escaping JobActivitySink = { _ in }) async throws -> RespondResult {
+        if draft.isConflicts { return try await resolveConflicts(draft: draft, onProgress: onProgress, onActivity: onActivity) }
         let worktree = URL(fileURLWithPath: draft.worktree.path, isDirectory: true)
         try await checkNestedGitsIgnored(worktree)
         let start = try await verifyStart(draft.startHeadOid, worktree: worktree)
@@ -103,13 +104,13 @@ public struct FixImplementer: Sendable {
             // Claude's session of this fix (spec T.2), also when the fix failed after Claude started.
             let capture = ClaudeSessionCapture()
             var result = try await implementOne(item, fixPlan: fixPlan, draft: draft, worktree: worktree, start: start,
-                                                guarded: guarded, capture: capture)
+                                                guarded: guarded, capture: capture, onActivity: onActivity)
             result.session = capture.stamp
             results.append(result)
             await onProgress(index + 1, work.count)
         }
         if settings.respond.commitMode == .single && !draft.isCIFix {
-            results = try await squash(results, draft: draft, worktree: worktree, start: start)
+            results = try await squash(results, draft: draft, worktree: worktree, start: start, onActivity: onActivity)
         }
 
         return try await summarize(worktree, start: start, items: results, integrity: try await guarded.securityDigest(using: fs, listConfig: configLister))
@@ -425,7 +426,8 @@ public struct FixImplementer: Sendable {
     // MARK: - Un fix
 
     private func implementOne(_ item: RespondItem, fixPlan: String, draft: RespondDraft, worktree: URL, start: String,
-                              guarded: GitPaths, capture: ClaudeSessionCapture) async throws -> ItemResult {
+                              guarded: GitPaths, capture: ClaudeSessionCapture,
+                              onActivity: @escaping JobActivitySink) async throws -> ItemResult {
         try await ensureClean(worktree)
         try await checkConfigOrigins(worktree)
         let headBefore = try await head(worktree)
@@ -445,7 +447,8 @@ public struct FixImplementer: Sendable {
         )
         let output: FixOutput
         do {
-            output = try await claude.run(invocation, as: FixOutput.self, onAgent: { _ in })
+            output = try await claude.run(invocation, as: FixOutput.self,
+                                          onEvent: ClaudeActivityText.sink(ClaudeActivityText.Folders(working: worktree), to: onActivity))
         } catch let error as ClaudeRunnerError {
             throw error  // Invocación insegura: no se lanzó nada.
         } catch let error as RemoteRunnerError where error.jobHost != nil {
@@ -492,6 +495,7 @@ public struct FixImplementer: Sendable {
                     "Claude left a symlink or a nested repo (\(special.prefix(3).joined(separator: ", "))). "
                     + "Stopped before committing. Check the worktree \(worktree.path).")
             }
+            onActivity(.prbar(JobStep.committing, runner: draft.runner))
             try await git(worktree, ["commit", "--no-verify", "-m", message], timeout: Self.fixTimeout)
             let sha = try await head(worktree)
             guard sha != headBefore, try await isAncestor(worktree, start, sha) else {
@@ -548,7 +552,8 @@ public struct FixImplementer: Sendable {
     /// symlinks/gitlinks nuevos, los "resolve by hand" intactos, nada en conflicto y sin marcadores nuevos (C.9.4).
     /// Cualquier falla lanza: no hay commit parcial (C.9.7).
     public func resolveConflicts(draft: RespondDraft,
-                                 onProgress: @escaping @MainActor @Sendable (Int, Int) -> Void) async throws -> RespondResult {
+                                 onProgress: @escaping @MainActor @Sendable (Int, Int) -> Void,
+                                 onActivity: @escaping JobActivitySink = { _ in }) async throws -> RespondResult {
         guard let context = draft.conflicts, let item = draft.items.first else {
             throw PRBarError.respond("This run has no conflicts to resolve. Start Resolve Conflicts again.")
         }
@@ -571,9 +576,10 @@ public struct FixImplementer: Sendable {
         } else {
             let capture = ClaudeSessionCapture()
             resolved = try await resolveWithClaude(item, draft: draft, context: context, worktree: worktree, guarded: guarded,
-                                                   capture: capture)
+                                                   capture: capture, onActivity: onActivity)
             resolved.session = capture.stamp
         }
+        onActivity(.prbar(JobStep.committingMerge, runner: draft.runner))
         let sha = try await commitMerge(worktree, draft: draft, context: context)
         let result = ItemResult(id: item.id, status: .committed, commit: sha, summary: resolved.summary, session: resolved.session,
                                 conflictFiles: resolved.conflictFiles)
@@ -583,7 +589,8 @@ public struct FixImplementer: Sendable {
     }
 
     private func resolveWithClaude(_ item: RespondItem, draft: RespondDraft, context: ConflictsContext, worktree: URL,
-                                   guarded: GitPaths, capture: ClaudeSessionCapture) async throws -> ItemResult {
+                                   guarded: GitPaths, capture: ClaudeSessionCapture,
+                                   onActivity: @escaping JobActivitySink) async throws -> ItemResult {
         try await checkConfigOrigins(worktree)
         let indexBefore = try await git(worktree, ["ls-files", "-s", "-z"])
         // Lo que git no trackea y ya estaba antes de Claude (lo deja un merge, p. ej. `<ruta>~<rama>`): `add -A` lo
@@ -600,7 +607,8 @@ public struct FixImplementer: Sendable {
             logHeader: "=== conflicts ===", onSession: { capture.record($0) })
         let output: ConflictsOutput
         do {
-            output = try await claude.run(invocation, as: ConflictsOutput.self, onAgent: { _ in })
+            output = try await claude.run(invocation, as: ConflictsOutput.self,
+                                          onEvent: ClaudeActivityText.sink(ClaudeActivityText.Folders(working: worktree), to: onActivity))
         } catch let error as ClaudeRunnerError {
             throw error
         } catch let error as RemoteRunnerError where error.jobHost != nil {
@@ -639,6 +647,7 @@ public struct FixImplementer: Sendable {
             throw PRBarError.respond("Claude changed files it had to leave for you to resolve by hand (\(CILogs.nameList(touched))). "
                 + "Stopped before committing: Resolve Conflicts again.")
         }
+        onActivity(.prbar(JobStep.checkingConflictMarkers, runner: draft.runner))
         let leftover = try await leftoverMarkers(worktree, start: draft.startHeadOid, context: context)
         guard leftover.isEmpty else {
             throw PRBarError.respond("Claude left conflict markers in \(CILogs.nameList(leftover)). Stopped before committing: "
@@ -1115,9 +1124,11 @@ public struct FixImplementer: Sendable {
     /// comments)`). Every committed item points to it. Atomic: the commit is made apart (`commit-tree` of HEAD's tree
     /// on `start`, no hooks run) and HEAD moves to it with compare-and-swap (`update-ref`), so a failure leaves HEAD on
     /// the last fix and the tree clean.
-    private func squash(_ results: [ItemResult], draft: RespondDraft, worktree: URL, start: String) async throws -> [ItemResult] {
+    private func squash(_ results: [ItemResult], draft: RespondDraft, worktree: URL, start: String,
+                        onActivity: @escaping JobActivitySink) async throws -> [ItemResult] {
         let committed = results.filter { $0.status == .committed }.count
         guard committed > 0 else { return results }
+        onActivity(.prbar(JobStep.committing, runner: draft.runner))
         let template = settings.respond.effectiveCommitTemplate ?? RespondOptions.defaultCommitMessageTemplate
         let rendered = PlaceholderTemplate.render(template, values: FixTemplates.values(draft: draft, item: nil, count: committed))
         let message = Self.commitMessage(rendered, reviewer: "\(committed) comments")
