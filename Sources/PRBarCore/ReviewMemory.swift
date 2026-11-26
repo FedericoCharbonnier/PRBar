@@ -223,3 +223,81 @@ public enum ReviewMemoryFile {
         }
     }
 }
+
+/// One element of stage 1's `previous` (spec RM.4).
+public struct PreviousVerdict: Codable, Equatable, Sendable {
+    public let id: String
+    public let status: PreviousStatus
+    public let note: String
+
+    public init(id: String, status: PreviousStatus, note: String) {
+        self.id = id
+        self.status = status
+        self.note = note
+    }
+}
+
+/// What the draft keeps of each previous comment (spec RM.4): where it came from, what was posted, its thread on GitHub
+/// and what Claude said.
+public struct PreviousCommentStatus: Codable, Equatable, Sendable, Identifiable {
+    /// `P1`, `P2`…
+    public let id: String
+    /// The History record and the finding it was posted from.
+    public let recordID: UUID
+    public let findingID: String
+    public let file: String
+    public let line: Int?
+    /// The posted text.
+    public let text: String
+    public let github: GitHubThreadState
+    public let outdated: Bool
+    public let status: PreviousStatus
+    /// Claude's short note, in the PR's language (it goes into the general comment).
+    public let note: String
+
+    public init(id: String, recordID: UUID, findingID: String, file: String, line: Int?, text: String, github: GitHubThreadState,
+                outdated: Bool, status: PreviousStatus, note: String) {
+        self.id = id
+        self.recordID = recordID
+        self.findingID = findingID
+        self.file = file
+        self.line = line
+        self.text = text
+        self.github = github
+        self.outdated = outdated
+        self.status = status
+        self.note = note
+    }
+
+    public init(comment: PreviousComment, status: PreviousStatus, note: String) {
+        self.init(id: comment.id, recordID: comment.recordID, findingID: comment.findingID, file: comment.file, line: comment.line,
+                  text: comment.text, github: comment.github, outdated: comment.outdated, status: status, note: note)
+    }
+
+    public var location: String { line.map { "\(file):\($0)" } ?? file }
+}
+
+/// Spec RM.4: ids that don't exist are dropped, missing ones are `unclear` ("Claude didn't say"); both are logged.
+public enum PreviousCommentValidation {
+    public static let missingNote = "Claude didn’t say."
+
+    public static func apply(_ verdicts: [PreviousVerdict], to comments: [PreviousComment],
+                             redact: (String) -> String = { $0 }) -> [PreviousCommentStatus] {
+        let known = Set(comments.map(\.id))
+        let unknown = verdicts.map(\.id).filter { !known.contains($0) }
+        if !unknown.isEmpty {
+            AppLog.write("Review memory: Claude answered about previous comments that don’t exist (\(unknown.joined(separator: ", "))); ignored.")
+        }
+        let byID = Dictionary(verdicts.filter { known.contains($0.id) }.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let missing = comments.map(\.id).filter { byID[$0] == nil }
+        if !missing.isEmpty {
+            AppLog.write("Review memory: Claude didn’t say about \(missing.joined(separator: ", ")); marked unclear.")
+        }
+        return comments.map { comment in
+            guard let verdict = byID[comment.id] else {
+                return PreviousCommentStatus(comment: comment, status: .unclear, note: missingNote)
+            }
+            return PreviousCommentStatus(comment: comment, status: verdict.status, note: redact(verdict.note))
+        }
+    }
+}

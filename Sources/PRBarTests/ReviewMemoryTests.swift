@@ -143,5 +143,19 @@ enum ReviewMemoryTests {
             try expect(!long.contains(String(repeating: "x", count: ReviewMemoryFile.maxRepliesLength + 1)), "no se cortó")
             try expect(long.contains("no local checkout"), long)
         },
+        TestCase("memoria: validación de previous: ids desconocidos fuera, faltantes unclear, el primero gana") {
+            let memory = sampleMemory()
+            let statuses = PreviousCommentValidation.apply([
+                PreviousVerdict(id: "P2", status: .notFixed, note: "Sigue."),
+                PreviousVerdict(id: "P9", status: .fixed, note: "?"),
+                PreviousVerdict(id: "P2", status: .fixed, note: "dup"),
+            ], to: memory.comments)
+            try expectEqual(statuses.map(\.id), ["P1", "P2"])
+            try expectEqual(statuses.map(\.status), [.unclear, .notFixed])
+            try expectEqual(statuses.map(\.note), [PreviousCommentValidation.missingNote, "Sigue."])
+            try expectEqual(statuses[1].location, "b.swift:9")
+            try expectEqual(statuses[1].github, .unknown)
+            try expectEqual(statuses[0].recordID, memory.reviews[0].recordID)
+        },
     ]
 }
