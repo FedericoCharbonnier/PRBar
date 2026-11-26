@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import PRBarCore
 
@@ -53,6 +54,71 @@ enum LiveProgressTests {
             try expectEqual(RespondPhase.pushing.stepTitle(mode: .feedback, runningTests: false), "Pushing")
             try expectEqual(RespondPhase.queued.stepTitle(mode: .feedback, runningTests: true), "Testing")
             try expectEqual(RespondPhase.failed("x", logURL: nil).stepTitle(mode: .feedback, runningTests: false), nil)
+        },
+        TestCase("progreso throttle: un cambio cada 0,5 s, el último gana; un paso de PRBar sale en el acto") {
+            func claude(_ text: String) -> JobActivity { JobActivity(kind: .claude, text: text, startedAt: progressT0) }
+            func prbar(_ text: String) -> JobActivity { JobActivity(kind: .prbar, text: text, startedAt: progressT0) }
+            func at(_ seconds: TimeInterval) -> Date { progressT0.addingTimeInterval(seconds) }
+            var throttle = ActivityThrottle()
+            try expectEqual(throttle.offer(claude("A"), now: at(0)), .show(claude("A")))
+            try expectEqual(throttle.offer(claude("B"), now: at(0.1)), .hold(until: at(0.5)))
+            try expectEqual(throttle.offer(claude("C"), now: at(0.2)), .hold(until: at(0.5)))
+            try expectEqual(throttle.due(now: at(0.4)), nil)
+            try expectEqual(throttle.due(now: at(0.5)), claude("C"))   // B never showed: the last one wins
+            try expectEqual(throttle.due(now: at(0.6)), nil)
+            // A PRBar step doesn't wait, and drops the Claude step that was waiting.
+            try expectEqual(throttle.offer(claude("D"), now: at(0.7)), .hold(until: at(1.0)))
+            try expectEqual(throttle.offer(prbar("Committing…"), now: at(0.75)), .show(prbar("Committing…")))
+            try expectEqual(throttle.due(now: at(2)), nil)
+            try expectEqual(throttle.offer(prbar("Pushing…"), now: at(0.76)), .show(prbar("Pushing…")))
+            // The same step as the one shown: ignored, it keeps its startedAt.
+            try expectEqual(throttle.offer(JobActivity(kind: .prbar, text: "Pushing…", startedAt: at(0.8)), now: at(0.8)), .ignore)
+            try expectEqual(throttle.shown?.startedAt, progressT0)
+            // …and it drops a newer step that was waiting (that one is older news than what's shown again).
+            try expectEqual(throttle.offer(claude("E"), now: at(3.0)), .show(claude("E")))
+            try expectEqual(throttle.offer(claude("F"), now: at(3.1)), .hold(until: at(3.5)))
+            try expectEqual(throttle.offer(claude("E"), now: at(3.2)), .ignore)
+            try expectEqual(throttle.due(now: at(4)), nil)
+            try expectEqual(throttle.shown?.text, "E")
+        },
+        TestCase("progreso feed: el sink entrega en orden desde cualquier hilo; clear borra e ignora al sink viejo") { @MainActor in
+            let feed = JobActivityFeed(interval: 0.05)
+            let sink = feed.sink(prID: "o/r#1")
+            await Task.detached {
+                sink(.prbar("Reading the PR on GitHub…"))
+                sink(.prbar("Creating the worktree…"))
+                sink(.claude("Reading a.swift"))
+                sink(.claude("Reading b.swift"))
+                sink(.claude("Reading c.swift"))
+            }.value
+            try await waitUntil { feed.current["o/r#1"]?.text == "Reading c.swift" }
+            try expectEqual(feed.current["o/r#2"], nil)
+            feed.clear(prID: "o/r#1")
+            try expectEqual(feed.current["o/r#1"], nil)
+            sink(.prbar("Pushing…"))   // the old run, late
+            try await Task.sleep(for: .milliseconds(150))
+            try expectEqual(feed.current["o/r#1"], nil)
+            let next = feed.sink(prID: "o/r#1")
+            next(.prbar("Reading the PR on GitHub…"))
+            try await waitUntil { feed.current["o/r#1"]?.text == "Reading the PR on GitHub…" }
+            feed.clearAll()
+            try expectEqual(feed.current, [:])
+        },
+        TestCase("progreso feed: un paso de PRBar se publica aunque llegue otro de Claude enseguida") { @MainActor in
+            let feed = JobActivityFeed(interval: 0.2)
+            var seen: [String] = []
+            let observation = feed.$current.sink { seen.append($0["o/r#1"]?.text ?? "-") }
+            defer { observation.cancel() }
+            let sink = feed.sink(prID: "o/r#1")
+            sink(.claude("Reading a.swift"))
+            sink(.prbar("Committing…"))
+            sink(.claude("Reading b.swift"))
+            try await waitUntil { feed.current["o/r#1"]?.text == "Reading b.swift" }
+            try expectEqual(seen, ["-", "Reading a.swift", "Committing…", "Reading b.swift"])
+            // The job ends right after a PRBar step: it's still published once, and then cleared.
+            sink(.prbar("Pushing…"))
+            feed.clear(prID: "o/r#1")
+            try expectEqual(Array(seen.suffix(2)), ["Pushing…", "-"])
         },
     ]
 }
