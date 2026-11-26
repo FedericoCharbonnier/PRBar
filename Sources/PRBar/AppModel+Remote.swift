@@ -65,17 +65,32 @@ extension AppModel {
             reviews.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
             respond.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
             merges.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
-            // El paso de cada trabajo (spec LP.5): vive en un feed aparte de las fases.
-            reviews.activityFeed.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
-            respond.activityFeed.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
         ]
         remoteObservers.append(Publishers.MergeMany(changes).sink { [weak service] in service?.stateChanged() })
+        // El paso de cada trabajo (spec LP.5) cambia hasta dos veces por segundo y no está en `home`: solo recalcula los
+        // `pr:<id>` suscritos de los PRs cuyo paso cambió (agrupado en el servicio).
+        for feed in [reviews.activityFeed, respond.activityFeed] {
+            remoteObservers.append(Self.changedPRs(feed).sink { [weak service] ids in service?.stepsChanged(prIDs: ids) })
+        }
         // Lo que ve Settings › iPhone.
         remoteObservers.append(service.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() })
         // Las notificaciones de la Mac también van a los iPhones.
         notifications?.onDeliver = { [weak self] planned in self?.pushToPhones(planned) }
         remoteSystem = RemoteSystemObservers(service: service)
         service.start()
+    }
+
+    /// Los PRs cuyo paso cambió en cada publicación del feed.
+    private static func changedPRs(_ feed: JobActivityFeed) -> AnyPublisher<Set<String>, Never> {
+        feed.$current
+            .scan(([String: JobActivity](), Set<String>())) { previous, current in
+                let before = previous.0
+                let ids = Set(before.keys).union(current.keys).filter { before[$0] != current[$0] }
+                return (current, ids)
+            }
+            .map(\.1)
+            .filter { !$0.isEmpty }
+            .eraseToAnyPublisher()
     }
 
     func stopRemoteAccess() {

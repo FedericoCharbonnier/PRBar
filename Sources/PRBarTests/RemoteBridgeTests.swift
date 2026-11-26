@@ -68,7 +68,7 @@ struct ServiceHarness {
                 config.pongTimeout = .milliseconds(500)
             },
             keepAwake: keepAwake, connectBackoff: { _ in .milliseconds(50) }, mailboxInterval: .seconds(3600),
-            feedDebounce: .milliseconds(50), activityInterval: .milliseconds(200))
+            feedDebounce: .milliseconds(50), activityInterval: .milliseconds(200), stepDebounce: .milliseconds(100))
         let service = RemoteAccessService(settings: settings, environment: env)
         let actions = FakeActions()
         service.actions = actions
@@ -139,6 +139,9 @@ enum RemoteBridgeTests {
         TestCase("remote pairing: los nombres de la Mac y del teléfono llegan sin bidi ni escapes (L5)") { try await pairingNames() },
         TestCase("remote feed: home al suscribirse, rev nuevo al cambiar la app, nada si no cambió; pr:<id> y activity") {
             try await feed()
+        },
+        TestCase("remote feed: un cambio de paso solo recalcula los pr:<id> suscritos de esos PRs, nunca home") {
+            try await feedSteps()
         },
         TestCase("remote mailbox: un home por dispositivo, abrible por cada uno; sin cambios nada; apagado vacía el slot") {
             try await mailbox()
@@ -486,6 +489,43 @@ enum RemoteBridgeTests {
             try expectEqual(RemoteTopic(bad), nil)
         }
         try expectEqual(RemoteTopic.parse((1...30).map { "pr:acme/api#\($0)" }).count, 20)
+    }
+
+    @MainActor
+    static func feedSteps() async throws {
+        let h = try await ServiceHarness.make()
+        let client = try await h.pair()
+        let states = client.states
+        try await client.subscribe(["home", "pr:acme/api#1"])
+        _ = try await within(5) { () -> Set<String> in
+            var seen: Set<String> = []
+            for await update in states {
+                seen.insert(update.topic)
+                if seen.count == 2 { return seen }
+            }
+            throw TestFailure(description: "fin")
+        }
+        h.actions.calls = []
+        // Un PR que ningún teléfono mira: no se calcula nada.
+        h.service.stepsChanged(prIDs: ["acme/api#2"])
+        try await Task.sleep(for: .milliseconds(400))
+        try expectEqual(h.actions.calls, [])
+        // Varios cambios seguidos: un solo recálculo, solo del pr:<id> suscrito.
+        h.actions.reviewActivity = JobActivity(kind: .claude, text: "Reading src/a.swift",
+                                               startedAt: Date(timeIntervalSince1970: 1_000))
+        h.service.stepsChanged(prIDs: ["acme/api#1", "acme/api#2"])
+        h.service.stepsChanged(prIDs: ["acme/api#1"])
+        let update = try await within(5) { () -> RemoteStateUpdate in
+            for await update in states { return update }
+            throw TestFailure(description: "fin")
+        }
+        try expectEqual(update.topic, "pr:acme/api#1")
+        let detail: RemotePRDetail = try update.data.decode()
+        try expectEqual(detail.review?.activity?.text, "Reading src/a.swift")
+        try await Task.sleep(for: .milliseconds(300))
+        try expect(!h.actions.calls.contains("status"), "home no se recalcula: \(h.actions.calls)")
+        try expectEqual(h.actions.calls.filter { $0 == "reviewShow acme/api#1" }.count, 1)
+        try expect(!h.actions.calls.contains { $0.contains("acme/api#2") })
     }
 
     @MainActor
